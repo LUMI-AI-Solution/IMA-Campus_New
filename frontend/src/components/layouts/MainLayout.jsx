@@ -96,7 +96,7 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
         </div>
       )}
 
-      <div className="flex w-full h-full sm:w-[98%] sm:h-[96vh] bg-black/20 backdrop-blur-2xl border border-white/10 sm:rounded-[20px] shadow-[0_8px_32px_0_rgba(0,0,0,0.7)] overflow-hidden relative z-10 transition-colors duration-500">
+      <div className="flex w-full h-full sm:w-[98%] sm:h-[96vh] bg-[#0B101E]/90 sm:bg-black/40 backdrop-blur-md sm:backdrop-blur-2xl border border-white/10 sm:rounded-[20px] shadow-[0_8px_32px_0_rgba(0,0,0,0.7)] overflow-hidden relative z-10 transition-colors duration-500">
         <Sidebar 
           isSidebarOpen={isSidebarOpen} 
           setIsSidebarOpen={setIsSidebarOpen}

@@ -764,9 +764,22 @@ exports.sendMessage = async (req, res) => {
             }
         });
 
+        let safeMessage = 'Sent Media';
+        if (message) {
+            // Array.from එකෙන් emojis/special characters හරියටම තනි අකුරක් විදිහට ගන්නවා
+            const chars = Array.from(message);
+            safeMessage = chars.length > 30 ? chars.slice(0, 30).join('') + '...' : message;
+            // අහම්බෙන් හරි ඉතුරු වෙන Invalid hex characters තියෙනවනම් අයින් කරනවා
+            safeMessage = safeMessage.replace(/\\x[0-9A-Fa-f]?/g, ''); 
+        }
+
         await prisma.lead.update({
             where: { id: parseInt(leadId) },
-            data: { lastMessage: message ? message.substring(0,30) : 'Sent Media', status: 'OPEN', updatedAt: new Date() }
+            data: { 
+                lastMessage: safeMessage, 
+                status: 'OPEN', 
+                updatedAt: new Date() 
+            }
         });
 
         try {

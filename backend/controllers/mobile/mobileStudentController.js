@@ -486,3 +486,12 @@ exports.ytRedirect = (req, res) => {
     
     res.send(html);
 };
+
+exports.getActiveAppEvent = async (req, res) => {
+    try {
+        const setting = await prisma.appSetting.findUnique({ where: { key: 'ACTIVE_ANIMATION' } });
+        res.status(200).json({ activeEvent: setting ? setting.value : 'none' });
+    } catch (error) {
+        res.status(500).json({ error: "Failed" });
+    }
+};

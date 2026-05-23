@@ -1,10 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
-const admin = require("firebase-admin"); // Firebase load කරලා නැත්නම් උඩින් දාගන්න
+const admin = require("firebase-admin"); 
 
-// ================= DELIVERY POS ACTIONS =================
-
-// 1. Pending & Hold Deliveries ගන්න (Business & Payment Type අනුව)
 // ================= DELIVERY POS ACTIONS =================
 
 // 1. Pending & Hold Deliveries ගන්න (Monthly/Full වලට හරියටම Covers & Names එන්න හැදුවා)
@@ -34,7 +31,11 @@ exports.getPendingDeliveries = async (req, res) => {
             const std = d.payment?.student || {};
             const addressParts = [std.addressHouseNo, std.addressStreet, std.city, std.district].filter(Boolean);
             const finalAddress = addressParts.length > 0 ? addressParts.join(', ') : 'No Address Provided';
-            const finalPhone = std.phone || std.whatsapp || std.optionalPhone || 'No Phone';
+            
+            // 🔥 FIX: ළමයාගේ තියෙන ඔක්කොම වෙනස් Phone Numbers එකතු කරලා Sticker එකට යවනවා
+            const phoneParts = [std.phone, std.whatsapp, std.optionalPhone].filter(Boolean);
+            const finalPhone = [...new Set(phoneParts)].join(' / ') || 'No Phone';
+            
             const finalName = std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown Student';
 
             const itemsWithDetails = d.items.map(item => {
@@ -47,7 +48,6 @@ exports.getPendingDeliveries = async (req, res) => {
                 if (course && course.groupPrices) {
                     try {
                         const gpArr = JSON.parse(course.groupPrices);
-                        // 🔥 FIX: ළමයා ගෙවපු Group ID එකෙන්ම හරියටම Tute එක හොයාගන්නවා
                         let matchedGp;
                         if (d.payment?.groupId) {
                             matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(d.payment.groupId));
@@ -57,14 +57,14 @@ exports.getPendingDeliveries = async (req, res) => {
                         if (matchedGp) {
                             if (matchedGp.lecturerImage) lecturerImage = matchedGp.lecturerImage;
                             if (matchedGp.tuteCover) tuteCover = matchedGp.tuteCover;
-                            if (matchedGp.tuteName) actualTuteName = matchedGp.tuteName; // නියම Tute නම (e.g. Lesson 01)
+                            if (matchedGp.tuteName) actualTuteName = matchedGp.tuteName; 
                         }
                     } catch (e) {}
                 }
 
                 return {
                     ...item,
-                    tuteName: actualTuteName, // Front end එකට නියම නම යවනවා
+                    tuteName: actualTuteName, 
                     courseName: course?.name || 'Subject',
                     lecturerName,
                     lecturerImage,
@@ -77,7 +77,7 @@ exports.getPendingDeliveries = async (req, res) => {
                 studentName: finalName,
                 studentNo: std.id ? `STU-${std.id}` : 'STU-000',
                 address: finalAddress,
-                phone: finalPhone,
+                phone: finalPhone, // 🔥 Updated Multiple Phones
                 batchName: d.payment?.batch?.name || 'Batch Not Assigned', 
                 items: itemsWithDetails
             };
@@ -90,7 +90,7 @@ exports.getPendingDeliveries = async (req, res) => {
     }
 };
 
-// 2. Barcode එක Scan කරාම Pack කරලා Stock එකෙන් අඩු කරන එක (හරියටම Monthly/Full අඳුරගෙන අඩු වෙන්න හැදුවා)
+// 2. Auto Stock Deduction AT PACKING
 exports.packDelivery = async (req, res) => {
     try {
         const { deliveryId, trackingNumber } = req.body;
@@ -98,7 +98,11 @@ exports.packDelivery = async (req, res) => {
         await prisma.$transaction(async (tx) => {
             const updatedDelivery = await tx.delivery.update({
                 where: { id: parseInt(deliveryId) },
-                data: { status: 'Packed', trackingNumber: trackingNumber, packedAt: new Date() },
+                data: { 
+                    status: 'Packed', 
+                    trackingNumber: trackingNumber,
+                    packedAt: new Date()
+                },
                 include: { items: true, payment: true }
             });
 
@@ -106,7 +110,6 @@ exports.packDelivery = async (req, res) => {
                 const course = await tx.course.findUnique({ where: { id: item.courseId } });
                 let actualTuteName = item.tuteName;
 
-                // 🔥 FIX: Payment Group ID එකෙන් නියම Tute නම හොයනවා Stock එකෙන් අඩු කරන්න කලින්
                 if (course && course.groupPrices && updatedDelivery.payment?.groupId) {
                     try {
                         const gp = JSON.parse(course.groupPrices);
@@ -117,72 +120,15 @@ exports.packDelivery = async (req, res) => {
                     } catch(e) {}
                 }
 
-                // 1. හරියටම නමෙන් හොයනවා
                 let stockItem = await tx.tuteStock.findFirst({
                     where: { courseId: parseInt(item.courseId), tuteName: actualTuteName }
                 });
 
-                // 2. නමෙන් හම්බුනේ නැත්නම් Course ID එකෙන් විතරක් තියෙන එකම Stock එක ගන්නවා (Fallback)
                 if (!stockItem) {
                     stockItem = await tx.tuteStock.findFirst({
                         where: { courseId: parseInt(item.courseId) }
                     });
                 }
-
-                if (stockItem) {
-                    const newQty = stockItem.availableQuantity - parseInt(item.quantity);
-                    await tx.tuteStock.update({
-                        where: { id: stockItem.id },
-                        data: { availableQuantity: newQty }
-                    });
-
-                    await tx.tuteStockHistory.create({
-                        data: {
-                            stockId: stockItem.id, courseId: stockItem.courseId, tuteName: stockItem.tuteName,
-                            action: "REDUCED", oldQuantity: stockItem.availableQuantity, 
-                            newQuantity: newQty, reason: `Order ORD-${updatedDelivery.id} Packed`
-                        }
-                    });
-                } else {
-                    console.log(`⚠️ Stock Item Not Found for CourseID: ${item.courseId}, Tute: ${actualTuteName}`);
-                }
-            }
-        });
-
-        res.status(200).json({ message: "Packed and Stock Deducted Successfully!" });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to pack delivery" });
-    }
-};
-
-// 2. Barcode එක Scan කරාම Pack කරලා Stock එකෙන් අඩු කරන එක
-// ================= AUTO STOCK DEDUCTION AT PACKING =================
-exports.packDelivery = async (req, res) => {
-    try {
-        const { deliveryId, trackingNumber } = req.body;
-
-        await prisma.$transaction(async (tx) => {
-            // 1. Delivery එක Packed කියලා Update කරනවා
-            const updatedDelivery = await tx.delivery.update({
-                where: { id: parseInt(deliveryId) },
-                data: { 
-                    status: 'Packed', 
-                    trackingNumber: trackingNumber,
-                    packedAt: new Date()
-                },
-                include: { items: true }
-            });
-
-            // 2. අදාල Tutes වල Stock එක Auto අඩු කරනවා
-            for (const item of updatedDelivery.items) {
-                // 🔥 FIX: parseInt දාලා හරියටම Types match කරලා stockItem එක හොයනවා
-                const stockItem = await tx.tuteStock.findFirst({
-                    where: { 
-                        courseId: parseInt(item.courseId), 
-                        tuteName: item.tuteName 
-                    }
-                });
 
                 if (stockItem) {
                     const newQty = stockItem.availableQuantity - parseInt(item.quantity);
@@ -192,7 +138,6 @@ exports.packDelivery = async (req, res) => {
                         data: { availableQuantity: newQty }
                     });
 
-                    // History එකටත් රෙකෝඩ් එකක් දානවා Auto අඩු වුණා කියලා
                     await tx.tuteStockHistory.create({
                         data: {
                             stockId: stockItem.id, 
@@ -201,11 +146,11 @@ exports.packDelivery = async (req, res) => {
                             action: "REDUCED", 
                             oldQuantity: stockItem.availableQuantity, 
                             newQuantity: newQty, 
-                            reason: `Auto-deducted for Order ORD-${updatedDelivery.id}`
+                            reason: `Order ORD-${updatedDelivery.id} Packed`
                         }
                     });
                 } else {
-                    console.log(`⚠️ Stock Item Not Found for CourseID: ${item.courseId}, Tute: ${item.tuteName}`);
+                    console.log(`⚠️ Stock Item Not Found for CourseID: ${item.courseId}, Tute: ${actualTuteName}`);
                 }
             }
         });
@@ -241,170 +186,6 @@ exports.getTuteStocks = async (req, res) => {
         res.status(200).json(stocks);
     } catch (error) {
         res.status(500).json({ error: "Failed to fetch stock" });
-    }
-};
-
-exports.addTuteStock = async (req, res) => {
-    try {
-        const { stockId, quantity } = req.body;
-        const updated = await prisma.tuteStock.update({
-            where: { id: parseInt(stockId) },
-            data: { availableQuantity: { increment: parseInt(quantity) } }
-        });
-        res.status(200).json(updated);
-    } catch (error) {
-        res.status(500).json({ error: "Failed to update stock" });
-    }
-};
-
-// ================= AUTO CRON JOB (10 HOURS RULE) =================
-const cron = require('node-cron');
-
-cron.schedule('0 * * * *', async () => {
-    try {
-        const tenHoursAgo = new Date(Date.now() - 10 * 60 * 60 * 1000);
-
-        await prisma.delivery.updateMany({
-            where: { 
-                status: 'Packed',
-                packedAt: { lte: tenHoursAgo } 
-            },
-            data: { 
-                status: 'On the way',
-                onTheWayAt: new Date()
-            }
-        });
-        console.log("🚚 Auto Delivery Status Updated (Packed -> On the way)");
-    } catch (error) {
-        console.error("Cron Job Error:", error);
-    }
-});
-
-//.....................STUDENT TRACKING..............
-
-exports.getMyDeliveries = async (req, res) => {
-    try {
-        const studentId = req.user.id; 
-
-        const deliveries = await prisma.delivery.findMany({
-            where: { studentId: studentId },
-            include: { items: true },
-            orderBy: { createdAt: 'desc' }
-        });
-
-        res.status(200).json(deliveries);
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to fetch deliveries." });
-    }
-};
-
-exports.confirmDelivery = async (req, res) => {
-    try {
-        const { deliveryId, status } = req.body;
-        const studentId = req.user.id;
-
-        const existingDelivery = await prisma.delivery.findFirst({
-            where: { id: parseInt(deliveryId), studentId: studentId }
-        });
-
-        if (!existingDelivery || existingDelivery.status !== 'On the way') {
-            return res.status(400).json({ error: "Invalid request or delivery is not 'On the way'." });
-        }
-
-        const updatedDelivery = await prisma.delivery.update({
-            where: { id: parseInt(deliveryId) },
-            data: { 
-                status: status, 
-                resolvedAt: new Date()
-            }
-        });
-
-        res.status(200).json({ message: `Delivery marked as ${status}`, data: updatedDelivery });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to update delivery status." });
-    }
-};
-
-// ================= TUTE STOCK MANAGEMENT (POS STYLE) =================
-
-exports.getBatchStock = async (req, res) => {
-    try {
-        const batchId = parseInt(req.params.batchId);
-        
-        const groups = await prisma.group.findMany({
-            where: { batchId },
-            include: { courses: true }
-        });
-
-        let allCourseIds = [];
-        let requiredTutes = [];
-
-        groups.forEach(g => {
-            g.courses.forEach(c => {
-                allCourseIds.push(c.id);
-
-                let gpPrices = [];
-                try { gpPrices = typeof c.groupPrices === 'string' ? JSON.parse(c.groupPrices) : (c.groupPrices || []); } catch(e){}
-
-                const gpData = gpPrices.find(p => parseInt(p.groupId) === g.id);
-
-                let tName = c.name + " - Tute";
-                let tCover = 'default-tute.png';
-
-                if (gpData) {
-                    if (gpData.tuteName && gpData.tuteName.trim() !== '') tName = gpData.tuteName;
-                    if (gpData.tuteCover) tCover = gpData.tuteCover;
-                }
-
-                requiredTutes.push({
-                    courseId: c.id,
-                    tuteName: tName,
-                    tuteImage: tCover
-                });
-            });
-        });
-
-        if (requiredTutes.length > 0) {
-            for (const rt of requiredTutes) {
-                const exists = await prisma.tuteStock.findFirst({
-                    where: { courseId: rt.courseId, tuteName: rt.tuteName }
-                });
-
-                if (!exists) {
-                    await prisma.tuteStock.create({
-                        data: {
-                            courseId: rt.courseId,
-                            tuteName: rt.tuteName,
-                            tuteImage: rt.tuteImage,
-                            availableQuantity: 0
-                        }
-                    });
-                }
-            }
-        }
-
-        if (allCourseIds.length === 0) {
-            return res.status(200).json([]);
-        }
-
-        const allStocks = await prisma.tuteStock.findMany({
-            where: { courseId: { in: allCourseIds.map(id => Number(id)) } },
-            include: { 
-                course: { 
-                    include: { group: true }
-                } 
-            },
-            orderBy: { updatedAt: 'desc' }
-        });
-
-        const safeJson = (data) => JSON.parse(JSON.stringify(data, (k, v) => typeof v === 'bigint' ? v.toString() : v));
-        res.status(200).json(safeJson(allStocks));
-
-    } catch (error) {
-        console.error("Get Batch Stock Error:", error);
-        res.status(500).json({ error: "Failed to fetch batch stock." });
     }
 };
 
@@ -571,69 +352,111 @@ exports.getGlobalStockHistory = async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Failed to fetch global history" }); }
 };
 
-// 1. Dispatch & Delivered Orders ගන්න API එක
-exports.getDispatchDeliveries = async (req, res) => {
+exports.getBatchStock = async (req, res) => {
     try {
-        const { businessId } = req.query;
+        const batchId = parseInt(req.params.batchId);
         
-        // 🔥 FIX: 'Packed' කියන Status එකත් මෙතනට ඇඩ් කරන්න ඕනේ
-        // කලින් තිබ්බේ: let whereClause = { status: { in: ['On the way', 'Received'] } };
-        let whereClause = {
-            // 🔥 FIX: 'Packed' අයින් කරන්නේ නෑ, මොකද ඒකත් Dispatched විදිහට පේන්න ඕන නිසා
-            status: { notIn: ['Pending', 'Hold'] } 
-        };
-        
-        if (businessId) whereClause.businessId = parseInt(businessId);
+        const groups = await prisma.group.findMany({
+            where: { batchId },
+            include: { courses: true }
+        });
 
-        const deliveries = await prisma.delivery.findMany({
-            where: whereClause,
-            include: {
-                items: true,
-                payment: { 
-                    include: { student: true, batch: true } 
+        let allCourseIds = [];
+        let requiredTutes = [];
+
+        groups.forEach(g => {
+            g.courses.forEach(c => {
+                allCourseIds.push(c.id);
+
+                let gpPrices = [];
+                try { gpPrices = typeof c.groupPrices === 'string' ? JSON.parse(c.groupPrices) : (c.groupPrices || []); } catch(e){}
+
+                const gpData = gpPrices.find(p => parseInt(p.groupId) === g.id);
+
+                let tName = c.name + " - Tute";
+                let tCover = 'default-tute.png';
+
+                if (gpData) {
+                    if (gpData.tuteName && gpData.tuteName.trim() !== '') tName = gpData.tuteName;
+                    if (gpData.tuteCover) tCover = gpData.tuteCover;
                 }
+
+                requiredTutes.push({
+                    courseId: c.id,
+                    tuteName: tName,
+                    tuteImage: tCover
+                });
+            });
+        });
+
+        if (requiredTutes.length > 0) {
+            for (const rt of requiredTutes) {
+                const exists = await prisma.tuteStock.findFirst({
+                    where: { courseId: rt.courseId, tuteName: rt.tuteName }
+                });
+
+                if (!exists) {
+                    await prisma.tuteStock.create({
+                        data: {
+                            courseId: rt.courseId,
+                            tuteName: rt.tuteName,
+                            tuteImage: rt.tuteImage,
+                            availableQuantity: 0
+                        }
+                    });
+                }
+            }
+        }
+
+        if (allCourseIds.length === 0) {
+            return res.status(200).json([]);
+        }
+
+        const allStocks = await prisma.tuteStock.findMany({
+            where: { courseId: { in: allCourseIds.map(id => Number(id)) } },
+            include: { 
+                course: { 
+                    include: { group: true }
+                } 
             },
             orderBy: { updatedAt: 'desc' }
-        })
-
-        const courseIds = [...new Set(deliveries.flatMap(d => d.items.map(i => i.courseId)).filter(Boolean))];
-        const courses = await prisma.course.findMany({
-            where: { id: { in: courseIds.map(id => parseInt(id)) } }
         });
 
-        const formatted = deliveries.map(d => {
-            const std = d.payment?.student || {};
-            const addressParts = [std.addressHouseNo, std.addressStreet, std.city, std.district].filter(Boolean);
-            
-            return {
-                ...d,
-                studentName: std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown Student',
-                address: addressParts.length > 0 ? addressParts.join(', ') : 'No Address Provided',
-                phone: std.phone || std.whatsapp || 'No Phone',
-                batchName: d.payment?.batch?.name || 'Batch Not Assigned',
-                items: d.items.map(item => {
-                    const course = courses.find(c => c.id === item.courseId);
-                    return {
-                        ...item,
-                        courseName: course?.name || 'Subject',
-                        lecturerName: course?.lecturerName || 'Lecturer'
-                    };
-                })
-            };
-        });
+        const safeJson = (data) => JSON.parse(JSON.stringify(data, (k, v) => typeof v === 'bigint' ? v.toString() : v));
+        res.status(200).json(safeJson(allStocks));
 
-        return res.status(200).json(formatted);
     } catch (error) {
-        console.error("Fetch Dispatch Error:", error);
-        res.status(500).json({ error: "Failed to fetch dispatch deliveries" });
+        console.error("Get Batch Stock Error:", error);
+        res.status(500).json({ error: "Failed to fetch batch stock." });
     }
 };
 
-// 2. හැමදාම උදේ 8:00 ට ළමයින්ට Notification යවන Cron Job එක
-// (මේක Server.js එකේ හරි cron jobs run වෙන තැන හරි දාන්න)
+// ================= DISPATCH / HISTORY & CRON JOBS =================
+
+const cron = require('node-cron');
+
+cron.schedule('0 * * * *', async () => {
+    try {
+        const tenHoursAgo = new Date(Date.now() - 10 * 60 * 60 * 1000);
+
+        await prisma.delivery.updateMany({
+            where: { 
+                status: 'Packed',
+                packedAt: { lte: tenHoursAgo } 
+            },
+            data: { 
+                status: 'On the way',
+                onTheWayAt: new Date()
+            }
+        });
+        console.log("🚚 Auto Delivery Status Updated (Packed -> On the way)");
+    } catch (error) {
+        console.error("Cron Job Error:", error);
+    }
+});
+
 cron.schedule('0 8 * * *', async () => {
     try {
-        // Dispatch වෙලා තියෙන (On the way), තාම ළමයා Received නොකරපු Orders ටික ගන්නවා
         const dispatchedOrders = await prisma.delivery.findMany({
             where: { status: 'On the way' },
             include: { payment: { include: { student: true } } }
@@ -664,126 +487,61 @@ cron.schedule('0 8 * * *', async () => {
     }
 });
 
-// ================= DASHBOARD STATS (OVERVIEW) =================
-
-exports.getDeliveryStats = async (req, res) => {
+exports.getDispatchDeliveries = async (req, res) => {
     try {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        const { businessId } = req.query;
+        
+        let whereClause = {
+            status: { notIn: ['Pending', 'Hold'] } 
+        };
+        
+        if (businessId) whereClause.businessId = parseInt(businessId);
 
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(today.getDate() - 6);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
-
-        // 1. Basic Counts (Top Cards සඳහා)
-        const pending = await prisma.delivery.count({ where: { status: 'Pending' } });
-        const onHold = await prisma.delivery.count({ where: { status: 'Hold' } });
-        const dispatched = await prisma.delivery.count({ where: { status: 'On the way' } });
-        const returned = await prisma.delivery.count({ where: { status: 'Returned' } }); // Returned status එකක් තියෙනවා නම්
-        const totalDelivered = await prisma.delivery.count({ where: { status: 'Received' } });
-        const deliveredToday = await prisma.delivery.count({ 
-            where: { 
-                status: 'Received',
-                resolvedAt: { gte: today } 
-            } 
-        });
-        const lowStock = await prisma.tuteStock.count({
-            where: { availableQuantity: { lte: 10 } }
+        const deliveries = await prisma.delivery.findMany({
+            where: whereClause,
+            include: {
+                items: true,
+                payment: { 
+                    include: { student: true, batch: true } 
+                }
+            },
+            orderBy: { updatedAt: 'desc' }
         });
 
-        // 2. Status Distribution Data (Doughnut Chart සඳහා)
-        const statusDistribution = [
-            { name: 'Pending', value: pending, color: '#3b82f6' }, // Blue
-            { name: 'Dispatched', value: dispatched, color: '#8b5cf6' }, // Purple
-            { name: 'Delivered', value: totalDelivered, color: '#10b981' }, // Emerald
-            { name: 'Hold', value: onHold, color: '#f97316' }, // Orange
-        ].filter(s => s.value > 0);
-
-        // 3. Weekly Trend Data (Last 7 Days Area Chart සඳහා)
-        const recentDeliveries = await prisma.delivery.findMany({
-            where: { updatedAt: { gte: sevenDaysAgo } },
-            select: { status: true, updatedAt: true }
+        const courseIds = [...new Set(deliveries.flatMap(d => d.items.map(i => i.courseId)).filter(Boolean))];
+        const courses = await prisma.course.findMany({
+            where: { id: { in: courseIds.map(id => parseInt(id)) } }
         });
 
-        const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const weeklyTrendMap = {};
+        const formatted = deliveries.map(d => {
+            const std = d.payment?.student || {};
+            const addressParts = [std.addressHouseNo, std.addressStreet, std.city, std.district].filter(Boolean);
+            
+            // 🔥 FIX: ළමයාගේ තියෙන ඔක්කොම වෙනස් Phone Numbers එකතු කරලා Sticker එකට යවනවා
+            const phoneParts = [std.phone, std.whatsapp, std.optionalPhone].filter(Boolean);
+            const finalPhone = [...new Set(phoneParts)].join(' / ') || 'No Phone';
 
-        // දින 7ක හිස් Data හැදීම
-        for (let i = 6; i >= 0; i--) {
-            const d = new Date(today);
-            d.setDate(today.getDate() - i);
-            weeklyTrendMap[daysOfWeek[d.getDay()]] = { name: daysOfWeek[d.getDay()], Packed: 0, Delivered: 0 };
-        }
-
-        recentDeliveries.forEach(del => {
-            const dayName = daysOfWeek[new Date(del.updatedAt).getDay()];
-            if (weeklyTrendMap[dayName]) {
-                if (del.status === 'Packed' || del.status === 'On the way') weeklyTrendMap[dayName].Packed += 1;
-                if (del.status === 'Received') weeklyTrendMap[dayName].Delivered += 1;
-            }
-        });
-        const weeklyTrend = Object.values(weeklyTrendMap);
-
-        // 4. Top Businesses Data (Progress Bars සඳහා)
-        const businessCounts = await prisma.delivery.groupBy({
-            by: ['businessId'],
-            _count: { id: true },
-            orderBy: { _count: { id: 'desc' } },
-            take: 3
-        });
-
-        const businesses = await prisma.business.findMany({
-            where: { id: { in: businessCounts.map(b => b.businessId).filter(id => id !== null) } },
-            select: { id: true, name: true }
-        });
-
-        const maxOrders = businessCounts[0]?._count.id || 1;
-        const topBusinesses = businessCounts.map(bc => {
-            const biz = businesses.find(b => b.id === bc.businessId);
             return {
-                name: biz ? biz.name : 'Unknown Business',
-                orders: bc._count.id,
-                progress: Math.round((bc._count.id / maxOrders) * 100)
+                ...d,
+                studentName: std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown Student',
+                address: addressParts.length > 0 ? addressParts.join(', ') : 'No Address Provided',
+                phone: finalPhone, // 🔥 Updated Multiple Phones
+                batchName: d.payment?.batch?.name || 'Batch Not Assigned',
+                items: d.items.map(item => {
+                    const course = courses.find(c => c.id === item.courseId);
+                    return {
+                        ...item,
+                        courseName: course?.name || 'Subject',
+                        lecturerName: course?.lecturerName || 'Lecturer'
+                    };
+                })
             };
         });
 
-        // 5. Recent Activity Feed (පැත්තේ තියෙන Feed එකට)
-        const latestUpdates = await prisma.delivery.findMany({
-            take: 5,
-            orderBy: { updatedAt: 'desc' },
-            select: { id: true, status: true, updatedAt: true }
-        });
-
-        // Time එක ලස්සනට හදන Function එක (e.g. "10 mins ago")
-        const timeSince = (date) => {
-            const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-            if (seconds < 60) return `${seconds} secs ago`;
-            if (seconds < 3600) return `${Math.floor(seconds / 60)} mins ago`;
-            if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
-            return `${Math.floor(seconds / 86400)} days ago`;
-        };
-
-        const recentActivity = latestUpdates.map((update, index) => {
-            let type = 'info';
-            let text = `Order ORD-${update.id} updated to ${update.status}`;
-            
-            if (update.status === 'Received') { type = 'success'; text = `Order ORD-${update.id} delivered successfully`; }
-            else if (update.status === 'Hold') { type = 'error'; text = `Order ORD-${update.id} placed on hold`; }
-            else if (update.status === 'Packed') { type = 'info'; text = `Order ORD-${update.id} packed and ready`; }
-            else if (update.status === 'On the way') { type = 'info'; text = `Order ORD-${update.id} dispatched via courier`; }
-
-            return { id: index + 1, text, time: timeSince(update.updatedAt), type };
-        });
-
-        // අන්තිමට සේරම එකට යවනවා
-        res.status(200).json({ 
-            pending, onHold, dispatched, deliveredToday, lowStock, returned,
-            statusDistribution, weeklyTrend, topBusinesses, recentActivity
-        });
-
+        return res.status(200).json(formatted);
     } catch (error) {
-        console.error("Dashboard Stats Error:", error);
-        res.status(500).json({ error: "Failed to fetch dashboard stats" });
+        console.error("Fetch Dispatch Error:", error);
+        res.status(500).json({ error: "Failed to fetch dispatch deliveries" });
     }
 };
 
@@ -794,28 +552,23 @@ exports.getAdvancedHistory = async (req, res) => {
         
         let whereClause = {};
 
-        // 🔥 Status filter logic
         if (status) {
             if (status === 'Dispatched') whereClause.status = { in: ['Packed', 'On the way'] };
             else if (status === 'Delivered') whereClause.status = 'Received';
-            else whereClause.status = status; // For Pending & Hold
+            else whereClause.status = status; 
         } else {
-            whereClause.status = { notIn: ['Pending', 'Hold'] }; // Default view එකේදී මේවා පෙන්නන්නේ නෑ
+            whereClause.status = { notIn: ['Pending', 'Hold'] }; 
         }
 
-        // Filters
         if (businessId) whereClause.businessId = parseInt(businessId);
         if (paymentType) whereClause.paymentType = paymentType;
         
         if (startDate && endDate) {
-            const start = new Date(startDate);
-            start.setHours(0, 0, 0, 0);
-            const end = new Date(endDate);
-            end.setHours(23, 59, 59, 999);
+            const start = new Date(startDate); start.setHours(0, 0, 0, 0);
+            const end = new Date(endDate); end.setHours(23, 59, 59, 999);
             whereClause.updatedAt = { gte: start, lte: end };
         }
 
-        // Search
         if (search) {
             const searchNum = parseInt(search.replace(/\D/g, ''));
             const orConditions = [
@@ -839,7 +592,7 @@ exports.getAdvancedHistory = async (req, res) => {
         const deliveries = await prisma.delivery.findMany({
             where: whereClause,
             include: {
-                items: true, // 🔥 Frontend එකට Subjects (Tutes) ටික යවන්නේ මේකෙන්
+                items: true, 
                 payment: { include: { student: true, batch: true } }
             },
             orderBy: { updatedAt: 'desc' },
@@ -848,26 +601,28 @@ exports.getAdvancedHistory = async (req, res) => {
         });
 
         const formatted = deliveries.map(d => {
-    const bizName = businesses.find(b => b.id === d.businessId)?.name || 'Unknown';
-    
-    // 🔥 NEW: ළමයාගේ Address එක මෙතනින් හදාගන්නවා
-    const std = d.payment?.student || {};
-    const addressParts = [std.addressHouseNo, std.addressStreet, std.city, std.district].filter(Boolean);
-    const fullAddress = addressParts.length > 0 ? addressParts.join(', ') : 'No Address Provided';
+            const bizName = businesses.find(b => b.id === d.businessId)?.name || 'Unknown';
+            const std = d.payment?.student || {};
+            const addressParts = [std.addressHouseNo, std.addressStreet, std.city, std.district].filter(Boolean);
+            const fullAddress = addressParts.length > 0 ? addressParts.join(', ') : 'No Address Provided';
 
-    return {
-        id: d.id,
-        studentName: std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown',
-        phone: std.phone || std.whatsapp || 'No Phone',
-        address: fullAddress, // 🔥 Address එක frontend එකට යවනවා
-        businessName: bizName,
-        batchName: d.payment?.batch?.name || 'No Batch',
-        paymentType: d.paymentType,
-        status: d.status,
-        trackingNumber: d.trackingNumber,
-        items: d.items
-    };
-});
+            // 🔥 FIX: ළමයාගේ තියෙන ඔක්කොම වෙනස් Phone Numbers එකතු කරලා Sticker එකට යවනවා
+            const phoneParts = [std.phone, std.whatsapp, std.optionalPhone].filter(Boolean);
+            const finalPhone = [...new Set(phoneParts)].join(' / ') || 'No Phone';
+
+            return {
+                id: d.id,
+                studentName: std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown',
+                phone: finalPhone, // 🔥 Updated Multiple Phones
+                address: fullAddress, 
+                businessName: bizName,
+                batchName: d.payment?.batch?.name || 'No Batch',
+                paymentType: d.paymentType,
+                status: d.status,
+                trackingNumber: d.trackingNumber,
+                items: d.items
+            };
+        });
 
         const safeJson = (data) => JSON.parse(JSON.stringify(data, (k, v) => typeof v === 'bigint' ? v.toString() : v));
 
@@ -884,7 +639,6 @@ exports.getAdvancedHistory = async (req, res) => {
     }
 };
 
-// Manual Confirmation API
 exports.manualConfirmDelivery = async (req, res) => {
     try {
         const { deliveryId } = req.params;
@@ -901,12 +655,122 @@ exports.manualConfirmDelivery = async (req, res) => {
     }
 };
 
-// ================= ADVANCED DELIVERY & STOCK REPORT =================
+// ================= DASHBOARD STATS & REPORTS =================
+
+exports.getDeliveryStats = async (req, res) => {
+    try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(today.getDate() - 6);
+        sevenDaysAgo.setHours(0, 0, 0, 0);
+
+        const pending = await prisma.delivery.count({ where: { status: 'Pending' } });
+        const onHold = await prisma.delivery.count({ where: { status: 'Hold' } });
+        const dispatched = await prisma.delivery.count({ where: { status: 'On the way' } });
+        const returned = await prisma.delivery.count({ where: { status: 'Returned' } }); 
+        const totalDelivered = await prisma.delivery.count({ where: { status: 'Received' } });
+        const deliveredToday = await prisma.delivery.count({ 
+            where: { status: 'Received', resolvedAt: { gte: today } } 
+        });
+        const lowStock = await prisma.tuteStock.count({
+            where: { availableQuantity: { lte: 10 } }
+        });
+
+        const statusDistribution = [
+            { name: 'Pending', value: pending, color: '#3b82f6' }, 
+            { name: 'Dispatched', value: dispatched, color: '#8b5cf6' }, 
+            { name: 'Delivered', value: totalDelivered, color: '#10b981' }, 
+            { name: 'Hold', value: onHold, color: '#f97316' }, 
+        ].filter(s => s.value > 0);
+
+        const recentDeliveries = await prisma.delivery.findMany({
+            where: { updatedAt: { gte: sevenDaysAgo } },
+            select: { status: true, updatedAt: true }
+        });
+
+        const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const weeklyTrendMap = {};
+
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date(today);
+            d.setDate(today.getDate() - i);
+            weeklyTrendMap[daysOfWeek[d.getDay()]] = { name: daysOfWeek[d.getDay()], Packed: 0, Delivered: 0 };
+        }
+
+        recentDeliveries.forEach(del => {
+            const dayName = daysOfWeek[new Date(del.updatedAt).getDay()];
+            if (weeklyTrendMap[dayName]) {
+                if (del.status === 'Packed' || del.status === 'On the way') weeklyTrendMap[dayName].Packed += 1;
+                if (del.status === 'Received') weeklyTrendMap[dayName].Delivered += 1;
+            }
+        });
+        const weeklyTrend = Object.values(weeklyTrendMap);
+
+        const businessCounts = await prisma.delivery.groupBy({
+            by: ['businessId'],
+            _count: { id: true },
+            orderBy: { _count: { id: 'desc' } },
+            take: 3
+        });
+
+        const businesses = await prisma.business.findMany({
+            where: { id: { in: businessCounts.map(b => b.businessId).filter(id => id !== null) } },
+            select: { id: true, name: true }
+        });
+
+        const maxOrders = businessCounts[0]?._count.id || 1;
+        const topBusinesses = businessCounts.map(bc => {
+            const biz = businesses.find(b => b.id === bc.businessId);
+            return {
+                name: biz ? biz.name : 'Unknown Business',
+                orders: bc._count.id,
+                progress: Math.round((bc._count.id / maxOrders) * 100)
+            };
+        });
+
+        const latestUpdates = await prisma.delivery.findMany({
+            take: 5,
+            orderBy: { updatedAt: 'desc' },
+            select: { id: true, status: true, updatedAt: true }
+        });
+
+        const timeSince = (date) => {
+            const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+            if (seconds < 60) return `${seconds} secs ago`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)} mins ago`;
+            if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+            return `${Math.floor(seconds / 86400)} days ago`;
+        };
+
+        const recentActivity = latestUpdates.map((update, index) => {
+            let type = 'info';
+            let text = `Order ORD-${update.id} updated to ${update.status}`;
+            
+            if (update.status === 'Received') { type = 'success'; text = `Order ORD-${update.id} delivered successfully`; }
+            else if (update.status === 'Hold') { type = 'error'; text = `Order ORD-${update.id} placed on hold`; }
+            else if (update.status === 'Packed') { type = 'info'; text = `Order ORD-${update.id} packed and ready`; }
+            else if (update.status === 'On the way') { type = 'info'; text = `Order ORD-${update.id} dispatched via courier`; }
+
+            return { id: index + 1, text, time: timeSince(update.updatedAt), type };
+        });
+
+        res.status(200).json({ 
+            pending, onHold, dispatched, deliveredToday, lowStock, returned,
+            statusDistribution, weeklyTrend, topBusinesses, recentActivity
+        });
+
+    } catch (error) {
+        console.error("Dashboard Stats Error:", error);
+        res.status(500).json({ error: "Failed to fetch dashboard stats" });
+    }
+};
+
 exports.getTuteDeliveryReport = async (req, res) => {
     try {
         const { startDate, endDate, businessId, batchId, paymentType } = req.query;
 
-        // 1. Basic Status Filter Only (No deep relations to avoid Prisma crash)
         let whereClause = { status: { in: ['Packed', 'On the way', 'Received'] } };
 
         if (businessId) whereClause.businessId = parseInt(businessId);
@@ -918,23 +782,19 @@ exports.getTuteDeliveryReport = async (req, res) => {
             whereClause.updatedAt = { gte: start, lte: end };
         }
 
-        // 2. Data ටික ගන්නවා (batchId එක මෙතන ෆිල්ටර් කරන්නේ නෑ, JS වලින් කරන්නේ)
         const deliveries = await prisma.delivery.findMany({
-        where: whereClause,
-        include: {
-            items: true,
-            payment: { include: { student: true, batch: true, group: true } } // 🔥 FIX
-        },
-        orderBy: { updatedAt: 'desc' },
-        skip: (parseInt(page) - 1) * parseInt(limit),
-        take: parseInt(limit)
-    });
+            where: whereClause,
+            include: {
+                items: true,
+                payment: { include: { student: true, batch: true, group: true } }
+            },
+            orderBy: { updatedAt: 'desc' }
+        });
 
         const allBusinesses = await prisma.business.findMany({ select: { id: true, name: true } });
         const reportMap = {};
 
         deliveries.forEach(d => {
-            // 🔥 JS Level Batch Filter (Safe way to prevent Prisma 500 error)
             if (batchId && d.payment?.batchId !== parseInt(batchId)) return;
 
             const biz = allBusinesses.find(b => b.id === d.businessId);
@@ -986,5 +846,52 @@ exports.getTuteDeliveryReport = async (req, res) => {
     } catch (error) {
         console.error("Report Generation Error:", error);
         res.status(500).json({ error: "Failed to generate report" });
+    }
+};
+
+// ================= STUDENT SIDE TRACKING =================
+
+exports.getMyDeliveries = async (req, res) => {
+    try {
+        const studentId = req.user.id; 
+
+        const deliveries = await prisma.delivery.findMany({
+            where: { studentId: studentId },
+            include: { items: true },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        res.status(200).json(deliveries);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to fetch deliveries." });
+    }
+};
+
+exports.confirmDelivery = async (req, res) => {
+    try {
+        const { deliveryId, status } = req.body;
+        const studentId = req.user.id;
+
+        const existingDelivery = await prisma.delivery.findFirst({
+            where: { id: parseInt(deliveryId), studentId: studentId }
+        });
+
+        if (!existingDelivery || existingDelivery.status !== 'On the way') {
+            return res.status(400).json({ error: "Invalid request or delivery is not 'On the way'." });
+        }
+
+        const updatedDelivery = await prisma.delivery.update({
+            where: { id: parseInt(deliveryId) },
+            data: { 
+                status: status, 
+                resolvedAt: new Date()
+            }
+        });
+
+        res.status(200).json({ message: `Delivery marked as ${status}`, data: updatedDelivery });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to update delivery status." });
     }
 };

@@ -31,10 +31,11 @@ exports.getPayments = async (req, res) => {
 
         const formattedPayments = await Promise.all(rawPayments.map(async (p) => {
             
-            // 🔥 DEBUG කෑල්ල: Screenshot එකේ ඉන්න STU-1 ගේ පේමන්ට් වල Type එක Terminal එකේ Print කරමු
-            if (p.student && p.student.id === 1) { 
-                console.log(`\n👉 [DEBUG] Payment ID: ${p.id} | Amount: ${p.amount}`);
-                console.log(`👉 [DEBUG] DB එකේ තියෙන Payment Type එක: ${p.payment_type}`);
+            // 🔥 ALUTH DEBUG කෑල්ල: Shehara ගේ විස්තර හරියටම බලමු
+            if (p.student && (p.student.firstName.includes('Shehara') || p.student.id === 752)) { 
+                console.log(`\n👉 [DEBUG] Payment ID: ${p.id} | Student: STU-${p.studentId}`);
+                console.log(`   - DB Real Status: ${p.status} | Payment Type: ${p.payment_type}`);
+                console.log(`   - Valid Until: ${p.valid_until} | Post Pay Days: ${p.post_pay_days}`);
             }
 
             let currentStatus = 'Pending';
@@ -59,6 +60,11 @@ exports.getPayments = async (req, res) => {
             else if (p.status === 2) currentStatus = 'Rejected';
             else if (p.status === 3) currentStatus = 'Non Paid';
             else if (p.status === 4) currentStatus = 'Post Pay';
+
+            // 🔥 Status Check කරාට පස්සේ Current Status එක Print කරමු
+            if (p.student && (p.student.firstName.includes('Shehara') || p.student.id === 752)) { 
+                console.log(`   - Mapped Status (Going to Frontend): ${currentStatus}`);
+            }
 
             let systemTotal = 0; let parsedSubjects = []; let totalPhases = 1;
 
@@ -227,10 +233,10 @@ exports.paymentAction = async (req, res) => {
     }
 };
 
-// 3. Action for Installments
 exports.approveInstallment = async (req, res) => {
     try {
-        const { paymentId, actualAmountPaid, remark, isSelfPicked } = req.body;
+        // 🔥 FIX 1: Frontend එකෙන් එවන nextDueDate එකත් මෙතනට ගන්නවා
+        const { paymentId, actualAmountPaid, remark, isSelfPicked, nextDueDate } = req.body;
         
         const payRecord = await prisma.payment.findUnique({ where: { id: parseInt(paymentId) }});
         if (!payRecord) return res.status(404).json({ error: "Payment not found" });
@@ -266,6 +272,7 @@ exports.approveInstallment = async (req, res) => {
             data: updateData
         });
 
+        // 🔥 Auto Delivery Logic
         const existingDelivery = await prisma.delivery.findUnique({ where: { paymentId: parseInt(paymentId) } });
         if (!existingDelivery && updatedPayment.subjects) {
             try {
@@ -280,24 +287,41 @@ exports.approveInstallment = async (req, res) => {
                         }
                     });
                 }
-            } catch(e) {}
+            } catch(e) {
+                console.error("Delivery Creation Error:", e);
+            }
         }
 
+        // 🔥 NEXT PHASE GENERATION LOGIC
         if (payRecord.subjects) {
             try {
                 const subIds = JSON.parse(payRecord.subjects);
+                
+                // 🔥 FIX 2: හරියටම සමාන නොවී, ළමයාගේ subject ගාණට ගැලපෙන හොඳම plan එක ගන්න 'lte' (less than or equal) පාවිච්චි කරනවා
                 const plan = await prisma.installment.findFirst({
-                    where: { batchId: payRecord.batchId, subjectCount: subIds.length }
+                    where: { 
+                        batchId: payRecord.batchId, 
+                        subjectCount: { lte: subIds.length } 
+                    },
+                    orderBy: { subjectCount: 'desc' }
                 });
 
                 if (plan && plan.details) {
                     const phases = JSON.parse(plan.details);
-                    const currentPhaseIndex = payRecord.installment_no - 1;
+                    
+                    const currentInstallment = payRecord.installment_no || 1;
+                    const currentPhaseIndex = currentInstallment - 1;
 
                     if (currentPhaseIndex + 1 < phases.length) {
                         const nextPhase = phases[currentPhaseIndex + 1];
-                        let nextDueDate = new Date();
-                        nextDueDate.setDate(nextDueDate.getDate() + 30); 
+                        
+                        // 🔥 FIX 3: Frontend එකෙන් එවන Date එක ගන්නවා. ඒක නැත්නම් විතරක් දවස් 30ක් එකතු කරනවා.
+                        let finalNextDueDate = nextDueDate ? new Date(nextDueDate) : new Date();
+                        if (!nextDueDate) {
+                            finalNextDueDate.setDate(finalNextDueDate.getDate() + 30); 
+                        }
+                        
+                        const nextPhaseAmount = parseFloat(nextPhase.price || nextPhase.amount || 0);
 
                         await prisma.payment.create({
                             data: {
@@ -309,18 +333,21 @@ exports.approveInstallment = async (req, res) => {
                                 payment_type: 2, 
                                 method: 'Upcoming', 
                                 status: 0,
-                                amount: parseFloat(nextPhase.price),
+                                amount: nextPhaseAmount,
                                 installment_no: currentPhaseIndex + 2,
-                                due_date: nextDueDate
+                                due_date: finalNextDueDate
                             }
                         });
                     }
                 }
-            } catch (e) {}
+            } catch (e) {
+                console.error("🔥 Auto-Generate Next Installment Error:", e);
+            }
         }
 
         res.status(200).json({ message: "Installment approved successfully" });
     } catch (error) { 
+        console.error("Installment Approval General Error:", error);
         res.status(500).json({ error: "Failed to approve installment" }); 
     }
 };
@@ -341,5 +368,124 @@ exports.grantPostPay = async (req, res) => {
         res.status(200).json({ message: `Access granted for 7 days` });
     } catch (error) {
         res.status(500).json({ error: "Failed to grant access" });
+    }
+};
+
+exports.approveInstallment = async (req, res) => {
+    try {
+        // 🔥 FIX 1: Frontend එකෙන් එවන nextDueDate එකත් මෙතනට ගන්නවා
+        const { paymentId, actualAmountPaid, remark, isSelfPicked, nextDueDate } = req.body;
+        
+        const payRecord = await prisma.payment.findUnique({ where: { id: parseInt(paymentId) }});
+        if (!payRecord) return res.status(404).json({ error: "Payment not found" });
+
+        let updateData = { status: 1, post_pay_days: 0 }; 
+
+        // 🔥 WALLET LOGIC INTEGRATION 
+        const expectedAmount = parseFloat(payRecord.amount);
+        const actualPaid = actualAmountPaid ? parseFloat(actualAmountPaid) : expectedAmount;
+        const difference = actualPaid - expectedAmount;
+
+        if (difference !== 0) {
+            await prisma.user.update({
+                where: { id: payRecord.studentId },
+                data: { walletBalance: { increment: difference } }
+            });
+            updateData.excessAmount = difference > 0 ? difference : 0;
+            updateData.arrearsAmount = difference < 0 ? Math.abs(difference) : 0;
+            
+            updateData.remark = payRecord.remark 
+                ? `${payRecord.remark}\n\n[SYSTEM]: Wallet adjusted by LKR ${difference.toLocaleString()}` 
+                : `[SYSTEM]: Wallet adjusted by LKR ${difference.toLocaleString()}`;
+        }
+
+        if (remark) {
+            updateData.remark = updateData.remark 
+                ? `${updateData.remark}\n\n[ADMIN]: ${remark}` 
+                : (payRecord.remark ? `${payRecord.remark}\n\n[ADMIN]: ${remark}` : `[ADMIN]: ${remark}`);
+        }
+
+        const updatedPayment = await prisma.payment.update({
+            where: { id: parseInt(paymentId) },
+            data: updateData
+        });
+
+        // 🔥 Auto Delivery Logic
+        const existingDelivery = await prisma.delivery.findUnique({ where: { paymentId: parseInt(paymentId) } });
+        if (!existingDelivery && updatedPayment.subjects) {
+            try {
+                const subIds = JSON.parse(updatedPayment.subjects).map(id => parseInt(id));
+                const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
+                if (courses.length > 0) {
+                    await prisma.delivery.create({
+                        data: {
+                            paymentId: updatedPayment.id, studentId: updatedPayment.studentId.toString(), businessId: updatedPayment.businessId,
+                            paymentType: 'Installment', status: isSelfPicked ? 'Delivered' : 'Pending',
+                            items: { create: courses.map(c => ({ courseId: c.id, tuteName: c.name || "Tute", quantity: 1 })) }
+                        }
+                    });
+                }
+            } catch(e) {
+                console.error("Delivery Creation Error:", e);
+            }
+        }
+
+        // 🔥 NEXT PHASE GENERATION LOGIC
+        if (payRecord.subjects) {
+            try {
+                const subIds = JSON.parse(payRecord.subjects);
+                
+                // 🔥 FIX 2: හරියටම සමාන නොවී, ළමයාගේ subject ගාණට ගැලපෙන හොඳම plan එක ගන්න 'lte' (less than or equal) පාවිච්චි කරනවා
+                const plan = await prisma.installment.findFirst({
+                    where: { 
+                        batchId: payRecord.batchId, 
+                        subjectCount: { lte: subIds.length } 
+                    },
+                    orderBy: { subjectCount: 'desc' }
+                });
+
+                if (plan && plan.details) {
+                    const phases = JSON.parse(plan.details);
+                    
+                    const currentInstallment = payRecord.installment_no || 1;
+                    const currentPhaseIndex = currentInstallment - 1;
+
+                    if (currentPhaseIndex + 1 < phases.length) {
+                        const nextPhase = phases[currentPhaseIndex + 1];
+                        
+                        // 🔥 FIX 3: Frontend එකෙන් එවන Date එක ගන්නවා. ඒක නැත්නම් විතරක් දවස් 30ක් එකතු කරනවා.
+                        let finalNextDueDate = nextDueDate ? new Date(nextDueDate) : new Date();
+                        if (!nextDueDate) {
+                            finalNextDueDate.setDate(finalNextDueDate.getDate() + 30); 
+                        }
+                        
+                        const nextPhaseAmount = parseFloat(nextPhase.price || nextPhase.amount || 0);
+
+                        await prisma.payment.create({
+                            data: {
+                                studentId: payRecord.studentId,
+                                businessId: payRecord.businessId,
+                                batchId: payRecord.batchId,
+                                groupId: payRecord.groupId,
+                                subjects: payRecord.subjects,
+                                payment_type: 2, 
+                                method: 'Upcoming', 
+                                status: 0,
+                                amount: nextPhaseAmount,
+                                installment_no: currentPhaseIndex + 2,
+                                due_date: finalNextDueDate
+                            }
+                        });
+                    }
+                }
+            } catch (e) {
+                console.error("🔥 Auto-Generate Next Installment Error:", e);
+            }
+        }
+
+        res.status(200).json({ message: "Installment approved successfully" });
+    } catch (error) { 
+        console.error("Installment Approval General Error:", error);
+        res.status(500).json({ error: "Failed to approve installment" }); 
     }
 };

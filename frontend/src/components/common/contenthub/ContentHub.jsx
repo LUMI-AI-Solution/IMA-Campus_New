@@ -558,10 +558,10 @@ export default function ContentHub() {
   if (loading) return <div className="flex h-full items-center justify-center min-h-[60vh]"><Loader2 size={50} className="animate-spin text-brand-accent" /></div>;
 
   return (
-    <div className="w-full animate-fade-in pb-4 flex flex-col font-sans">
+    <div className="w-full animate-fade-in pb-4 flex flex-col font-sans relative z-10">
       
-      {/* 🔥 FIX: Pure Glassmorphism Header Area 🔥 */}
-      <div className="mb-8 bg-white/5 backdrop-blur-xl border border-white/10 p-6 md:p-8 rounded-3xl flex flex-col gap-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.2)] shrink-0 transition-all">
+      {/* 🔥 Meka thama oyata ona karana Glassmorphism Header eka 🔥 */}
+      <div className="mb-8 bg-white/5 backdrop-blur-2xl border border-white/10 p-6 md:p-8 rounded-3xl flex flex-col gap-5 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] shrink-0 transition-all">
           
           <div className="flex flex-wrap items-center gap-3 text-sm font-semibold text-gray-400">
               {viewLevel !== 'businesses' && <button onClick={() => handleBack(viewLevel==='contents' ? 'batch_details' : viewLevel==='batch_details' ? 'batches' : 'businesses')} className="hover:text-white flex items-center gap-2 bg-white/5 hover:bg-white/10 text-gray-300 px-4 py-2 rounded-xl transition-colors border border-white/5 outline-none"><ArrowLeft size={16}/> Back</button>}
@@ -612,7 +612,6 @@ export default function ContentHub() {
           </div>
       </div>
 
-      {/* Child components inherit the dark styling naturally now */}
       <ContentHubViews state={stateData} actions={actionsData} />
       <ContentHubModals state={stateData} actions={actionsData} />
     </div>

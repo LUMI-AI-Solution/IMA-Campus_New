@@ -14,6 +14,7 @@ import GhostAuth from './pages/auth/GhostAuth';
 import MainLayout from "./components/layouts/MainLayout";
 import CallCampaignModule from './components/CoordinatorCRM/CallCampaignModule';
 import { ThemeProvider } from './contexts/ThemeContext';
+import MonthlyRoster from './pages/class_coordinator/staff/MonthlyRoster';
 import AnnouncementsManager from './pages/admin/AnnouncementsManager';
 
 // Dashboards & Modules
@@ -26,11 +27,18 @@ import ClassTimetable from './components/common/ClassTimetable';
 import TaskCenter from './components/common/TaskCenter';
 import AfterSeminarDashboard from './components/AfterSeminarCRM/AfterSeminarDashboard';
 
+// 🔥 අලුත් Campaign Dashboard Component එක Import කරන තැන 🔥
+import CallCampaignDashboard from './components/AfterSeminarCRM/CallCampaignDashboard';
+import GlobalReminderWidget from './components/GlobalReminderWidget';
+import FinanceMatrix from './components/DataExport/FinanceMatrix';
+
 import ThemeShowcase from './components/ThemeShowcase';
 
 // System Admin CRM Setup
 import CrmManagement from './components/admin/CrmManagement';
 import DatabaseManager from './components/admin/DatabaseManager';
+import ModuleOneMatrix from './components/DataExport/ModuleOneMatrix';
+import DataExportDashboard from './components/DataExport/DataExportDashboard';
 
 // Coordinator CRM Dashboard (For Manager & Staff)
 import CoordinatorDashboard from './pages/ClassCoordinator/CoordinatorDashboard';
@@ -123,12 +131,14 @@ export default function App() {
   if (!authChecked) return <div className="min-h-screen bg-[#0a0f1c]"></div>;
 
   return (
-    // 🔥 මෙන්න මෙතන ThemeProvider එකෙන් මුළු App එකම wrap කලා 🔥
     <ThemeProvider>
       <BrowserRouter>
         <Toaster position="top-right" /> 
         
         <GhostModeBanner />
+        {loggedInUser && loggedInUser.role.toUpperCase() !== 'STUDENT' && loggedInUser.role.toUpperCase() !== 'USER' && (
+            <GlobalReminderWidget />
+        )}
 
         <Routes>
           {/* Public Routes */}
@@ -138,6 +148,7 @@ export default function App() {
           <Route path="/privacy-policy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/register" element={<Register />} />
+          <Route path="/" element={<Home loggedInUser={loggedInUser} />} />
           
           {/* 🔥 NEW: Ghost Login Route 🔥 */}
           <Route path="/ghost-auth" element={<GhostAuth />} />
@@ -159,6 +170,8 @@ export default function App() {
               <Route path="/workspace/call-campaign" element={<CallCampaignModule loggedInUser={loggedInUser} />} />
               <Route path="/delivery/dashboard" element={<DeliveryDashboard />} />
 
+              <Route path="/admin/finance-matrix" element={<FinanceMatrix loggedInUser={loggedInUser} />} />
+
               <Route path="/theme-showcase" element={<ThemeShowcase />} />
 
               {/* Common Panels */}
@@ -168,6 +181,8 @@ export default function App() {
               <Route path="/admin/student-center" element={<StudentDataCenter loggedInUser={loggedInUser} />} />
               <Route path="/workspace/timetable" element={<ClassTimetable />} />
               <Route path="/workspace/tasks" element={<TaskCenter loggedInUser={loggedInUser} />} />
+              <Route path="/workspace/roster" element={<MonthlyRoster loggedInUser={loggedInUser} />} />
+              <Route path="/admin/data-export" element={<DataExportDashboard loggedInUser={loggedInUser} />} />
 
               {/* System Admin CRM Configuration */}
               <Route path="/admin/crm-setup" element={<CrmManagement loggedInUser={loggedInUser} />} />
@@ -177,6 +192,13 @@ export default function App() {
               {/* Active CRM Interface for Staff & Managers */}
               <Route path="/workspace/crm" element={<CoordinatorDashboard loggedInUser={loggedInUser} />} />
               <Route path="/workspace/after-seminar-crm" element={<AfterSeminarDashboard loggedInUser={loggedInUser} />} />
+
+              {/* 🔥 අලුත් CALL CAMPAIGN ROUTES 4 🔥 */}
+              <Route path="/workspace/campaign/overview" element={<CallCampaignDashboard campaignType="OVERALL" loggedInUser={loggedInUser} />} />
+              <Route path="/workspace/campaign/open-seminar" element={<CallCampaignDashboard campaignType="OPEN_SEM" loggedInUser={loggedInUser} />} />
+              <Route path="/workspace/campaign/new-inquiries" element={<CallCampaignDashboard campaignType="NEW_INQ" loggedInUser={loggedInUser} />} />
+              <Route path="/workspace/campaign/bridge-transfers" element={<CallCampaignDashboard campaignType="BRIDGE" loggedInUser={loggedInUser} />} />
+              <Route path="/workspace/campaign/paid-students" element={<CallCampaignDashboard campaignType="PAID" loggedInUser={loggedInUser} />} />
           </Route>
 
           {/* ✅ STUDENT ROUTES ✅ */}

@@ -81,4 +81,10 @@ router.get('/leads/master-directory', afterSeminarManagerStatsController.getMast
 
 router.get('/retention/campaign-data', afterSeminarRetentionController.getRetentionCampaignData);
 
-module.exports = router;
+// ============================================================================
+// 🔄 MODULE 5: B2B LEAD TRANSFERS
+// ============================================================================
+router.post('/leads/b2b-transfer', afterSeminarManagerStatsController.transferB2BLeads);
+router.get('/leads/b2b-history', afterSeminarManagerStatsController.getB2BTransferHistory);
+
+module.exports = router; // (මේක දැනටමත් ඇති, ඒකට උඩින් දාන්න)

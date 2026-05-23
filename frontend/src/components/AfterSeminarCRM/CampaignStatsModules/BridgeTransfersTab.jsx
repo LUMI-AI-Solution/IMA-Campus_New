@@ -22,8 +22,8 @@ export default function BridgeTransfersTab({ filters }) {
     const [endDate, setEndDate] = useState('');
 
     const [bridgeStats, setBridgeStats] = useState({
-        totalTransferred: 0, totalContacted: 0, totalPending: 0, totalEnrolled: 0, staffBreakdown: []
-    });
+    totalTransferred: 0, totalContacted: 0, totalPending: 0, totalEnrolled: 0, totalReplied: 0, staffBreakdown: []
+});
 
     useEffect(() => {
         if (filters?.selectedBusiness) {
@@ -228,7 +228,7 @@ export default function BridgeTransfersTab({ filters }) {
             </div>
 
             {/* MANAGER OVERALL STATS */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
                 <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700">
                     <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Pending in Free</p>
                     <h2 className="text-3xl font-black text-white mt-1">{pendingLeads.length}</h2>
@@ -241,6 +241,14 @@ export default function BridgeTransfersTab({ filters }) {
                     <p className="text-[10px] text-indigo-400 font-black uppercase tracking-widest">Un-Assigned</p>
                     <h2 className="text-3xl font-black text-indigo-400 mt-1">{unassignedCount}</h2>
                 </div>
+
+                {/* 🔥 ALUTH CARD EKA: Student Replies 🔥 */}
+                <div className="bg-purple-900/20 p-5 rounded-2xl border border-purple-500/20 shadow-[0_0_15px_rgba(168,85,247,0.1)] relative overflow-hidden">
+                    <div className="absolute -right-4 -top-4 w-16 h-16 bg-purple-500/10 rounded-full blur-xl animate-pulse"></div>
+                    <p className="text-[10px] text-purple-400 font-black uppercase tracking-widest relative z-10">Student Replies</p>
+                    <h2 className="text-3xl font-black text-purple-400 mt-1 relative z-10">{bridgeStats.totalReplied || 0}</h2>
+                </div>
+
                 <div className="bg-rose-900/20 p-5 rounded-2xl border border-rose-500/20">
                     <p className="text-[10px] text-rose-400 font-black uppercase tracking-widest">Pending Calls</p>
                     <h2 className="text-3xl font-black text-rose-400 mt-1">{bridgeStats.totalPending}</h2>

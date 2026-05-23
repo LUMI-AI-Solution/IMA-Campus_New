@@ -1,6 +1,6 @@
 import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Download, FileSpreadsheet, Image as ImageIcon, Users, Wallet, Filter, Check, Copy, AlertCircle, Tag } from 'lucide-react';
+import { X, Download, FileSpreadsheet, Image as ImageIcon, Users, Wallet, Filter, Check, Copy, AlertCircle, Tag, Receipt, Gift, Clock } from 'lucide-react';
 import { toPng } from 'html-to-image'; 
 import * as XLSX from 'xlsx';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, ResponsiveContainer } from 'recharts';
@@ -69,7 +69,9 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
 
     const exportDataList = useMemo(() => {
         return payments.filter(p => {
-            if (p.status !== 'Approved' && p.status !== 'Discount') return false;
+            // 🔥 FIX: Include Post Pay and Free Card
+            const validStatuses = ['Approved', 'Discount', 'Free Card', 'Post Pay'];
+            if (!validStatuses.includes(p.status)) return false;
 
             const matchesBiz = localFilters.businessId === 'All' || (p.businessId || p.business_id)?.toString() === localFilters.businessId.toString();
             const matchesBatch = localFilters.batchId === 'All' || (p.batchId || p.batch_id)?.toString() === localFilters.batchId.toString();
@@ -105,6 +107,8 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
         
         const uniqueStudents = new Set();
         const discountStudents = new Set();
+        const freeCardStudents = new Set(); // 🔥 වෙනම සෙට් එකක් Free Card අයට
+        const postPayStudents = new Set();  // 🔥 වෙනම සෙට් එකක් Post Pay අයට
         const dateMap = {};
 
         const studentSubjectsCount = {}; 
@@ -113,12 +117,16 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
         exportDataList.forEach(p => {
             const amt = parseFloat(p.amount || 0);
             totalRev += amt;
-            uniqueStudents.add(p.studentId);
+            uniqueStudents.add(p.studentId); 
 
             if (p.status === 'Discount') {
                 discountRev += amt;
                 discountStudents.add(p.studentId);
             }
+            
+            // 🔥 වෙන් කරලා අඳුරගන්නවා
+            if (p.status === 'Free Card') freeCardStudents.add(p.studentId);
+            if (p.status === 'Post Pay') postPayStudents.add(p.studentId);
 
             const type = p.type?.toLowerCase() || '';
             if (type.includes('full')) fullRev += amt;
@@ -130,7 +138,6 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
             if (!dateMap[d]) dateMap[d] = 0;
             dateMap[d] += amt;
 
-            // 🔥 Subject Tracking Logic 🔥
             const subs = p.subjectsList || p.subjects || p.courses || [];
             
             if (!studentSubjectsCount[p.studentId]) {
@@ -143,24 +150,33 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                     studentSubjectsCount[p.studentId].add(sName);
 
                     if (!subjectStats[sName]) {
-                        // 🔥 ALUTH: Sets for breaking down payment types 🔥
                         subjectStats[sName] = { 
                             name: sName, 
                             enrolled: new Set(), 
                             fullSet: new Set(),
                             monthlySet: new Set(),
                             installSet: new Set(),
+                            freeCardSet: new Set(), // 🔥
+                            postPaySet: new Set(),  // 🔥
                             revenue: 0 
                         };
                     }
                     
                     subjectStats[sName].enrolled.add(p.studentId);
                     
-                    if (type.includes('full')) subjectStats[sName].fullSet.add(p.studentId);
-                    else if (type.includes('install')) subjectStats[sName].installSet.add(p.studentId);
-                    else subjectStats[sName].monthlySet.add(p.studentId);
+                    if (p.status === 'Free Card') {
+                        subjectStats[sName].freeCardSet.add(p.studentId);
+                    } else if (p.status === 'Post Pay') {
+                        subjectStats[sName].postPaySet.add(p.studentId);
+                    } else {
+                        if (type.includes('full')) subjectStats[sName].fullSet.add(p.studentId);
+                        else if (type.includes('install')) subjectStats[sName].installSet.add(p.studentId);
+                        else subjectStats[sName].monthlySet.add(p.studentId);
+                    }
 
-                    if(s.price) subjectStats[sName].revenue += parseFloat(s.price); 
+                    if(s.price && p.status !== 'Free Card' && p.status !== 'Post Pay') {
+                        subjectStats[sName].revenue += parseFloat(s.price); 
+                    }
                 }
             });
         });
@@ -200,13 +216,14 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
             }
         });
 
-        // 🔥 Formatting Subject Stats with new data 🔥
         const formattedSubjectStats = Object.values(subjectStats).map(sub => ({
             name: sub.name,
             enrolledCount: sub.enrolled.size,
             fullCount: sub.fullSet.size,
             monthlyCount: sub.monthlySet.size,
             installCount: sub.installSet.size,
+            freeCardCount: sub.freeCardSet.size, // 🔥
+            postPayCount: sub.postPaySet.size,   // 🔥
             revenue: sub.revenue
         })).sort((a, b) => b.enrolledCount - a.enrolledCount);
 
@@ -217,6 +234,8 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
             enrolled: uniqueStudents.size,
             discountRevenue: discountRev,
             discountEnrolled: discountStudents.size,
+            freeCardEnrolled: freeCardStudents.size, // 🔥
+            postPayEnrolled: postPayStudents.size,   // 🔥
             pieData: [
                 { name: 'Full Pay', value: fullRev, color: '#10b981' },
                 { name: 'Monthly', value: monthlyRev, color: '#3b82f6' },
@@ -312,7 +331,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                         <h3 className="text-2xl font-black text-white flex items-center gap-3">
                             <FileSpreadsheet className="text-emerald-500" size={28} /> Export Financial Report
                         </h3>
-                        <p className="text-slate-400 text-xs mt-1">Review stats and download high-resolution reports.</p>
+                        <p className="text-slate-400 text-xs mt-1">Review verified payments, free access, and actual student enrollments.</p>
                     </div>
                     <div className="flex items-center gap-3 w-full md:w-auto">
                         <button onClick={handleExportExcel} className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-3 rounded-2xl text-sm font-bold transition-all shadow-lg shadow-emerald-600/20"><Download size={18}/> Excel</button>
@@ -323,6 +342,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
 
                 <div className="flex flex-col lg:flex-row flex-1 overflow-hidden">
                     
+                    {/* Sidebar Filters */}
                     <div className="w-full lg:w-80 bg-slate-900/40 border-r border-white/5 p-6 overflow-y-auto custom-scrollbar flex flex-col gap-5 shrink-0">
                         <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2"><Filter size={14}/> Refining Filters</h4>
                         
@@ -412,9 +432,20 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                             </div>
                         </div>
 
-                        <div className="mt-auto bg-emerald-500/10 border border-emerald-500/20 p-4 rounded-2xl shrink-0">
-                            <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest mb-1">Records Found</p>
-                            <p className="text-2xl font-black text-white">{exportDataList.length}</p>
+                        {/* 🔥 UNIQUE STUDENTS VS SLIPS SUMMARY 🔥 */}
+                        <div className="mt-auto flex flex-col gap-3 pt-6 border-t border-white/5">
+                            <div className="bg-blue-500/10 border border-blue-500/20 p-4 rounded-2xl shrink-0 flex items-center justify-between">
+                                <div>
+                                    <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5"><Users size={12}/> Unique Active Students</p>
+                                    <p className="text-2xl font-black text-white">{stats.enrolled}</p>
+                                </div>
+                            </div>
+                            <div className="bg-slate-800/50 border border-slate-700/50 p-4 rounded-2xl shrink-0 flex items-center justify-between">
+                                <div>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5"><Receipt size={12}/> Total Payment Slips</p>
+                                    <p className="text-xl font-bold text-slate-300">{exportDataList.length}</p>
+                                </div>
+                            </div>
                         </div>
                     </div>
 
@@ -424,7 +455,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                             <div className="flex justify-between items-start border-b border-white/10 pb-8 mb-8">
                                 <div>
                                     <h1 className="text-4xl font-black tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-blue-500">IMA CAMPUS</h1>
-                                    <p className="text-slate-400 font-bold uppercase tracking-[0.3em] text-[10px] mt-1">Financial Performance Summary</p>
+                                    <p className="text-slate-400 font-bold uppercase tracking-[0.3em] text-[10px] mt-1">Verified Payment & Enrollment Summary</p>
                                 </div>
                                 <div className="text-right">
                                     <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Generation Date</p>
@@ -446,36 +477,48 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                                     <p className="text-xs font-bold text-orange-400 truncate">{dateRange}</p>
                                 </div>
                                 <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
-                                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mb-1">Status</p>
-                                    <p className="text-xs font-bold text-slate-300">Verified & Discount Only</p>
+                                    <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mb-1">Total Verified Slips</p>
+                                    <p className="text-xs font-bold text-slate-300">{exportDataList.length} Processed Transactions</p>
                                 </div>
                             </div>
 
-                            {/* 🔥 TOTAL REVENUE SECTION 🔥 */}
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
                                 <div className="bg-gradient-to-br from-emerald-600 to-emerald-800 p-8 rounded-[2rem] shadow-2xl relative overflow-hidden group">
                                     <Wallet className="absolute -right-4 -bottom-4 text-white/10 w-32 h-32 rotate-12" />
-                                    <p className="text-emerald-100/70 text-xs font-bold uppercase tracking-widest mb-2 relative z-10">Total Revenue (Approved + Discount)</p>
+                                    <p className="text-emerald-100/70 text-xs font-bold uppercase tracking-widest mb-2 relative z-10">Total Verified Revenue</p>
                                     <h2 className="text-5xl font-black text-white relative z-10"><span className="text-2xl font-light mr-2">LKR</span>{stats.totalRevenue.toLocaleString()}</h2>
                                 </div>
                                 <div className="bg-gradient-to-br from-blue-600 to-blue-800 p-8 rounded-[2rem] shadow-2xl relative overflow-hidden group">
                                     <Users className="absolute -right-4 -bottom-4 text-white/10 w-32 h-32 rotate-12" />
-                                    <p className="text-blue-100/70 text-xs font-bold uppercase tracking-widest mb-2 relative z-10">Total Verified Enrollments</p>
+                                    <p className="text-blue-100/70 text-xs font-bold uppercase tracking-widest mb-2 relative z-10">Total Unique Students Active</p>
                                     <h2 className="text-5xl font-black text-white relative z-10">{stats.enrolled}<span className="text-2xl font-light ml-2">Students</span></h2>
                                 </div>
                             </div>
 
-                            {/* 🔥 SPECIAL DISCOUNT SECTION 🔥 */}
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
-                                <div className="bg-gradient-to-br from-cyan-600 to-cyan-800 p-6 md:p-8 rounded-[2rem] shadow-xl relative overflow-hidden group border border-cyan-500/30">
+                            {/* 🔥 SEPARATED FREE CARD AND POST PAY CARDS 🔥 */}
+                            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-10">
+                                <div className="col-span-2 bg-gradient-to-br from-cyan-600 to-cyan-800 p-6 md:p-8 rounded-[2rem] shadow-xl relative overflow-hidden group border border-cyan-500/30 flex justify-between items-center">
+                                    <div>
+                                        <p className="text-cyan-100/80 text-[10px] md:text-xs font-bold uppercase tracking-widest mb-2 relative z-10">Special Discount Rev.</p>
+                                        <h2 className="text-3xl font-black text-white relative z-10"><span className="text-lg font-light mr-2">LKR</span>{stats.discountRevenue.toLocaleString()}</h2>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-cyan-100/80 text-[10px] font-bold uppercase tracking-widest mb-1 relative z-10">Students</p>
+                                        <h3 className="text-2xl font-black text-white relative z-10">{stats.discountEnrolled}</h3>
+                                    </div>
                                     <Tag className="absolute -right-4 -bottom-4 text-white/10 w-28 h-28 rotate-12" />
-                                    <p className="text-cyan-100/80 text-[10px] md:text-xs font-bold uppercase tracking-widest mb-2 relative z-10">Special Discount Revenue</p>
-                                    <h2 className="text-3xl md:text-4xl font-black text-white relative z-10"><span className="text-lg md:text-xl font-light mr-2">LKR</span>{stats.discountRevenue.toLocaleString()}</h2>
                                 </div>
-                                <div className="bg-gradient-to-br from-purple-600 to-purple-800 p-6 md:p-8 rounded-[2rem] shadow-xl relative overflow-hidden group border border-purple-500/30">
-                                    <Users className="absolute -right-4 -bottom-4 text-white/10 w-28 h-28 rotate-12" />
-                                    <p className="text-purple-100/80 text-[10px] md:text-xs font-bold uppercase tracking-widest mb-2 relative z-10">Discount Enrollments</p>
-                                    <h2 className="text-3xl md:text-4xl font-black text-white relative z-10">{stats.discountEnrolled}<span className="text-lg md:text-xl font-light ml-2">Students</span></h2>
+
+                                <div className="bg-gradient-to-br from-pink-600 to-pink-800 p-6 rounded-[2rem] shadow-xl relative overflow-hidden group border border-pink-500/30">
+                                    <Gift className="absolute -right-2 -bottom-2 text-white/10 w-20 h-20 rotate-12" />
+                                    <p className="text-pink-100/80 text-[10px] font-bold uppercase tracking-widest mb-1 relative z-10">Free Card</p>
+                                    <h2 className="text-3xl font-black text-white relative z-10">{stats.freeCardEnrolled}<span className="text-sm font-light ml-1">Sts</span></h2>
+                                </div>
+
+                                <div className="bg-gradient-to-br from-orange-600 to-orange-800 p-6 rounded-[2rem] shadow-xl relative overflow-hidden group border border-orange-500/30">
+                                    <Clock className="absolute -right-2 -bottom-2 text-white/10 w-20 h-20 rotate-12" />
+                                    <p className="text-orange-100/80 text-[10px] font-bold uppercase tracking-widest mb-1 relative z-10">Post Pay (Temp)</p>
+                                    <h2 className="text-3xl font-black text-white relative z-10">{stats.postPayEnrolled}<span className="text-sm font-light ml-1">Sts</span></h2>
                                 </div>
                             </div>
 
@@ -517,10 +560,8 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                                 </div>
                             </div>
 
-                            {/* 🔥 ALUTH: SUBJECT WISE & AVERAGE ANALYSIS WITH ADVANCED METRICS 🔥 */}
                             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10 border-t border-white/10 pt-8">
                                 
-                                {/* Average Student Details */}
                                 <div className="bg-gradient-to-br from-indigo-900/50 to-purple-900/50 p-6 rounded-3xl border border-indigo-500/20 shadow-xl flex flex-col justify-center">
                                     <h3 className="text-indigo-400 font-bold text-sm tracking-widest uppercase mb-4">Core Average Metrics</h3>
                                     <p className="text-xs text-slate-400 mb-6">Students enrolled in 3 main subjects (A/L) or 9 subjects (O/L).</p>
@@ -536,7 +577,6 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                                     </div>
                                 </div>
 
-                                {/* Subject Wise Breakdown Table - UPDATED WITH FULL, MONTHLY, INSTALL */}
                                 <div className="lg:col-span-2 bg-slate-900/40 p-6 rounded-3xl border border-white/5 shadow-xl flex flex-col">
                                     <h3 className="text-slate-300 font-bold text-sm tracking-widest uppercase mb-4 flex justify-between items-center">
                                         Subject Performance Breakdown
@@ -548,27 +588,33 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                                             <thead>
                                                 <tr>
                                                     <th className="text-[10px] font-bold text-slate-500 uppercase tracking-widest pb-3 border-b border-white/5">Subject Name</th>
-                                                    <th className="text-[10px] font-bold text-slate-500 uppercase tracking-widest pb-3 border-b border-white/5 text-center">Total</th>
-                                                    <th className="text-[10px] font-bold text-emerald-500/70 uppercase tracking-widest pb-3 border-b border-white/5 text-center" title="Full Payments">Full</th>
-                                                    <th className="text-[10px] font-bold text-blue-500/70 uppercase tracking-widest pb-3 border-b border-white/5 text-center" title="Monthly Payments">Monthly</th>
-                                                    <th className="text-[10px] font-bold text-orange-500/70 uppercase tracking-widest pb-3 border-b border-white/5 text-center" title="Installment Payments">Install</th>
-                                                    <th className="text-[10px] font-bold text-slate-500 uppercase tracking-widest pb-3 border-b border-white/5 text-right">Est. Rev (LKR)</th>
+                                                    <th className="text-[10px] font-bold text-blue-400 uppercase tracking-widest pb-3 border-b border-white/5 text-center">Total</th>
+                                                    <th className="text-[10px] font-bold text-emerald-500/70 uppercase tracking-widest pb-3 border-b border-white/5 text-center">Full</th>
+                                                    <th className="text-[10px] font-bold text-blue-500/70 uppercase tracking-widest pb-3 border-b border-white/5 text-center">Month</th>
+                                                    <th className="text-[10px] font-bold text-orange-500/70 uppercase tracking-widest pb-3 border-b border-white/5 text-center">Inst.</th>
+                                                    {/* 🔥 NEW COLUMNS: Free Card & Post Pay 🔥 */}
+                                                    <th className="text-[10px] font-bold text-pink-500/70 uppercase tracking-widest pb-3 border-b border-white/5 text-center">Free</th>
+                                                    <th className="text-[10px] font-bold text-orange-400/70 uppercase tracking-widest pb-3 border-b border-white/5 text-center">Post</th>
+                                                    <th className="text-[10px] font-bold text-slate-500 uppercase tracking-widest pb-3 border-b border-white/5 text-right">Rev (LKR)</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 {stats.subjectStats.map((sub, i) => (
                                                     <tr key={i} className="hover:bg-white/5 transition-colors">
-                                                        <td className="py-3 text-xs font-semibold text-slate-200 border-b border-white/5">{sub.name}</td>
-                                                        <td className="py-3 text-sm font-black text-white text-center border-b border-white/5">{sub.enrolledCount}</td>
+                                                        <td className="py-3 text-xs font-semibold text-slate-200 border-b border-white/5 truncate max-w-[120px]">{sub.name}</td>
+                                                        <td className="py-3 text-sm font-black text-blue-300 text-center border-b border-white/5">{sub.enrolledCount}</td>
                                                         <td className="py-3 text-xs font-bold text-emerald-400 text-center border-b border-white/5">{sub.fullCount}</td>
                                                         <td className="py-3 text-xs font-bold text-blue-400 text-center border-b border-white/5">{sub.monthlyCount}</td>
                                                         <td className="py-3 text-xs font-bold text-orange-400 text-center border-b border-white/5">{sub.installCount}</td>
+                                                        {/* 🔥 Display Free Card & Post Pay 🔥 */}
+                                                        <td className="py-3 text-xs font-bold text-pink-400 text-center border-b border-white/5">{sub.freeCardCount}</td>
+                                                        <td className="py-3 text-xs font-bold text-orange-300 text-center border-b border-white/5">{sub.postPayCount}</td>
                                                         <td className="py-3 text-xs font-bold text-emerald-400 text-right border-b border-white/5">{sub.revenue.toLocaleString()}</td>
                                                     </tr>
                                                 ))}
                                                 {stats.subjectStats.length === 0 && (
                                                     <tr>
-                                                        <td colSpan="6" className="text-center py-10 text-slate-500 text-xs italic">No subject data found for selected filters.</td>
+                                                        <td colSpan="8" className="text-center py-10 text-slate-500 text-xs italic">No subject data found for selected filters.</td>
                                                     </tr>
                                                 )}
                                             </tbody>

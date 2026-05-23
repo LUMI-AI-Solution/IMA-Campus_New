@@ -6,11 +6,13 @@ const axios = require('axios');
 // 🔥 පරණ Hardcoded Keys අයින් කළා. දැන් කෙලින්ම ගන්නේ .env ෆයිල් එකෙන් 🔥
 
 const getZoomDirectMp4Link = async (meetingId) => {
+    // 🔥 FIX: Meeting ID එකේ තියෙන හිස්තැන් ඔක්කොම අයින් කරනවා 🔥
+    const cleanMeetingId = meetingId.replace(/\s+/g, '');
+
     console.log(`\n================ ZOOM DEBUG START ================`);
-    console.log(`[1] Requested Meeting ID: "${meetingId}"`);
+    console.log(`[1] Requested Meeting ID: "${cleanMeetingId}" (Original: "${meetingId}")`);
 
     try {
-        // 🔥 .env එකෙන් Keys ටික ගන්නවා 🔥
         const accountId = process.env.ZOOM_ACCOUNT_ID;
         const clientId = process.env.ZOOM_CLIENT_ID;
         const clientSecret = process.env.ZOOM_CLIENT_SECRET;
@@ -23,17 +25,16 @@ const getZoomDirectMp4Link = async (meetingId) => {
         const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
         console.log(`[2] Requesting Access Token...`);
 
-        // 🔥 Token Request එක යවනවා 🔥
         const tokenRes = await axios.post(`https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${accountId}`, null, {
             headers: { 'Authorization': `Basic ${authHeader}` }
         });
 
         const accessToken = tokenRes.data.access_token;
         console.log(`[3] Access Token Received (First 10 chars): ${accessToken.substring(0, 10)}...`);
-        console.log(`[4] Fetching recordings for Meeting ID: ${meetingId}...`);
+        console.log(`[4] Fetching recordings for Meeting ID: ${cleanMeetingId}...`);
 
-        // 🔥 Meeting ID එකෙන් Recording Details ඉල්ලනවා 🔥
-        const recRes = await axios.get(`https://api.zoom.us/v2/meetings/${meetingId}/recordings`, {
+        // 🔥 හිස්තැන් අයින් කරපු ID එක යවනවා 🔥
+        const recRes = await axios.get(`https://api.zoom.us/v2/meetings/${cleanMeetingId}/recordings`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         });
 
@@ -41,14 +42,12 @@ const getZoomDirectMp4Link = async (meetingId) => {
         console.log(`[6] Available Files Count: ${recRes.data?.recording_files?.length || 0}`);
 
         if (recRes.data && recRes.data.recording_files) {
-            // 🔥 MP4 ෆයිල් එකක් තියෙනවද කියලා හොයනවා 🔥
             const mp4File = recRes.data.recording_files.find(file => file.file_type === 'MP4');
             
             if (mp4File) {
                 console.log(`[7] MP4 File Found! Size: ${(mp4File.file_size / (1024*1024)).toFixed(2)} MB`);
                 console.log(`================ ZOOM DEBUG END ================\n`);
                 
-                // 🔥 Download URL එකට Token එක අමුණලා යවනවා (එතකොට කෙලින්ම බාගන්න පුළුවන්) 🔥
                 return `${mp4File.download_url}?access_token=${accessToken}`;
             } else {
                 console.log(`[!] Error: No MP4 format found in this recording.`);
@@ -56,7 +55,6 @@ const getZoomDirectMp4Link = async (meetingId) => {
             }
         } else {
             console.log(`[!] Error: No recording_files array in response.`);
-            console.log(`[!] Raw Data:`, JSON.stringify(recRes.data, null, 2));
         }
 
         console.log(`================ ZOOM DEBUG END ================\n`);
@@ -66,9 +64,7 @@ const getZoomDirectMp4Link = async (meetingId) => {
         console.log(`\n[!!!] ZOOM API CRASHED [!!!]`);
         console.log(`[!] Request URL:`, error.config?.url);
         console.log(`[!] Status Code:`, error.response?.status);
-        console.log(`[!] Zoom Error Code:`, error.response?.data?.code);
-        console.log(`[!] Zoom Error Message:`, error.response?.data?.message);
-        console.log(`[!] Full Raw Error Data:`, JSON.stringify(error.response?.data, null, 2));
+        console.log(`[!] Zoom Error Message:`, error.response?.data?.message || error.message);
         console.log(`================ ZOOM DEBUG END ================\n`);
         return null;
     }
@@ -474,19 +470,12 @@ exports.addContentMassAssign = async (req, res) => {
 
         const sanitizedMeetingId = zoomMeetingId ? zoomMeetingId.replace(/\s+/g, '') : null;
 
-        // 🔥 ZOOM DIRECT LINK (Create කරද්දී) 🔥
-        let finalVideoLink = link;
-        if (sanitizedMeetingId) {
-            const directMp4 = await getZoomDirectMp4Link(sanitizedMeetingId);
-            if (directMp4) {
-                finalVideoLink = directMp4; 
-            }
-        }
-
+        // 🔥 FIX: මෙතනින් Zoom direct link එක fetch කරලා Database එකට save කරන එක අයින් කළා. 
+        // Token එකක් paya 1කින් expire වෙන නිසා DB එකේ save කරලා වැඩක් නෑ. DB crash වෙන එකත් නවතිනවා.
         const data = {
             title, 
             contentType: type, 
-            link: finalVideoLink, // Update කරපු ලින්ක් එක සේව් වෙනවා
+            link: link, // Normal Link එක විතරක් save කරනවා
             meetingId: sanitizedMeetingId, 
             fileName, 
             thumbnail, 
@@ -653,12 +642,14 @@ exports.updateContentMassAssign = async (req, res) => {
     try {
         const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, paperTime, questionCount, isFree, itemOrder, selectedCourses } = req.body;
         
+        const sanitizedMeetingId = zoomMeetingId ? zoomMeetingId.replace(/\s+/g, '') : null;
+
+        // 🔥 FIX: Update එකෙදිත් Zoom direct link එක fetch කරලා save කරන එක අයින් කළා.
         let updateData = { 
             title, 
             contentType: type, 
-            contentGroupId: contentGroupId ? parseInt(contentGroupId) : null, 
-            link, 
-            meetingId: zoomMeetingId, 
+            link: link, // Normal Link එක විතරක් update කරනවා
+            meetingId: sanitizedMeetingId, 
             date: date ? new Date(date) : null, 
             startTime, 
             endTime, 
@@ -668,7 +659,12 @@ exports.updateContentMassAssign = async (req, res) => {
             itemOrder: parseInt(itemOrder || 1)
         };
 
-        // 🔥 අප්ඩේට් කරද්දී අලුත් files ඇවිත්ද බලන විදිහ
+        if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined') {
+            updateData.contentGroupId = parseInt(contentGroupId);
+        } else {
+            updateData.contentGroupId = null;
+        }
+
         if (req.files && !Array.isArray(req.files)) {
             if (req.files['file'] && req.files['file'].length > 0) updateData.fileName = req.files['file'][0].filename;
             if (req.files['thumbnail'] && req.files['thumbnail'].length > 0) updateData.thumbnail = req.files['thumbnail'][0].filename;
@@ -886,25 +882,45 @@ exports.deletePost = async (req, res) => {
     } catch (e) { res.status(500).json({ error: "Failed to delete post" }); }
 };
 
-// ================= ZOOM DYNAMIC DOWNLOAD =================
-exports.getZoomDownloadRedirect = async (req, res) => {
+// ================= ZOOM DYNAMIC DOWNLOAD (JSON RESPONSE) =================
+exports.getZoomDirectLinkJson = async (req, res) => {
     try {
         const { meetingId } = req.params;
-        if (!meetingId) return res.status(400).send("Meeting ID is required");
+        if (!meetingId) return res.status(400).json({ error: "Meeting ID is required" });
 
-        console.log(`[DOWNLOAD] Fetching fresh Zoom link for Meeting ID: ${meetingId}`);
+        const cleanMeetingId = meetingId.replace(/\s+/g, '');
+        console.log(`[DOWNLOAD API] Fetching fresh Zoom link for Meeting ID: ${cleanMeetingId}`);
         
-        // ඔයා කලින් හදලා තියෙන Function එක කෝල් කරනවා
-        const directMp4 = await getZoomDirectMp4Link(meetingId);
+        const directMp4 = await getZoomDirectMp4Link(cleanMeetingId);
         
         if (directMp4) {
-            // මේක තමයි මැජික් එක! App එක අලුත් ලින්ක් එකට Redirect කරනවා.
-            return res.redirect(directMp4); 
+            // 🔥 වෙනස මෙතනයි! Redirect කරන්නේ නෑ, කෙලින්ම ලින්ක් එක JSON එකක් විදිහට යවනවා
+            return res.status(200).json({ mp4Link: directMp4 }); 
         } else {
-            return res.status(404).send("Zoom recording not found or expired.");
+            return res.status(404).json({ error: "Zoom recording not found or expired." });
         }
     } catch (error) {
-        console.error("Zoom Redirect Error:", error);
-        res.status(500).send("Server Error");
+        console.error("Zoom Fetch Error:", error);
+        res.status(500).json({ error: "Server Error" });
     }
+};
+
+// Admin App Event Settings
+exports.getAppEvent = async (req, res) => {
+    try {
+        const setting = await prisma.appSetting.findUnique({ where: { key: 'ACTIVE_ANIMATION' } });
+        res.status(200).json({ activeEvent: setting ? setting.value : 'none' });
+    } catch (error) { res.status(500).json({ error: "Failed to load event" }); }
+};
+
+exports.setAppEvent = async (req, res) => {
+    try {
+        const { eventId } = req.body;
+        await prisma.appSetting.upsert({
+            where: { key: 'ACTIVE_ANIMATION' },
+            update: { value: eventId },
+            create: { key: 'ACTIVE_ANIMATION', value: eventId }
+        });
+        res.status(200).json({ message: "App Animation Updated!" });
+    } catch (error) { res.status(500).json({ error: "Failed to update event" }); }
 };

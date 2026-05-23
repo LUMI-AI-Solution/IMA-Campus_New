@@ -32,8 +32,9 @@ export default function AnnouncementsManager({ loggedInUser }) {
         fetchPosts();
         if (isSystemAdmin) {
             api.get('/admin/businesses').then(res => setBusinesses(res.data?.businesses || res.data || [])).catch(console.error);
-            // TODO: Fetch current active app event from backend settings
-            // api.get('/admin/settings/app-event').then(res => setActiveAppEvent(res.data.activeEvent));
+            
+            // 🔥 මේක දාන්න - Currently Active Animation එක ගන්නවා 🔥
+            api.get('/admin/settings/app-event').then(res => setActiveAppEvent(res.data.activeEvent)).catch(console.error);
         }
     }, [isSystemAdmin]);
 
@@ -79,8 +80,8 @@ export default function AnnouncementsManager({ loggedInUser }) {
     const saveAppEvent = async (eventId) => {
         setActiveAppEvent(eventId);
         try {
-            // 🔥 මේක Backend එකට යවන්න ඕනේ App එකේ Animation එක සේව් වෙන්න
-            // await api.put('/admin/settings/app-event', { eventId });
+            // 🔥 මේක දාන්න - Animation එක DB එකට සේව් කරනවා 🔥
+            await api.put('/admin/settings/app-event', { eventId });
             toast.success(`App Animation updated to: ${appEvents.find(e => e.id === eventId).name}`);
         } catch (error) {
             toast.error("Failed to update app event");

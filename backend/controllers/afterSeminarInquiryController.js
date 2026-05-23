@@ -71,18 +71,17 @@ exports.toggleFollowUpStatus = async (req, res) => {
 // 2. LEAD FETCHING (WITH AUTO-SYNC ENGINE)
 // ==========================================
 exports.getLeads = async (req, res) => {
-    try {
-        const userId = req.user?.id || req.query.loggedUserId || 1;
-        const userRoleRaw = req.user?.role || req.query.loggedUserRole || 'STAFF'; 
-        const userRole = String(userRoleRaw).toUpperCase().replace(/ /g, '_');
+    try {
+        const userId = req.user?.id || req.query.loggedUserId || 1;
+        const userRoleRaw = req.user?.role || req.query.loggedUserRole || 'STAFF'; 
+        const userRole = String(userRoleRaw).toUpperCase().replace(/ /g, '_');
 
-        // 🔥 UPDATE: round සහ phase මෙතනට අලුතින් එකතු කළා
-        const { tab, staffPhase, status, staffId, batchId, businessId, paymentGroup, enrollmentStatus, inquiryType, round, phase } = req.query; 
-        const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER'].includes(userRole);
+        const { tab, staffPhase, status, staffId, batchId, businessId, paymentGroup, enrollmentStatus, inquiryType, round, phase } = req.query; 
+        const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER'].includes(userRole);
 
-        let whereClause = { campaignType: 'AFTER_SEMINAR' };
+        let whereClause = { campaignType: 'AFTER_SEMINAR' };
 
-        if (businessId && businessId !== '') {
+        if (businessId && businessId !== '') {
             whereClause.OR = [
                 { phone: { endsWith: `BIZ_${businessId}` } },
                 { phone: { endsWith: `BIZ_${businessId}_AS` } },
@@ -91,140 +90,150 @@ exports.getLeads = async (req, res) => {
                 { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
             ];
         }
-        if (batchId && batchId !== '') whereClause.batchId = parseInt(batchId);
-        if (paymentGroup && paymentGroup !== '') whereClause.paymentIntention = paymentGroup;
-        if (enrollmentStatus && enrollmentStatus !== '') whereClause.enrollmentStatus = enrollmentStatus;
-        if (inquiryType && inquiryType !== '') whereClause.inquiryType = inquiryType; 
+        if (batchId && batchId !== '') whereClause.batchId = parseInt(batchId);
+        if (paymentGroup && paymentGroup !== '') whereClause.paymentIntention = paymentGroup;
+        if (enrollmentStatus && enrollmentStatus !== '') whereClause.enrollmentStatus = enrollmentStatus;
+        if (inquiryType && inquiryType !== '') whereClause.inquiryType = inquiryType; 
 
-        if (tab === 'NEW') {
-            if (isManager) whereClause.assignedTo = null; 
-            else whereClause.assignedTo = parseInt(userId);
-        } else if (tab === 'ASSIGNED') {
-            whereClause.assignedTo = { not: null }; 
-            
-            // 1. Staff Filter
-            if (staffId && staffId !== '') whereClause.assignedTo = parseInt(staffId);
-            else if (!isManager) whereClause.assignedTo = parseInt(userId);
-            
-            // 2. Status Filter (Pending, Answered, Reject etc.)
-            if (status && status !== '') whereClause.callStatus = status;
-            
-            // 3. Round Filter (NEW)
-            if (round && round !== '') whereClause.coordinationRound = parseInt(round);
-            
-            // 4. Phase Filter (NEW)
-            if (phase && phase !== '') {
-                whereClause.phase = parseInt(phase);
-            } else if (staffPhase && staffPhase !== '') {
-                whereClause.phase = parseInt(staffPhase);
-            }
-        }
+        if (tab === 'NEW') {
+            if (isManager) whereClause.assignedTo = null; 
+            else whereClause.assignedTo = parseInt(userId);
+        } else if (tab === 'ASSIGNED') {
+            whereClause.assignedTo = { not: null }; 
+            
+            // 1. Staff Filter
+            if (staffId && staffId !== '') whereClause.assignedTo = parseInt(staffId);
+            else if (!isManager) whereClause.assignedTo = parseInt(userId);
+            
+            // 2. Status Filter
+            if (status && status !== '') whereClause.callStatus = status;
+            
+            // 3. Round Filter
+            if (round && round !== '') whereClause.coordinationRound = parseInt(round);
+            
+            // 4. Phase Filter
+            if (phase && phase !== '') {
+                whereClause.phase = parseInt(phase);
+            } else if (staffPhase && staffPhase !== '') {
+                whereClause.phase = parseInt(staffPhase);
+            }
+        }
 
-        let leads = await prisma.lead.findMany({
-            where: whereClause, 
-            orderBy: [ { unreadCount: 'desc' }, { updatedAt: 'desc' } ], 
-            include: { assignedUser: { select: { firstName: true, lastName: true } }, batch: { select: { name: true } } }
-        });
+        let leads = await prisma.lead.findMany({
+            where: whereClause, 
+            orderBy: [ { unreadCount: 'desc' }, { updatedAt: 'desc' } ], 
+            include: { assignedUser: { select: { firstName: true, lastName: true } }, batch: { select: { name: true } } }
+        });
 
-        const now = new Date();
+        const now = new Date();
 
-        for (let i = 0; i < leads.length; i++) {
-            let l = leads[i];
+        for (let i = 0; i < leads.length; i++) {
+            let l = leads[i];
 
-            if (['NEW_INQ', 'OPEN_SEMINAR', 'NORMAL'].includes(l.inquiryType)) {
-                const referenceTime = new Date(l.newInqTimestamp || l.updatedAt || l.createdAt);
-                const hoursPassed = (now - referenceTime) / (1000 * 60 * 60);
-                const daysPassed = hoursPassed / 24;
+            if (['NEW_INQ', 'OPEN_SEMINAR', 'NORMAL'].includes(l.inquiryType)) {
+                const referenceTime = new Date(l.newInqTimestamp || l.updatedAt || l.createdAt);
+                const hoursPassed = (now - referenceTime) / (1000 * 60 * 60);
+                const daysPassed = hoursPassed / 24;
 
-                // 24 Hour Delay Check (For pending calls)
-                if (hoursPassed >= 24 && l.phase === 1 && (!l.callStatus || l.callStatus === 'pending')) {
-                    if (l.inquiryType !== 'NEW_INQ') {
-                        leads[i].isLocked = true; 
-                    } else {
-                        leads[i].isLocked = false;
-                    }
-                } else {
-                    leads[i].isLocked = false;
-                }
+                // 24 Hour Delay Check
+                if (hoursPassed >= 24 && l.phase === 1 && (!l.callStatus || l.callStatus === 'pending')) {
+                    if (l.inquiryType !== 'NEW_INQ') {
+                        leads[i].isLocked = true; 
+                    } else {
+                        leads[i].isLocked = false;
+                    }
+                } else {
+                    leads[i].isLocked = false;
+                }
 
-                // 🔥 2nd Round: 5 Days Delay Check (All leads) 🔥
-                if (daysPassed >= 5) {
-                    leads[i].needs5DayCall = true; 
-                } else {
-                    leads[i].needs5DayCall = false;
-                }
+                // 2nd Round: 5 Days Delay Check
+                if (daysPassed >= 5) {
+                    leads[i].needs5DayCall = true; 
+                } else {
+                    leads[i].needs5DayCall = false;
+                }
 
-                // 🔥 3rd Round: 10 Days Non-Enrolled Delay Check 🔥
-                if (daysPassed >= 10 && l.enrollmentStatus === 'NON_ENROLLED') {
-                    leads[i].needs10DayCall = true; 
-                } else {
-                    leads[i].needs10DayCall = false;
-                }
-            }
+                // 3rd Round: 10 Days Non-Enrolled Delay Check
+                if (daysPassed >= 10 && l.enrollmentStatus === 'NON_ENROLLED') {
+                    leads[i].needs10DayCall = true; 
+                } else {
+                    leads[i].needs10DayCall = false;
+                }
+            }
 
-            // Sync with actual student payments
-            const bizMatch = l.phone ? l.phone.match(/_BIZ_(\d+)/) : null;
-            const extractedBizId = bizMatch ? parseInt(bizMatch[1]) : null;
+            // Sync with actual student payments
+const bizMatch = l.phone ? l.phone.match(/_BIZ_(\d+)/) : null;
+const extractedBizId = bizMatch ? parseInt(bizMatch[1]) : null;
 
-            if (extractedBizId) {
-                let rawPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
-                if (rawPhone.length >= 9) {
-                    const phoneSuffix = rawPhone.slice(-9); 
-                    
-                    const student = await prisma.user.findFirst({
-                        where: { phone: { endsWith: phoneSuffix } },
-                        include: {
-                            payments: {
-                                where: { 
-                                    businessId: extractedBizId,
-                                    status: { in: [1, 4] } 
-                                },
-                                orderBy: { created_at: 'desc' }
-                            }
-                        }
-                    });
+if (extractedBizId) {
+    let rawPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
+    if (rawPhone.length >= 9) {
+        const phoneSuffix = rawPhone.slice(-9); 
+        
+        const student = await prisma.user.findFirst({
+            where: { phone: { endsWith: phoneSuffix } },
+            include: {
+                payments: {
+                    where: { 
+                        businessId: extractedBizId,
+                        status: { in: [1, 4] } // 1 = Approved, 4 = Post Pay
+                    },
+                    orderBy: { created_at: 'desc' }
+                }
+            }
+        });
 
-                    if (student && student.payments && student.payments.length > 0) {
-                        const latestPayment = student.payments[0];
-                        
-                        let actualIntention = 'NOT_DECIDED';
-                        if (latestPayment.payment_type === 1) actualIntention = 'MONTHLY';
-                        else if (latestPayment.payment_type === 2) actualIntention = 'INSTALLMENT';
-                        else if (latestPayment.payment_type === 3) actualIntention = 'FULL';
+        if (student && student.payments && student.payments.length > 0) {
+            const latestPayment = student.payments[0];
+            
+            let actualIntention = 'NOT_DECIDED';
+            if (latestPayment.payment_type === 1) actualIntention = 'MONTHLY';
+            else if (latestPayment.payment_type === 2) actualIntention = 'INSTALLMENT';
+            else if (latestPayment.payment_type === 3) actualIntention = 'FULL';
 
-                        let updateData = {};
-                        let needsUpdate = false;
+            let updateData = {};
+            let needsUpdate = false;
 
-                        if (l.enrollmentStatus !== 'ENROLLED' || l.paymentIntention !== actualIntention) {
-                            updateData.enrollmentStatus = 'ENROLLED';
-                            updateData.paymentIntention = actualIntention;
-                            updateData.isLocked = false; 
-                            needsUpdate = true;
-                        }
+            if (l.enrollmentStatus !== 'ENROLLED' || l.paymentIntention !== actualIntention) {
+                updateData.enrollmentStatus = 'ENROLLED';
+                updateData.paymentIntention = actualIntention;
+                updateData.isLocked = false; 
+                needsUpdate = true;
+            }
 
-                        if (!l.batchId && latestPayment.batchId) {
-                            updateData.batchId = latestPayment.batchId;
-                            needsUpdate = true;
-                        }
+            if (!l.batchId && latestPayment.batchId) {
+                updateData.batchId = latestPayment.batchId;
+                needsUpdate = true;
+            }
 
-                        if (needsUpdate) {
-                            await prisma.lead.update({
-                                where: { id: l.id },
-                                data: updateData
-                            });
-                            leads[i] = { ...leads[i], ...updateData };
-                        }
-                    }
-                }
-            }
+            if (needsUpdate) {
+                await prisma.lead.update({
+                    where: { id: l.id },
+                    data: updateData
+                });
+                leads[i] = { ...leads[i], ...updateData };
+            }
+        } else {
+            // 🔥 මේක තමා අලුතෙන් දැම්මේ (STRICT SYNC) 🔥
+            // සල්ලි ගෙවලා නැත්නම්, හැබැයි Coordinator 'ENROLLED' කියලා දාලා තිබ්බොත් ඒක Auto අයින් වෙනවා
+            if (l.enrollmentStatus === 'ENROLLED') {
+                await prisma.lead.update({
+                    where: { id: l.id },
+                    data: { enrollmentStatus: 'NON_ENROLLED', paymentIntention: 'NOT_DECIDED' }
+                });
+                leads[i] = { ...leads[i], enrollmentStatus: 'NON_ENROLLED', paymentIntention: 'NOT_DECIDED' };
+            }
+        }
+    }
+}
 
-            leads[i].phone = l.phone ? l.phone.split('_BIZ')[0] : '';
-        }
+            leads[i].phone = l.phone ? l.phone.split('_BIZ')[0] : '';
+        }
 
-        // --- Calculate Counts ---
-        let countWhere = { campaignType: 'AFTER_SEMINAR' }; 
+        // --- Calculate Counts ---
+        let countWhere = { campaignType: 'AFTER_SEMINAR' }; 
 
-        if (businessId && businessId !== '') {
+        if (businessId && businessId !== '') {
             countWhere.OR = [
                 { phone: { endsWith: `BIZ_${businessId}` } },
                 { phone: { endsWith: `BIZ_${businessId}_AS` } },
@@ -233,55 +242,55 @@ exports.getLeads = async (req, res) => {
                 { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
             ];
         }
-        if (batchId && batchId !== '') countWhere.batchId = parseInt(batchId);
+        if (batchId && batchId !== '') countWhere.batchId = parseInt(batchId);
 
-        const allLeadsForCounts = await prisma.lead.findMany({ where: countWhere });
-        
-        let counts = { NEW: 0, ASSIGNED: 0, ALL: 0, FULL: 0, MONTHLY: 0, INSTALLMENT: 0, NOT_DECIDED: 0, NEW_INQ: 0, OPEN_SEMINAR: 0, IMPORTED: 0 };
-        let unreadCounts = { NEW: 0, NEW_INQ: 0, ASSIGNED: 0, ALL: 0, OPEN_SEMINAR: 0, IMPORTED: 0 };
-        let totalUnread = 0;
-        
-        allLeadsForCounts.forEach(l => {
-            if (!isManager && l.assignedTo && l.assignedTo !== parseInt(userId)) return;
+        const allLeadsForCounts = await prisma.lead.findMany({ where: countWhere });
+        
+        let counts = { NEW: 0, ASSIGNED: 0, ALL: 0, FULL: 0, MONTHLY: 0, INSTALLMENT: 0, NOT_DECIDED: 0, NEW_INQ: 0, OPEN_SEMINAR: 0, IMPORTED: 0 };
+        let unreadCounts = { NEW: 0, NEW_INQ: 0, ASSIGNED: 0, ALL: 0, OPEN_SEMINAR: 0, IMPORTED: 0 };
+        let totalUnread = 0;
+        
+        allLeadsForCounts.forEach(l => {
+            if (!isManager && l.assignedTo && l.assignedTo !== parseInt(userId)) return;
 
-            counts.ALL++;
-            if (l.unreadCount > 0) {
-                totalUnread++;
-                unreadCounts.ALL++;
-            }
+            counts.ALL++;
+            if (l.unreadCount > 0) {
+                totalUnread++;
+                unreadCounts.ALL++;
+            }
 
-            if (l.assignedTo) {
-                counts.ASSIGNED++;
-                if (l.unreadCount > 0) unreadCounts.ASSIGNED++;
-            } else {
-                if (l.source === 'import' || l.source === 'bulk_import') {
-                    counts.IMPORTED++;
-                    if (l.unreadCount > 0) unreadCounts.IMPORTED++;
-                } else {
-                    if (l.inquiryType === 'NORMAL') {
-                        counts.NEW++;
-                        if (l.unreadCount > 0) unreadCounts.NEW++;
-                    } else if (l.inquiryType === 'NEW_INQ') {
-                        counts.NEW_INQ++;
-                        if (l.unreadCount > 0) unreadCounts.NEW_INQ++;
-                    } else if (l.inquiryType === 'OPEN_SEMINAR') {
-                        counts.OPEN_SEMINAR++;
-                        if (l.unreadCount > 0) unreadCounts.OPEN_SEMINAR++;
-                    }
-                }
-            }
+            if (l.assignedTo) {
+                counts.ASSIGNED++;
+                if (l.unreadCount > 0) unreadCounts.ASSIGNED++;
+            } else {
+                if (l.source === 'import' || l.source === 'bulk_import') {
+                    counts.IMPORTED++;
+                    if (l.unreadCount > 0) unreadCounts.IMPORTED++;
+                } else {
+                    if (l.inquiryType === 'NORMAL') {
+                        counts.NEW++;
+                        if (l.unreadCount > 0) unreadCounts.NEW++;
+                    } else if (l.inquiryType === 'NEW_INQ') {
+                        counts.NEW_INQ++;
+                        if (l.unreadCount > 0) unreadCounts.NEW_INQ++;
+                    } else if (l.inquiryType === 'OPEN_SEMINAR') {
+                        counts.OPEN_SEMINAR++;
+                        if (l.unreadCount > 0) unreadCounts.OPEN_SEMINAR++;
+                    }
+                }
+            }
 
-            if (l.paymentIntention === 'FULL') counts.FULL++;
-            else if (l.paymentIntention === 'MONTHLY') counts.MONTHLY++;
-            else if (l.paymentIntention === 'INSTALLMENT') counts.INSTALLMENT++;
-            else counts.NOT_DECIDED++;
-        });
+            if (l.paymentIntention === 'FULL') counts.FULL++;
+            else if (l.paymentIntention === 'MONTHLY') counts.MONTHLY++;
+            else if (l.paymentIntention === 'INSTALLMENT') counts.INSTALLMENT++;
+            else counts.NOT_DECIDED++;
+        });
 
-        res.status(200).json({ leads, counts, unreadCounts, totalUnread });
-    } catch (error) { 
-        console.error("Auto Sync Engine Error:", error);
-        res.status(500).json({ error: "Failed to fetch leads" }); 
-    }
+        res.status(200).json({ leads, counts, unreadCounts, totalUnread });
+    } catch (error) { 
+        console.error("Auto Sync Engine Error:", error);
+        res.status(500).json({ error: "Failed to fetch leads" }); 
+    }
 };
 
 // ==========================================
@@ -358,48 +367,55 @@ exports.bulkActions = async (req, res) => {
             await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { unreadCount: 1, assignedTo: null, status: 'NEW' } });
         } 
         else if (action === 'ASSIGN') {
-            await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { assignedTo: parseInt(staffId), status: 'OPEN', phase: 1, callStatus: 'pending' } });
+            await prisma.lead.updateMany({ 
+                where: { id: { in: leadIds } }, 
+                data: { 
+                    assignedTo: parseInt(staffId), 
+                    status: 'OPEN', 
+                    phase: 1, 
+                    callStatus: 'pending',
+                    assignedAt: new Date() 
+                } 
+            });
         } 
         else if (action === 'UNASSIGN') {
-            await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { assignedTo: null, status: 'NEW', phase: 1, callStatus: 'pending' } });
+            await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { assignedTo: null, status: 'NEW', phase: 1, callStatus: 'pending', assignedAt: null } });
         }
-        // 🔥 CLONE LOGIC: Round එක මාරු කරද්දී Parana row eka ehemma thiyala aluth ekak create karanawa 🔥
         else if (action === 'CHANGE_ROUND') {
             for (const leadId of leadIds) {
                 const lead = await prisma.lead.findUnique({ where: { id: parseInt(leadId) } });
                 if (!lead) continue;
 
-                // DB එකේ Phone field එක unique නිසා, අලුත් round එකට යද්දි ඒක duplicate නොවී තියාගන්න 
-                // අපි Phone string එකේ අගට '_ROUND_X' කියලා එකතු කරනවා.
                 const basePhone = lead.phone.split('_ROUND_')[0]; 
                 const newPhoneStr = `${basePhone}_ROUND_${targetRound}`;
 
-                // අලුත් Round එකට අදාලව අලුත් Record එකක් Create කරනවා (Cloning)
                 await prisma.lead.upsert({
                     where: { phone: newPhoneStr },
-                    update: {}, // දැනටමත් අදාල Round එකට push කරලා තියෙනවා නම් ආයේ මුකුත් කරන්නේ නෑ
+                    update: {}, 
                     create: {
                         name: lead.name,
                         phone: newPhoneStr,
                         source: lead.source,
                         campaignType: lead.campaignType,
-                        assignedTo: lead.assignedTo, // කලින් හිටපු කෙනාටම Assign වෙනවා
+                        assignedTo: lead.assignedTo, 
                         status: 'OPEN',
-                        phase: 1, // Phase එක අලුතෙන් 1 ට රීසෙට් වෙනවා
-                        callStatus: 'pending', // Pending විදිහට අලුතෙන් පටන් ගන්නවා
+                        phase: 1, 
+                        callStatus: 'pending', 
                         paymentIntention: lead.paymentIntention,
                         enrollmentStatus: lead.enrollmentStatus,
+                        text: lead.text,
                         inquiryType: lead.inquiryType,
                         newInqTimestamp: lead.newInqTimestamp,
                         batchId: lead.batchId,
-                        feedback: lead.feedback, // 🔥 කලින් Round එකේ Remark එක එහෙම්මම අරන් යනවා
-                        coordinationRound: parseInt(targetRound), // අලුත් Target Round එක
-                        callAttempt: 1, // Attempts රීසෙට් කරනවා
-                        callMethod: 'direct', // Method එක රීසෙට් කරනවා
+                        feedback: lead.feedback, 
+                        coordinationRound: parseInt(targetRound), 
+                        callAttempt: 1, 
+                        callMethod: 'direct', 
                         isLocked: false,
                         unreadCount: 0,
                         autoReplyStep: lead.autoReplyStep,
-                        sequenceCompleted: lead.sequenceCompleted
+                        sequenceCompleted: lead.sequenceCompleted,
+                        assignedAt: lead.assignedTo ? new Date() : null
                     }
                 });
             }
@@ -426,7 +442,6 @@ exports.assignLeads = async (req, res) => {
         if (type === 'bulk') {
             let whereClause = { assignedTo: null, campaignType: 'AFTER_SEMINAR' };
             
-            // 🔥 3 වෙනි තැන UPDATE කරා 🔥
             if (batchId && batchId !== '') {
                 whereClause.batchId = parseInt(batchId);
             } else if (businessId && businessId !== '') {
@@ -481,42 +496,58 @@ exports.assignLeads = async (req, res) => {
 // ==========================================
 exports.updateCallCampaign = async (req, res) => {
     try {
-        const { leadId, method, status, feedback, coordinationRound, paymentIntention, enrollmentStatus, inquiryType, callAttempt } = req.body;
+        const { leadId, method, status, callStatus, feedback, coordinationRound, paymentIntention, enrollmentStatus, inquiryType, callAttempt } = req.body;
         
         const lead = await prisma.lead.findUnique({ where: { id: parseInt(leadId) } });
         if (!lead) return res.status(404).json({ error: "Lead not found" });
 
-        let nextPhase = lead.phase;
+        let currentPhase = parseInt(lead.phase) || 1;
+        let nextPhase = currentPhase;
         
-        // Auto Phase increment logic (If they didn't answer)
-        if (status === 'no_answer') {
-            if (lead.phase === 1) nextPhase = 2;
-            else if (lead.phase === 2) nextPhase = 3;
-        } else if (status === 'answered' || status === 'reject') {
-             nextPhase = lead.phase;
+        // 🔥 Frontend එකෙන් එවන status එක ගන්නවා, නැත්තන් DB එකේ තියෙන එක ගන්නවා
+        const actualStatus = status || callStatus || lead.callStatus;
+        let finalCallStatus = actualStatus;
+
+        // 🔥 LOGIC: 'no_answer' ආවොත් Phase එක වැඩි කරලා, ආයෙත් කෝල් කරන්න 'pending' කරනවා
+        if (actualStatus === 'no_answer') {
+            if (currentPhase === 1) {
+                nextPhase = 2;
+                finalCallStatus = 'pending';
+            } else if (currentPhase === 2) {
+                nextPhase = 3;
+                finalCallStatus = 'pending';
+            } else {
+                // Phase 3 එකෙත් no_answer නම් ඒක එහෙම්ම තියනවා
+                finalCallStatus = 'no_answer'; 
+            }
+        } else if (actualStatus === 'answered' || actualStatus === 'reject') {
+             // Answered හෝ Reject නම් ඉන්න Phase එකේම ඉන්නවා
+             nextPhase = currentPhase;
         }
 
-        // If the inquiryType changes (Tab movement), reset the timer for the KPI!
         const tabChanged = inquiryType && inquiryType !== lead.inquiryType;
-        const newTimestamp = tabChanged ? new Date() : lead.updatedAt;
+        const phaseChanged = currentPhase !== nextPhase;
+        const statusChanged = actualStatus !== lead.callStatus;
+        
+        const newTimestamp = (tabChanged || phaseChanged || statusChanged) ? new Date() : lead.updatedAt;
 
         const updatedLead = await prisma.lead.update({
             where: { id: parseInt(leadId) },
             data: { 
-                callMethod: method || lead.callMethod, 
-                callStatus: status || lead.callStatus, 
+                callMethod: method !== undefined ? method : lead.callMethod, 
+                callStatus: finalCallStatus,  // 🔥 අලුත් status එක (pending)
                 feedback: feedback !== undefined ? feedback : lead.feedback, 
-                phase: nextPhase,
+                phase: nextPhase,             // 🔥 අලුත් Phase එක
                 coordinationRound: coordinationRound !== undefined ? parseInt(coordinationRound) : lead.coordinationRound,
                 callAttempt: callAttempt !== undefined ? parseInt(callAttempt) : lead.callAttempt,
                 paymentIntention: paymentIntention || lead.paymentIntention,
                 enrollmentStatus: enrollmentStatus || lead.enrollmentStatus,
                 inquiryType: inquiryType || lead.inquiryType,
-                updatedAt: newTimestamp // Reset timer if moved
+                updatedAt: newTimestamp
             }
         });
 
-        res.status(200).json({ message: "Call status updated", lead: updatedLead });
+        res.status(200).json({ message: "Call status updated successfully", lead: updatedLead });
     } catch (error) { 
         console.error("Update Call Error:", error);
         res.status(500).json({ error: "Failed to update call campaign" }); 
@@ -545,7 +576,6 @@ exports.getAllCampaignLeads = async (req, res) => {
         const { businessId, batchId } = req.query;
         let whereClause = { campaignType: 'AFTER_SEMINAR' };
         
-        // 🔥 4 වෙනි තැන UPDATE කරා 🔥
         if (batchId && batchId !== '') {
             whereClause.batchId = parseInt(batchId);
         } else if (businessId && businessId !== '') {
@@ -620,7 +650,6 @@ exports.receiveMessage = async (req, res) => {
             let name = contactData?.profile?.name || "Unknown"; 
             let metaMsgId = msgData.id; 
 
-            // 🔥 FULL DEBUG LOG 🔥
             console.log("\n🟢 ====== INCOMING MESSAGE WEBHOOK ======");
             console.log(JSON.stringify(msgData, null, 2));
             console.log("=========================================\n");
@@ -682,11 +711,9 @@ exports.receiveMessage = async (req, res) => {
                 const isRestartCommand = ['hi', 'hello', 'hey', 'menu', 'start'].includes(msgLower);
                 const timeSinceLastMsg = existingLeadCheck && existingLeadCheck.updatedAt ? new Date() - new Date(existingLeadCheck.updatedAt) : 10000;
                 
-                // 🔥 FIX 1: Spam limit changed to 10000 (10 seconds)
                 const isSpamming = timeSinceLastMsg < 10000; 
 
                 let resetData = {};
-                // 🔥 FIX 2: Reset sequence if user types 'hi' OR if they message again after 12 hours
                 if (isRestartCommand || timeSinceLastMsg > 43200000) { 
                     resetData = { autoReplyStep: 0, sequenceCompleted: false };
                 }
@@ -775,7 +802,6 @@ exports.receiveMessage = async (req, res) => {
                                 metaPayload.type = "text"; metaPayload.text = { body: nextReply.message }; 
                             }
 
-                            // 🔥 FIX 3: Better Error Logging & Removed duplicate axios require
                             try {
                                 const metaRes = await axios.post(`https://graph.facebook.com/v19.0/${settings.waNumId}/messages`, metaPayload, { headers: { 'Authorization': `Bearer ${settings.metaApiKey}` } });
                                 await prisma.chatMessage.create({ data: { leadId: existingLead.id, message: nextReply.message, mediaUrl: nextReply.attachment, mediaType: nextReply.attachmentType, direction: 'outbound', senderType: 'SYSTEM', senderName: 'AutoBot', metaMessageId: metaRes.data?.messages?.[0]?.id } });
@@ -802,11 +828,9 @@ exports.receiveMessage = async (req, res) => {
                 let existingLead = await prisma.lead.findUnique({ where: { phone: dbPhone } });
                 const timeSinceLastMsg = existingLead && existingLead.updatedAt ? new Date() - new Date(existingLead.updatedAt) : 10000;
                 
-                // 🔥 FIX 1: Spam limit changed to 10000 (10 seconds)
                 const isSpamming = timeSinceLastMsg < 10000; 
                 
                 let resetData = {};
-                // 🔥 FIX 2: Reset sequence if user types 'hi' OR if they message again after 12 hours
                 if (isRestartCommand || timeSinceLastMsg > 43200000) { 
                     resetData = { autoReplyStep: 0, sequenceCompleted: false };
                 }
@@ -860,7 +884,6 @@ exports.receiveMessage = async (req, res) => {
                                 metaPayload.type = "text"; metaPayload.text = { body: nextReply.message }; 
                             }
 
-                            // 🔥 FIX 3: Better Error Logging & Removed duplicate axios require
                             try {
                                 const metaRes = await axios.post(`https://graph.facebook.com/v19.0/${settings.waNumId}/messages`, metaPayload, { headers: { 'Authorization': `Bearer ${settings.metaApiKey}` } });
                                 await prisma.chatMessage.create({ data: { leadId: existingLead.id, message: nextReply.message, mediaUrl: nextReply.attachment, mediaType: nextReply.attachmentType, direction: 'outbound', senderType: 'SYSTEM', senderName: 'AutoBot', metaMessageId: metaRes.data?.messages?.[0]?.id } });

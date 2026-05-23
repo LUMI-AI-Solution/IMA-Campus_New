@@ -24,7 +24,9 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   const [showImportModal, setShowImportModal] = useState(false); 
   const [csvFile, setCsvFile] = useState(null); 
   
-  // 🔥 ALUTH FILTERS TIKA 🔥
+  // 🔥 ALUTH STATE EKA: ASSIGN CONFIRM POPUP EKA WENUWEN 🔥
+  const [assignConfirmation, setAssignConfirmation] = useState(null);
+  
   const [staffFilter, setStaffFilter] = useState('');
   const [groupFilter, setGroupFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -62,9 +64,9 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                 paymentGroup: groupFilter,
                 status: statusFilter, 
                 staffId: staffFilter,
-                inquiryType: activeTab === 'ASSIGNED' ? assignedInqFilter : '', // Assigned tab eke inq filter
-                round: roundFilter, // New
-                phase: phaseFilter, // New
+                inquiryType: activeTab === 'ASSIGNED' ? assignedInqFilter : '', 
+                round: roundFilter, 
+                phase: phaseFilter, 
                 loggedUserId: currentUserId, 
                 loggedUserRole: rawRole,
                 businessId: filters?.selectedBusiness || '', 
@@ -127,7 +129,6 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
 
   useEffect(() => { fetchCoordinatorsAndQuotas(); }, [filters?.selectedBusiness, filters?.selectedBatch]);
 
-  // 🔥 UPDATE: Aluth filter variables tika add kara 🔥
   useEffect(() => { 
       fetchLeads(true); 
       setCheckedLeads([]); 
@@ -137,9 +138,20 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
 
   const handleSelectAll = () => { if (checkedLeads.length === leads.length) setCheckedLeads([]); else setCheckedLeads(leads.map(l => l.id)); };
 
+  // 🔥 UPDATE: ASSIGN action eka modal ekata harawala thiyenne 🔥
   const handleBulkAction = async (action, assignStaffId = null, specificLeads = null) => {
     const leadsToProcess = specificLeads || checkedLeads;
     if (leadsToProcess.length === 0) return;
+
+    if (action === 'ASSIGN') {
+        setAssignConfirmation({
+            type: 'selected',
+            staffId: assignStaffId,
+            leadIds: leadsToProcess
+        });
+        return;
+    }
+
     try {
       const token = localStorage.getItem('token');
       await axios.post('/after-seminar-crm/leads/bulk-action', { action, leadIds: leadsToProcess, staffId: assignStaffId }, { headers: { Authorization: `Bearer ${token}` } });
@@ -162,26 +174,50 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
     }
   };
 
+  // 🔥 UPDATE: Bulk assign form eka modal ekata harawala thiyenne 🔥
   const handleAssignSubmit = async (e, type) => {
     e.preventDefault();
-    try {
-      const token = localStorage.getItem('token');
-      if (type === 'bulk') {
-        await axios.post('/after-seminar-crm/leads/assign', { 
-            type: 'bulk', 
-            count: e.target.count.value, 
-            sort: e.target.sort.value, 
+    if (type === 'bulk') {
+        const formData = {
+            type: 'bulk',
+            count: e.target.count.value,
+            sort: e.target.sort.value,
             staffId: e.target.staffId.value,
             batchId: filters?.selectedBatch,
-            businessId: filters?.selectedBusiness,
-            assignType: e.target.assignType ? e.target.assignType.value : 'OPEN_SEMINAR' 
-        }, { headers: { Authorization: `Bearer ${token}` } });
-      }
-      toast.success("Leads Assigned Successfully!");
-      setShowAssignModal(false); fetchLeads(true);
-    } catch (error) { 
-        toast.error(error.response?.data?.error || "Assignment Failed"); 
+            businessId: filters?.selectedBusiness
+        };
+        setAssignConfirmation({
+            type: 'bulk_form',
+            formData: formData
+        });
+        setShowAssignModal(false);
     }
+  };
+
+  // 🔥 ALUTH FUNCTION EKA: Final Assignment eka Run Karanna 🔥
+  const executeAssignment = async (assignType) => {
+      try {
+          const token = localStorage.getItem('token');
+          if (assignConfirmation.type === 'selected') {
+              await axios.post('/after-seminar-crm/leads/bulk-action', {
+                  action: 'ASSIGN',
+                  leadIds: assignConfirmation.leadIds,
+                  staffId: assignConfirmation.staffId,
+                  assignType: assignType 
+              }, { headers: { Authorization: `Bearer ${token}` } });
+              setCheckedLeads([]);
+          } else if (assignConfirmation.type === 'bulk_form') {
+              await axios.post('/after-seminar-crm/leads/assign', {
+                  ...assignConfirmation.formData,
+                  assignType: assignType
+              }, { headers: { Authorization: `Bearer ${token}` } });
+          }
+          toast.success("Leads Assigned Successfully!");
+          setAssignConfirmation(null);
+          fetchLeads(true);
+      } catch (error) {
+          toast.error(error.response?.data?.error || "Assignment Failed");
+      }
   };
 
   const handleLeadClick = async (lead) => {
@@ -206,7 +242,6 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   }, [leads, searchQuery]);
 
   const getAssignedStats = () => {
-      // Return currently filtered count for assigned tab if any filter is active
       if (activeTab === 'ASSIGNED' && (staffFilter || groupFilter || statusFilter || assignedInqFilter || roundFilter || phaseFilter)) {
           return { total: leads.length, unread: leads.filter(l => l.unreadCount > 0).length };
       }
@@ -244,7 +279,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
              )}
              {isManager && <button onClick={() => handleBulkAction('UNASSIGN')} title="Unassign Leads" className="p-2 bg-red-500/20 hover:bg-red-500 rounded-lg text-red-300 hover:text-white transition-all"><FaUserMinus/></button>}
              {isManager && (
-                <select onChange={(e) => { if (e.target.value) handleBulkAction('ASSIGN', e.target.value) }} className="flex-1 bg-white/10 border-none text-white text-xs font-bold rounded-lg p-2 outline-none">
+                <select onChange={(e) => { if (e.target.value) { handleBulkAction('ASSIGN', e.target.value); e.target.value=''; } }} className="flex-1 bg-white/10 border-none text-white text-xs font-bold rounded-lg p-2 outline-none">
                   <option value="">Assign To...</option>
                   {coordinators.map(c => <option key={c.id} value={c.id} className="text-black">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'})</option>)}
                 </select>
@@ -302,10 +337,8 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
              </div>
           )}
 
-          {/* 🔥 UPDATE: ASSIGNED FILTERS TIKA GRID EKAKATA DAMMA 🔥 */}
           {activeTab === 'ASSIGNED' && (
             <div className="flex flex-col gap-2 mt-4">
-              {/* First Row of Filters */}
               <div className="flex gap-2">
                 <select onChange={e=>setStaffFilter(e.target.value)} value={staffFilter} className="flex-1 bg-[#0f172a] text-slate-300 text-[10px] font-bold uppercase rounded-lg px-2 py-2 border border-slate-700 outline-none">
                   <option value="">All Staff</option>
@@ -327,7 +360,6 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                 </select>
               </div>
 
-              {/* Second Row of Filters */}
               <div className="flex gap-2">
                 <select onChange={e=>setRoundFilter(e.target.value)} value={roundFilter} className="flex-1 bg-[#0f172a] text-slate-300 text-[10px] font-bold uppercase rounded-lg px-2 py-2 border border-slate-700 outline-none">
                   <option value="">All Rounds</option>
@@ -480,16 +512,11 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                
                <form onSubmit={(e) => handleAssignSubmit(e, 'bulk')} className="bg-[#121a24] p-4 rounded-xl border border-slate-800 mb-4">
                   <div className="grid grid-cols-2 gap-2 mb-3">
-                     <select name="assignType" required className="bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none col-span-2">
-                        <option value="OPEN_SEMINAR">Open Seminar Inquiries</option>
-                        <option value="NEW_INQ">Normal Inbox Inquiries</option>
-                        <option value="NORMAL">Imported Leads (Open Seminar)</option>
-                     </select>
-                     <select name="sort" required className="bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none">
+                     <select name="sort" required className="col-span-2 bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none">
                         <option value="oldest">Oldest First</option>
                         <option value="newest">Newest First</option>
                      </select>
-                     <input name="count" type="number" placeholder="Lead Count" required className="bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none" />
+                     <input name="count" type="number" placeholder="Lead Count" required className="col-span-2 bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none" />
                   </div>
                   <select name="staffId" required className="w-full bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 mb-3 text-xs outline-none">
                      <option value="">Select Coordinator / Team...</option>
@@ -581,6 +608,43 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                </div>
              </div>
          </div>
+      )}
+
+      {/* 🔥 ALUTH MODAL EKA: ASSIGN KARANNA KALIN INQUIRY TYPE EKA AHANAWA 🔥 */}
+      {assignConfirmation && (
+          <div className="absolute inset-0 z-[60] bg-[#0f172a]/90 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-[#1a2430] border border-slate-700 rounded-3xl p-6 w-[90%] max-w-sm shadow-2xl animate-fade-in">
+                  <div className="text-center mb-6">
+                      <div className="w-16 h-16 bg-blue-500/20 text-blue-400 rounded-full flex items-center justify-center mx-auto mb-4 border border-blue-500/30">
+                          <FaUserCheck size={28} />
+                      </div>
+                      <h3 className="text-xl font-bold text-white mb-2">Select Inquiry Type</h3>
+                      <p className="text-xs text-slate-400">Please choose the inquiry type for these leads before assigning.</p>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                      <button
+                          onClick={() => executeAssignment('OPEN_SEMINAR')}
+                          className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"
+                      >
+                          <FaBullhorn size={16} /> Open Seminar
+                      </button>
+                      <button
+                          onClick={() => executeAssignment('NEW_INQ')}
+                          className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3.5 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2"
+                      >
+                          <FaCommentDots size={16} /> Normal Inquiry (Inbox)
+                      </button>
+                  </div>
+
+                  <button
+                      onClick={() => setAssignConfirmation(null)}
+                      className="w-full mt-4 text-slate-400 hover:text-white text-xs font-bold py-2 transition-colors"
+                  >
+                      Cancel Assignment
+                  </button>
+              </div>
+          </div>
       )}
 
     </div>

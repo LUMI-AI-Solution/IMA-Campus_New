@@ -416,6 +416,7 @@ exports.enrollStudent = async (req, res) => {
         res.status(500).json({ error: "Enrollment failed" });
     }
 };
+
 // 5. My Classroom
 exports.getStudentClassroom = async (req, res) => {
     try {

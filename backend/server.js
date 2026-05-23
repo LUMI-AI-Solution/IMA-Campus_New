@@ -121,6 +121,11 @@ app.use('/api/admin/delivery', require('./routes/deliveryRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes')); 
 app.use('/api/admin/payments', require('./routes/paymentRoutes'));
 app.use('/api/admin/crm', require('./routes/crmRoutes'));
+app.use('/api/reminders', require('./routes/reminderRoutes'));
+
+
+// 🔥 NEW: Add Data Export Route here 🔥
+app.use('/api/admin/data-export', require('./routes/dataExportRoutes')); // Mekath hadanna ona
 
 app.use('/api/coordinator-crm', coordinatorCrmRoutes);
 app.use('/api/after-seminar-crm', afterSeminarCrmRoutes);
@@ -128,6 +133,9 @@ app.use('/api/team', teamRoutes);
 
 // 🔥🔥🔥 MOBILE APP ROUTES 🔥🔥🔥
 app.use('/api/mobile', require('./routes/mobile/mobileRoutes')); 
+
+const rosterRoutes = require('./routes/rosterRoutes');
+app.use('/api/roster', rosterRoutes);
 
 // ================= DELIVERY MODULE ROUTES (NEW) =================
 
@@ -229,5 +237,81 @@ const todayDay = parseInt(datePrefix.split('-')[2], 10);
         console.log(`🎉 Successfully generated ${createdCount} Custom Tasks for today!`);
     } catch (error) {
         console.error("❌ Error in Daily Custom Task Generator:", error);
+    }
+});
+
+// ==========================================================
+// 🔥 AUTO ROUND PUSH FOR ALL INQUIRIES (CRON JOB) 🔥
+// ==========================================================
+// හැමදාම රෑ 12:10 ට මේක Auto Run වෙනවා
+cron.schedule('10 0 * * *', async () => {
+    console.log("⏰ Running Daily Auto Round Push (5-Day Rule)...");
+    try {
+        const now = new Date();
+        const fiveDaysAgo = new Date(now.getTime() - (5 * 24 * 60 * 60 * 1000)); // හරියටම දවස් 5කට කලින්
+
+        // 1. Model එක prismaTaskGen.lead විදියට වෙනස් කරා
+        const leadsToPush = await prismaTaskGen.lead.findMany({
+            where: {
+                campaignType: 'AFTER_SEMINAR', // අදාල Campaign එකට විතරක්
+                inquiryType: { in: ['NEW_INQ', 'OPEN_SEMINAR', 'NORMAL'] }, 
+                enrollmentStatus: { not: 'ENROLLED' },
+                callStatus: { in: ['answered', 'reject'] }, // Answered හෝ Reject අය විතරයි
+                coordinationRound: { in: [1, 2] }, 
+                updatedAt: { lte: fiveDaysAgo } // දවස් 5ක් පැනපු අය
+            }
+        });
+
+        if (leadsToPush.length === 0) {
+            console.log("✅ No leads found for Auto Round Push today.");
+            return;
+        }
+
+        let updatedCount = 0;
+
+        // 2. ඒ ළමයිව ඊළඟ Round එකට දාලා Status එක Pending කරනවා (Controller Logic එකට සමානව)
+        for (const lead of leadsToPush) {
+            const currentRound = lead.coordinationRound || 1;
+            const targetRound = currentRound + 1;
+            
+            // _ROUND_ කෑල්ලෙන් කඩලා අලුත් phone string එක හදනවා
+            const basePhone = lead.phone.split('_ROUND_')[0]; 
+            const newPhoneStr = `${basePhone}_ROUND_${targetRound}`;
+
+            await prismaTaskGen.lead.upsert({
+                where: { phone: newPhoneStr },
+                update: {}, // දැනටමත් මේ round එකේ ඉන්නවනම් මුකුත් කරන්නේ නෑ
+                create: {
+                    name: lead.name,
+                    phone: newPhoneStr,
+                    source: lead.source,
+                    campaignType: lead.campaignType,
+                    assignedTo: lead.assignedTo, 
+                    status: 'OPEN',
+                    phase: 1, 
+                    callStatus: 'pending', 
+                    paymentIntention: lead.paymentIntention,
+                    enrollmentStatus: lead.enrollmentStatus,
+                    text: lead.text,
+                    inquiryType: lead.inquiryType,
+                    newInqTimestamp: lead.newInqTimestamp,
+                    batchId: lead.batchId,
+                    feedback: lead.feedback, 
+                    coordinationRound: targetRound, 
+                    callAttempt: 1, 
+                    callMethod: lead.callMethod || 'direct', 
+                    isLocked: false,
+                    unreadCount: 0,
+                    autoReplyStep: lead.autoReplyStep,
+                    sequenceCompleted: lead.sequenceCompleted,
+                    assignedAt: lead.assignedTo ? new Date() : null
+                }
+            });
+            updatedCount++;
+        }
+
+        console.log(`🎉 Successfully Pushed ${updatedCount} Leads to the Next Round!`);
+    } catch (error) {
+        console.error("❌ Error in Auto Round Push Generator:", error);
     }
 });

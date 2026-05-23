@@ -148,7 +148,7 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                 <div className="fixed bottom-8 left-1/2 -translate-x-1/2 bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder px-6 py-3 rounded-full shadow-2xl z-50 flex items-center gap-6 animate-in slide-in-from-bottom-10 transition-colors">
                     <span className="text-gray-900 dark:text-white font-semibold text-sm">{selectedTaskIds.length} Tasks Selected</span>
                     <div className="w-px h-5 bg-gray-200 dark:bg-brand-darkBorder"></div>
-                    <button onClick={() => { setSelectedTask(null); setShowAssignModal(true); }} className="bg-brand-accent hover:bg-brand-accentHover text-white px-5 py-2 rounded-full font-medium text-sm transition-colors flex items-center gap-2 shadow-sm">
+                    <button onClick={() => { setSelectedTask(null); setShowAssignModal(true); }} className="bg-brand-accent hover:bg-brand-accentHover text-white px-5 py-2 rounded-full font-medium text-sm transition-colors flex items-center gap-2 shadow-[0_4px_15px_rgba(225,29,72,0.3)]">
                         <Users size={16}/> Bulk Assign
                     </button>
                     <button onClick={() => setSelectedTaskIds([])} className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white p-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-brand-darkHover transition-colors"><X size={16}/></button>
@@ -186,7 +186,7 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                             <button 
                                 key={tab.id} 
                                 onClick={() => setActiveTab(tab.id)} 
-                                className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap outline-none ${tab.isRight ? 'ml-auto' : ''} ${isActive ? 'bg-brand-accent text-white shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-brand-darkHover hover:text-gray-900 dark:hover:text-slate-200'}`}
+                                className={`px-5 py-2.5 rounded-xl text-sm font-medium transition-all flex items-center gap-2 whitespace-nowrap outline-none ${tab.isRight ? 'ml-auto' : ''} ${isActive ? 'bg-brand-accent text-white shadow-[0_4px_15px_rgba(225,29,72,0.3)]' : 'text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-brand-darkHover hover:text-gray-900 dark:hover:text-slate-200'}`}
                             >
                                 <Icon size={16} className={isActive ? 'text-white' : 'text-gray-400 dark:text-slate-500'}/> 
                                 {tab.label} 
@@ -203,7 +203,7 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                         {activeTab === 'pending' && filteredTasks.length > 0 && (
                             <div className="flex justify-end mb-4 px-2">
                                 <label className="flex items-center gap-2.5 cursor-pointer hover:bg-gray-200 dark:hover:bg-brand-darkHover px-3 py-1.5 rounded-lg transition-colors">
-                                    <input type="checkbox" checked={selectedTaskIds.length === filteredTasks.length} onChange={selectAllTasks} className="w-4 h-4 accent-brand-accent rounded border-gray-300 dark:border-slate-600"/>
+                                    <input type="checkbox" checked={selectedTaskIds.length === filteredTasks.length} onChange={selectAllTasks} className="w-4 h-4 accent-brand-accent rounded cursor-pointer border-gray-300 dark:border-slate-600"/>
                                     <span className="text-sm font-medium text-gray-700 dark:text-slate-300 transition-colors">Select All Tasks</span>
                                 </label>
                             </div>
@@ -229,7 +229,7 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                                     const isSelected = selectedTaskIds.includes(task.id);
 
                                     return (
-                                        <div key={task.id} onClick={() => { if(activeTab === 'pending') toggleTaskSelection(task.id) }} className={`relative bg-white dark:bg-brand-darkCard border p-5 rounded-3xl flex flex-col transition-all shadow-sm ${isSelected ? 'border-brand-accent bg-brand-accentLight/50 dark:bg-brand-accentLight' : task.isOverdue && task.status !== 'COMPLETED' ? 'border-red-300 dark:border-red-500/50' : 'border-gray-200 dark:border-brand-darkBorder hover:border-gray-300 dark:hover:border-slate-700'} ${activeTab === 'pending' ? 'cursor-pointer hover:shadow-md' : ''}`}>
+                                        <div key={task.id} onClick={() => { if(activeTab === 'pending') toggleTaskSelection(task.id) }} className={`relative bg-white dark:bg-brand-darkCard border p-5 rounded-3xl flex flex-col transition-all shadow-sm ${isSelected ? 'border-brand-accent bg-brand-accentLight/50 dark:bg-brand-accent/10' : task.isOverdue && task.status !== 'COMPLETED' ? 'border-red-300 dark:border-red-500/50' : 'border-gray-200 dark:border-brand-darkBorder hover:border-gray-300 dark:hover:border-slate-700'} ${activeTab === 'pending' ? 'cursor-pointer hover:shadow-md' : ''}`}>
                                             
                                             {activeTab === 'pending' && (
                                                 <div className="absolute top-5 right-5 z-10">
@@ -266,7 +266,7 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                                                     <div className="pt-2 border-t border-gray-200 dark:border-brand-darkBorder mt-2 flex justify-between items-center transition-colors">
                                                         <span>Assigned To</span> 
                                                         <span className="text-gray-800 dark:text-slate-300 font-bold flex items-center gap-1.5 transition-colors">
-                                                            <div className="w-5 h-5 rounded-full bg-brand-accentLight border border-brand-accent/20 text-brand-accent flex items-center justify-center text-[10px] transition-colors">{task.assignedUser.firstName.charAt(0)}</div>
+                                                            <div className="w-5 h-5 rounded-full bg-brand-accentLight/50 dark:bg-brand-accent/20 border border-brand-accent/20 text-brand-accent flex items-center justify-center text-[10px] transition-colors">{task.assignedUser.firstName.charAt(0)}</div>
                                                             {task.assignedUser.firstName}
                                                         </span>
                                                     </div>
@@ -289,17 +289,17 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                                             
                                             <div className="mt-auto flex items-center gap-3">
                                                 {!isMainTaskWithSubs && task.deadline && (
-                                                    <div className={`flex-1 px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-colors ${task.status === 'COMPLETED' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20' : task.isOverdue ? 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 border-red-200 dark:border-red-500/20' : 'bg-gray-100 dark:bg-brand-darkBg text-gray-600 dark:text-slate-400 border-gray-200 dark:border-brand-darkBorder'}`}>
+                                                    <div className={`flex-1 px-3 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border transition-colors ${task.status === 'COMPLETED' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20' : task.isOverdue ? 'bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 border-red-200 dark:border-red-500/20' : 'bg-gray-100 dark:bg-brand-darkHover text-gray-600 dark:text-slate-400 border-gray-200 dark:border-brand-darkBorder'}`}>
                                                         <Clock size={14}/>
                                                         {task.status === 'COMPLETED' ? 'Completed' : formatDeadline(task.deadline)}
                                                     </div>
                                                 )}
 
                                                 {activeTab === 'pending' && selectedTaskIds.length === 0 && (
-                                                    <button onClick={(e) => { e.stopPropagation(); setSelectedTask(task); setShowAssignModal(true); }} className="flex-1 bg-brand-accent hover:bg-brand-accentHover text-white py-2 font-medium rounded-xl transition-colors text-sm shadow-sm outline-none">Assign Staff</button>
+                                                    <button onClick={(e) => { e.stopPropagation(); setSelectedTask(task); setShowAssignModal(true); }} className="flex-1 bg-brand-accent hover:bg-brand-accentHover text-white py-2 font-medium rounded-xl transition-colors text-sm shadow-[0_4px_15px_rgba(225,29,72,0.3)] outline-none">Assign Staff</button>
                                                 )}
 
-                                                {activeTab === 'requests' && <button onClick={() => { setSelectedTask(task); setShowUnlockModal(true); }} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2 font-medium text-sm rounded-xl transition-colors shadow-sm outline-none">Review Request</button>}
+                                                {activeTab === 'requests' && <button onClick={() => { setSelectedTask(task); setShowUnlockModal(true); }} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2 font-medium text-sm rounded-xl transition-colors shadow-[0_4px_15px_rgba(249,115,22,0.3)] outline-none">Review Request</button>}
                                                 
                                                 {activeTab === 'completed' && (
                                                     <button onClick={() => { setSelectedTask(task); setShowOverviewModal(true); }} className="flex-1 bg-gray-800 dark:bg-slate-700 hover:bg-gray-900 dark:hover:bg-slate-600 text-white py-2 font-medium text-sm rounded-xl flex items-center justify-center gap-2 transition-colors shadow-sm outline-none"><Eye size={16} /> Overview</button>
@@ -316,26 +316,26 @@ export default function ManagerTaskCenter({ loggedInUser }) {
 
             {/* ASSIGN MODAL */}
             {showAssignModal && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 dark:bg-slate-900/80 backdrop-blur-sm p-4 animate-in fade-in duration-200 transition-colors">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 dark:bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-200 transition-colors">
                     <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-3xl p-6 md:p-8 w-full max-w-sm shadow-2xl relative transition-colors">
                         <div className="flex justify-between items-center mb-6">
                             <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2 transition-colors"><Users className="text-brand-accent" size={20}/> Assign Task</h3>
-                            <button onClick={() => setShowAssignModal(false)} className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white bg-gray-100 dark:bg-brand-darkBg p-2 rounded-xl transition-colors outline-none"><X size={18}/></button>
+                            <button onClick={() => setShowAssignModal(false)} className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white bg-gray-50 dark:bg-brand-darkBg p-2.5 rounded-xl border border-gray-200 dark:border-brand-darkBorder transition-colors outline-none"><X size={18}/></button>
                         </div>
                         
                         {selectedTaskIds.length > 0 ? (
-                            <p className="text-sm text-brand-accent bg-brand-accentLight p-3 rounded-xl border border-brand-accent/20 text-center mb-6 font-bold transition-colors">Assigning {selectedTaskIds.length} tasks in bulk.</p>
+                            <p className="text-sm text-brand-accent bg-brand-accentLight/50 dark:bg-brand-accent/10 p-3 rounded-xl border border-brand-accent/20 text-center mb-6 font-bold transition-colors">Assigning {selectedTaskIds.length} tasks in bulk.</p>
                         ) : (
                             <p className="text-sm text-gray-700 dark:text-slate-300 bg-gray-50 dark:bg-brand-darkBg p-3 rounded-xl border border-gray-200 dark:border-brand-darkBorder text-center mb-6 truncate font-medium transition-colors">{selectedTask?.timetable?.subjectName || selectedTask?.customTitle}</p>
                         )}
 
                         <form onSubmit={handleAssign}>
-                            <label className="text-xs font-bold text-gray-500 dark:text-slate-400 mb-2 block transition-colors">Select Coordinator/Staff</label>
-                            <select name="staffId" required className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3 text-gray-900 dark:text-white text-sm font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent mb-6 cursor-pointer transition-colors shadow-sm">
+                            <label className="text-xs font-bold text-gray-500 dark:text-slate-400 mb-2 block transition-colors tracking-widest uppercase">Select Coordinator/Staff</label>
+                            <select name="staffId" required className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-4 text-gray-900 dark:text-white text-sm font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent mb-6 cursor-pointer transition-colors shadow-sm appearance-none">
                                 <option value="" className="text-gray-400 dark:text-slate-500">Select a person...</option>
                                 {staffList.map(s => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
                             </select>
-                            <button type="submit" className="w-full bg-brand-accent hover:bg-brand-accentHover text-white font-bold py-3.5 rounded-xl transition-transform hover:scale-[1.02] flex items-center justify-center gap-2 shadow-md outline-none">
+                            <button type="submit" className="w-full bg-brand-accent hover:bg-brand-accentHover text-white font-black py-4 rounded-xl transition-transform hover:scale-[1.02] flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(225,29,72,0.3)] uppercase tracking-wide outline-none border border-transparent">
                                 <Check size={18}/> Confirm Assignment
                             </button>
                         </form>
@@ -345,35 +345,35 @@ export default function ManagerTaskCenter({ loggedInUser }) {
 
             {/* OVERVIEW MODAL */}
             {showOverviewModal && selectedTask && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 dark:bg-slate-900/80 backdrop-blur-sm p-4 animate-in fade-in duration-200 transition-colors">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 dark:bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-200 transition-colors">
                     <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-3xl p-6 md:p-8 w-full max-w-2xl shadow-2xl flex flex-col max-h-[90vh] transition-colors">
                         <div className="flex justify-between items-center mb-6 border-b border-gray-200 dark:border-brand-darkBorder pb-4 shrink-0 transition-colors">
                             <h3 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2 transition-colors"><LayoutDashboard className="text-brand-accent" size={20}/> Task Overview</h3>
-                            <button onClick={() => setShowOverviewModal(false)} className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white bg-gray-100 dark:bg-brand-darkBg p-2 rounded-xl transition-colors outline-none"><X size={18}/></button>
+                            <button onClick={() => setShowOverviewModal(false)} className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white bg-gray-50 dark:bg-brand-darkBg p-2.5 rounded-xl border border-gray-200 dark:border-brand-darkBorder transition-colors outline-none"><X size={18}/></button>
                         </div>
                         
                         <div className="flex-1 overflow-y-auto custom-scrollbar space-y-6 mb-6 pr-2">
                             <div className="bg-gray-50 dark:bg-brand-darkBg p-5 rounded-2xl border border-gray-200 dark:border-brand-darkBorder text-sm text-gray-700 dark:text-slate-300 flex flex-col sm:flex-row justify-between gap-4 transition-colors shadow-sm">
                                 <div>
-                                    <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-wide mb-1 transition-colors">Executed By</p>
+                                    <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-1 transition-colors">Executed By</p>
                                     <p className="font-bold text-gray-900 dark:text-white transition-colors">{selectedTask.assignedUser?.firstName} {selectedTask.assignedUser?.lastName}</p>
                                 </div>
                                 <div>
-                                    <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-wide mb-1 transition-colors">Completed On</p>
+                                    <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-1 transition-colors">Completed On</p>
                                     <p className="text-emerald-600 dark:text-emerald-400 font-bold transition-colors">{new Date(selectedTask.completedAt).toLocaleString()}</p>
                                 </div>
                             </div>
 
                             {selectedTask.taskType !== 'CUSTOM' && selectedTask.content && (
-                                <div className="bg-blue-50 dark:bg-blue-500/5 p-5 rounded-2xl border border-blue-200 dark:border-blue-500/20 space-y-4 text-sm transition-colors shadow-sm">
+                                <div className="bg-blue-50 dark:bg-blue-500/5 p-6 rounded-2xl border border-blue-200 dark:border-blue-500/20 space-y-4 text-sm transition-colors shadow-sm">
                                     <h4 className="text-blue-600 dark:text-blue-400 font-bold mb-2 flex items-center gap-2 transition-colors"><Globe size={16}/> Content Details</h4>
                                     <div>
-                                        <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-wide mb-1 transition-colors">Title</p>
+                                        <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-1 transition-colors">Title</p>
                                         <p className="font-bold text-gray-900 dark:text-slate-200 transition-colors">{selectedTask.content.title}</p>
                                     </div>
                                     {selectedTask.content.link && (
                                         <div className="pt-2">
-                                            <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-wide mb-1 transition-colors">URL Link</p>
+                                            <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-1 transition-colors">URL Link</p>
                                             <a href={selectedTask.content.link} target="_blank" rel="noreferrer" className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 hover:underline flex items-center gap-1.5 w-max font-medium transition-colors">
                                                 {selectedTask.content.link} <ExternalLink size={14}/>
                                             </a>
@@ -381,7 +381,7 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                                     )}
                                     {selectedTask.content.fileName && (
                                         <div className="pt-2">
-                                            <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-wide mb-1 transition-colors">Attached File</p>
+                                            <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-1 transition-colors">Attached File</p>
                                             <a href={`${api.defaults.baseURL.replace('/api','')}/storage/documents/${selectedTask.content.fileName}`} target="_blank" rel="noreferrer" className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:underline flex items-center gap-1.5 w-max font-medium transition-colors">
                                                 View Document <ExternalLink size={14}/>
                                             </a>
@@ -393,7 +393,7 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                             {selectedTask.taskType === 'CUSTOM' && selectedTask.proofUrl && (
                                 <div className="bg-gray-50 dark:bg-brand-darkBg rounded-2xl p-4 border border-gray-200 dark:border-brand-darkBorder h-64 flex items-center justify-center transition-colors shadow-sm">
                                     {selectedTask.proofType === 'pdf' ? (
-                                        <a href={`${api.defaults.baseURL.replace('/api', '')}/storage/documents/${selectedTask.proofUrl}`} target="_blank" rel="noreferrer" className="bg-gray-800 dark:bg-slate-700 hover:bg-gray-900 dark:hover:bg-slate-600 text-white font-bold px-6 py-3 rounded-xl transition-colors flex items-center gap-2 shadow-md"><FileText size={18}/> Open PDF Proof</a>
+                                        <a href={`${api.defaults.baseURL.replace('/api', '')}/storage/documents/${selectedTask.proofUrl}`} target="_blank" rel="noreferrer" className="bg-gray-800 dark:bg-slate-700 hover:bg-gray-900 dark:hover:bg-slate-600 text-white font-bold px-6 py-3 rounded-xl transition-colors flex items-center gap-2 shadow-md outline-none"><FileText size={18}/> Open PDF Proof</a>
                                     ) : (
                                         <img src={`${api.defaults.baseURL.replace('/api', '')}/storage/documents/${selectedTask.proofUrl}`} alt="Proof" className="max-h-full max-w-full object-contain rounded-xl border border-gray-200 dark:border-brand-darkBorder transition-colors shadow-sm" />
                                     )}
@@ -402,10 +402,10 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                         </div>
 
                         <form onSubmit={handleRejectTask} className="border-t border-gray-200 dark:border-brand-darkBorder pt-5 shrink-0 transition-colors">
-                            <label className="text-xs font-bold text-gray-500 dark:text-slate-400 mb-2 block flex items-center gap-1.5 transition-colors"><AlertTriangle size={14} className="text-red-500 dark:text-red-400"/> Reject & Re-assign</label>
+                            <label className="text-xs font-bold text-gray-500 dark:text-slate-400 mb-2 block flex items-center gap-1.5 transition-colors uppercase tracking-widest"><AlertTriangle size={14} className="text-red-500 dark:text-red-400"/> Reject & Re-assign</label>
                             <div className="flex flex-col sm:flex-row gap-3">
-                                <input type="text" name="reason" required placeholder="Reason for rejection (Logs negative KPI)..." className="flex-1 bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white outline-none focus:border-red-500 dark:focus:border-red-500 transition-colors shadow-sm placeholder-gray-400 dark:placeholder-slate-500" />
-                                <button type="submit" className="bg-red-600 hover:bg-red-500 text-white font-bold px-6 py-3.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-md outline-none"><RefreshCcw size={16}/> Reject</button>
+                                <input type="text" name="reason" required placeholder="Reason for rejection (Logs negative KPI)..." className="flex-1 bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-4 text-sm text-gray-900 dark:text-white outline-none focus:border-red-500 dark:focus:border-red-500 transition-colors shadow-sm placeholder-gray-400 dark:placeholder-slate-500" />
+                                <button type="submit" className="bg-red-600 hover:bg-red-500 text-white font-black px-6 py-4 rounded-xl text-sm transition-colors flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(220,38,38,0.3)] uppercase tracking-wide outline-none border border-transparent"><RefreshCcw size={16}/> Reject Task</button>
                             </div>
                         </form>
                     </div>
@@ -414,22 +414,22 @@ export default function ManagerTaskCenter({ loggedInUser }) {
             
             {/* UNLOCK MODAL */}
             {showUnlockModal && selectedTask && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 dark:bg-slate-900/80 backdrop-blur-sm p-4 animate-in fade-in duration-200 transition-colors">
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 dark:bg-slate-950/80 backdrop-blur-sm p-4 animate-in fade-in duration-200 transition-colors">
                     <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-3xl p-6 md:p-8 w-full max-w-sm shadow-2xl relative transition-colors">
                         <div className="flex justify-between items-center mb-6 border-b border-gray-200 dark:border-brand-darkBorder pb-4 transition-colors">
                             <h3 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-2 transition-colors"><AlertTriangle className="text-orange-500 dark:text-orange-400" size={20}/> Unlock Request</h3>
-                            <button onClick={() => setShowUnlockModal(false)} className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white bg-gray-100 dark:bg-brand-darkBg p-2 rounded-xl transition-colors outline-none"><X size={18}/></button>
+                            <button onClick={() => setShowUnlockModal(false)} className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder p-2.5 rounded-xl transition-colors outline-none"><X size={18}/></button>
                         </div>
                         
-                        <div className="bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 p-4 rounded-xl mb-6 transition-colors shadow-sm">
-                            <p className="text-[10px] font-bold text-orange-600 dark:text-orange-400/70 uppercase tracking-wide mb-1 transition-colors">Staff Reason</p>
-                            <p className="text-sm font-medium text-orange-800 dark:text-orange-200 transition-colors">{selectedTask.unlockReason}</p>
+                        <div className="bg-orange-50 dark:bg-orange-500/10 border border-orange-200 dark:border-orange-500/20 p-5 rounded-2xl mb-6 transition-colors shadow-sm">
+                            <p className="text-[10px] font-bold text-orange-600 dark:text-orange-400/70 uppercase tracking-widest mb-2 transition-colors">Staff Reason</p>
+                            <p className="text-sm font-medium text-orange-800 dark:text-orange-200 transition-colors leading-relaxed">{selectedTask.unlockReason}</p>
                         </div>
 
                         <form onSubmit={handleApproveUnlock}>
-                            <label className="text-xs font-bold text-gray-500 dark:text-slate-400 mb-2 block transition-colors">Grant Extra Hours</label>
-                            <input type="number" name="hours" min="1" max="72" required defaultValue="12" className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-gray-900 dark:text-white text-sm outline-none focus:border-orange-500 dark:focus:border-orange-500 mb-6 transition-colors shadow-sm" />
-                            <button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-4 rounded-xl transition-transform hover:scale-[1.02] text-sm flex items-center justify-center gap-2 shadow-md outline-none">
+                            <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Grant Extra Hours</label>
+                            <input type="number" name="hours" min="1" max="72" required defaultValue="12" className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-4 text-gray-900 dark:text-white text-sm outline-none focus:border-orange-500 dark:focus:border-orange-500 mb-6 transition-colors shadow-sm" />
+                            <button type="submit" className="w-full bg-orange-500 hover:bg-orange-600 text-white font-black py-4 rounded-xl transition-transform hover:scale-[1.02] text-sm flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(249,115,22,0.3)] uppercase tracking-wide outline-none border border-transparent">
                                 <Check size={18}/> Approve Unlock
                             </button>
                         </form>
@@ -547,7 +547,7 @@ const ManagerTaskSettings = ({ businesses, staffList }) => {
                         <div key={t.taskType} className="flex items-center justify-between bg-gray-50 dark:bg-brand-darkBg p-4 rounded-xl border border-gray-200 dark:border-brand-darkBorder transition-colors shadow-sm">
                             <div>
                                 <p className="font-bold text-gray-900 dark:text-slate-200 text-sm transition-colors">{t.taskType === 'NOTES' ? 'DOCUMENT' : t.taskType.replace('_', ' ')}</p>
-                                <p className={`text-[10px] font-bold uppercase mt-1 transition-colors ${t.taskType === 'RECORDING' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-slate-400'}`}>
+                                <p className={`text-[10px] font-bold uppercase mt-1 transition-colors tracking-widest ${t.taskType === 'RECORDING' ? 'text-purple-600 dark:text-purple-400' : 'text-gray-500 dark:text-slate-400'}`}>
                                     {t.taskType === 'RECORDING' ? 'Hours AFTER class' : 'Hours BEFORE class'}
                                 </p>
                             </div>
@@ -558,27 +558,27 @@ const ManagerTaskSettings = ({ businesses, staffList }) => {
                         </div>
                     ))}
                 </div>
-                <button onClick={saveSystemTimers} className="w-full bg-brand-accent hover:bg-brand-accentHover text-white font-black py-4 rounded-xl mt-6 transition-transform hover:scale-[1.02] text-sm uppercase tracking-widest shadow-md outline-none">Save Automation Timers</button>
+                <button onClick={saveSystemTimers} className="w-full bg-brand-accent hover:bg-brand-accentHover text-white font-black py-4 rounded-xl mt-6 transition-transform hover:scale-[1.02] text-sm uppercase tracking-widest shadow-[0_4px_15px_rgba(225,29,72,0.3)] outline-none border border-transparent">Save Automation Timers</button>
             </div>
 
             {/* Right Col: Custom Tasks */}
             <div className="bg-white dark:bg-brand-darkCard p-6 md:p-8 rounded-3xl border border-gray-200 dark:border-brand-darkBorder shadow-sm transition-colors">
                 <h3 className="text-xl font-black text-gray-900 dark:text-white mb-6 flex items-center gap-2 transition-colors"><Calendar className="text-emerald-500 dark:text-emerald-400" size={20}/> Custom Tasks Manager</h3>
                 
-                <form onSubmit={saveCustomTaskTemplate} className="space-y-4 bg-gray-50 dark:bg-brand-darkBg p-5 rounded-2xl border border-gray-200 dark:border-brand-darkBorder mb-8 transition-colors shadow-sm">
-                    <h4 className="text-xs font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-2 border-b border-gray-200 dark:border-brand-darkBorder pb-2 transition-colors">{editingId ? 'Edit Template' : 'Create New Template'}</h4>
+                <form onSubmit={saveCustomTaskTemplate} className="space-y-4 bg-gray-50 dark:bg-brand-darkBg p-6 rounded-[2rem] border border-gray-200 dark:border-brand-darkBorder mb-8 transition-colors shadow-sm">
+                    <h4 className="text-xs font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-4 border-b border-gray-200 dark:border-brand-darkBorder pb-2 transition-colors">{editingId ? 'Edit Template' : 'Create New Template'}</h4>
                     
-                    <input type="text" name="title" value={ctForm.title} onChange={handleCtFormChange} required placeholder="Task Title (e.g. Monthly Report)" className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-gray-900 dark:text-white font-medium text-sm outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm placeholder-gray-400 dark:placeholder-slate-500" />
-                    <textarea name="description" value={ctForm.description} onChange={handleCtFormChange} rows="2" placeholder="Task Description & Guidelines..." className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-gray-900 dark:text-white font-medium text-sm outline-none focus:border-brand-accent dark:focus:border-brand-accent resize-none transition-colors shadow-sm placeholder-gray-400 dark:placeholder-slate-500"></textarea>
+                    <input type="text" name="title" value={ctForm.title} onChange={handleCtFormChange} required placeholder="Task Title (e.g. Monthly Report)" className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-xl p-4 text-gray-900 dark:text-white font-medium text-sm outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm placeholder-gray-400 dark:placeholder-slate-500" />
+                    <textarea name="description" value={ctForm.description} onChange={handleCtFormChange} rows="2" placeholder="Task Description & Guidelines..." className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-xl p-4 text-gray-900 dark:text-white font-medium text-sm outline-none focus:border-brand-accent dark:focus:border-brand-accent resize-none transition-colors shadow-sm placeholder-gray-400 dark:placeholder-slate-500"></textarea>
 
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="text-[10px] uppercase font-bold text-gray-500 dark:text-slate-500 ml-1 mb-1.5 block transition-colors">Day of Month</label>
-                            <input type="number" name="dayOfMonth" min="1" max="31" value={ctForm.dayOfMonth} onChange={handleCtFormChange} placeholder="e.g. 5" className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-gray-900 dark:text-slate-200 text-sm font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm placeholder-gray-400 dark:placeholder-slate-500" />
+                            <label className="text-[10px] uppercase tracking-widest font-bold text-gray-500 dark:text-slate-500 ml-1 mb-1.5 block transition-colors">Day of Month</label>
+                            <input type="number" name="dayOfMonth" min="1" max="31" value={ctForm.dayOfMonth} onChange={handleCtFormChange} placeholder="e.g. 5" className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-xl p-4 text-gray-900 dark:text-slate-200 text-sm font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm placeholder-gray-400 dark:placeholder-slate-500" />
                         </div>
                         <div>
-                            <label className="text-[10px] uppercase font-bold text-gray-500 dark:text-slate-500 ml-1 mb-1.5 block transition-colors">Auto Assign To</label>
-                            <select name="autoAssignTo" value={ctForm.autoAssignTo} onChange={handleCtFormChange} className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-gray-900 dark:text-slate-200 text-sm font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm cursor-pointer">
+                            <label className="text-[10px] uppercase tracking-widest font-bold text-gray-500 dark:text-slate-500 ml-1 mb-1.5 block transition-colors">Auto Assign To</label>
+                            <select name="autoAssignTo" value={ctForm.autoAssignTo} onChange={handleCtFormChange} className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-xl p-4 text-gray-900 dark:text-slate-200 text-sm font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm cursor-pointer appearance-none">
                                 <option value="" className="text-gray-400 dark:text-slate-500">Select Staff...</option>
                                 {staffList.map(s => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
                             </select>
@@ -586,8 +586,8 @@ const ManagerTaskSettings = ({ businesses, staffList }) => {
                     </div>
 
                     <div>
-                        <label className="text-[10px] uppercase font-bold text-gray-500 dark:text-slate-500 ml-1 mb-1.5 block transition-colors">Allocation Rule</label>
-                        <select name="allocationType" value={ctForm.allocationType} onChange={handleCtFormChange} className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-gray-900 dark:text-slate-200 text-sm font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm cursor-pointer">
+                        <label className="text-[10px] uppercase tracking-widest font-bold text-gray-500 dark:text-slate-500 ml-1 mb-1.5 block transition-colors">Allocation Rule</label>
+                        <select name="allocationType" value={ctForm.allocationType} onChange={handleCtFormChange} className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-xl p-4 text-gray-900 dark:text-slate-200 text-sm font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm cursor-pointer appearance-none">
                             <option value="MANUAL">Manual / Specific Day Only</option>
                             <option value="DAILY">Daily (Everyday Auto-Allocate)</option>
                             <option value="CLASS_LINKED">Linked to Timetable Classes</option>
@@ -600,59 +600,59 @@ const ManagerTaskSettings = ({ businesses, staffList }) => {
                     </label>
 
                     {hasSubTasks && (
-                        <div className="bg-white dark:bg-brand-darkCard p-4 rounded-2xl border border-gray-200 dark:border-brand-darkBorder space-y-2 mt-2 transition-colors shadow-sm">
+                        <div className="bg-white dark:bg-brand-darkCard p-5 rounded-2xl border border-gray-200 dark:border-brand-darkBorder space-y-3 mt-2 transition-colors shadow-sm">
                             {subTasks.map((st, i) => (
-                                <div key={i} className="flex flex-col gap-2 bg-gray-50 dark:bg-brand-darkBg p-3 rounded-xl border border-gray-200 dark:border-brand-darkBorder transition-colors shadow-sm">
-                                    <input type="text" value={st.title} required onChange={e=>{const ns=[...subTasks]; ns[i].title=e.target.value; setSubTasks(ns)}} className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-lg p-2.5 text-xs text-gray-900 dark:text-white font-medium outline-none focus:border-emerald-500 dark:focus:border-emerald-500 transition-colors placeholder-gray-400 dark:placeholder-slate-500 shadow-inner" placeholder="Sub-task title..."/>
+                                <div key={i} className="flex flex-col gap-2 bg-gray-50 dark:bg-brand-darkBg p-4 rounded-xl border border-gray-200 dark:border-brand-darkBorder transition-colors shadow-sm">
+                                    <input type="text" value={st.title} required onChange={e=>{const ns=[...subTasks]; ns[i].title=e.target.value; setSubTasks(ns)}} className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-lg p-3 text-xs text-gray-900 dark:text-white font-medium outline-none focus:border-emerald-500 dark:focus:border-emerald-500 transition-colors placeholder-gray-400 dark:placeholder-slate-500 shadow-inner" placeholder="Sub-task title..."/>
                                     <div className="flex gap-2 items-center">
                                         <div className="flex-1">
-                                            <span className="text-[9px] text-gray-500 dark:text-slate-500 uppercase font-bold mb-1 block transition-colors">Start Time</span>
-                                            <input type="time" required value={st.startTime || ''} onChange={e=>{const ns=[...subTasks]; ns[i].startTime=e.target.value; setSubTasks(ns)}} className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-lg p-2 text-xs text-gray-900 dark:text-white font-bold outline-none focus:border-emerald-500 dark:focus:border-emerald-500 [color-scheme:light] dark:[color-scheme:dark] transition-colors shadow-inner" />
+                                            <span className="text-[9px] text-gray-500 dark:text-slate-500 uppercase tracking-widest font-bold mb-1 block transition-colors">Start Time</span>
+                                            <input type="time" required value={st.startTime || ''} onChange={e=>{const ns=[...subTasks]; ns[i].startTime=e.target.value; setSubTasks(ns)}} className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-lg p-2.5 text-xs text-gray-900 dark:text-white font-bold outline-none focus:border-emerald-500 dark:focus:border-emerald-500 [color-scheme:light] dark:[color-scheme:dark] transition-colors shadow-inner" />
                                         </div>
                                         <div className="flex-1">
-                                            <span className="text-[9px] text-gray-500 dark:text-slate-500 uppercase font-bold mb-1 block transition-colors">End Time</span>
-                                            <input type="time" required value={st.endTime || ''} onChange={e=>{const ns=[...subTasks]; ns[i].endTime=e.target.value; setSubTasks(ns)}} className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-lg p-2 text-xs text-gray-900 dark:text-white font-bold outline-none focus:border-emerald-500 dark:focus:border-emerald-500 [color-scheme:light] dark:[color-scheme:dark] transition-colors shadow-inner" />
+                                            <span className="text-[9px] text-gray-500 dark:text-slate-500 uppercase tracking-widest font-bold mb-1 block transition-colors">End Time</span>
+                                            <input type="time" required value={st.endTime || ''} onChange={e=>{const ns=[...subTasks]; ns[i].endTime=e.target.value; setSubTasks(ns)}} className="w-full bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-lg p-2.5 text-xs text-gray-900 dark:text-white font-bold outline-none focus:border-emerald-500 dark:focus:border-emerald-500 [color-scheme:light] dark:[color-scheme:dark] transition-colors shadow-inner" />
                                         </div>
-                                        <button type="button" onClick={() => setSubTasks(subTasks.filter((_,idx)=>idx!==i))} className="p-2 mt-4 text-gray-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 bg-gray-100 dark:bg-brand-darkHover rounded-lg transition-colors border border-gray-200 dark:border-transparent outline-none"><Trash2 size={16}/></button>
+                                        <button type="button" onClick={() => setSubTasks(subTasks.filter((_,idx)=>idx!==i))} className="p-2 mt-4 text-gray-400 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 bg-gray-100 dark:bg-brand-darkHover rounded-lg transition-colors border border-gray-200 dark:border-transparent outline-none"><Trash2 size={18}/></button>
                                     </div>
                                 </div>
                             ))}
-                            <button type="button" onClick={()=>setSubTasks([...subTasks, {title:'', startTime:'', endTime:''}])} className="text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-1 hover:text-emerald-700 dark:hover:text-emerald-300 mt-3 px-2 transition-colors outline-none"><Plus size={14}/> Add Task Item</button>
+                            <button type="button" onClick={()=>setSubTasks([...subTasks, {title:'', startTime:'', endTime:''}])} className="text-emerald-600 dark:text-emerald-400 text-xs font-black uppercase tracking-widest flex items-center gap-1 hover:text-emerald-700 dark:hover:text-emerald-300 mt-4 px-2 transition-colors outline-none"><Plus size={16}/> Add Task Item</button>
                         </div>
                     )}
                     
-                    <div className="flex gap-3 pt-3">
-                        {editingId && <button type="button" onClick={resetCustomForm} className="flex-1 bg-gray-100 dark:bg-brand-darkHover hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-white font-bold py-3.5 rounded-xl transition-colors text-sm border border-gray-200 dark:border-transparent shadow-sm outline-none">Cancel</button>}
-                        <button type="submit" className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3.5 rounded-xl transition-transform hover:scale-[1.02] text-sm uppercase tracking-widest shadow-md outline-none">{editingId ? 'Update Template' : 'Create Template'}</button>
+                    <div className="flex gap-3 pt-4 border-t border-gray-200 dark:border-brand-darkBorder mt-4">
+                        {editingId && <button type="button" onClick={resetCustomForm} className="flex-1 bg-gray-100 dark:bg-brand-darkHover hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-white font-bold py-4 rounded-xl transition-colors text-sm border border-gray-200 dark:border-transparent shadow-sm outline-none tracking-widest uppercase">Cancel</button>}
+                        <button type="submit" className="flex-[2] bg-emerald-600 hover:bg-emerald-500 text-white font-black py-4 rounded-xl transition-transform hover:scale-[1.02] text-sm uppercase tracking-widest shadow-[0_4px_15px_rgba(5,150,105,0.3)] outline-none border border-transparent">{editingId ? 'Update Template' : 'Create Template'}</button>
                     </div>
                 </form>
 
                 {/* Templates List */}
                 {customTemplates.length > 0 && (
-                    <div className="space-y-3">
-                        <h4 className="text-xs font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest pl-1 mb-3 transition-colors">Saved Custom Templates</h4>
+                    <div className="space-y-4">
+                        <h4 className="text-xs font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest pl-1 mb-4 transition-colors">Saved Custom Templates</h4>
                         {customTemplates.map(t => {
                             const subs = t.subTasks ? (typeof t.subTasks === 'string' ? JSON.parse(t.subTasks) : t.subTasks) : [];
                             return (
-                                <div key={t.id} className="bg-gray-50 dark:bg-brand-darkBg p-5 border border-gray-200 dark:border-brand-darkBorder rounded-2xl flex flex-col hover:border-brand-accent/50 dark:hover:border-brand-accent/50 transition-colors group shadow-sm">
+                                <div key={t.id} className="bg-gray-50 dark:bg-brand-darkBg p-6 border border-gray-200 dark:border-brand-darkBorder rounded-2xl flex flex-col hover:border-brand-accent/50 dark:hover:border-brand-accent/50 transition-colors group shadow-sm">
                                     <div className="flex justify-between items-start mb-2">
                                         <div>
-                                            <h5 className="font-bold text-gray-900 dark:text-slate-100 text-sm mb-1.5 transition-colors">{t.title}</h5>
+                                            <h5 className="font-bold text-gray-900 dark:text-slate-100 text-base mb-1.5 transition-colors">{t.title}</h5>
                                             <div className="flex items-center gap-2">
-                                                <span className="text-gray-500 dark:text-slate-400 text-[9px] px-2 py-0.5 bg-white dark:bg-brand-darkCard rounded-md border border-gray-200 dark:border-brand-darkBorder font-black tracking-wider uppercase transition-colors">{t.allocationType.replace('_', ' ')}</span>
+                                                <span className="text-gray-500 dark:text-slate-400 text-[10px] px-2.5 py-1 bg-white dark:bg-brand-darkCard rounded-md border border-gray-200 dark:border-brand-darkBorder font-black tracking-widest uppercase transition-colors">{t.allocationType.replace('_', ' ')}</span>
                                             </div>
                                         </div>
-                                        <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button onClick={() => editTemplate(t)} className="p-2 bg-white dark:bg-brand-darkCard rounded-lg text-brand-accent hover:bg-brand-accent hover:text-white dark:hover:bg-brand-accent transition-colors border border-gray-200 dark:border-brand-darkBorder shadow-sm outline-none"><Edit size={14}/></button>
-                                            <button onClick={() => deleteTemplate(t.id)} className="p-2 bg-white dark:bg-brand-darkCard rounded-lg text-red-500 dark:text-red-400 hover:bg-red-500 hover:text-white dark:hover:bg-red-500 dark:hover:text-white transition-colors border border-gray-200 dark:border-brand-darkBorder shadow-sm outline-none"><Trash2 size={14}/></button>
+                                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button onClick={() => editTemplate(t)} className="p-2.5 bg-white dark:bg-brand-darkCard rounded-xl text-brand-accent hover:bg-brand-accent hover:text-white dark:hover:bg-brand-accent transition-colors border border-gray-200 dark:border-brand-darkBorder shadow-sm outline-none"><Edit size={16}/></button>
+                                            <button onClick={() => deleteTemplate(t.id)} className="p-2.5 bg-white dark:bg-brand-darkCard rounded-xl text-red-500 dark:text-red-400 hover:bg-red-500 hover:text-white dark:hover:bg-red-500 dark:hover:text-white transition-colors border border-gray-200 dark:border-brand-darkBorder shadow-sm outline-none"><Trash2 size={16}/></button>
                                         </div>
                                     </div>
                                     {subs.length > 0 && (
-                                        <div className="mt-3 pl-3 border-l-2 border-gray-200 dark:border-brand-darkBorder space-y-1.5 transition-colors">
+                                        <div className="mt-4 pt-4 border-t border-gray-200 dark:border-brand-darkBorder space-y-2 transition-colors">
                                             {subs.map((s, i) => (
                                                 <div key={i} className="flex justify-between items-center text-xs">
-                                                    <span className="text-gray-600 dark:text-slate-400 font-medium transition-colors">{s.title}</span>
-                                                    <span className="text-gray-500 dark:text-slate-500 font-mono font-bold bg-white dark:bg-brand-darkCard border border-gray-100 dark:border-transparent px-1.5 py-0.5 rounded transition-colors shadow-sm dark:shadow-none">{s.startTime} - {s.endTime}</span>
+                                                    <span className="text-gray-600 dark:text-slate-400 font-bold transition-colors">{s.title}</span>
+                                                    <span className="text-gray-500 dark:text-slate-500 font-mono font-bold bg-white dark:bg-brand-darkCard border border-gray-100 dark:border-transparent px-2 py-1 rounded-md transition-colors shadow-sm dark:shadow-none">{s.startTime} - {s.endTime}</span>
                                                 </div>
                                             ))}
                                         </div>

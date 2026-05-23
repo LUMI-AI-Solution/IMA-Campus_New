@@ -40,6 +40,8 @@ model User {
 
   actionedPayments Payment[] @relation("ActionedPayments")
   walletBalance    Float     @default(0)
+  staffRosters     StaffRoster[]
+
 }
 
 model Business {
@@ -310,6 +312,8 @@ model Lead {
   isLocked      Boolean   @default(false)
   lastPaidMonth String?
   isDropped     Boolean   @default(false)
+  
+  assignedAt    DateTime?   // 👈 අලුතෙන් එකතු කරන එක මේක විතරයි! (createdAt එකක් මෙතන ආයේ දාන්න එපා, ඒක උඩ තියෙනවා)
 
   // 🔥 NEW RELATION: To track progress per round independently 🔥
   roundProgress LeadRoundProgress[]
@@ -551,4 +555,39 @@ model TuteStockHistory {
   newQuantity Int
   reason      String?
   createdAt   DateTime @default(now())
+}
+
+model AppSetting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model Reminder {
+  id          Int      @id @default(autoincrement())
+  leadId      Int      
+  agentId     Int      // Reminder එක දාපු කෙනාට විතරක් පේන්න
+  leadType    String   // 'NEW_INQ' හෝ 'OPEN_SEMINAR'
+  phone       String   // Redirect වෙන්න ලේසි වෙන්න
+  name        String?
+  round       Int      @default(1)
+  phase       Int      @default(1)
+  remindAt    DateTime // Reminder එක එන්න ඕන වෙලාව
+  note        String?  @db.Text
+  isCompleted Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model StaffRoster {
+  id          Int      @id @default(autoincrement())
+  staffId     Int      // Coordinator ගේ User ID එක
+  date        DateTime @db.Date
+  status      String   @default("Normal") // Normal, Half Day, Day Off, Poya Day
+  manualCalls Int      @default(0)
+  
+  user        User     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, date]) // එක දවසකට එක Coordinator කෙනෙක්ට තියෙන්න පුළුවන් එක රෙකෝඩ් එකයි
 }

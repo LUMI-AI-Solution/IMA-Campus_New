@@ -33,6 +33,9 @@ const buildStatsWhereClause = (businessId, batchId, startDate, endDate, baseCond
 // ==========================================
 // 1. OVERALL PROGRESS STATS
 // ==========================================
+// ==========================================
+// 1. OVERALL PROGRESS STATS (REVISED FOR 100% VERIFIED DATA)
+// ==========================================
 exports.getManagerDashboardStats = async (req, res) => {
     try {
         const { businessId, batchId, startDate, endDate } = req.query; 
@@ -54,39 +57,46 @@ exports.getManagerDashboardStats = async (req, res) => {
             include: { assignedUser: { select: { firstName: true, lastName: true } } }
         });
 
-        // 🔥 Bridge Leads වෙන් කරලා ගණන් හදමු
+        // 🔥 1. PAYMENT VERIFICATION (Get all verified phones first) 🔥
+        const paymentWhere = { status: { in: [1, 4] } }; 
+        if (batchId && batchId !== 'ALL') paymentWhere.batchId = parseInt(batchId);
+        else if (businessId && businessId !== 'ALL') paymentWhere.businessId = parseInt(businessId);
+
+        const verifiedPayments = await prisma.payment.findMany({
+            where: paymentWhere,
+            select: { student: { select: { phone: true, whatsapp: true } } }
+        });
+
+        const verifiedPhones = new Set();
+        verifiedPayments.forEach(p => {
+            if (p.student) {
+                const p1 = (p.student.phone || '').replace(/[^0-9]/g, '');
+                const p2 = (p.student.whatsapp || '').replace(/[^0-9]/g, '');
+                if (p1.length >= 9) verifiedPhones.add(p1.slice(-9));
+                if (p2.length >= 9) verifiedPhones.add(p2.slice(-9));
+            }
+        });
+
+        // 2. Stats & Mixer Data
         let stats = { totalLeads: leads.length, assignedLeads: 0, unassignedLeads: 0, openSemLeads: 0, newInqLeads: 0, bridgeLeads: 0 };
         let staffMap = {};
-        let fullPayCount = 0; let monthlyCount = 0; let installCount = 0; let totalEnrolledCount = 0;
 
         const allCourses = await prisma.course.findMany({ select: { id: true, name: true } });
         const globalCourseMap = {};
         allCourses.forEach(c => globalCourseMap[c.id] = c.name.trim().toUpperCase());
 
-        const realCourses = await prisma.course.findMany({
-            where: courseWhere, select: { id: true, name: true }
-        });
-
+        const realCourses = await prisma.course.findMany({ where: courseWhere, select: { id: true, name: true } });
         const subjectAggregates = {};
         realCourses.forEach(c => {
             const upName = c.name.trim().toUpperCase();
-            if(!subjectAggregates[upName]) {
-                subjectAggregates[upName] = { id: c.id, subject: c.name, full: 0, monthly: 0, installment: 0, totalEnrolled: 0 };
-            }
+            subjectAggregates[upName] = { id: c.id, subject: c.name, full: 0, monthly: 0, installment: 0, totalEnrolled: 0 };
         });
 
-        let mixerData = [];
-
+        // Lead loop
         for (const l of leads) {
-            
-            // 🔥 වෙනම කැටගරි 3ට බෙදීම 🔥
-            if (l.source === 'bridge_transfer') {
-                stats.bridgeLeads++;
-            } else if (l.inquiryType === 'NEW_INQ') {
-                stats.newInqLeads++;
-            } else {
-                stats.openSemLeads++; 
-            }
+            if (l.source === 'bridge_transfer') stats.bridgeLeads++;
+            else if (l.inquiryType === 'NEW_INQ') stats.newInqLeads++;
+            else stats.openSemLeads++; 
 
             if (l.assignedTo) {
                 stats.assignedLeads++;
@@ -96,89 +106,62 @@ exports.getManagerDashboardStats = async (req, res) => {
             } else {
                 stats.unassignedLeads++;
             }
-
-            const enrollStatus = (l.enrollmentStatus || '').toUpperCase();
-            
-            if (enrollStatus === 'ENROLLED') {
-                totalEnrolledCount++;
-
-                let intention = (l.paymentIntention || '').toUpperCase();
-                if (!['FULL', 'MONTHLY', 'INSTALLMENT'].includes(intention)) intention = 'MONTHLY'; 
-
-                if (intention === 'FULL') fullPayCount++;
-                else if (intention === 'MONTHLY') monthlyCount++;
-                else if (intention === 'INSTALLMENT') installCount++;
-
-                let corePhone = l.phone.split('_')[0].replace(/[^0-9]/g, '').trim();
-                if (corePhone.startsWith('94')) corePhone = corePhone.substring(2);
-                else if (corePhone.startsWith('0')) corePhone = corePhone.substring(1);
-
-                const student = await prisma.user.findFirst({
-                    where: {
-                        OR: [ { phone: { contains: corePhone } }, { whatsapp: { contains: corePhone } } ],
-                        role: { in: ['Student', 'USER', 'user', 'student'] }
-                    },
-                    include: { payments: true }
-                });
-
-                let enrolledSubjectNames = [];
-                
-                if (student && student.payments.length > 0) {
-                    let subjectIds = [];
-                    student.payments.forEach(p => {
-                        if (p.subjects) {
-                            try { 
-                                const subs = typeof p.subjects === 'string' ? JSON.parse(p.subjects) : p.subjects; 
-                                if (Array.isArray(subs)) {
-                                    subs.forEach(item => {
-                                        if (typeof item === 'object' && item !== null && item.id) {
-                                            subjectIds.push(parseInt(item.id));
-                                        } else if (typeof item === 'string' && isNaN(parseInt(item))) {
-                                            if (!enrolledSubjectNames.includes(item.trim().toUpperCase())) {
-                                                enrolledSubjectNames.push(item.trim().toUpperCase());
-                                            }
-                                        } else if (!isNaN(parseInt(item))) {
-                                            subjectIds.push(parseInt(item));
-                                        }
-                                    });
-                                }
-                            } catch(e) { console.error("Subject Parse Error:", e) }
-                        }
-                    });
-                    
-                    subjectIds = [...new Set(subjectIds)]; 
-                    subjectIds.forEach(id => {
-                        const sName = globalCourseMap[id];
-                        if (sName && !enrolledSubjectNames.includes(sName)) enrolledSubjectNames.push(sName);
-                    });
-
-                    enrolledSubjectNames.forEach(sName => {
-                        if (subjectAggregates[sName]) {
-                            if (intention === 'FULL') subjectAggregates[sName].full++;
-                            else if (intention === 'MONTHLY') subjectAggregates[sName].monthly++;
-                            else if (intention === 'INSTALLMENT') subjectAggregates[sName].installment++;
-                            subjectAggregates[sName].totalEnrolled++;
-                        }
-                    });
-                }
-
-                mixerData.push({ leadId: l.id, paymentIntention: intention, subjects: enrolledSubjectNames });
-            }
         }
 
-        const staffAllocation = Object.keys(staffMap).map(name => ({ name, assigned: staffMap[name] }));
-        const uniqueSubjects = Object.values(subjectAggregates).map(s => ({
-            id: s.id, subject: s.subject, full: s.full, monthly: s.monthly, installment: s.installment, total: s.totalEnrolled
-        }));
+        // 3. Populate Mixer Data (Using real verified payments only)
+        const paymentData = await prisma.payment.findMany({
+            where: paymentWhere,
+            select: { studentId: true, payment_type: true, subjects: true }
+        });
+
+        const studentPaymentMap = {};
+        paymentData.forEach(p => {
+            if (!p.studentId) return;
+            if (!studentPaymentMap[p.studentId]) studentPaymentMap[p.studentId] = { typeStr: 'MONTHLY', typeValue: 1, subjects: new Set() };
+            
+            const pType = parseInt(p.payment_type);
+            if (pType === 3) { studentPaymentMap[p.studentId].typeStr = 'FULL'; studentPaymentMap[p.studentId].typeValue = 3; }
+            else if (pType === 2 && studentPaymentMap[p.studentId].typeValue < 3) { studentPaymentMap[p.studentId].typeStr = 'INSTALLMENT'; studentPaymentMap[p.studentId].typeValue = 2; }
+
+            if (p.subjects) {
+                try {
+                    const subs = typeof p.subjects === 'string' ? JSON.parse(p.subjects) : p.subjects;
+                    subs.forEach(item => {
+                        const sName = globalCourseMap[parseInt(item.id || item)];
+                        if (sName) studentPaymentMap[p.studentId].subjects.add(sName);
+                    });
+                } catch(e) {}
+            }
+        });
+
+        let realMixerData = [];
+        let realFullCount = 0; let realMonthlyCount = 0; let realInstallCount = 0; let realTotalEnrolled = 0;
+
+        Object.values(studentPaymentMap).forEach(studentData => {
+            const subArray = Array.from(studentData.subjects).filter(sub => subjectAggregates[sub]);
+            if (subArray.length === 0) return;
+
+            realTotalEnrolled++;
+            if (studentData.typeStr === 'FULL') realFullCount++;
+            else if (studentData.typeStr === 'MONTHLY') realMonthlyCount++;
+            else if (studentData.typeStr === 'INSTALLMENT') realInstallCount++;
+
+            subArray.forEach(sub => {
+                if (studentData.typeStr === 'FULL') subjectAggregates[sub].full++;
+                else if (studentData.typeStr === 'MONTHLY') subjectAggregates[sub].monthly++;
+                else if (studentData.typeStr === 'INSTALLMENT') subjectAggregates[sub].installment++;
+                subjectAggregates[sub].totalEnrolled++;
+            });
+            realMixerData.push({ paymentIntention: studentData.typeStr, subjects: subArray });
+        });
 
         res.status(200).json({
             ...stats,
-            staffAllocation,
-            subjectEnrollments: uniqueSubjects,
-            mixerData: mixerData, 
-            realEnrollmentTotals: { full: fullPayCount, monthly: monthlyCount, installment: installCount, total: totalEnrolledCount }
+            staffAllocation: Object.keys(staffMap).map(name => ({ name, assigned: staffMap[name] })),
+            subjectEnrollments: Object.values(subjectAggregates),
+            mixerData: realMixerData, 
+            realEnrollmentTotals: { full: realFullCount, monthly: realMonthlyCount, installment: realInstallCount, total: realTotalEnrolled }
         });
-
     } catch (error) {
         console.error("Manager Stats Error:", error);
         res.status(500).json({ error: "Failed to fetch manager stats" });
@@ -459,6 +442,22 @@ exports.getBridgePerformanceStats = async (req, res) => {
             include: { assignedUser: { select: { firstName: true, lastName: true } } }
         });
 
+        // 🔥 ALUTH KALLA: Lamai ewapu messages (inbound) thiyena leads count karanawa 🔥
+        const leadIds = leads.map(l => l.id);
+        let totalReplied = 0;
+
+        if (leadIds.length > 0) {
+            const inboundMsgCounts = await prisma.chatMessage.groupBy({
+                by: ['leadId'],
+                where: { 
+                    leadId: { in: leadIds }, 
+                    direction: 'inbound' // Lamaya ewapu messages pamanai
+                }
+            });
+            // Me leads set eke lamai kidenek message karalada kiyala gannawa
+            totalReplied = inboundMsgCounts.length; 
+        }
+
         let totalTransferred = leads.length;
         let totalContacted = 0; let totalPending = 0; let totalEnrolled = 0;
         let staffMap = {};
@@ -486,6 +485,7 @@ exports.getBridgePerformanceStats = async (req, res) => {
 
         res.status(200).json({ 
             totalTransferred, totalContacted, totalPending, totalEnrolled, 
+            totalReplied, // 🔥 Frontend ekata aluth stat eka yawanawa
             staffBreakdown: Object.values(staffMap) 
         });
     } catch (error) {
@@ -563,5 +563,129 @@ exports.getMasterDirectory = async (req, res) => {
     } catch (error) {
         console.error("Master Directory Error:", error);
         res.status(500).json({ error: "Failed to fetch master directory" });
+    }
+};
+
+// ==========================================
+// 7. B2B LEAD TRANSFER API (NEW)
+// ==========================================
+exports.transferB2BLeads = async (req, res) => {
+    try {
+        const { leadIds, targetBusinessId, sourceBusinessId, transferRemark } = req.body;
+
+        if (!leadIds || !targetBusinessId || leadIds.length === 0) {
+            return res.status(400).json({ error: "Missing required fields" });
+        }
+
+        const leads = await prisma.lead.findMany({
+            where: { id: { in: leadIds } }
+        });
+
+        // 🔥 History එක හදාගන්න ලේසි වෙන්න Timestamp එකක් ගන්නවා
+        const timestamp = new Date().toISOString();
+
+        const updatePromises = leads.map(lead => {
+            let newPhone = lead.phone;
+            
+            newPhone = newPhone.replace(/_BIZ_\d+(_[A-Z0-9_]+)?/g, ''); 
+            newPhone = `${newPhone}_BIZ_${targetBusinessId}`;
+
+            // System Message + Custom Message
+            const systemRemark = `[B2B_LOG] FROM:${sourceBusinessId || '0'} TO:${targetBusinessId} DATE:${timestamp}\n[B2B TRANSFER]: Auto-transferred from Business Unit ${sourceBusinessId || 'Unknown'} to ${targetBusinessId}`;
+            const userRemark = transferRemark ? `\n[TRANSFER NOTE]: ${transferRemark}` : '';
+            
+            const newFeedback = lead.feedback 
+                ? `${lead.feedback}\n\n${systemRemark}${userRemark}` 
+                : `${systemRemark}${userRemark}`;
+
+            let dataToUpdate = {
+                phone: newPhone,
+                feedback: newFeedback,
+                callStatus: 'pending'
+            };
+
+            if (lead.batchId) dataToUpdate.batch = { disconnect: true };
+            if (lead.assignedTo) dataToUpdate.assignedUser = { disconnect: true };
+
+            return prisma.lead.update({
+                where: { id: lead.id },
+                data: dataToUpdate
+            });
+        });
+
+        await prisma.$transaction(updatePromises);
+        res.status(200).json({ message: `Successfully transferred ${leads.length} leads.` });
+    } catch (error) {
+        console.error("B2B Transfer Error:", error);
+        res.status(500).json({ error: "Failed to transfer leads" });
+    }
+};
+
+exports.getB2BTransferHistory = async (req, res) => {
+    try {
+        const { businessId } = req.query;
+        if (!businessId) return res.status(400).json({ error: "Business ID required" });
+
+        // 🔥 Database එකේ Feedback එකේ [B2B_LOG] තියෙන Leads සේරම අදිනවා (Name, Phone එක්කම)
+        const transferLeads = await prisma.lead.findMany({
+            where: { feedback: { contains: '[B2B_LOG]' } },
+            select: { id: true, name: true, phone: true, feedback: true }
+        });
+
+        const inbox = {};
+        const sent = {};
+
+        transferLeads.forEach(lead => {
+            const lines = lead.feedback.split('\n');
+            
+            // අන්තිමට දාපු Remark එක ගන්නවා
+            let currentNote = "";
+            const noteMatches = lead.feedback.match(/\[TRANSFER NOTE\]:\s*(.*)/g);
+            if (noteMatches && noteMatches.length > 0) {
+                currentNote = noteMatches[noteMatches.length - 1].replace('[TRANSFER NOTE]:', '').trim();
+            }
+
+            // Lead එකේ විස්තර
+            const leadInfo = {
+                id: lead.id,
+                name: lead.name || 'Unknown',
+                phone: lead.phone ? lead.phone.split('_')[0] : 'No Phone',
+                remark: currentNote
+            };
+
+            lines.forEach(line => {
+                if (line.startsWith('[B2B_LOG]')) {
+                    const match = line.match(/FROM:(\d+) TO:(\d+) DATE:(.+)/);
+                    if (match) {
+                        const fromBiz = parseInt(match[1]);
+                        const toBiz = parseInt(match[2]);
+                        const dateStr = new Date(match[3]).toLocaleString();
+                        const keyKey = match[3].substring(0, 16); // විනාඩියෙන් විනාඩියට ගෲප් කරනවා
+
+                        // මේක මට ආපු එකක් නම් (Inbox)
+                        if (toBiz === parseInt(businessId)) {
+                            const key = `IN_${fromBiz}_${keyKey}`;
+                            if (!inbox[key]) inbox[key] = { id: key, fromBizId: fromBiz, date: dateStr, leads: [], isNew: true };
+                            if (!inbox[key].leads.find(l => l.id === lead.id)) inbox[key].leads.push(leadInfo);
+                        }
+                        // මේක මම යවපු එකක් නම් (Sent)
+                        if (fromBiz === parseInt(businessId)) {
+                            const key = `OUT_${toBiz}_${keyKey}`;
+                            if (!sent[key]) sent[key] = { id: key, toBizId: toBiz, date: dateStr, leads: [] };
+                            if (!sent[key].leads.find(l => l.id === lead.id)) sent[key].leads.push(leadInfo);
+                        }
+                    }
+                }
+            });
+        });
+
+        // අලුත්ම දිනේ උඩට එන්න Sort කරනවා
+        const sortedInbox = Object.values(inbox).sort((a, b) => new Date(b.date) - new Date(a.date));
+        const sortedSent = Object.values(sent).sort((a, b) => new Date(b.date) - new Date(a.date));
+
+        res.status(200).json({ inbox: sortedInbox, sent: sortedSent });
+    } catch (error) {
+        console.error("B2B History Error:", error);
+        res.status(500).json({ error: "Failed to load transfer history" });
     }
 };

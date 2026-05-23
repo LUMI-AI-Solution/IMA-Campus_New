@@ -3,14 +3,13 @@ import axios from '../../../api/axios';
 import toast from 'react-hot-toast';
 import { Loader2 } from 'lucide-react';
 
-// 🔥 Coordinator ගේ Modules 4 Import කරගන්නවා 🔥
 import AfterSeminarOpenSem from './AfterSemOpen/AfterSeminarOpenSem';
 import AfterSeminarNewInq from './AfterSemNew/AfterSeminarNewInq';
 import AfterSeminarPaidCampaign from './AfterSeminarPaidCampaign';
 import BridgeStaffExecution from "./BridgeStaffExecution";
 
 export default function AfterSeminarStaffExecution({ filters, allBatches, setSelectedLead, externalTab, campaignSearchPhone }) {
-    const [activeTab, setActiveTab] = useState('OPEN_SEM'); // OPEN_SEM, NEW_INQ, BRIDGE, PAID
+    const [activeTab, setActiveTab] = useState('OPEN_SEM'); 
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(false);
     const [drafts, setDrafts] = useState({});
@@ -18,11 +17,8 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
     const currentUser = JSON.parse(localStorage.getItem('user'));
     const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN'].includes(currentUser?.role?.toUpperCase().replace(/ /g, '_'));
 
-    // 🔥 Dashboard එකෙන් එන Tab එකට මාරු වෙන්න 🔥
     useEffect(() => {
-        if (externalTab) {
-            setActiveTab(externalTab);
-        }
+        if (externalTab) setActiveTab(externalTab);
     }, [externalTab]);
 
     useEffect(() => {
@@ -38,12 +34,12 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
             const res = await axios.get('/after-seminar-crm/leads', {
                 headers: { Authorization: `Bearer ${token}` },
                 params: {
-    tab: 'ASSIGNED',
-    loggedUserId: currentUser?.id,
-    loggedUserRole: currentUser?.role,
-    businessId: filters?.selectedBusiness || '', // 🔥 isManager condition එක අයින් කළා
-    batchId: filters?.selectedBatch || ''        // 🔥 isManager condition එක අයින් කළා
-}
+                    tab: 'ASSIGNED',
+                    loggedUserId: currentUser?.id,
+                    loggedUserRole: currentUser?.role,
+                    businessId: filters?.selectedBusiness || '', 
+                    batchId: filters?.selectedBatch || ''        
+                }
             });
             
             const regularLeads = (res.data.leads || []).filter(l => l.source !== 'bridge_transfer');
@@ -65,45 +61,41 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
         setLeads(prev => prev.map(l => l.id === id ? { ...l, [field]: value } : l));
     };
 
-    const handleSaveCallData = async (leadId) => {
+    // 🔥 FIX: සේව් කරපු ගමන් අලුතින් Data අරන් UI එක Update කිරීම 🔥
+    const handleSaveCallData = async (leadId, overrideStatus = null) => {
         const lead = leads.find(l => l.id === leadId);
         const feedback = drafts[leadId] || '';
+        
+        const finalStatus = overrideStatus || lead.callStatus || 'pending'; 
+
+        const loadToast = toast.loading("Saving call data...");
+
         try {
             const token = localStorage.getItem('token');
             await axios.post('/after-seminar-crm/leads/update-call', {
                 leadId, 
                 method: lead.callMethod || 'direct', 
-                status: lead.callStatus || 'pending', 
+                status: finalStatus, 
                 feedback,
                 coordinationRound: lead.coordinationRound || 1,
                 paymentIntention: lead.paymentIntention || 'NOT_DECIDED',
                 enrollmentStatus: lead.enrollmentStatus || 'NON_ENROLLED'
             }, { headers: { Authorization: `Bearer ${token}` } });
             
-            toast.success("Saved successfully!");
+            toast.success("Saved successfully!", { id: loadToast });
 
-            if (lead.enrollmentStatus === 'ENROLLED') {
-                setLeads(prev => prev.filter(l => l.id !== leadId));
-            } else {
-                setLeads(prev => prev.map(l => {
-                    if (l.id === leadId) {
-                        let newPhase = l.phase;
-                        if (lead.callStatus === 'no_answer') {
-                            if (l.phase === 1) newPhase = 2;
-                            else if (l.phase === 2) newPhase = 3;
-                        }
-                        return { ...l, callStatus: lead.callStatus, feedback: feedback, phase: newPhase };
-                    }
-                    return l;
-                }));
-            }
-            
+            // Drafts අයින් කරනවා
             const newDrafts = { ...drafts };
             delete newDrafts[leadId];
             setDrafts(newDrafts);
             localStorage.removeItem(`draft_remark_as_${leadId}`);
+
+            // 🔥 අලුතෙන් මුළු ලිස්ට් එකම අරගන්නවා. එතකොට Backend එකේ හැදිච්ච අලුත් Phase, අලුත් UpdatedAt සේරම හරියට එනවා!
+            fetchRegularLeads();
             
-        } catch (error) { toast.error("Failed to save data."); }
+        } catch (error) { 
+            toast.error("Failed to save data.", { id: loadToast }); 
+        }
     };
 
     const handleTempUnlock = async (leadId) => {
@@ -116,29 +108,9 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
     };
 
     return (
-        <div className="flex flex-col h-full overflow-hidden font-sans antialiased text-slate-200 bg-[#0f151c]">
+        <div className="flex flex-col h-full overflow-hidden font-sans antialiased text-slate-200 bg-transparent">
             
-            <div className="px-6 py-4 border-b border-white/5 bg-white/[0.02] backdrop-blur-xl shrink-0 flex items-center justify-between">
-                <div className="flex gap-1.5 p-1 bg-black/40 rounded-xl border border-white/5 shadow-inner overflow-x-auto">
-                    {[
-                        { id: 'OPEN_SEM', label: 'Open Seminar Tasks' },
-                        { id: 'NEW_INQ', label: 'Direct Inquiries' },
-                        { id: 'BRIDGE', label: 'Bridge Execution' },
-                        { id: 'PAID', label: 'Paid / Follow-ups' }
-                    ].map(tab => (
-                        <button 
-                            key={tab.id} 
-                            onClick={() => setActiveTab(tab.id)}
-                            className={`px-5 py-2 rounded-lg text-xs font-semibold transition-all duration-300 tracking-wide whitespace-nowrap ${activeTab === tab.id ? 'bg-[#f59e0b] text-white shadow-md' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'}`}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-                
+            <div className="flex-1 overflow-y-auto custom-scrollbar pt-2 px-1">
                 {loading && (activeTab === 'OPEN_SEM' || activeTab === 'NEW_INQ') ? (
                     <div className="flex justify-center items-center h-full text-slate-400">
                         <Loader2 className="animate-spin mr-2" size={20}/> Loading Assigned Leads...
@@ -152,7 +124,7 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
                                     handleUpdateLocalLead={handleUpdateLocalLead} handleSaveCallData={handleSaveCallData} 
                                     handleTempUnlock={handleTempUnlock} setChatModalLead={setSelectedLead} 
                                     isManager={isManager} allBatches={allBatches} filters={filters}
-                                    externalSearch={campaignSearchPhone} // 🔥 අලුත් PROP එක 
+                                    externalSearch={campaignSearchPhone}
                                 />
                             </div>
                         )}
@@ -163,8 +135,7 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
                                     leads={leads} drafts={drafts} setDrafts={setDrafts} 
                                     handleUpdateLocalLead={handleUpdateLocalLead} handleSaveCallData={handleSaveCallData} 
                                     handleTempUnlock={handleTempUnlock} setChatModalLead={setSelectedLead} 
-                                    isManager={isManager} 
-                                    externalSearch={campaignSearchPhone} // 🔥 අලුත් PROP එක 
+                                    isManager={isManager} externalSearch={campaignSearchPhone}
                                 />
                             </div>
                         )}
@@ -173,24 +144,15 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
 
                 {activeTab === 'BRIDGE' && (
                     <div className="animate-fade-in-up h-full">
-                        <BridgeStaffExecution 
-                           filters={filters} 
-                           setChatModalLead={setSelectedLead} 
-                           externalSearch={campaignSearchPhone} // 🔥 අලුත් PROP එක 
-                        />
+                        <BridgeStaffExecution filters={filters} setChatModalLead={setSelectedLead} externalSearch={campaignSearchPhone} />
                     </div>
                 )}
 
                 {activeTab === 'PAID' && (
                     <div className="animate-fade-in-up h-full">
-                        <AfterSeminarPaidCampaign 
-                           filters={filters} 
-                           setChatModalLead={setSelectedLead} 
-                           externalSearch={campaignSearchPhone} // 🔥 අලුත් PROP එක 
-                        />
+                        <AfterSeminarPaidCampaign filters={filters} setChatModalLead={setSelectedLead} externalSearch={campaignSearchPhone} />
                     </div>
                 )}
-
             </div>
         </div>
     );

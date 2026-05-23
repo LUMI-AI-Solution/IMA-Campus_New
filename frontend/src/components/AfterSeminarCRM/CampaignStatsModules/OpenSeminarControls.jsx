@@ -1,8 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from '../../../api/axios';
 import { FaUsers, FaUserTie, FaPhoneVolume, FaCheckCircle, FaExclamationCircle, FaChartBar, FaExclamationTriangle, FaCalendarAlt, FaChevronDown, FaChevronUp, FaFileExport, FaTimes, FaCheckSquare, FaRegSquare } from 'react-icons/fa';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import toast from 'react-hot-toast';
+
+const getShiftData = (dateString) => {
+    if (!dateString) return { dateStr: 'Unknown', label: 'Unknown Date', timestamp: 0 };
+    
+    const d = new Date(dateString);
+    const shiftDate = new Date(d);
+    
+    if (d.getHours() < 8) {
+        shiftDate.setDate(shiftDate.getDate() - 1);
+    }
+    
+    shiftDate.setHours(0, 0, 0, 0);
+    
+    const now = new Date();
+    const todayShift = new Date(now);
+    if (now.getHours() < 8) todayShift.setDate(todayShift.getDate() - 1);
+    todayShift.setHours(0, 0, 0, 0);
+    
+    const yesterdayShift = new Date(todayShift);
+    yesterdayShift.setDate(yesterdayShift.getDate() - 1);
+    
+    if (shiftDate.getTime() === todayShift.getTime()) {
+        return { label: 'Today', timestamp: shiftDate.getTime() };
+    } else if (shiftDate.getTime() === yesterdayShift.getTime()) {
+        return { label: 'Yesterday', timestamp: shiftDate.getTime() };
+    } else {
+        return { label: shiftDate.toLocaleDateString('en-CA'), timestamp: shiftDate.getTime() };
+    }
+};
 
 export default function OpenSeminarControls({ filters }) {
     const [loading, setLoading] = useState(true);
@@ -19,7 +48,7 @@ export default function OpenSeminarControls({ filters }) {
     const [stats, setStats] = useState({
         totalOpenSem: 0, totalAssigned: 0, totalContacted: 0, totalPending: 0, totalDelayed: 0, totalEnrolled: 0,
         staffBreakdown: [],
-        rawLeads: [] // Backend එකෙන් එන සම්පූර්ණ ලීඩ් ලිස්ට් එක
+        rawLeads: [] 
     });
 
     useEffect(() => {
@@ -134,7 +163,6 @@ export default function OpenSeminarControls({ filters }) {
         generateExcel(dataToExport, filename);
     };
 
-    // Sub-export for Individual Rounds (inside table)
     const exportStaffRoundData = (staffName, roundName, leadsArray) => {
         generateExcel(leadsArray.map(l => ({
             ...l, assignedToName: staffName, round: roundName, callStatus: l.status, paymentPlan: 'N/A', enrollmentStatus: l.enrolled

@@ -148,3 +148,10 @@ body {
 html, body {
   -webkit-overflow-scrolling: touch;
 }
+
+/* 🔥 iOS Tap Delay Fix 🔥 */
+a, button, input, select, textarea, label, [role="button"], .cursor-pointer {
+  touch-action: manipulation !important;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}

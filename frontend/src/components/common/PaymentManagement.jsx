@@ -313,27 +313,29 @@ export default function PaymentManagement({ loggedInUser }) {
     };
 
     const handleAction = async (payment, action, isSelfPicked = false) => {
-        let confirmMessage = `Are you sure you want to ${action} this payment?`;
-        if (isSelfPicked) confirmMessage = `Approve and mark as SELF-PICKED (Tute Delivered)?`;
-        if (action === 'SendToDelivery') confirmMessage = `Send this record to Delivery Hub?`;
+        let confirmMessage = `Are you sure you want to ${action} this payment?`;
+        if (isSelfPicked) confirmMessage = `Approve and mark as SELF-PICKED (Tute Delivered)?`;
+        if (action === 'SendToDelivery') confirmMessage = `Send this record to Delivery Hub?`;
 
-        if (!window.confirm(confirmMessage)) return;
+        if (!window.confirm(confirmMessage)) return;
 
-        try {
-            setActioningPaymentId(payment.id);
-            await axios.post('/admin/payments/action', {
-                paymentId: payment.id,
-                action: action,
-                isSelfPicked: isSelfPicked
-            });
-            toast.success(`Action ${action} successful!`);
-            refreshAfterAction(payment.studentId);
-        } catch (error) {
-            toast.error(`Failed to process payment.`);
-        } finally {
-            setActioningPaymentId(null);
-        }
-    };
+        try {
+            setActioningPaymentId(payment.id);
+            await axios.post('/admin/payments/action', {
+                paymentId: payment.id,
+                action: action,
+                isSelfPicked: isSelfPicked
+            });
+            toast.success(`Action ${action} successful!`);
+            refreshAfterAction(payment.studentId);
+        } catch (error) {
+            toast.error(`Failed to process payment.`);
+        } finally {
+            setActioningPaymentId(null);
+        }
+    };
+
+    // 👇 MEKEN PALLAHATA THIYENA TIKA THAMAI ALUTHIN DANGATH THE ONA 👇
 
     const submitAdvancedAction = async () => {
         const { type, payment } = advancedActionModal;
@@ -366,7 +368,8 @@ export default function PaymentManagement({ loggedInUser }) {
                 toast.success(`Payment processed as ${type}!`);
             }
 
-            refreshAfterAction(payment.studentId);
+            // Meken thamai PostPay unoth Post Pay tab ekata yanne, nathnam Pending ekata yanne
+            refreshAfterAction(payment.studentId, type === 'PostPay' ? 'Post Pay' : 'Pending');
         } catch (error) {
             toast.error("Failed to process action.");
         } finally {
@@ -374,7 +377,7 @@ export default function PaymentManagement({ loggedInUser }) {
         }
     };
 
-    const refreshAfterAction = async (studentId) => {
+    const refreshAfterAction = async (studentId, targetTab = 'Pending') => {
         const payRes = await axios.get('/admin/payments');
         setPayments(payRes.data || []);
 
@@ -384,20 +387,21 @@ export default function PaymentManagement({ loggedInUser }) {
         setInstitutePaymentModal(null);
         setInstallmentModal(null);
 
-        setActiveTab('Pending');
+        setActiveTab(targetTab);
     };
 
-    const openAdvancedModal = (type, payment) => {
-        setAdvancedActionModal({ type, payment });
-        setActionRemark('');
-        if (type === 'Discount') {
-            const initialPrices = {};
-            const subsList = payment.subjectsList || payment.subjects || payment.courses || [];
-            subsList.forEach(s => initialPrices[s.id || s.course_id] = s.price || 0);
-            setCustomPrices(initialPrices);
-        }
-    };
+    // 👆 MEKEN UDATA THIYENA TIKA THAMAI ALUTHIN DANGATH THE ONA 👆
 
+    const openAdvancedModal = (type, payment) => {
+        setAdvancedActionModal({ type, payment });
+        setActionRemark('');
+        if (type === 'Discount') {
+            const initialPrices = {};
+            const subsList = payment.subjectsList || payment.subjects || payment.courses || [];
+            subsList.forEach(s => initialPrices[s.id || s.course_id] = s.price || 0);
+            setCustomPrices(initialPrices);
+        }
+    };
     const handleCustomPriceChange = (id, val) => setCustomPrices(prev => ({ ...prev, [id]: val }));
 
     const openSlipsInNewTab = (slips, studentName, studentNo, studentPhone) => {
@@ -523,7 +527,12 @@ export default function PaymentManagement({ loggedInUser }) {
             <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6 pl-2 pr-12">
                 <div className="flex-1 min-w-0">
                     <p className="text-[11px] text-gray-500 dark:text-slate-400 font-extrabold uppercase tracking-widest mb-1.5">{pay.date}</p>
-                    <h5 className="text-xl font-extrabold text-gray-900 dark:text-white tracking-tight truncate max-w-full">{pay.business} <span className="text-gray-500 dark:text-slate-500 text-sm font-bold ml-2">{pay.batch}</span></h5>
+                   <h5 className="text-xl font-extrabold text-gray-900 dark:text-white tracking-tight truncate max-w-full">
+    <span className="text-red-500 text-sm bg-red-100 px-2 py-1 rounded mr-2">
+        [ID: {pay.id}]
+    </span>
+    {pay.business} <span className="text-gray-500 dark:text-slate-500 text-sm font-bold ml-2">{pay.batch}</span>
+</h5>
                     <div className="flex items-center gap-2 mt-3">
                         <span className="bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-slate-300 text-[10px] px-3 py-1.5 rounded-lg font-extrabold uppercase tracking-widest border border-gray-200 dark:border-white/10">{pay.type}</span>
                         {pay.type === 'Installment' && (
@@ -750,8 +759,11 @@ export default function PaymentManagement({ loggedInUser }) {
                                                         <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 border border-emerald-200 dark:border-emerald-500/20 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shadow-sm"><User size={24} /></div>
                                                         <div>
                                                             <h4 className="font-extrabold text-gray-900 dark:text-white text-lg flex items-center flex-wrap gap-2.5">
-                                                                {student.studentName}
-                                                                <span className="text-[10px] text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-500/10 px-2.5 py-1 rounded-md border border-emerald-200 dark:border-emerald-500/20 tracking-widest uppercase">{student.studentNo}</span>
+    <span className="text-red-500 text-xs bg-red-100 px-2 py-1 rounded">
+        [ID: {student.allPayments.map(p => p.id).join(', ')}]
+    </span>
+    {student.studentName}
+    <span className="text-[10px] text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-200 dark:border-indigo-500/20 tracking-widest uppercase">{student.studentNo}</span>
                                                                 {student.phone && student.phone !== 'N/A' && <span className="text-[10px] text-blue-700 dark:text-blue-400 bg-blue-100 dark:bg-blue-500/10 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-500/20 tracking-widest uppercase">{student.phone}</span>}
                                                             </h4>
                                                             <p className="text-xs font-bold text-gray-500 dark:text-slate-400 mt-1.5">{slipPays.length} Slip Payment(s)</p>
@@ -828,8 +840,11 @@ export default function PaymentManagement({ loggedInUser }) {
                                             </div>
                                             <div className="flex-1 mt-1">
                                                 <h4 className="font-extrabold text-xl text-gray-900 dark:text-white flex items-center flex-wrap gap-3">
-                                                    {student.studentName}
-                                                    <span className="text-[10px] font-black text-gray-500 dark:text-white/50 bg-gray-100 dark:bg-black/40 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/5 tracking-widest uppercase shadow-sm">{student.studentNo}</span>
+    <span className="text-red-500 text-xs bg-red-100 px-2 py-1 rounded">
+        [ID: {student.allPayments.map(p => p.id).join(', ')}]
+    </span>
+    {student.studentName}
+    <span className="text-[10px] font-black text-gray-500 dark:text-white/50 bg-gray-100 dark:bg-black/40 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/5 tracking-widest uppercase shadow-sm">{student.studentNo}</span>
                                                     {student.phone && student.phone !== 'N/A' && <span className="text-[10px] font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-500/20 tracking-widest uppercase shadow-sm">{student.phone}</span>}
                                                 </h4>
                                                 {latestPayment && (

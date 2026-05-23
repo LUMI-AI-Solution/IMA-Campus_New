@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from '../../../api/axios';
 import { UploadCloud, CreditCard, ChevronRight, Wallet, ArrowLeft, CheckCircle, Tag, X, Info, Camera, Ban, Paperclip, User, BookOpen, MonitorPlay } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -31,6 +31,7 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
   const [slipFiles, setSlipFiles] = useState([]); 
   const [remark, setRemark] = useState(''); 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitLock = useRef(false);
 
   const backendBaseUrl = window.location.protocol === 'https:' 
       ? 'https://imacampus.online' 
@@ -184,12 +185,13 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
   };
 
   const handleFinalSubmit = async () => {
-    // 🔥 FIX 1: Loading වෙන ගමන් ආයෙත් එබුවොත් මෙතනින්ම නවත්තනවා (Double Click Prevention)
-    if (isSubmitting) return; 
+    // 🔥 FIX 1: State එකට වඩා වේගෙන් වැඩ කරන useRef Lock එක මෙතන දානවා
+    if (isSubmitting || submitLock.current) return; 
 
     if (paymentMethod === 'slip' && slipFiles.length === 0) return toast.error("Please upload your bank slip(s).");
     
     try {
+      submitLock.current = true; // 🔥 ක්ලික් කරපු ගමන් Lock කළා
       setIsSubmitting(true);
       const amountToPay = getFinalPayable().toFixed(2);
       const orderId = `ORD-${Date.now()}`;
@@ -197,6 +199,8 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
       if (paymentMethod === 'payhere') {
           if (typeof window.payhere === 'undefined') {
               toast.error("PayHere integration is missing! Please refresh the page.");
+              submitLock.current = false; // Error නම් Lock එක අරිනවා
+              setIsSubmitting(false);
               throw new Error("window.payhere is undefined.");
           }
 
@@ -231,11 +235,13 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
           window.payhere.onDismissed = function onDismissed() {
               toast.error("Payment dismissed.");
               setIsSubmitting(false);
+              submitLock.current = false; // 🔥 PayHere එකෙන් බැක් වුණොත් Lock එක අරිනවා
           };
 
           window.payhere.onError = function onError(error) {
               toast.error("Payment Error: " + error);
               setIsSubmitting(false);
+              submitLock.current = false; // 🔥 Error ආවොත් Lock එක අරිනවා
           };
 
           window.payhere.startPayment(payment);
@@ -246,6 +252,7 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
     } catch (error) {
       toast.error(error.message || "Error processing request.");
       setIsSubmitting(false);
+      submitLock.current = false; // 🔥 Error එකකදී Lock එක අරිනවා
     }
   };
 
@@ -291,11 +298,11 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
             setActiveTab('history'); 
         }
     } catch (error) { 
-        // 🔥 FIX 2: Backend එකෙන් එවන Error මැසේජ් එක (Duplicate Error) ලස්සනට Toast එකේ පෙන්නනවා
         toast.error(error.response?.data?.error || "Failed to save enrollment."); 
     } 
     finally { 
         setIsSubmitting(false); 
+        submitLock.current = false; // 🔥 Request එක ඉවර වුණාම අනිවාර්යයෙන්ම Lock එක අරිනවා
     }
   };
 

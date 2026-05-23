@@ -96,10 +96,17 @@ router.delete('/course-setup/installment', controller.deleteInstallment);
 router.put('/course-setup/business/toggle-status', controller.toggleBusinessStatus);
 router.put('/course-setup/batch/toggle-status', controller.toggleBatchStatus);
 
-
 // ================= ZOOM DYNAMIC DOWNLOAD ROUTE =================
-// 🔥 NEW: Zoom API එක හරහා fresh MP4 ලින්ක් එකක් අරන් App එකට දෙන Route එක 🔥
-router.get('/mobile/zoom-download/:meetingId', controller.getZoomDownloadRedirect);
+// 🔥 NEW: Zoom API එක හරහා fresh MP4 ලින්ක් එකක් අරන් App එකට JSON එකක් විදිහට දෙන Route එක 🔥
+// මෙතන controller.getZoomDirectLinkJson කියලා දාන්න
+router.get('/mobile/zoom-direct-link/:meetingId', controller.getZoomDirectLinkJson);
 
+// ================= APP EVENTS (ANIMATIONS) =================
+// 🔥 Admin Panel එකෙන් Animation එක Set කරන්න සහ බලන්න 🔥
+router.get('/admin/settings/app-event', controller.getAppEvent);
+router.put('/admin/settings/app-event', controller.setAppEvent);
+
+// 🔥 Mobile App එකෙන් Active Animation එක මොකක්ද කියලා අහන්න 🔥
+router.get('/mobile/app-event', controller.getAppEvent);
 
 module.exports = router;

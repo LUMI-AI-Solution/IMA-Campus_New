@@ -69,5 +69,6 @@ router.post('/profile/password', verifyToken, mobileStudentController.updateMobi
 router.post('/profile/update', verifyToken, upload.single('image'), mobileStudentController.updateMobileProfile);
 
 router.get('/yt-redirect', mobileStudentController.ytRedirect);
+router.get('/app-event', mobileStudentController.getActiveAppEvent);
 
 module.exports = router;

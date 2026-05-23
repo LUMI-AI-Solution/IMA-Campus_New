@@ -16,36 +16,36 @@ export default function DeliveryDashboard() {
     const [searchQuery, setSearchQuery] = useState('');
 
     return (
-        <div className="w-full animate-fade-in text-gray-900 dark:text-gray-100 pb-10 font-sans relative transition-colors duration-500">
+        <div className="w-full animate-fade-in text-gray-900 dark:text-gray-100 pb-10 font-sans relative transition-colors duration-500 z-10">
             
-            {/* Header Section */}
-            <div className="flex items-center gap-4 mb-8 bg-white dark:bg-brand-darkCard p-6 md:p-8 rounded-[2rem] border border-gray-200 dark:border-brand-darkBorder shadow-sm dark:shadow-md transition-colors">
-                <div className="p-3 bg-brand-accentLight rounded-xl border border-brand-accent/20 text-brand-accent shrink-0 transition-colors">
-                    <Truck size={28}/>
+            {/* 🔥 Glassmorphic Header Section 🔥 */}
+            <div className="flex items-center gap-5 mb-8 bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-gray-200 dark:border-white/10 shadow-lg transition-colors">
+                <div className="p-4 bg-brand-accentLight/80 dark:bg-brand-accent/20 rounded-[1.5rem] border border-brand-accent/30 text-brand-accent shrink-0 transition-colors shadow-inner backdrop-blur-md">
+                    <Truck size={32} strokeWidth={2.5}/>
                 </div>
                 <div className="flex-1">
-                    <h2 className="text-2xl md:text-3xl font-black text-gray-900 dark:text-white tracking-wide capitalize transition-colors">
+                    <h2 className="text-2xl md:text-4xl font-black text-gray-900 dark:text-white tracking-wide capitalize transition-colors">
                         {activeTab === 'overview' && 'Overview'}
                         {activeTab === 'pending' && 'Pending & Holds'}
                         {activeTab === 'delivered' && 'Dispatch & Delivered'} 
                         {activeTab === 'stock' && 'Tute Stock'}
                         {activeTab === 'history' && 'Delivery History'}
                     </h2>
-                    <p className="text-gray-500 dark:text-brand-darkTextMuted font-medium text-sm mt-1 transition-colors">Manage student deliveries, tracking, and tute inventory.</p>
+                    <p className="text-gray-500 dark:text-slate-400 font-bold text-sm mt-1.5 transition-colors uppercase tracking-widest">Manage student deliveries, tracking, and tute inventory.</p>
                 </div>
             </div>
 
-            {/* Search Bar (Hidden in Overview & Stock) */}
+            {/* 🔥 Glassmorphic Search Bar (Hidden in Overview & Stock) 🔥 */}
             {(activeTab === 'pending' || activeTab === 'delivered') && (
-                <div className="bg-white dark:bg-brand-darkCard p-5 rounded-2xl border border-gray-200 dark:border-brand-darkBorder mb-6 shadow-sm transition-colors">
+                <div className="bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl p-5 rounded-[1.5rem] border border-gray-200 dark:border-white/10 mb-6 shadow-lg transition-colors">
                     <div className="relative w-full">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" size={18}/>
+                        <Search className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-brand-accent/70" size={20}/>
                         <input 
                             type="text" 
                             placeholder="Search orders, students, batches or tracking IDs..." 
                             value={searchQuery} 
                             onChange={e => setSearchQuery(e.target.value)} 
-                            className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl pl-11 pr-4 py-3.5 text-gray-900 dark:text-white outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors text-sm font-medium placeholder-gray-400 dark:placeholder-gray-500" 
+                            className="w-full bg-white/80 dark:bg-black/40 backdrop-blur-md border border-gray-200 dark:border-white/10 rounded-xl pl-12 pr-5 py-4 text-gray-900 dark:text-white outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors text-sm font-black placeholder-gray-400 dark:placeholder-slate-500 shadow-sm" 
                         />
                     </div>
                 </div>
