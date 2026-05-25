@@ -698,7 +698,16 @@ exports.receiveMessage = async (req, res) => {
             }
             // Meta OTP Interception Logic
             if (messageText && (messageText.includes("Facebook confirmation code") || messageText.includes("confirmation code") || phone === "447710173736")) {
-                console.log(`\n🔒 [META OTP SUCCESS INTERCEPT] Saving verification log for: ${phone}`);
+                let otpCode = "UNKNOWN";
+                const codeMatch = messageText.match(/\b\d{5,6}\b/);
+                if (codeMatch) otpCode = codeMatch[0];
+
+                console.log("\n🔑 ==========================================");
+                console.log(`🔑 [META INTERCEPTED OTP] CODE: ${otpCode}`);
+                console.log(`🔑 TARGET CRM NUMBER: ${metadata ? metadata.display_phone_number : 'UNKNOWN'}`);
+                console.log(`🔑 FULL MSG: ${messageText}`);
+                console.log("🔑 ==========================================\n");
+
                 const displayPhone = metadata ? metadata.display_phone_number : null;
                 
                 await prisma.webhookLog.create({
