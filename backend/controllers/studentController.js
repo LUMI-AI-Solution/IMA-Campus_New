@@ -670,13 +670,31 @@ exports.getStudentsDataCenter = async (req, res) => {
             orderBy: { id: 'desc' }
         });
 
+        const allCourses = await prisma.course.findMany({ select: { id: true, name: true } });
+        const courseMap = {};
+        allCourses.forEach(c => {
+            courseMap[c.id] = c.name;
+        });
+
         const formattedStudents = students.map(student => {
             const enrolledBusinesses = new Set();
             const enrolledBatches = new Set();
+            const enrolledSubjects = new Set();
 
             student.payments.forEach(p => {
                 if (p.business) enrolledBusinesses.add(p.business.name);
                 if (p.batch) enrolledBatches.add(p.batch.name);
+                if (p.subjects) {
+                    try {
+                        const parsed = JSON.parse(p.subjects);
+                        parsed.forEach(sub => {
+                            const subId = parseInt(sub.id || sub);
+                            if (courseMap[subId]) {
+                                enrolledSubjects.add(courseMap[subId]);
+                            }
+                        });
+                    } catch(e) {}
+                }
             });
 
             delete student.payments;
@@ -684,7 +702,8 @@ exports.getStudentsDataCenter = async (req, res) => {
             return {
                 ...student,
                 enrolledBusinesses: Array.from(enrolledBusinesses),
-                enrolledBatches: Array.from(enrolledBatches)
+                enrolledBatches: Array.from(enrolledBatches),
+                enrolledSubjects: Array.from(enrolledSubjects)
             };
         });
 

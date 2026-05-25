@@ -44,10 +44,23 @@ const corsOptions = {
         const allowedOrigins = [
             'http://72.62.249.211:5175', 
             'http://localhost:5175', 
+            'http://localhost:5173', 
+            'http://localhost:5174', 
+            'http://localhost:3000', 
             'https://imacampus.online',
             'https://www.imacampus.online'  
         ];
-        if (!origin || allowedOrigins.includes(origin)) {
+        
+        // Dynamically allow local LAN IPs (10.x.x.x, 192.168.x.x, 172.16-31.x.x) and localhost variants
+        const isLocalIp = origin && (
+            origin.startsWith('http://10.') || 
+            origin.startsWith('http://192.168.') || 
+            origin.startsWith('http://172.') || 
+            origin.startsWith('http://localhost') || 
+            origin.startsWith('http://127.0.0.1')
+        );
+
+        if (!origin || allowedOrigins.includes(origin) || isLocalIp) {
             callback(null, true);
         } else {
             callback(new Error('Not allowed by CORS'));
@@ -68,12 +81,15 @@ app.use((req, res, next) => {
         const allowedOrigins = [
             'http://72.62.249.211:5175', 
             'http://localhost:5175', 
+            'http://localhost:5173', 
+            'http://localhost:5174', 
+            'http://localhost:3000', 
             'https://imacampus.online',
             'https://www.imacampus.online'
         ];
         
-        if (allowedOrigins.includes(origin)) {
-            res.header('Access-Control-Allow-Origin', origin);
+        if (allowedOrigins.includes(origin) || !origin) {
+            res.header('Access-Control-Allow-Origin', origin || '*');
         }
         res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
         res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');

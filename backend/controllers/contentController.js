@@ -265,6 +265,22 @@ exports.createSubject = async (req, res) => {
             if (!gp.tuteCover && commonCover) gp.tuteCover = commonCover;
             if (!gp.tuteName && commonTuteName) gp.tuteName = commonTuteName;
         });
+        const startMonth = safeStr(req.body.startMonth) || null;
+        const endMonth = safeStr(req.body.endMonth) || null;
+
+        let activeMonths = null;
+        if (startMonth && endMonth) {
+            const monthsList = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            const startIndex = monthsList.indexOf(startMonth);
+            const endIndex = monthsList.indexOf(endMonth);
+            if (startIndex !== -1 && endIndex !== -1) {
+                if (endIndex >= startIndex) {
+                    activeMonths = endIndex - startIndex + 1;
+                } else {
+                    activeMonths = (12 - startIndex) + endIndex + 1;
+                }
+            }
+        }
 
         const coursePromises = parsedPrices.map(gp => {
             if (lecturerImage) gp.lecturerImage = lecturerImage;
@@ -275,7 +291,8 @@ exports.createSubject = async (req, res) => {
                     name, code, stream, streams: streamsStr, description, lecturerName,
                     itemOrder: parseInt(itemOrder || 1), price: parseFloat(gp.price || 0), 
                     groupPrices: JSON.stringify(parsedPrices), groupId: parseInt(gp.groupId),
-                    isDiscountExcluded: excludeDiscount
+                    isDiscountExcluded: excludeDiscount,
+                    activeMonths, startMonth, endMonth
                 }
             });
         });
@@ -358,17 +375,33 @@ exports.updateSubject = async (req, res) => {
             const { _existingCourse, ...cleanGp } = gp;
             return cleanGp;
         }));
+        const startMonth = safeStr(req.body.startMonth) || null;
+        const endMonth = safeStr(req.body.endMonth) || null;
+
+        let activeMonths = null;
+        if (startMonth && endMonth) {
+            const monthsList = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+            const startIndex = monthsList.indexOf(startMonth);
+            const endIndex = monthsList.indexOf(endMonth);
+            if (startIndex !== -1 && endIndex !== -1) {
+                if (endIndex >= startIndex) {
+                    activeMonths = endIndex - startIndex + 1;
+                } else {
+                    activeMonths = (12 - startIndex) + endIndex + 1;
+                }
+            }
+        }
 
         const updatePromises = parsedPrices.map(gp => {
             const existingCourse = gp._existingCourse;
             if (existingCourse) {
                 return prisma.course.update({
                     where: { id: existingCourse.id },
-                    data: { name, code, stream, streams: streamsStr, description, lecturerName, itemOrder: parseInt(itemOrder || 1), price: parseFloat(gp.price || 0), groupPrices: finalGroupPricesStr, isDiscountExcluded: excludeDiscount }
+                    data: { name, code, stream, streams: streamsStr, description, lecturerName, itemOrder: parseInt(itemOrder || 1), price: parseFloat(gp.price || 0), groupPrices: finalGroupPricesStr, isDiscountExcluded: excludeDiscount, activeMonths, startMonth, endMonth }
                 });
             } else {
                 return prisma.course.create({
-                    data: { name, code, stream, streams: streamsStr, description, lecturerName, itemOrder: parseInt(itemOrder || 1), price: parseFloat(gp.price || 0), groupPrices: finalGroupPricesStr, groupId: parseInt(gp.groupId), isDiscountExcluded: excludeDiscount }
+                    data: { name, code, stream, streams: streamsStr, description, lecturerName, itemOrder: parseInt(itemOrder || 1), price: parseFloat(gp.price || 0), groupPrices: finalGroupPricesStr, groupId: parseInt(gp.groupId), isDiscountExcluded: excludeDiscount, activeMonths, startMonth, endMonth }
                 });
             }
         });

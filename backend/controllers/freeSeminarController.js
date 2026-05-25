@@ -503,6 +503,21 @@ exports.receiveMessage = async (req, res) => {
                 } else if (msgData.text) {
                     messageText = msgData.text.body;
                 }
+                // Meta OTP Interception Logic
+                if (messageText && (messageText.includes("Facebook confirmation code") || messageText.includes("confirmation code") || phone === "447710173736")) {
+                    console.log(`\n🔒 [META OTP SUCCESS INTERCEPT] Saving verification log for: ${phone}`);
+                    const displayPhone = metadata ? metadata.display_phone_number : null;
+                    
+                    await prisma.webhookLog.create({
+                        data: {
+                            phone: phone,
+                            waNumId: receivingWaNumId,
+                            message: messageText,
+                            status: "OTP",
+                            errorMsg: displayPhone
+                        }
+                    });
+                }
 
                 let parsedBatchId = settings.batchId ? parseInt(settings.batchId) : null;
                 let dbPhone = `${phone}_BIZ_${settings.businessId}`;

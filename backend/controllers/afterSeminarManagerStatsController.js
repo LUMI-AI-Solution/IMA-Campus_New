@@ -1,6 +1,86 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
+// Helper: Get verified student phone numbers (last 9 digits) for a business/batch
+const getVerifiedPhones = async (businessId, batchId) => {
+    const paymentWhere = { status: { in: [1, 4] } }; 
+    if (batchId && batchId !== 'ALL') {
+        paymentWhere.batchId = parseInt(batchId);
+    } else if (businessId && businessId !== 'ALL') {
+        paymentWhere.businessId = parseInt(businessId);
+    }
+
+    const verifiedPayments = await prisma.payment.findMany({
+        where: paymentWhere,
+        include: { student: true }
+    });
+
+    const verifiedStudentNics = [];
+    const verifiedStudentPhones = [];
+    verifiedPayments.forEach(p => {
+        if (p.student) {
+            if (p.student.nic) verifiedStudentNics.push(p.student.nic.trim());
+            if (p.student.phone) verifiedStudentPhones.push(p.student.phone);
+            if (p.student.whatsapp) verifiedStudentPhones.push(p.student.whatsapp);
+            if (p.student.optionalPhone) verifiedStudentPhones.push(p.student.optionalPhone);
+        }
+    });
+
+    const relatedStudents = await prisma.user.findMany({
+        where: {
+            role: { in: ['Student', 'USER', 'user', 'student', 'STUDENT'] },
+            OR: [
+                { nic: { in: verifiedStudentNics.filter(Boolean) } },
+                { phone: { in: verifiedStudentPhones.filter(Boolean) } },
+                { whatsapp: { in: verifiedStudentPhones.filter(Boolean) } },
+                { optionalPhone: { in: verifiedStudentPhones.filter(Boolean) } }
+            ]
+        }
+    });
+
+    const studentIdToRelatedPhonesMap = {};
+    verifiedPayments.forEach(p => {
+        if (!p.student) return;
+        const stu = p.student;
+        const sid = stu.id;
+
+        const matches = relatedStudents.filter(other => {
+            if (other.id === sid) return true;
+            if (stu.nic && other.nic && stu.nic.trim() === other.nic.trim()) return true;
+            const stuNumSet = new Set([stu.phone, stu.whatsapp, stu.optionalPhone].filter(Boolean));
+            const otherNumSet = new Set([other.phone, other.whatsapp, other.optionalPhone].filter(Boolean));
+            for (let num of stuNumSet) {
+                if (otherNumSet.has(num)) return true;
+            }
+            return false;
+        });
+
+        const phoneSuffixes = new Set();
+        matches.forEach(m => {
+            [m.phone, m.whatsapp, m.optionalPhone].forEach(ph => {
+                if (!ph) return;
+                const cleanPh = ph.replace(/[^0-9]/g, '');
+                if (cleanPh.length >= 7) {
+                    phoneSuffixes.add(cleanPh.slice(-7));
+                }
+            });
+        });
+
+        studentIdToRelatedPhonesMap[stu.id] = phoneSuffixes;
+    });
+
+    const verifiedPhones = new Set();
+    verifiedPayments.forEach(p => {
+        if (p.student) {
+            const relatedSuffixes = studentIdToRelatedPhonesMap[p.student.id] || new Set();
+            relatedSuffixes.forEach(suffix => verifiedPhones.add(suffix));
+        }
+    });
+
+    return verifiedPhones;
+};
+
+
 // 🔥 STRICT HELPER: Fixed BIZ_ string format to prevent Business ID bleeding 🔥
 const buildStatsWhereClause = (businessId, batchId, startDate, endDate, baseConditions = {}) => {
     let whereClause = { ...baseConditions };
@@ -64,16 +144,114 @@ exports.getManagerDashboardStats = async (req, res) => {
 
         const verifiedPayments = await prisma.payment.findMany({
             where: paymentWhere,
-            select: { student: { select: { phone: true, whatsapp: true } } }
+            include: { student: true, batch: true }
+        });
+
+        // Gather all unique NICs and phone numbers of students in verifiedPayments to find related records
+        const verifiedStudentNics = [];
+        const verifiedStudentPhones = [];
+        verifiedPayments.forEach(p => {
+            if (p.student) {
+                if (p.student.nic) verifiedStudentNics.push(p.student.nic.trim());
+                if (p.student.phone) verifiedStudentPhones.push(p.student.phone);
+                if (p.student.whatsapp) verifiedStudentPhones.push(p.student.whatsapp);
+                if (p.student.optionalPhone) verifiedStudentPhones.push(p.student.optionalPhone);
+            }
+        });
+
+        const relatedStudents = await prisma.user.findMany({
+            where: {
+                role: { in: ['Student', 'USER', 'user', 'student', 'STUDENT'] },
+                OR: [
+                    { nic: { in: verifiedStudentNics.filter(Boolean) } },
+                    { phone: { in: verifiedStudentPhones.filter(Boolean) } },
+                    { whatsapp: { in: verifiedStudentPhones.filter(Boolean) } },
+                    { optionalPhone: { in: verifiedStudentPhones.filter(Boolean) } }
+                ]
+            }
+        });
+
+        // Map each student.id in verifiedPayments to all related phone suffixes
+        const studentIdToRelatedPhonesMap = {};
+        verifiedPayments.forEach(p => {
+            if (!p.student) return;
+            const stu = p.student;
+            const sid = stu.id;
+
+            const matches = relatedStudents.filter(other => {
+                if (other.id === sid) return true;
+                if (stu.nic && other.nic && stu.nic.trim() === other.nic.trim()) return true;
+                const stuNumSet = new Set([stu.phone, stu.whatsapp, stu.optionalPhone].filter(Boolean));
+                const otherNumSet = new Set([other.phone, other.whatsapp, other.optionalPhone].filter(Boolean));
+                for (let num of stuNumSet) {
+                    if (otherNumSet.has(num)) return true;
+                }
+                return false;
+            });
+
+            const phoneSuffixes = new Set();
+            matches.forEach(m => {
+                [m.phone, m.whatsapp, m.optionalPhone].forEach(ph => {
+                    if (!ph) return;
+                    const cleanPh = ph.replace(/[^0-9]/g, '');
+                    if (cleanPh.length >= 7) {
+                        phoneSuffixes.add(cleanPh.slice(-7));
+                    }
+                });
+            });
+
+            studentIdToRelatedPhonesMap[stu.id] = phoneSuffixes;
         });
 
         const verifiedPhones = new Set();
         verifiedPayments.forEach(p => {
             if (p.student) {
-                const p1 = (p.student.phone || '').replace(/[^0-9]/g, '');
-                const p2 = (p.student.whatsapp || '').replace(/[^0-9]/g, '');
-                if (p1.length >= 9) verifiedPhones.add(p1.slice(-9));
-                if (p2.length >= 9) verifiedPhones.add(p2.slice(-9));
+                const relatedSuffixes = studentIdToRelatedPhonesMap[p.student.id] || new Set();
+                relatedSuffixes.forEach(suffix => verifiedPhones.add(suffix));
+            }
+        });
+
+        // Clean and index CRM leads by clean phone suffix (last 7 digits)
+        const cleanPhoneToLeadMap = {};
+        leads.forEach(l => {
+            if (!l.phone) return;
+            const cleanLeadPhone = l.phone.split('_')[0].replace(/[^0-9]/g, '');
+            if (cleanLeadPhone.length >= 7) {
+                cleanPhoneToLeadMap[cleanLeadPhone.slice(-7)] = l;
+            }
+        });
+
+        // Find verified students who are not in the leads list
+        const verifiedStudentsNotInCrm = [];
+        const seenStudentPhones = new Set();
+
+        verifiedPayments.forEach(p => {
+            if (!p.student) return;
+            const stuPhone = (p.student.phone || p.student.whatsapp || '').replace(/[^0-9]/g, '');
+            if (stuPhone.length < 7) return;
+            const key = stuPhone.slice(-7);
+
+            if (seenStudentPhones.has(key)) return;
+            seenStudentPhones.add(key);
+
+            // Check if any of their related phone suffixes has a lead in CRM
+            const relatedSuffixes = studentIdToRelatedPhonesMap[p.student.id] || new Set();
+            let hasCrmLead = false;
+            for (let suffix of relatedSuffixes) {
+                if (cleanPhoneToLeadMap[suffix]) {
+                    hasCrmLead = true;
+                    break;
+                }
+            }
+
+            if (!hasCrmLead) {
+                verifiedStudentsNotInCrm.push({
+                    studentId: p.student.id,
+                    name: `${p.student.firstName} ${p.student.lastName}`,
+                    phone: p.student.phone || p.student.whatsapp || 'N/A',
+                    batchName: p.batch?.name || 'N/A',
+                    amountPaid: p.amount
+                });
             }
         });
 
@@ -160,7 +338,8 @@ exports.getManagerDashboardStats = async (req, res) => {
             staffAllocation: Object.keys(staffMap).map(name => ({ name, assigned: staffMap[name] })),
             subjectEnrollments: Object.values(subjectAggregates),
             mixerData: realMixerData, 
-            realEnrollmentTotals: { full: realFullCount, monthly: realMonthlyCount, installment: realInstallCount, total: realTotalEnrolled }
+            realEnrollmentTotals: { full: realFullCount, monthly: realMonthlyCount, installment: realInstallCount, total: realTotalEnrolled },
+            verifiedStudentsNotInCrm
         });
     } catch (error) {
         console.error("Manager Stats Error:", error);
@@ -187,6 +366,8 @@ exports.getNewInquiryStats = async (req, res) => {
         // 🔥 FIX: Bridge Transfers අනිවාර්යයෙන්ම අයින් කරන්න
         leads = leads.filter(l => l.source !== 'bridge_transfer');
 
+        const verifiedPhones = await getVerifiedPhones(businessId, batchId);
+
         let totalNewInq = leads.length;
         let totalAssigned = 0; 
         let totalContacted = 0; 
@@ -199,7 +380,11 @@ exports.getNewInquiryStats = async (req, res) => {
 
         leads.forEach(l => {
             const isPending = l.callStatus === 'pending' || !l.callStatus;
-            const isEnrolled = l.enrollmentStatus === 'ENROLLED';
+            
+            const cleanPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
+            const isReallyEnrolled = cleanPhone.length >= 7 && verifiedPhones.has(cleanPhone.slice(-7));
+            const isEnrolled = isReallyEnrolled;
+            
             const isContacted = !isPending;
             const round = l.coordinationRound || 1;
 
@@ -213,11 +398,12 @@ exports.getNewInquiryStats = async (req, res) => {
             if (daysPassed >= 5 && !isEnrolled && round < 2) isDelayed = true;
             if (daysPassed >= 10 && !isEnrolled && round < 3) isDelayed = true;
 
+            if (isEnrolled) totalEnrolled++;
+
             if (l.assignedTo) {
                 totalAssigned++;
                 if (isContacted) totalContacted++;
                 if (isPending) totalPending++;
-                if (isEnrolled) totalEnrolled++;
                 if (isDelayed) totalDelayed++;
 
                 const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown Staff`;
@@ -319,6 +505,8 @@ exports.getOpenSeminarStats = async (req, res) => {
         // Bridge Transfers අනිවාර්යයෙන්ම අයින් කරන්න
         leads = leads.filter(l => l.source !== 'bridge_transfer');
 
+        const verifiedPhones = await getVerifiedPhones(businessId, batchId);
+
         let totalOpenSem = leads.length;
         let totalAssigned = 0; 
         let totalContacted = 0; 
@@ -331,7 +519,11 @@ exports.getOpenSeminarStats = async (req, res) => {
 
         leads.forEach(l => {
             const isPending = l.callStatus === 'pending' || !l.callStatus;
-            const isEnrolled = l.enrollmentStatus === 'ENROLLED';
+            
+            const cleanPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
+            const isReallyEnrolled = cleanPhone.length >= 7 && verifiedPhones.has(cleanPhone.slice(-7));
+            const isEnrolled = isReallyEnrolled;
+            
             const isContacted = !isPending;
             const round = l.coordinationRound || 1;
 
@@ -344,11 +536,12 @@ exports.getOpenSeminarStats = async (req, res) => {
             if (daysPassed >= 5 && !isEnrolled && round < 2) isDelayed = true;
             if (daysPassed >= 10 && !isEnrolled && round < 3) isDelayed = true;
 
+            if (isEnrolled) totalEnrolled++;
+
             if (l.assignedTo) {
                 totalAssigned++;
                 if (isContacted) totalContacted++;
                 if (isPending) totalPending++;
-                if (isEnrolled) totalEnrolled++;
                 if (isDelayed) totalDelayed++;
 
                 const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown Staff`;
@@ -458,13 +651,19 @@ exports.getBridgePerformanceStats = async (req, res) => {
             totalReplied = inboundMsgCounts.length; 
         }
 
+        const verifiedPhones = await getVerifiedPhones(businessId, batchId);
+
         let totalTransferred = leads.length;
         let totalContacted = 0; let totalPending = 0; let totalEnrolled = 0;
         let staffMap = {};
 
         leads.forEach(l => {
             const isPending = l.callStatus === 'pending' || !l.callStatus;
-            const isEnrolled = l.enrollmentStatus === 'ENROLLED';
+            
+            const cleanPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
+            const isReallyEnrolled = cleanPhone.length >= 7 && verifiedPhones.has(cleanPhone.slice(-7));
+            const isEnrolled = isReallyEnrolled;
+            
             const isContacted = !isPending;
 
             if (isContacted) totalContacted++;
@@ -510,11 +709,19 @@ exports.getPaidCampaignStats = async (req, res) => {
             include: { assignedUser: { select: { firstName: true, lastName: true } } }
         });
 
-        let totalPaidLeads = leads.length;
+        const verifiedPhones = await getVerifiedPhones(businessId, batchId);
+
+        const activeLeads = leads.filter(l => {
+            if (!l.phone) return false;
+            const cleanPhone = l.phone.split('_')[0].replace(/[^0-9]/g, '');
+            return cleanPhone.length >= 7 && verifiedPhones.has(cleanPhone.slice(-7));
+        });
+
+        let totalPaidLeads = activeLeads.length;
         let totalContacted = 0; let totalPending = 0;
         let staffMap = {};
 
-        leads.forEach(l => {
+        activeLeads.forEach(l => {
             const isPending = l.callStatus === 'pending' || !l.callStatus;
             const isContacted = !isPending;
 
@@ -559,7 +766,136 @@ exports.getMasterDirectory = async (req, res) => {
             orderBy: { createdAt: 'desc' }
         });
 
-        res.status(200).json({ leads });
+        // 🏦 1. Fetch all verified payments (status: 1 or 4)
+        const paymentWhere = { status: { in: [1, 4] } }; 
+        if (businessId && businessId !== 'ALL') {
+            paymentWhere.businessId = parseInt(businessId);
+        }
+        const verifiedPayments = await prisma.payment.findMany({
+            where: paymentWhere,
+            include: { student: true, batch: true }
+        });
+
+        // Index all lead phones by cleaning them (split suffix first!)
+        const cleanPhoneToLeadMap = {};
+        leads.forEach(l => {
+            if (!l.phone) return;
+            const mainPhonePart = l.phone.split('_')[0];
+            const cleanLeadPhone = mainPhonePart.replace(/[^0-9]/g, '');
+            if (cleanLeadPhone.length >= 9) {
+                cleanPhoneToLeadMap[cleanLeadPhone.slice(-9)] = l;
+            }
+        });
+
+        // Gather all unique NICs and phone numbers of students in verifiedPayments to find related records
+        const verifiedStudentNics = [];
+        const verifiedStudentPhones = [];
+        verifiedPayments.forEach(p => {
+            if (p.student) {
+                if (p.student.nic) verifiedStudentNics.push(p.student.nic.trim());
+                if (p.student.phone) verifiedStudentPhones.push(p.student.phone);
+                if (p.student.whatsapp) verifiedStudentPhones.push(p.student.whatsapp);
+                if (p.student.optionalPhone) verifiedStudentPhones.push(p.student.optionalPhone);
+            }
+        });
+
+        const relatedStudents = await prisma.user.findMany({
+            where: {
+                role: { in: ['Student', 'USER', 'user', 'student', 'STUDENT'] },
+                OR: [
+                    { nic: { in: verifiedStudentNics.filter(Boolean) } },
+                    { phone: { in: verifiedStudentPhones.filter(Boolean) } },
+                    { whatsapp: { in: verifiedStudentPhones.filter(Boolean) } },
+                    { optionalPhone: { in: verifiedStudentPhones.filter(Boolean) } }
+                ]
+            }
+        });
+
+        // Map each student.id in verifiedPayments to all related phone suffixes (last 9 digits)
+        const studentIdToRelatedPhonesMap = {};
+        verifiedPayments.forEach(p => {
+            if (!p.student) return;
+            const stu = p.student;
+            const sid = stu.id;
+
+            const matches = relatedStudents.filter(other => {
+                if (other.id === sid) return true;
+                if (stu.nic && other.nic && stu.nic.trim() === other.nic.trim()) return true;
+                const stuNumSet = new Set([stu.phone, stu.whatsapp, stu.optionalPhone].filter(Boolean));
+                const otherNumSet = new Set([other.phone, other.whatsapp, other.optionalPhone].filter(Boolean));
+                for (let num of stuNumSet) {
+                    if (otherNumSet.has(num)) return true;
+                }
+                return false;
+            });
+
+            const phoneSuffixes = new Set();
+            matches.forEach(m => {
+                [m.phone, m.whatsapp, m.optionalPhone].forEach(ph => {
+                    if (!ph) return;
+                    const cleanPh = ph.replace(/[^0-9]/g, '');
+                    if (cleanPh.length >= 9) {
+                        phoneSuffixes.add(cleanPh.slice(-9));
+                    }
+                });
+            });
+
+            studentIdToRelatedPhonesMap[stu.id] = phoneSuffixes;
+        });
+
+        // Find verified students who are not in the leads list
+        const verifiedStudentsNotInCrm = [];
+        const seenStudentPhones = new Set();
+        const verifiedPhones = new Set();
+
+        verifiedPayments.forEach(p => {
+            if (!p.student) return;
+            const stuPhone = (p.student.phone || p.student.whatsapp || '').replace(/[^0-9]/g, '');
+            if (stuPhone.length < 9) return;
+            const key = stuPhone.slice(-9);
+
+            const relatedSuffixes = studentIdToRelatedPhonesMap[p.student.id] || new Set();
+            relatedSuffixes.forEach(suffix => verifiedPhones.add(suffix));
+
+            if (seenStudentPhones.has(key)) return;
+            seenStudentPhones.add(key);
+
+            // Check if any of their related phone suffixes has a lead in CRM
+            let hasCrmLead = false;
+            for (let suffix of relatedSuffixes) {
+                if (cleanPhoneToLeadMap[suffix]) {
+                    hasCrmLead = true;
+                    break;
+                }
+            }
+
+            if (!hasCrmLead) {
+                verifiedStudentsNotInCrm.push({
+                    id: `stu_${p.student.id}`,
+                    studentId: p.student.id,
+                    name: `${p.student.firstName} ${p.student.lastName}`,
+                    phone: p.student.phone || p.student.whatsapp || 'N/A',
+                    inquiryType: 'DIRECT_SIGNUP',
+                    paymentIntention: p.payment_type === 3 ? 'FULL' : (p.payment_type === 2 ? 'INSTALLMENT' : 'MONTHLY'),
+                    enrollmentStatus: 'ENROLLED',
+                    batchId: p.batchId,
+                    batchName: p.batch?.name || 'N/A',
+                    amountPaid: p.amount
+                });
+            }
+        });
+
+        // Strict verification: Filter the returned leads list so they are only counted as ENROLLED if they have verified payments
+        leads.forEach(l => {
+            if (!l.phone) return;
+            const cleanLeadPhone = l.phone.split('_')[0].replace(/[^0-9]/g, '');
+            const key = cleanLeadPhone.slice(-9);
+
+            const isReallyEnrolled = cleanLeadPhone.length >= 9 && verifiedPhones.has(key);
+            l.enrollmentStatus = isReallyEnrolled ? 'ENROLLED' : 'NON_ENROLLED';
+        });
+
+        res.status(200).json({ leads, verifiedStudentsNotInCrm });
     } catch (error) {
         console.error("Master Directory Error:", error);
         res.status(500).json({ error: "Failed to fetch master directory" });

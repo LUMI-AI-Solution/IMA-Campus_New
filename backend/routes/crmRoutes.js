@@ -34,4 +34,7 @@ router.post('/auto-reply', upload.single('attachment'), crmController.addAutoRep
 router.get('/auto-reply', crmController.getAutoReplies);
 router.delete('/auto-reply/:id', crmController.deleteAutoReply);
 
+// 5. Meta OTP / Verification Routes
+router.get('/meta-otps', crmController.getMetaOtps);
+
 module.exports = router;

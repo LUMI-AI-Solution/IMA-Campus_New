@@ -200,3 +200,20 @@ exports.archiveCampaign = async (req, res) => {
         res.status(500).json({ error: "Failed to archive campaign" });
     }
 };
+
+// ==========================================
+// 5. META OTP: WebhookLog
+// ==========================================
+exports.getMetaOtps = async (req, res) => {
+    try {
+        const otps = await prisma.webhookLog.findMany({
+            where: { status: 'OTP' },
+            orderBy: { createdAt: 'desc' },
+            take: 20
+        });
+        res.status(200).json(otps);
+    } catch (error) {
+        console.error("Get Meta OTPs error:", error);
+        res.status(500).json({ error: "Failed to get Meta OTPs" });
+    }
+};

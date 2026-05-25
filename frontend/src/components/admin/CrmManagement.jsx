@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from '../../api/axios';
 import toast from 'react-hot-toast';
-import { MessageSquare, Bot, Key, UploadCloud, Trash2, PlusCircle, Server, Save, FileText, Archive, Users, Power, Loader2, Globe } from 'lucide-react';
+import { MessageSquare, Bot, Key, UploadCloud, Trash2, PlusCircle, Server, Save, FileText, Archive, Users, Power, Loader2, Globe, ShieldCheck, Copy, RefreshCw, ClipboardCheck } from 'lucide-react';
 
 export default function CrmManagement() {
     const [businesses, setBusinesses] = useState([]);
@@ -10,6 +10,11 @@ export default function CrmManagement() {
     const [batches, setBatches] = useState([]);
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
+    
+    // Meta OTP Verification State
+    const [metaOtps, setMetaOtps] = useState([]);
+    const [refreshingOtps, setRefreshingOtps] = useState(false);
+    const [copiedId, setCopiedId] = useState(null);
 
     // API Setup & Bot State
     const [metaKey, setMetaKey] = useState('');
@@ -34,11 +39,40 @@ export default function CrmManagement() {
 
     useEffect(() => {
         if (selectedBusiness) {
-            fetchBatches();
-            fetchSettings();
-            fetchReplies();
+            if (activeTab === 'META_OTP') {
+                fetchMetaOtps();
+            } else {
+                fetchBatches();
+                fetchSettings();
+                fetchReplies();
+            }
         }
     }, [selectedBusiness, activeTab]);
+
+    const fetchMetaOtps = async () => {
+        setRefreshingOtps(true);
+        try {
+            const res = await axios.get('/admin/crm/meta-otps');
+            setMetaOtps(res.data || []);
+        } catch (error) {
+            console.error("Failed to load Meta OTPs", error);
+            toast.error("Failed to load verification codes");
+        } finally {
+            setRefreshingOtps(false);
+        }
+    };
+
+    const copyToClipboard = (text, id) => {
+        // Extract exact digits if the body contains a confirmation code
+        let otpCode = text;
+        const match = text.match(/\b\d{5,6}\b/);
+        if (match) otpCode = match[0];
+        
+        navigator.clipboard.writeText(otpCode);
+        setCopiedId(id);
+        toast.success(`Copied: ${otpCode}`);
+        setTimeout(() => setCopiedId(null), 2000);
+    };
 
     const fetchBusinesses = async () => {
         try {
@@ -192,9 +226,89 @@ export default function CrmManagement() {
                 <button onClick={() => setActiveTab('AFTER_SEMINAR')} className={`px-6 py-3 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${activeTab === 'AFTER_SEMINAR' ? 'bg-blue-600 text-white shadow-lg' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'}`}>
                     <Globe size={18}/> After Seminar (Global Help)
                 </button>
+                <button onClick={() => setActiveTab('META_OTP')} className={`px-6 py-3 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${activeTab === 'META_OTP' ? 'bg-purple-600 text-white shadow-lg' : 'bg-white/5 text-slate-400 hover:bg-white/10 hover:text-white'}`}>
+                    <ShieldCheck size={18}/> Meta Verification Codes (OTP)
+                </button>
             </div>
 
-            {loading ? (
+            {activeTab === 'META_OTP' ? (
+                <div className="bg-slate-800/40 p-6 md:p-8 rounded-[2rem] border border-white/10 shadow-lg backdrop-blur-xl space-y-6">
+                    <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 border-b border-white/10 pb-6">
+                        <div>
+                            <h3 className="text-xl font-extrabold text-white flex items-center gap-3"><ShieldCheck className="text-purple-400" size={24}/> Recent Meta OTP Logs</h3>
+                            <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">Verification codes received from Facebook/Meta on your active CRM WhatsApp numbers.</p>
+                        </div>
+                        <button onClick={fetchMetaOtps} disabled={refreshingOtps} className="bg-purple-600/90 hover:bg-purple-600 text-white font-extrabold px-6 py-3 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 outline-none border border-transparent shadow-[0_4px_15px_rgba(147,51,234,0.4)] self-start transition-all hover:scale-[1.02] active:scale-[0.98]">
+                            <RefreshCw size={14} className={refreshingOtps ? "animate-spin" : ""}/>
+                            {refreshingOtps ? "Refreshing..." : "Refresh Codes"}
+                        </button>
+                    </div>
+
+                    {refreshingOtps && metaOtps.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-20 gap-4">
+                            <Loader2 className="animate-spin text-purple-500" size={44}/>
+                            <span className="text-sm font-bold text-slate-400 uppercase tracking-widest animate-pulse">Fetching latest OTPs...</span>
+                        </div>
+                    ) : metaOtps.length === 0 ? (
+                        <div className="text-center py-20 bg-black/20 rounded-2xl border border-white/5 shadow-inner">
+                            <ShieldCheck className="text-slate-600 mx-auto mb-4" size={48}/>
+                            <p className="text-slate-400 font-extrabold text-lg">No verification codes intercepted yet.</p>
+                            <p className="text-xs text-slate-500 mt-2">When Meta sends an OTP to your CRM numbers, it will instantly show up here.</p>
+                        </div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {metaOtps.map((otp) => {
+                                let codeVal = "OTP";
+                                const codeMatch = (otp.message || '').match(/\b\d{5,6}\b/);
+                                if (codeMatch) codeVal = codeMatch[0];
+                                
+                                return (
+                                    <div key={otp.id} className="group bg-black/40 hover:bg-[#0c0f1e]/80 border border-white/5 hover:border-purple-500/30 p-6 rounded-2xl flex flex-col justify-between gap-5 transition-all shadow-inner hover:shadow-lg relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-32 h-32 blur-[60px] opacity-10 pointer-events-none rounded-full bg-purple-500 transition-all group-hover:opacity-20"></div>
+                                        
+                                        <div className="flex justify-between items-start gap-4">
+                                            <div>
+                                                <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 bg-white/5 border border-white/10 px-2.5 py-1 rounded-md mb-2.5 inline-block">Sender: Meta</span>
+                                                <h4 className="text-[13px] font-bold text-slate-200 line-clamp-2 leading-relaxed" title={otp.message}>{otp.message}</h4>
+                                            </div>
+                                            
+                                            <div className="flex flex-col items-end gap-1.5">
+                                                <span className="text-[11px] font-black text-purple-400 uppercase tracking-wider bg-purple-500/10 border border-purple-500/20 px-2.5 py-1 rounded-lg flex items-center gap-1 shadow-sm">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse"></span> OTP
+                                                </span>
+                                                <span className="text-[10px] text-slate-500 font-bold whitespace-nowrap">{new Date(otp.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center justify-between gap-4 pt-4 border-t border-white/5">
+                                            <div>
+                                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-0.5">Target CRM Num</span>
+                                                <span className="text-xs font-black text-slate-300 tracking-wider">
+                                                    {otp.errorMsg ? `+${otp.errorMsg}` : "Global Setup"}
+                                                </span>
+                                            </div>
+
+                                            <button onClick={() => copyToClipboard(otp.message, otp.id)} className="bg-purple-600/10 hover:bg-purple-600 text-purple-400 hover:text-white px-4 py-2.5 rounded-xl border border-purple-500/20 hover:border-purple-500/40 text-xs font-black uppercase tracking-wider flex items-center gap-2 transition-all shadow-sm shrink-0 outline-none">
+                                                {copiedId === otp.id ? (
+                                                    <>
+                                                        <ClipboardCheck size={14} className="text-emerald-400"/>
+                                                        <span className="text-emerald-400">Copied!</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Copy size={14}/>
+                                                        <span>Copy: <span className="text-white ml-0.5 tracking-wider font-extrabold">{codeVal}</span></span>
+                                                    </>
+                                                )}
+                                            </button>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </div>
+            ) : loading ? (
                 <div className="flex justify-center py-20"><Loader2 className="animate-spin text-emerald-500" size={40}/></div>
             ) : (
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">

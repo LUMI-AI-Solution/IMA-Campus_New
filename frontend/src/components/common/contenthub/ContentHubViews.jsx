@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderOpen, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff } from 'lucide-react';
+import { FolderOpen, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar } from 'lucide-react';
 import api from '../../../api/axios'; 
 
 export default function ContentHubViews({ state, actions }) {
@@ -201,6 +201,15 @@ export default function ContentHubViews({ state, actions }) {
                                                                 {sub.lecturerName && <span className="text-sm font-bold text-gray-400 mb-1">{sub.lecturerName}</span>}
                                                                 
                                                                 <div className="flex flex-wrap gap-2 mt-2">
+                                                                    {sub.activeMonths && (
+                                                                        <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20 flex items-center gap-1.5 shadow-sm backdrop-blur-sm">
+                                                                            <Calendar size={12} className="text-emerald-400 shrink-0" />
+                                                                            Active: {sub.activeMonths} {sub.activeMonths === 1 ? 'Month' : 'Months'}
+                                                                            {sub.startMonth && sub.endMonth && (
+                                                                                <span className="text-slate-400 lowercase font-extrabold"> ({sub.startMonth} - {sub.endMonth})</span>
+                                                                            )}
+                                                                        </span>
+                                                                    )}
                                                                     {sub.groupPrices.map((gp, i) => (
                                                                         <span key={i} className="text-[11px] font-bold text-slate-300 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10 flex items-center gap-2 whitespace-nowrap shadow-sm backdrop-blur-sm">
                                                                             {gp.groupName}: <span className="text-brand-accent font-black">Rs {gp.price}</span>

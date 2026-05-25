@@ -479,6 +479,26 @@ export default function ContentHubModals({ state, actions }) {
                                     <div className="grid grid-cols-1 gap-6">
                                         <div><label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Subject Name *</label><input type="text" name="name" defaultValue={editData?.name} required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" /></div>
                                         <div><label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Subject Code (Optional)</label><input type="text" name="code" defaultValue={editData?.code} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" /></div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                                <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Start Month</label>
+                                                <select name="startMonth" defaultValue={editData?.startMonth || ""} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all cursor-pointer">
+                                                    <option value="" className="bg-slate-800 text-white">Select Month</option>
+                                                    {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map(m => (
+                                                        <option key={m} value={m} className="bg-slate-800 text-white">{m}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">End Month</label>
+                                                <select name="endMonth" defaultValue={editData?.endMonth || ""} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all cursor-pointer">
+                                                    <option value="" className="bg-slate-800 text-white">Select Month</option>
+                                                    {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map(m => (
+                                                        <option key={m} value={m} className="bg-slate-800 text-white">{m}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
                                         <div><label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Description</label><textarea name="description" defaultValue={editData?.description} rows="4" className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 resize-none shadow-inner transition-all"></textarea></div>
                                     </div>
                                     <div className="mt-4">

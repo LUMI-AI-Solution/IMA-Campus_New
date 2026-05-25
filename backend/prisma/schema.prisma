@@ -123,6 +123,10 @@ model Course {
   isDiscountExcluded Boolean @default(false)
   lecturerName       String?
 
+  activeMonths       Int?
+  startMonth         String?
+  endMonth           String?
+
   groupId       Int?
   group         Group?         @relation(fields: [groupId], references: [id])
   createdAt     DateTime       @default(now())

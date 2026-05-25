@@ -477,20 +477,20 @@ export default function PaymentManagement({ loggedInUser }) {
 
     // 🔥 MODIFIED: Theme Edition Light/Dark Tab Classes 🔥
     const getTabClass = (tabName) => {
-        const base = "px-5 py-2.5 rounded-xl font-extrabold text-sm transition-all flex items-center gap-2 whitespace-nowrap border shadow-sm outline-none";
-        if (activeTab !== tabName) return `${base} bg-white dark:bg-brand-darkCard/60 border-gray-200 dark:border-white/5 text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-brand-darkHover hover:text-gray-900 dark:hover:text-white hover:shadow-md`;
+        const base = "px-5 py-2.5 rounded-xl font-extrabold text-sm transition-all flex items-center gap-2 whitespace-nowrap border shadow-sm outline-none scale-[0.98] hover:scale-100 duration-200";
+        if (activeTab !== tabName) return `${base} bg-white/5 border-white/5 text-slate-400 hover:bg-white/10 hover:text-white hover:border-white/10 hover:shadow-md`;
         
         switch (tabName) {
-            case 'Pending': return `${base} bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30`;
-            case 'Approved': return `${base} bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-500/30`;
-            case 'Free Card': return `${base} bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-500/30`;
-            case 'Discount': return `${base} bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-500/30`;
-            case 'Rejected': return `${base} bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/30`;
-            case 'Upcoming': return `${base} bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-500/30`;
-            case 'Non Paid': return `${base} bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/30`;
-            case 'Post Pay': return `${base} bg-orange-50 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 border-orange-200 dark:border-orange-500/30`;
-            case 'Trash': return `${base} bg-gray-100 dark:bg-slate-700/50 text-gray-700 dark:text-slate-200 border-gray-300 dark:border-slate-600`;
-            default: return `${base} bg-gray-100 dark:bg-white/10 text-gray-800 dark:text-white border-gray-300 dark:border-white/20`;
+            case 'Pending': return `${base} bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.15)]`;
+            case 'Approved': return `${base} bg-blue-500/10 text-blue-400 border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.15)]`;
+            case 'Free Card': return `${base} bg-yellow-500/10 text-yellow-400 border-yellow-500/30 shadow-[0_0_15px_rgba(234,179,8,0.15)]`;
+            case 'Discount': return `${base} bg-cyan-500/10 text-cyan-400 border-cyan-500/30 shadow-[0_0_15px_rgba(6,182,212,0.15)]`;
+            case 'Rejected': return `${base} bg-red-500/10 text-red-400 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.15)]`;
+            case 'Upcoming': return `${base} bg-purple-500/10 text-purple-400 border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.15)]`;
+            case 'Non Paid': return `${base} bg-red-500/10 text-red-400 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.15)]`;
+            case 'Post Pay': return `${base} bg-orange-500/10 text-orange-400 border-orange-500/30 shadow-[0_0_15px_rgba(249,115,22,0.15)]`;
+            case 'Trash': return `${base} bg-white/10 text-slate-200 border-white/20 shadow-[0_0_15px_rgba(255,255,255,0.05)]`;
+            default: return `${base} bg-white/10 text-white border-white/20`;
         }
     };
 
@@ -747,34 +747,34 @@ export default function PaymentManagement({ loggedInUser }) {
                         <>
                             {/* SLIP PAYMENTS SECTION */}
                             {(approvedFilter === 'All' || approvedFilter === 'Slips') && (
-                                <div className="bg-white/70 dark:bg-brand-darkCard/80 p-6 md:p-8 rounded-[2rem] border border-gray-200 dark:border-brand-darkBorder shadow-sm transition-colors">
-                                    <h3 className="text-emerald-600 dark:text-emerald-400 font-extrabold text-xl mb-6 flex items-center gap-3 uppercase tracking-widest"><FileImage size={24} /> Slip Payments</h3>
+                                <div className="bg-white/5 backdrop-blur-md p-6 md:p-8 rounded-[2rem] border border-white/10 shadow-lg transition-all duration-300">
+                                    <h3 className="text-emerald-400 font-extrabold text-xl mb-6 flex items-center gap-3 uppercase tracking-widest"><FileImage size={24} /> Slip Payments</h3>
                                     <div className="space-y-4">
                                         {paginatedStudents.map(student => {
                                             const slipPays = student.allPayments.filter(p => p.method !== 'PayHere' && p.method !== 'Online');
                                             if (slipPays.length === 0) return null;
                                             return (
-                                                <div key={`slip-${student.studentId}`} className="bg-white dark:bg-black/20 border border-gray-200 dark:border-white/5 hover:border-emerald-300 dark:hover:border-emerald-500/30 p-5 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-sm hover:shadow-md transition-all group">
+                                                <div key={`slip-${student.studentId}`} className="bg-white/5 backdrop-blur-sm border border-white/10 hover:border-emerald-500/30 p-5 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-sm hover:shadow-md transition-all duration-300 group">
                                                     <div className="flex items-center gap-5 w-full">
-                                                        <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 border border-emerald-200 dark:border-emerald-500/20 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 shadow-sm"><User size={24} /></div>
+                                                        <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 shadow-sm"><User size={24} /></div>
                                                         <div>
-                                                            <h4 className="font-extrabold text-gray-900 dark:text-white text-lg flex items-center flex-wrap gap-2.5">
-    <span className="text-red-500 text-xs bg-red-100 px-2 py-1 rounded">
-        [ID: {student.allPayments.map(p => p.id).join(', ')}]
-    </span>
-    {student.studentName}
-    <span className="text-[10px] text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-200 dark:border-indigo-500/20 tracking-widest uppercase">{student.studentNo}</span>
-                                                                {student.phone && student.phone !== 'N/A' && <span className="text-[10px] text-blue-700 dark:text-blue-400 bg-blue-100 dark:bg-blue-500/10 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-500/20 tracking-widest uppercase">{student.phone}</span>}
+                                                            <h4 className="font-extrabold text-white text-lg flex items-center flex-wrap gap-2.5">
+                                                                <span className="text-rose-400 text-xs font-mono font-semibold bg-rose-500/15 border border-rose-500/20 px-3 py-1 rounded-full tracking-wide">
+                                                                    ID: {student.allPayments.map(p => p.id).join(', ')}
+                                                                </span>
+                                                                {student.studentName}
+                                                                <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20 tracking-widest uppercase">{student.studentNo}</span>
+                                                                {student.phone && student.phone !== 'N/A' && <span className="text-[10px] text-sky-400 bg-sky-500/10 px-2.5 py-1 rounded-md border border-sky-500/20 tracking-widest uppercase">{student.phone}</span>}
                                                             </h4>
-                                                            <p className="text-xs font-bold text-gray-500 dark:text-slate-400 mt-1.5">{slipPays.length} Slip Payment(s)</p>
+                                                            <p className="text-xs font-bold text-slate-400 mt-1.5">{slipPays.length} Slip Payment(s)</p>
                                                         </div>
                                                     </div>
-                                                    <button onClick={() => setStudentActionModal({ ...student, allPayments: slipPays })} className="w-full md:w-auto bg-emerald-50 dark:bg-emerald-600/20 hover:bg-emerald-600 text-emerald-700 dark:text-emerald-400 hover:text-white dark:hover:text-white border border-emerald-200 dark:border-emerald-500/30 py-3.5 px-6 rounded-xl transition-all text-xs font-extrabold uppercase tracking-widest whitespace-nowrap outline-none shadow-sm group-hover:shadow-emerald-500/20">View Records</button>
+                                                    <button onClick={() => setStudentActionModal({ ...student, allPayments: slipPays })} className="w-full md:w-auto bg-emerald-500/15 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 py-3.5 px-6 rounded-xl transition-all text-xs font-extrabold uppercase tracking-widest whitespace-nowrap outline-none shadow-sm group-hover:shadow-[0_0_15px_rgba(16,185,129,0.25)]">View Records</button>
                                                 </div>
                                             );
                                         })}
                                         {paginatedStudents.every(s => s.allPayments.filter(p => p.method !== 'PayHere' && p.method !== 'Online').length === 0) && (
-                                            <p className="text-gray-500 dark:text-slate-500 text-sm font-bold bg-gray-50 dark:bg-black/20 p-5 rounded-2xl border border-gray-200 dark:border-white/5 text-center">No approved slip payments found.</p>
+                                            <p className="text-slate-400 text-sm font-semibold bg-white/5 p-5 rounded-2xl border border-white/5 text-center">No approved slip payments found.</p>
                                         )}
                                     </div>
                                 </div>
@@ -782,31 +782,31 @@ export default function PaymentManagement({ loggedInUser }) {
 
                             {/* ONLINE PAYMENTS SECTION */}
                             {(approvedFilter === 'All' || approvedFilter === 'Online') && (
-                                <div className="bg-white/70 dark:bg-brand-darkCard/80 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-gray-200 dark:border-brand-darkBorder shadow-sm mt-8 transition-colors">
-                                    <h3 className="text-indigo-600 dark:text-indigo-400 font-extrabold text-xl mb-6 flex items-center gap-3 uppercase tracking-widest"><CreditCard size={24} /> Online (PayHere) Payments</h3>
+                                <div className="bg-white/5 backdrop-blur-md p-6 md:p-8 rounded-[2rem] border border-white/10 shadow-lg mt-8 transition-all duration-300">
+                                    <h3 className="text-indigo-400 font-extrabold text-xl mb-6 flex items-center gap-3 uppercase tracking-widest"><CreditCard size={24} /> Online (PayHere) Payments</h3>
                                     <div className="space-y-4">
                                         {paginatedStudents.map(student => {
                                             const onlinePays = student.allPayments.filter(p => p.method === 'PayHere' || p.method === 'Online');
                                             if (onlinePays.length === 0) return null;
                                             return (
-                                                <div key={`online-${student.studentId}`} className="bg-white dark:bg-black/20 border border-gray-200 dark:border-white/5 hover:border-indigo-300 dark:hover:border-indigo-500/30 p-5 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-sm hover:shadow-md transition-all group">
+                                                <div key={`online-${student.studentId}`} className="bg-white/5 backdrop-blur-sm border border-white/10 hover:border-indigo-500/30 p-5 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-sm hover:shadow-md transition-all duration-300 group">
                                                     <div className="flex items-center gap-5 w-full">
-                                                        <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 border border-indigo-200 dark:border-indigo-500/20 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 shadow-sm"><User size={24} /></div>
+                                                        <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 border border-indigo-500/20 bg-indigo-500/10 text-indigo-400 shadow-sm"><User size={24} /></div>
                                                         <div>
-                                                            <h4 className="font-extrabold text-gray-900 dark:text-white text-lg flex items-center flex-wrap gap-2.5">
+                                                            <h4 className="font-extrabold text-white text-lg flex items-center flex-wrap gap-2.5">
                                                                 {student.studentName}
-                                                                <span className="text-[10px] text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-200 dark:border-indigo-500/20 tracking-widest uppercase">{student.studentNo}</span>
-                                                                {student.phone && student.phone !== 'N/A' && <span className="text-[10px] text-blue-700 dark:text-blue-400 bg-blue-100 dark:bg-blue-500/10 px-2.5 py-1 rounded-md border border-blue-200 dark:border-blue-500/20 tracking-widest uppercase">{student.phone}</span>}
+                                                                <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20 tracking-widest uppercase">{student.studentNo}</span>
+                                                                {student.phone && student.phone !== 'N/A' && <span className="text-[10px] text-sky-400 bg-sky-500/10 px-2.5 py-1 rounded-md border border-sky-500/20 tracking-widest uppercase">{student.phone}</span>}
                                                             </h4>
-                                                            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1.5 font-bold">{onlinePays.length} Online Payment(s)</p>
+                                                            <p className="text-xs text-slate-400 mt-1.5 font-bold">{onlinePays.length} Online Payment(s)</p>
                                                         </div>
                                                     </div>
-                                                    <button onClick={() => setStudentActionModal({ ...student, allPayments: onlinePays })} className="w-full md:w-auto bg-indigo-50 dark:bg-indigo-600/20 hover:bg-indigo-600 text-indigo-700 dark:text-indigo-400 hover:text-white dark:hover:text-white border border-indigo-200 dark:border-indigo-500/30 py-3.5 px-6 rounded-xl transition-all text-xs font-extrabold uppercase tracking-widest whitespace-nowrap outline-none shadow-sm group-hover:shadow-indigo-500/20">View Records</button>
+                                                    <button onClick={() => setStudentActionModal({ ...student, allPayments: onlinePays })} className="w-full md:w-auto bg-indigo-500/15 hover:bg-indigo-600 text-indigo-400 hover:text-white border border-indigo-500/30 py-3.5 px-6 rounded-xl transition-all text-xs font-extrabold uppercase tracking-widest whitespace-nowrap outline-none shadow-sm group-hover:shadow-[0_0_15px_rgba(99,102,241,0.25)]">View Records</button>
                                                 </div>
                                             );
                                         })}
                                         {paginatedStudents.every(s => s.allPayments.filter(p => p.method === 'PayHere' || p.method === 'Online').length === 0) && (
-                                            <p className="text-gray-500 dark:text-slate-500 text-sm font-bold bg-gray-50 dark:bg-black/20 p-5 rounded-2xl border border-gray-200 dark:border-white/5 text-center">No approved online payments found.</p>
+                                            <p className="text-slate-400 text-sm font-semibold bg-white/5 p-5 rounded-2xl border border-white/5 text-center">No approved online payments found.</p>
                                         )}
                                     </div>
                                 </div>
@@ -825,46 +825,46 @@ export default function PaymentManagement({ loggedInUser }) {
             ) : (
                 <div className="space-y-6">
                     {loading ? (
-                        <div className="text-center py-20 bg-white/70 dark:bg-brand-darkCard/80 rounded-[2rem] border border-gray-200 dark:border-brand-darkBorder shadow-sm"><Loader2 className="animate-spin text-brand-accent mx-auto" size={40} /></div>
+                        <div className="text-center py-20 bg-white/5 backdrop-blur-md rounded-[2rem] border border-white/10 shadow-lg"><Loader2 className="animate-spin text-rose-500 mx-auto" size={40} /></div>
                     ) : paginatedStudents.length === 0 ? (
-                        <div className="text-center py-20 bg-white/70 dark:bg-brand-darkCard/80 rounded-[2rem] border border-gray-200 dark:border-brand-darkBorder shadow-sm"><p className="text-gray-500 dark:text-slate-400 font-extrabold text-lg">No records found for the selected filters.</p></div>
+                        <div className="text-center py-20 bg-white/5 backdrop-blur-md rounded-[2rem] border border-white/10 shadow-lg"><p className="text-slate-400 font-extrabold text-lg">No records found for the selected filters.</p></div>
                     ) : (
                         <>
                             {paginatedStudents.map(student => {
                                 const latestPayment = student.allPayments[0];
                                 return (
-                                    <div key={student.studentId} className="bg-white/70 dark:bg-brand-darkCard/80 border border-gray-200 dark:border-brand-darkBorder hover:border-brand-accent/40 dark:hover:border-brand-accent/40 p-6 md:p-8 rounded-[2rem] flex flex-col md:flex-row items-start justify-between gap-6 transition-all shadow-sm hover:shadow-lg group">
+                                    <div key={student.studentId} className="bg-white/5 backdrop-blur-md border border-white/10 hover:border-brand-accent/40 p-6 md:p-8 rounded-[2rem] flex flex-col md:flex-row items-start justify-between gap-6 transition-all duration-300 shadow-lg hover:shadow-brand-accentLight/5 hover:-translate-y-0.5 group">
                                         <div className="flex items-start gap-5 flex-1 w-full">
-                                            <div className="w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 border border-brand-accent/20 bg-brand-accentLight text-brand-accent shadow-sm">
+                                            <div className="w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 border border-white/10 bg-white/5 text-rose-400 shadow-inner group-hover:border-rose-500/20 transition-all duration-300">
                                                 <User size={30} strokeWidth={1.5} />
                                             </div>
                                             <div className="flex-1 mt-1">
-                                                <h4 className="font-extrabold text-xl text-gray-900 dark:text-white flex items-center flex-wrap gap-3">
-    <span className="text-red-500 text-xs bg-red-100 px-2 py-1 rounded">
-        [ID: {student.allPayments.map(p => p.id).join(', ')}]
-    </span>
-    {student.studentName}
-    <span className="text-[10px] font-black text-gray-500 dark:text-white/50 bg-gray-100 dark:bg-black/40 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/5 tracking-widest uppercase shadow-sm">{student.studentNo}</span>
-                                                    {student.phone && student.phone !== 'N/A' && <span className="text-[10px] font-black text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-500/10 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-500/20 tracking-widest uppercase shadow-sm">{student.phone}</span>}
+                                                <h4 className="font-extrabold text-xl text-white flex items-center flex-wrap gap-3">
+                                                    <span className="text-rose-400 text-xs font-mono font-semibold bg-rose-500/15 border border-rose-500/20 px-3 py-1 rounded-full tracking-wide shadow-[0_0_10px_rgba(244,63,94,0.08)]">
+                                                        ID: {student.allPayments.map(p => p.id).join(', ')}
+                                                    </span>
+                                                    {student.studentName}
+                                                    <span className="text-[10px] font-black text-indigo-400 bg-indigo-500/10 px-3 py-1.5 rounded-lg border border-indigo-500/20 tracking-widest uppercase shadow-sm">{student.studentNo}</span>
+                                                    {student.phone && student.phone !== 'N/A' && <span className="text-[10px] font-black text-sky-400 bg-sky-500/10 px-3 py-1.5 rounded-lg border border-sky-500/20 tracking-widest uppercase shadow-sm">{student.phone}</span>}
                                                 </h4>
                                                 {latestPayment && (
                                                     <>
-                                                        <p className="text-sm font-bold text-gray-500 dark:text-slate-400 mt-3 flex items-center gap-3">
-                                                            <span className="text-gray-700 dark:text-white font-extrabold bg-gray-100 dark:bg-white/10 px-3 py-1 rounded-lg border border-gray-200 dark:border-white/5 shadow-sm">{latestPayment.date}</span>
-                                                            <span className="truncate max-w-[150px] sm:max-w-[300px]">({latestPayment.business})</span>
-                                                            <span className="truncate max-w-[100px] sm:max-w-[200px]">({latestPayment.batch})</span>
+                                                        <p className="text-sm font-bold text-slate-400 mt-3 flex items-center gap-3">
+                                                            <span className="text-emerald-400 font-extrabold bg-emerald-500/15 px-3 py-1 rounded-lg border border-emerald-500/20 shadow-sm">{latestPayment.date}</span>
+                                                            <span className="truncate max-w-[150px] sm:max-w-[300px] text-slate-300 font-semibold">{latestPayment.business}</span>
+                                                            <span className="truncate max-w-[100px] sm:max-w-[200px] text-slate-400 font-medium">({latestPayment.batch})</span>
                                                         </p>
                                                         <div className="flex flex-wrap gap-2 mt-4 items-center">
-                                                            <span className="text-[10px] font-black bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-500/20 uppercase tracking-widest shadow-sm">Type: {latestPayment.type}</span>
-                                                            <span className="text-[10px] font-black bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 px-3 py-1.5 rounded-lg border border-purple-200 dark:border-purple-500/20 uppercase tracking-widest shadow-sm">Method: {latestPayment.method}</span>
-                                                            {student.allPayments.length > 1 && <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-500/20 uppercase tracking-widest shadow-sm">+{student.allPayments.length - 1} More</span>}
+                                                            <span className="text-[10px] font-black bg-blue-500/15 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/20 uppercase tracking-widest shadow-sm">Type: {latestPayment.type}</span>
+                                                            <span className="text-[10px] font-black bg-purple-500/15 text-purple-400 px-3 py-1.5 rounded-lg border border-purple-500/20 uppercase tracking-widest shadow-sm">Method: {latestPayment.method}</span>
+                                                            {student.allPayments.length > 1 && <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/15 px-3 py-1.5 rounded-lg border border-emerald-500/20 uppercase tracking-widest shadow-sm">+{student.allPayments.length - 1} More</span>}
                                                         </div>
                                                     </>
                                                 )}
                                             </div>
                                         </div>
-                                        <div className="flex items-center justify-between md:justify-end gap-6 w-full md:w-auto border-t border-gray-200 dark:border-white/5 md:border-t-0 pt-6 md:pt-0 shrink-0">
-                                            <button onClick={() => setStudentActionModal(student)} className="w-full md:w-auto bg-brand-accent hover:bg-brand-accentHover text-white font-extrabold py-4 md:py-3.5 px-8 rounded-xl transition-transform hover:scale-[1.02] text-xs uppercase tracking-widest shadow-lg shadow-brand-accent/30 dark:shadow-none whitespace-nowrap outline-none">
+                                        <div className="flex items-center justify-between md:justify-end gap-6 w-full md:w-auto border-t border-white/5 md:border-t-0 pt-6 md:pt-0 shrink-0">
+                                            <button onClick={() => setStudentActionModal(student)} className="w-full md:w-auto bg-linear-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-extrabold py-4 md:py-3.5 px-8 rounded-xl hover:shadow-[0_0_20px_rgba(225,29,72,0.4)] active:scale-[0.98] transition-all duration-200 text-xs uppercase tracking-widest whitespace-nowrap outline-none shadow-lg border border-rose-500/30">
                                                 Review Payments
                                             </button>
                                         </div>
@@ -873,10 +873,10 @@ export default function PaymentManagement({ loggedInUser }) {
                             })}
 
                             {totalPages > 1 && (
-                                <div className="flex justify-between items-center mt-8 bg-white dark:bg-brand-darkCard p-4 rounded-2xl border border-gray-200 dark:border-brand-darkBorder shadow-sm">
-                                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="flex items-center gap-2 text-sm font-bold text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white disabled:opacity-30 transition-colors outline-none px-4 py-2"><ChevronLeft size={18} /> Prev</button>
-                                    <span className="text-sm font-extrabold text-gray-900 dark:text-white bg-gray-100 dark:bg-white/5 px-5 py-2 rounded-xl border border-gray-200 dark:border-white/5">Page {currentPage} of {totalPages}</span>
-                                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="flex items-center gap-2 text-sm font-bold text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white disabled:opacity-30 transition-colors outline-none px-4 py-2">Next <ChevronRight size={18} /></button>
+                                <div className="flex justify-between items-center mt-8 bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-sm">
+                                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="flex items-center gap-2 text-sm font-bold text-slate-400 hover:text-white disabled:opacity-30 transition-colors outline-none px-4 py-2"><ChevronLeft size={18} /> Prev</button>
+                                    <span className="text-sm font-extrabold text-white bg-white/5 px-5 py-2 rounded-xl border border-white/5">Page {currentPage} of {totalPages}</span>
+                                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="flex items-center gap-2 text-sm font-bold text-slate-400 hover:text-white disabled:opacity-30 transition-colors outline-none px-4 py-2">Next <ChevronRight size={18} /></button>
                                 </div>
                             )}
                         </>
