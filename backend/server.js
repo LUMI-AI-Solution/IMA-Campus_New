@@ -51,14 +51,15 @@ const corsOptions = {
             'https://www.imacampus.online'  
         ];
         
-        // Dynamically allow local LAN IPs, VPS IP variants, and localhost variants
+        // Dynamically allow local LAN IPs, VPS IP variants, localhost variants, and imacampus.online domains/subdomains
         const isLocalIp = origin && (
             origin.startsWith('http://10.') || 
             origin.startsWith('http://192.168.') || 
             origin.startsWith('http://172.') || 
             origin.startsWith('http://localhost') || 
             origin.startsWith('http://127.0.0.1') ||
-            origin.startsWith('http://72.62.249.211')
+            origin.startsWith('http://72.62.249.211') ||
+            origin.endsWith('imacampus.online')
         );
 
         if (!origin || allowedOrigins.includes(origin) || isLocalIp) {
@@ -89,7 +90,8 @@ app.use((req, res, next) => {
             'https://www.imacampus.online'
         ];
         
-        const isAllowed = allowedOrigins.includes(origin) || !origin || (origin && origin.startsWith('http://72.62.249.211'));
+        const isAllowed = allowedOrigins.includes(origin) || !origin || 
+            (origin && (origin.startsWith('http://72.62.249.211') || origin.endsWith('imacampus.online')));
         if (isAllowed) {
             res.header('Access-Control-Allow-Origin', origin || '*');
         }
