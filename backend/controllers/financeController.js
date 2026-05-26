@@ -38,10 +38,10 @@ exports.getFinanceMatrix = async (req, res) => {
         });
         const monthlyGroups = rawGroups.filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'));
 
-        // 2. Courses (Subjects) with activeMonths & pricing
+        // 2. Courses (Subjects) with activeMonths, default prices & groupPrices
         const courses = await prisma.course.findMany({
             where: { group: { batchId: parsedBatchId } },
-            select: { id: true, name: true, activeMonths: true, price: true }
+            select: { id: true, name: true, activeMonths: true, price: true, groupPrices: true }
         });
         
         const courseMap = {};
@@ -53,7 +53,8 @@ exports.getFinanceMatrix = async (req, res) => {
                 id: c.id,
                 name: cleanName,
                 activeMonths: c.activeMonths || 12,
-                price: c.price || 0.0
+                price: c.price || 0.0,
+                groupPrices: c.groupPrices
             };
         });
         const uniqueSubjectNames = [...new Set(Object.values(courseMap))];
@@ -63,6 +64,12 @@ exports.getFinanceMatrix = async (req, res) => {
             where: { batchId: parsedBatchId, status: 1 },
             include: { student: true }, 
             orderBy: { created_at: 'asc' }
+        });
+
+        // Fetch installment plans to determine phases dynamically
+        const installmentPlans = await prisma.installment.findMany({
+            where: { batchId: parsedBatchId },
+            orderBy: { subjectCount: 'desc' }
         });
 
         let grandTotal = 0.0;
@@ -79,10 +86,6 @@ exports.getFinanceMatrix = async (req, res) => {
 
             // Initialize student object if not exists
             if (!studentMap[p.studentId]) {
-                let typeStr = 'Monthly';
-                if (parseInt(p.payment_type) === 3) typeStr = 'Full';
-                else if (parseInt(p.payment_type) === 2) typeStr = 'Installment';
-
                 studentMap[p.studentId] = {
                     id: p.studentId,
                     studentNo: p.student.studentNo || `STU-${p.studentId}`,
@@ -90,9 +93,10 @@ exports.getFinanceMatrix = async (req, res) => {
                     phone: p.student.phone,
                     whatsapp: p.student.whatsapp,
                     birthYear: getBirthYearFromNIC(p.student.nic) || 'N/A',
-                    type: typeStr,
-                    hasFullPayment: (parseInt(p.payment_type) === 3 || parseInt(p.payment_type) === 2),
-                    hasMonthlyPayment: parseInt(p.payment_type) === 1,
+                    type: 'Monthly', // Resolved dynamically at the end
+                    hasFullPayment: false,
+                    hasInstallmentPayment: false,
+                    hasMonthlyPayment: false,
                     matrixValues: {}, 
                     totalPaid: 0.0
                 };
@@ -109,9 +113,10 @@ exports.getFinanceMatrix = async (req, res) => {
             const sData = studentMap[p.studentId];
             const payType = parseInt(p.payment_type);
 
-            // Update flags for hybrid student detection
-            if (payType === 3 || payType === 2) sData.hasFullPayment = true;
-            if (payType === 1) sData.hasMonthlyPayment = true;
+            // Update flags for final type & hybrid student detection
+            if (payType === 3) sData.hasFullPayment = true;
+            else if (payType === 2) sData.hasInstallmentPayment = true;
+            else if (payType === 1) sData.hasMonthlyPayment = true;
 
             sData.totalPaid += paidAmount;
             grandTotal += paidAmount;
@@ -133,16 +138,35 @@ exports.getFinanceMatrix = async (req, res) => {
             const numSubjects = enrolledSubjectNames.length;
             if (numSubjects === 0) return;
 
-            // Match enrolled subject names to database courses
+            // Match enrolled subject names to database courses and resolve exact groupPrices if applicable
             const enrolledCoursesList = enrolledSubjectNames.map(subName => {
                 const courseId = Object.keys(courseMap).find(id => courseMap[id] === subName);
-                return courseId ? courseDetailsMap[courseId] : { name: subName, activeMonths: 12, price: 1000.0 };
+                if (courseId) {
+                    const cDetails = courseDetailsMap[courseId];
+                    let finalPrice = cDetails.price;
+                    
+                    // Look up group specific price if payment is for a specific group
+                    if (p.groupId && cDetails.groupPrices) {
+                        try {
+                            const gps = JSON.parse(cDetails.groupPrices);
+                            const matchGp = gps.find(gp => parseInt(gp.groupId) === p.groupId);
+                            if (matchGp && matchGp.price !== undefined) {
+                                finalPrice = parseFloat(matchGp.price);
+                            }
+                        } catch (e) {}
+                    }
+                    return {
+                        ...cDetails,
+                        price: finalPrice
+                    };
+                }
+                return { name: subName, activeMonths: 12, price: 1000.0 };
             });
 
-            // Calculate total price of standard subjects to split payment proportionally
+            // Calculate total price of standard subjects to split payment proportionally (handles bundle discounts automatically!)
             const totalStandardPrice = enrolledCoursesList.reduce((sum, c) => sum + c.price, 0);
 
-            // Proportional distribution of payment among subjects
+            // Proportional distribution of payment among subjects (handles discounts correctly)
             const subjectAmountAllocations = enrolledCoursesList.map(course => {
                 let allocatedAmt = 0;
                 if (totalStandardPrice > 0) {
@@ -191,48 +215,30 @@ exports.getFinanceMatrix = async (req, res) => {
                     // Installment: 2-phases or 3-phases
                     const currentInstNo = p.installment_no || 1;
                     
-                    // We check if it's 2-phases or 3-phases based on the installment number / details.
-                    // By default: Tech courses use 2 installments (6/6 months) or 3 installments (4/4/4 months)
-                    // Let's check the number of months in the batch and installment_no
-                    // 2-Installments structure: Phase 1 (1-6), Phase 2 (7-12)
-                    // 3-Installments structure: Phase 1 (1-4), Phase 2 (5-8), Phase 3 (9-12)
-                    
+                    // Fetch installment plan dynamically to get actual phase counts
+                    const plan = installmentPlans.find(pl => pl.subjectCount <= numSubjects);
+                    let totalPhases = 2; // default
+                    if (plan && plan.details) {
+                        try {
+                            const parsedDetails = JSON.parse(plan.details);
+                            if (Array.isArray(parsedDetails)) totalPhases = parsedDetails.length;
+                        } catch(e) {}
+                    }
+
                     let phaseMonths = 6;
                     let startIndex = 0;
                     
-                    if (currentInstNo === 1) {
-                        // Phase 1: 1st installment
-                        // We can check if batch has 2 or 3 installments. If installment_no has been set up for 3, we spread 4 months.
-                        // Let's check: if installment_no is 3, we spread 4 months.
-                        // For safety, let's look at the installment_no. If there are 3 installments, we use 4 months each.
-                        // If it's installment 1 and the next installment is 2 or 3, let's default based on standard:
-                        // If there is any installment plan for 3 subjects/installments, let's use 3 phases (4 months), else 2 phases (6 months).
-                        const isThreePhase = (p.remark && p.remark.toLowerCase().includes('3')) || currentInstNo === 3;
-                        
-                        if (isThreePhase) {
-                            phaseMonths = 4;
-                            startIndex = 0;
-                        } else {
-                            phaseMonths = 6;
-                            startIndex = 0;
-                        }
-                    } else if (currentInstNo === 2) {
-                        // 2nd installment: 
-                        // If 3 phases: months 5 to 8 (startIndex = 4, phaseMonths = 4)
-                        // If 2 phases: months 7 to 12 (startIndex = 6, phaseMonths = 6)
-                        const isThreePhase = (p.remark && p.remark.toLowerCase().includes('3')) || monthlyGroups.length === 12; // fallback
-                        
-                        if (isThreePhase && monthlyGroups.length >= 8) {
-                            phaseMonths = 4;
-                            startIndex = 4;
-                        } else {
-                            phaseMonths = 6;
-                            startIndex = 6;
-                        }
-                    } else if (currentInstNo === 3) {
-                        // 3rd installment: months 9 to 12 (startIndex = 8, phaseMonths = 4)
+                    if (totalPhases === 3) {
+                        // 3 Installments: 4, 4, 4 months
                         phaseMonths = 4;
-                        startIndex = 8;
+                        if (currentInstNo === 1) startIndex = 0;
+                        else if (currentInstNo === 2) startIndex = 4;
+                        else if (currentInstNo === 3) startIndex = 8;
+                    } else {
+                        // 2 Installments (Default): 6, 6 months
+                        phaseMonths = 6;
+                        if (currentInstNo === 1) startIndex = 0;
+                        else if (currentInstNo === 2) startIndex = 6;
                     }
 
                     const endIndex = Math.min(startIndex + phaseMonths, monthlyGroups.length);
@@ -255,9 +261,19 @@ exports.getFinanceMatrix = async (req, res) => {
             });
         });
 
-        // Convert student map to array and flag hybrid students
+        // Convert student map to array and flag hybrid students & final enrollment types
         const studentsArray = Object.values(studentMap).map(stu => {
-            stu.isHybrid = stu.hasFullPayment && stu.hasMonthlyPayment;
+            // Priority for enrollment type label: Full > Installment > Monthly
+            if (stu.hasFullPayment) {
+                stu.type = 'Full';
+            } else if (stu.hasInstallmentPayment) {
+                stu.type = 'Installment';
+            } else {
+                stu.type = 'Monthly';
+            }
+            
+            // A hybrid student has paid for Full/Installment AND Monthly in the same batch
+            stu.isHybrid = (stu.hasFullPayment || stu.hasInstallmentPayment) && stu.hasMonthlyPayment;
             return stu;
         });
 
