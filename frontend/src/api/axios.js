@@ -1,6 +1,9 @@
 import axios from 'axios';
 
 const getBaseURL = () => {
+  if (import.meta.env.VITE_API_URL) {
+    return import.meta.env.VITE_API_URL;
+  }
   const hostname = window.location.hostname;
   if (hostname === 'localhost' || hostname === '127.0.0.1') {
     return 'http://localhost:5000/api';
@@ -37,11 +40,13 @@ api.interceptors.response.use((response) => {
         const protocol = window.location.protocol;
         
         // Dynamically choose secure HTTPS url or local port-based URL
-        const replacementBase = (protocol === 'https:') 
-            ? `https://${host}` 
-            : (host === 'localhost' || host === '127.0.0.1') 
-                ? 'http://localhost:5000' 
-                : `http://${host}:5000`;
+        const replacementBase = import.meta.env.VITE_API_URL
+            ? import.meta.env.VITE_API_URL.replace('/api', '')
+            : (protocol === 'https:') 
+                ? `https://${host}` 
+                : (host === 'localhost' || host === '127.0.0.1') 
+                    ? 'http://localhost:5000' 
+                    : `http://${host}:5000`;
 
         if (stringData.includes('http://72.62.249.211:5000')) {
             stringData = stringData.replace(/http:\/\/72\.62\.249\.211:5000/g, replacementBase);
