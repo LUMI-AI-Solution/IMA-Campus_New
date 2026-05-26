@@ -17,7 +17,11 @@ export default defineConfig({
     },
   },
   preview: {
-    allowedHosts: ['all']
+    allowedHosts: [
+      'test.imacampus.online',
+      'www.imacampus.online',
+      'imacampus.online'
+    ]
   },
   server: {
     host: '0.0.0.0', 
