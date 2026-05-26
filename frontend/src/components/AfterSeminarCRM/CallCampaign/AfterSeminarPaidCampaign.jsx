@@ -62,11 +62,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         setCurrentPage(1);
     }, [activeMainTab, activeSubTab, activeRound, activePhase, selectedMonth, filters]);
 
-    useEffect(() => {
-        if (activeMainTab === 'FULL' || activeSubTab === 'ENROLLED') {
-            setActiveRound(1); 
-        }
-    }, [activeMainTab, activeSubTab]);
+    // Removed auto-reset of activeRound to support Round 2 on all tabs
 
     useEffect(() => {
         if (filters.selectedBusiness && filters.selectedBatch) {
@@ -123,6 +119,27 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
     const handleDraftRemark = (id, text) => {
         setDrafts(prev => ({ ...prev, [id]: text }));
         localStorage.setItem(`draft_paid_remark_${id}`, text);
+    };
+
+    const handleStartRoundTwo = async () => {
+        if (!filters.selectedBatch) return;
+        if (!window.confirm("Are you sure you want to trigger Round 2? This will clone Round 1 answered and rejected leads of this batch and copy their remarks over as fresh Round 2 leads.")) return;
+        
+        try {
+            const token = localStorage.getItem('token');
+            const res = await axios.post('/after-seminar-crm/retention/start-round-two', {
+                businessId: filters.selectedBusiness,
+                batchId: filters.selectedBatch
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            
+            toast.success(res.data.message || "Round 2 started successfully!");
+            fetchPaidCampaignData();
+        } catch (err) {
+            console.error(err);
+            toast.error(err.response?.data?.error || "Failed to start Round 2 campaign.");
+        }
     };
 
     const handleSaveCallData = async (leadId) => {
@@ -193,17 +210,27 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                         <p className="text-xs text-slate-400 mt-1">Manage monthly renewals and follow-ups professionally.</p>
                     </div>
                     
-                    <div className="flex items-center gap-3 bg-[#0f172a] px-3 py-2 rounded-lg border border-slate-700 shadow-sm">
-                        <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Target Month:</span>
-                        <select 
-                            value={selectedMonth} 
-                            onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                            className="bg-transparent text-indigo-400 font-semibold text-sm outline-none cursor-pointer"
+                    <div className="flex items-center gap-3 flex-wrap">
+                        {/* 🚀 START ROUND 2 CAMPAIGN BUTTON */}
+                        <button 
+                            onClick={handleStartRoundTwo} 
+                            className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold py-2 px-4 rounded-lg text-xs flex items-center gap-2 shadow-md outline-none cursor-pointer uppercase tracking-wider transition-all"
                         >
-                            {[...Array(12)].map((_, i) => (
-                                <option key={i+1} value={i+1} className="bg-[#1e293b]">Month {i+1}</option>
-                            ))}
-                        </select>
+                            🚀 Start Round 2
+                        </button>
+
+                        <div className="flex items-center gap-3 bg-[#0f172a] px-3 py-2 rounded-lg border border-slate-700 shadow-sm">
+                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Target Month:</span>
+                            <select 
+                                value={selectedMonth} 
+                                onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                                className="bg-transparent text-indigo-400 font-semibold text-sm outline-none cursor-pointer"
+                            >
+                                {[...Array(12)].map((_, i) => (
+                                    <option key={i+1} value={i+1} className="bg-[#1e293b]">Month {i+1}</option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -243,9 +270,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                 <div className="flex justify-between items-center bg-[#0f172a] p-2 rounded-lg border border-slate-700 flex-wrap gap-3">
                     <div className="flex gap-2">
                         <button onClick={() => setActiveRound(1)} className={`px-4 py-1.5 rounded text-xs font-medium transition-all ${activeRound === 1 ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}>Round 1</button>
-                        {(activeMainTab !== 'FULL' && activeSubTab === 'NON_ENROLLED') && (
-                            <button onClick={() => setActiveRound(2)} className={`px-4 py-1.5 rounded text-xs font-medium transition-all ${activeRound === 2 ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}>Round 2</button>
-                        )}
+                        <button onClick={() => setActiveRound(2)} className={`px-4 py-1.5 rounded text-xs font-medium transition-all ${activeRound === 2 ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}>Round 2</button>
                     </div>
                     
                     <div className="flex gap-2 border-l border-slate-600 pl-3">

@@ -248,3 +248,79 @@ exports.getRetentionCampaignData = async (req, res) => {
         res.status(500).json({ error: "Failed to fetch retention campaign data" });
     }
 };
+
+// ============================================================================
+// 5. START ROUND 2 CAMPAIGN (CLONES ROUND 1 ANSWERED/REJECT LEADS & COPIES REMARKS)
+// ============================================================================
+exports.startRoundTwoCampaign = async (req, res) => {
+    try {
+        const { businessId, batchId } = req.body;
+        if (!batchId) return res.status(400).json({ error: "Batch ID is required" });
+        const parsedBatchId = parseInt(batchId);
+
+        // Find all leads in Round 1 for this batch that are Answered or Rejected
+        const roundOneLeads = await prisma.lead.findMany({
+            where: {
+                batchId: parsedBatchId,
+                campaignType: 'AFTER_SEMINAR',
+                coordinationRound: 1,
+                callStatus: { in: ['answered', 'reject'] }
+            }
+        });
+
+        if (roundOneLeads.length === 0) {
+            return res.status(200).json({ message: "No qualified Round 1 leads (Answered/Reject) found to promote." });
+        }
+
+        let promotedCount = 0;
+        for (const lead of roundOneLeads) {
+            // Extract the base phone number (removing any BIZ/BATCH details)
+            // E.g., "94771234567_BIZ_1_BATCH_2"
+            const phoneParts = lead.phone.split('_BIZ_');
+            const basePhone = phoneParts[0];
+            const bizBatchSuffix = phoneParts[1] ? `_BIZ_${phoneParts[1]}` : '';
+            
+            // Format unique phone suffix for Round 2, ensuring no duplicate round suffixes
+            const suffixWithoutRound = bizBatchSuffix.split('_ROUND_')[0];
+            const newPhoneStr = `${basePhone}_BIZ_${suffixWithoutRound}_ROUND_2`;
+
+            // Check if already promoted to prevent duplicate inserts
+            const existingRoundTwo = await prisma.lead.findUnique({
+                where: { phone: newPhoneStr }
+            });
+
+            if (!existingRoundTwo) {
+                await prisma.lead.create({
+                    data: {
+                        name: lead.name,
+                        phone: newPhoneStr,
+                        source: lead.source,
+                        campaignType: lead.campaignType,
+                        assignedTo: lead.assignedTo,
+                        status: lead.assignedTo ? 'OPEN' : 'NEW',
+                        phase: 1, // Reset to phase 1
+                        callStatus: 'pending', // Reset call status
+                        paymentIntention: lead.paymentIntention,
+                        enrollmentStatus: lead.enrollmentStatus,
+                        inquiryType: lead.inquiryType,
+                        batchId: lead.batchId,
+                        feedback: lead.feedback, // Copy exact remarks/feedback from Round 1!
+                        coordinationRound: 2,
+                        callAttempt: 1,
+                        callMethod: lead.callMethod || 'direct',
+                        isLocked: false,
+                        unreadCount: 0,
+                        assignedAt: lead.assignedTo ? new Date() : null
+                    }
+                });
+                promotedCount++;
+            }
+        }
+
+        res.status(200).json({ message: `Successfully promoted ${promotedCount} leads to Round 2!` });
+
+    } catch (error) {
+        console.error("Start Round 2 Error:", error);
+        res.status(500).json({ error: "Failed to start Round 2 campaign" });
+    }
+};

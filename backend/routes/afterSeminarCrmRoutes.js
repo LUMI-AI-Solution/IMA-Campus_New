@@ -68,6 +68,7 @@ router.post('/bridge/revert-pending', afterSeminarBridgeController.revertPending
 router.get('/retention/stats', afterSeminarRetentionController.getRetentionDashboardStats);
 router.get('/retention/leads', afterSeminarRetentionController.getRetentionLeads);
 router.post('/retention/trigger-reset', afterSeminarRetentionController.manualTriggerMonthlyReset); 
+router.post('/retention/start-round-two', afterSeminarRetentionController.startRoundTwoCampaign); 
 
 // ============================================================================
 // 📊 MODULE 4: MANAGER STATS (🔥 FIXED ERROR HERE 🔥)
