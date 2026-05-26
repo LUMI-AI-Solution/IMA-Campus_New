@@ -51,13 +51,14 @@ const corsOptions = {
             'https://www.imacampus.online'  
         ];
         
-        // Dynamically allow local LAN IPs (10.x.x.x, 192.168.x.x, 172.16-31.x.x) and localhost variants
+        // Dynamically allow local LAN IPs, VPS IP variants, and localhost variants
         const isLocalIp = origin && (
             origin.startsWith('http://10.') || 
             origin.startsWith('http://192.168.') || 
             origin.startsWith('http://172.') || 
             origin.startsWith('http://localhost') || 
-            origin.startsWith('http://127.0.0.1')
+            origin.startsWith('http://127.0.0.1') ||
+            origin.startsWith('http://72.62.249.211')
         );
 
         if (!origin || allowedOrigins.includes(origin) || isLocalIp) {
@@ -88,7 +89,8 @@ app.use((req, res, next) => {
             'https://www.imacampus.online'
         ];
         
-        if (allowedOrigins.includes(origin) || !origin) {
+        const isAllowed = allowedOrigins.includes(origin) || !origin || (origin && origin.startsWith('http://72.62.249.211'));
+        if (isAllowed) {
             res.header('Access-Control-Allow-Origin', origin || '*');
         }
         res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
