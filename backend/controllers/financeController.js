@@ -3,6 +3,24 @@ const prisma = new PrismaClient();
 
 const safeJson = (data) => JSON.parse(JSON.stringify(data, (key, value) => typeof value === 'bigint' ? value.toString() : value));
 
+// 🔥 Helper: Sri Lankan NIC Birth-Year Parser 🔥
+const getBirthYearFromNIC = (nic) => {
+    if (!nic) return null;
+    const cleanNic = nic.replace(/[^0-9vxVX]/g, '').trim();
+    if (cleanNic.length === 10 && (cleanNic.endsWith('v') || cleanNic.endsWith('V') || cleanNic.endsWith('x') || cleanNic.endsWith('X'))) {
+        const yearPart = cleanNic.substring(0, 2);
+        return 1900 + parseInt(yearPart);
+    } else if (cleanNic.length === 12 && /^\d+$/.test(cleanNic)) {
+        const yearPart = cleanNic.substring(0, 4);
+        return parseInt(yearPart);
+    }
+    if (/^\d{9}$/.test(cleanNic)) {
+        const yearPart = cleanNic.substring(0, 2);
+        return 1900 + parseInt(yearPart);
+    }
+    return null;
+};
+
 // ============================================================================
 // 💰 FINANCE MODULE: REVENUE ALLOCATION MATRIX (STUDENT-WISE)
 // ============================================================================
@@ -12,7 +30,7 @@ exports.getFinanceMatrix = async (req, res) => {
         if (!batchId || batchId === 'null') return res.status(400).json({ error: "Batch ID is required" });
         const parsedBatchId = parseInt(batchId);
 
-        // 1. Group tika gannawa (Masa tika)
+        // 1. Group (Months)
         const rawGroups = await prisma.group.findMany({
             where: { batchId: parsedBatchId },
             orderBy: { itemOrder: 'asc' },
@@ -20,25 +38,31 @@ exports.getFinanceMatrix = async (req, res) => {
         });
         const monthlyGroups = rawGroups.filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'));
 
-        // 2. Courses (Subjects)
+        // 2. Courses (Subjects) with activeMonths & pricing
         const courses = await prisma.course.findMany({
             where: { group: { batchId: parsedBatchId } },
-            select: { id: true, name: true }
+            select: { id: true, name: true, activeMonths: true, price: true }
         });
+        
         const courseMap = {};
-        courses.forEach(c => courseMap[c.id] = c.name.trim().toUpperCase());
+        const courseDetailsMap = {};
+        courses.forEach(c => {
+            const cleanName = c.name.trim().toUpperCase();
+            courseMap[c.id] = cleanName;
+            courseDetailsMap[c.id] = {
+                id: c.id,
+                name: cleanName,
+                activeMonths: c.activeMonths || 12,
+                price: c.price || 0.0
+            };
+        });
         const uniqueSubjectNames = [...new Set(Object.values(courseMap))];
 
-        // 3. Approved Payments (Student details එක්කම ගන්නවා)
+        // 3. Approved Payments with Student details
         const payments = await prisma.payment.findMany({
             where: { batchId: parsedBatchId, status: 1 },
             include: { student: true }, 
             orderBy: { created_at: 'asc' }
-        });
-
-        const installmentPlans = await prisma.installment.findMany({
-            where: { batchId: parsedBatchId },
-            orderBy: { subjectCount: 'desc' }
         });
 
         let grandTotal = 0.0;
@@ -51,9 +75,9 @@ exports.getFinanceMatrix = async (req, res) => {
         payments.forEach(p => {
             if (!p.studentId || !p.student) return;
             const paidAmount = parseFloat(p.amount || 0);
-            if (paidAmount <= 0) return; // සල්ලි ගෙවලා නැත්නම් ස්කිප්
+            if (paidAmount <= 0) return;
 
-            // ළමයා තාම Map එකේ නැත්නම් අලුතෙන් හදනවා
+            // Initialize student object if not exists
             if (!studentMap[p.studentId]) {
                 let typeStr = 'Monthly';
                 if (parseInt(p.payment_type) === 3) typeStr = 'Full';
@@ -65,12 +89,15 @@ exports.getFinanceMatrix = async (req, res) => {
                     studentName: `${p.student.firstName} ${p.student.lastName}`.trim(),
                     phone: p.student.phone,
                     whatsapp: p.student.whatsapp,
+                    birthYear: getBirthYearFromNIC(p.student.nic) || 'N/A',
                     type: typeStr,
+                    hasFullPayment: (parseInt(p.payment_type) === 3 || parseInt(p.payment_type) === 2),
+                    hasMonthlyPayment: parseInt(p.payment_type) === 1,
                     matrixValues: {}, 
                     totalPaid: 0.0
                 };
                 
-                // 0.0 දාලා Matrix එක Initialize කරනවා
+                // Initialize values to 0.0
                 monthlyGroups.forEach(mg => {
                     studentMap[p.studentId].matrixValues[mg.id] = {};
                     uniqueSubjectNames.forEach(sub => {
@@ -82,102 +109,173 @@ exports.getFinanceMatrix = async (req, res) => {
             const sData = studentMap[p.studentId];
             const payType = parseInt(p.payment_type);
 
-            // 🔥 FIX: බෙදන්න කලින් මුලින්ම සල්ලි ටික එකතු කරගන්නවා!
-            // මේකෙන් Grand Total එකයි Net Flow එකයි කවදාවත් මිස් වෙන්නේ නෑ.
+            // Update flags for hybrid student detection
+            if (payType === 3 || payType === 2) sData.hasFullPayment = true;
+            if (payType === 1) sData.hasMonthlyPayment = true;
+
             sData.totalPaid += paidAmount;
             grandTotal += paidAmount;
 
-            let enrolledSubjects = [];
+            // Extract subjects enrolled in this payment
+            let enrolledSubjectNames = [];
             if (p.subjects) {
                 try {
                     const subs = JSON.parse(p.subjects);
                     subs.forEach(item => {
-                        if (typeof item === 'object' && item.id && courseMap[parseInt(item.id)]) enrolledSubjects.push(courseMap[parseInt(item.id)]);
-                        else if (typeof item === 'string' && isNaN(parseInt(item))) enrolledSubjects.push(item.trim().toUpperCase());
-                        else if (!isNaN(parseInt(item)) && courseMap[parseInt(item)]) enrolledSubjects.push(courseMap[parseInt(item)]);
+                        if (typeof item === 'object' && item.id && courseMap[parseInt(item.id)]) enrolledSubjectNames.push(courseMap[parseInt(item.id)]);
+                        else if (typeof item === 'string' && isNaN(parseInt(item))) enrolledSubjectNames.push(item.trim().toUpperCase());
+                        else if (!isNaN(parseInt(item)) && courseMap[parseInt(item)]) enrolledSubjectNames.push(courseMap[parseInt(item)]);
                     });
                 } catch(e) {}
             }
 
-            // අදාල බැච් එකේ තියෙන Subjects විතරක් ෆිල්ටර් කරනවා
-            enrolledSubjects = [...new Set(enrolledSubjects)].filter(sub => uniqueSubjectNames.includes(sub));
-            const numSubjects = enrolledSubjects.length;
+            enrolledSubjectNames = [...new Set(enrolledSubjectNames)].filter(sub => uniqueSubjectNames.includes(sub));
+            const numSubjects = enrolledSubjectNames.length;
+            if (numSubjects === 0) return;
 
-            // Subject එකක් නැත්නම් Grid එකට බෙදන්න බෑ, ඒත් Total එකට එකතු වෙලා ඉවරයි.
-            if (numSubjects === 0) return; 
+            // Match enrolled subject names to database courses
+            const enrolledCoursesList = enrolledSubjectNames.map(subName => {
+                const courseId = Object.keys(courseMap).find(id => courseMap[id] === subName);
+                return courseId ? courseDetailsMap[courseId] : { name: subName, activeMonths: 12, price: 1000.0 };
+            });
 
-            // ================= LOGIC TO DISTRIBUTE INTO GRID =================
-            if (payType === 3) {
-                if (monthlyGroups.length > 0) {
-                    const amountPerMonth = paidAmount / monthlyGroups.length;
-                    const amountPerMonthPerSub = amountPerMonth / numSubjects;
-                    enrolledSubjects.forEach(sub => {
-                        monthlyGroups.forEach(mg => {
-                            sData.matrixValues[mg.id][sub] += amountPerMonthPerSub;
-                            monthlyTotals[mg.id] += amountPerMonthPerSub;
-                        });
-                    });
-                }
-            } else if (payType === 1) {
-                let targetGroupId = p.groupId;
-                let mgExists = monthlyGroups.find(mg => mg.id === targetGroupId);
-                
-                // 🔥 Fallback: අදාල මාසේ හොයාගන්න බැරි නම් (Full Payment group එකක් වගේ නම්)
-                // පළවෙනි මාසෙට හරි සල්ලි ටික දානවා පේන්න ඕන නිසා.
-                if (!mgExists && monthlyGroups.length > 0) {
-                    mgExists = monthlyGroups[0];
-                    targetGroupId = mgExists.id;
-                }
+            // Calculate total price of standard subjects to split payment proportionally
+            const totalStandardPrice = enrolledCoursesList.reduce((sum, c) => sum + c.price, 0);
 
-                if (mgExists) {
-                    const amountPerSub = paidAmount / numSubjects;
-                    enrolledSubjects.forEach(sub => {
-                        sData.matrixValues[targetGroupId][sub] += amountPerSub;
-                        monthlyTotals[targetGroupId] += amountPerSub;
-                    });
+            // Proportional distribution of payment among subjects
+            const subjectAmountAllocations = enrolledCoursesList.map(course => {
+                let allocatedAmt = 0;
+                if (totalStandardPrice > 0) {
+                    allocatedAmt = (course.price / totalStandardPrice) * paidAmount;
+                } else {
+                    allocatedAmt = paidAmount / numSubjects;
                 }
-            } else if (payType === 2) {
-                const plan = installmentPlans.find(pl => pl.subjectCount <= numSubjects);
-                let totalPhases = 1;
-                if (plan && plan.details) {
-                    try { totalPhases = JSON.parse(plan.details).length; } catch(e) {}
-                }
-                const currentInstNo = p.installment_no || 1;
-                const monthSpan = Math.ceil(monthlyGroups.length / totalPhases); 
-                const startIndex = (currentInstNo - 1) * monthSpan;
-                const endIndex = Math.min(startIndex + monthSpan, monthlyGroups.length);
-                const actualMonthsCovered = endIndex - startIndex;
+                return {
+                    course: course,
+                    amount: allocatedAmt
+                };
+            });
 
-                if (actualMonthsCovered > 0 && monthlyGroups.length > 0) {
-                    const amountPerMonth = paidAmount / actualMonthsCovered;
-                    const amountPerMonthPerSub = amountPerMonth / numSubjects;
-                    enrolledSubjects.forEach(sub => {
+            // ================= ALLOCATION LOGIC INTO MATRIX =================
+            subjectAmountAllocations.forEach(item => {
+                const course = item.course;
+                const courseAmt = item.amount;
+                const activeMonths = course.activeMonths || 12;
+
+                if (payType === 3) {
+                    // Full payment: split by activeMonths and distribute to the first N months
+                    if (monthlyGroups.length > 0) {
+                        const amountPerMonth = courseAmt / activeMonths;
+                        const limit = Math.min(activeMonths, monthlyGroups.length);
+                        for (let i = 0; i < limit; i++) {
+                            const mgId = monthlyGroups[i].id;
+                            sData.matrixValues[mgId][course.name] += amountPerMonth;
+                            monthlyTotals[mgId] += amountPerMonth;
+                        }
+                    }
+                } else if (payType === 1) {
+                    // Monthly payment: goes entirely to that specific month group
+                    let targetGroupId = p.groupId;
+                    let mgExists = monthlyGroups.find(mg => mg.id === targetGroupId);
+                    
+                    if (!mgExists && monthlyGroups.length > 0) {
+                        mgExists = monthlyGroups[0];
+                        targetGroupId = mgExists.id;
+                    }
+
+                    if (mgExists) {
+                        sData.matrixValues[targetGroupId][course.name] += courseAmt;
+                        monthlyTotals[targetGroupId] += courseAmt;
+                    }
+                } else if (payType === 2) {
+                    // Installment: 2-phases or 3-phases
+                    const currentInstNo = p.installment_no || 1;
+                    
+                    // We check if it's 2-phases or 3-phases based on the installment number / details.
+                    // By default: Tech courses use 2 installments (6/6 months) or 3 installments (4/4/4 months)
+                    // Let's check the number of months in the batch and installment_no
+                    // 2-Installments structure: Phase 1 (1-6), Phase 2 (7-12)
+                    // 3-Installments structure: Phase 1 (1-4), Phase 2 (5-8), Phase 3 (9-12)
+                    
+                    let phaseMonths = 6;
+                    let startIndex = 0;
+                    
+                    if (currentInstNo === 1) {
+                        // Phase 1: 1st installment
+                        // We can check if batch has 2 or 3 installments. If installment_no has been set up for 3, we spread 4 months.
+                        // Let's check: if installment_no is 3, we spread 4 months.
+                        // For safety, let's look at the installment_no. If there are 3 installments, we use 4 months each.
+                        // If it's installment 1 and the next installment is 2 or 3, let's default based on standard:
+                        // If there is any installment plan for 3 subjects/installments, let's use 3 phases (4 months), else 2 phases (6 months).
+                        const isThreePhase = (p.remark && p.remark.toLowerCase().includes('3')) || currentInstNo === 3;
+                        
+                        if (isThreePhase) {
+                            phaseMonths = 4;
+                            startIndex = 0;
+                        } else {
+                            phaseMonths = 6;
+                            startIndex = 0;
+                        }
+                    } else if (currentInstNo === 2) {
+                        // 2nd installment: 
+                        // If 3 phases: months 5 to 8 (startIndex = 4, phaseMonths = 4)
+                        // If 2 phases: months 7 to 12 (startIndex = 6, phaseMonths = 6)
+                        const isThreePhase = (p.remark && p.remark.toLowerCase().includes('3')) || monthlyGroups.length === 12; // fallback
+                        
+                        if (isThreePhase && monthlyGroups.length >= 8) {
+                            phaseMonths = 4;
+                            startIndex = 4;
+                        } else {
+                            phaseMonths = 6;
+                            startIndex = 6;
+                        }
+                    } else if (currentInstNo === 3) {
+                        // 3rd installment: months 9 to 12 (startIndex = 8, phaseMonths = 4)
+                        phaseMonths = 4;
+                        startIndex = 8;
+                    }
+
+                    const endIndex = Math.min(startIndex + phaseMonths, monthlyGroups.length);
+                    const actualMonthsCovered = endIndex - startIndex;
+
+                    if (actualMonthsCovered > 0) {
+                        const amountPerMonth = courseAmt / actualMonthsCovered;
                         for (let i = startIndex; i < endIndex; i++) {
                             const mgId = monthlyGroups[i].id;
-                            sData.matrixValues[mgId][sub] += amountPerMonthPerSub;
-                            monthlyTotals[mgId] += amountPerMonthPerSub;
+                            sData.matrixValues[mgId][course.name] += amountPerMonth;
+                            monthlyTotals[mgId] += amountPerMonth;
                         }
-                    });
-                } else if (monthlyGroups.length > 0) {
-                    // Fallback for Installments with bad math
-                    const amountPerSub = paidAmount / numSubjects;
-                    const fallbackMgId = monthlyGroups[0].id;
-                    enrolledSubjects.forEach(sub => {
-                        sData.matrixValues[fallbackMgId][sub] += amountPerSub;
-                        monthlyTotals[fallbackMgId] += amountPerSub;
-                    });
+                    } else if (monthlyGroups.length > 0) {
+                        // Fallback
+                        const fallbackMgId = monthlyGroups[0].id;
+                        sData.matrixValues[fallbackMgId][course.name] += courseAmt;
+                        monthlyTotals[fallbackMgId] += courseAmt;
+                    }
                 }
-            }
+            });
         });
 
-        const studentsArray = Object.values(studentMap);
+        // Convert student map to array and flag hybrid students
+        const studentsArray = Object.values(studentMap).map(stu => {
+            stu.isHybrid = stu.hasFullPayment && stu.hasMonthlyPayment;
+            return stu;
+        });
+
+        // Sort students: Full -> Installment -> Monthly, and then by name
+        const sortOrder = { 'Full': 1, 'Installment': 2, 'Monthly': 3 };
+        studentsArray.sort((a, b) => {
+            const scoreA = sortOrder[a.type] || 99;
+            const scoreB = sortOrder[b.type] || 99;
+            if (scoreA !== scoreB) return scoreA - scoreB;
+            return a.studentName.localeCompare(b.studentName);
+        });
 
         res.status(200).json(safeJson({
             months: monthlyGroups,
             subjects: uniqueSubjectNames,
             students: studentsArray,
             monthlyTotals: monthlyTotals,
-            grandTotal: grandTotal // දැන් මේක 100% ක් Dashboard Report එකට සමාන වෙනවා
+            grandTotal: grandTotal
         }));
 
     } catch (error) {
