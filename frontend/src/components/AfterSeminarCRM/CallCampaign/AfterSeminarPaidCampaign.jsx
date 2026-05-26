@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from '../../../api/axios';
 import toast from 'react-hot-toast';
 import { Loader2, Users, TrendingDown, TrendingUp, CalendarDays, RefreshCw } from 'lucide-react';
-import { FaChevronLeft, FaChevronRight, FaSearch, FaFilter, FaCheckCircle, FaClock, FaExclamationTriangle } from 'react-icons/fa';
+import { FaChevronLeft, FaChevronRight, FaSearch, FaCheckCircle, FaClock, FaExclamationTriangle } from 'react-icons/fa';
 import PaidLeadCard from './PaidLeadCard';
 
 const singlishToSinhala = (text) => {
@@ -10,41 +10,12 @@ const singlishToSinhala = (text) => {
     let s = text;
     const multiConsonants = { 'nnd': 'ඬ', 'nng': 'ඟ', 'mbb': 'ඹ', 'th': 'ත', 'Th': 'ථ', 'dh': 'ධ', 'Dh': 'ඪ', 'ch': 'ච', 'Ch': 'ඡ', 'ph': 'ඵ', 'bh': 'භ', 'sh': 'ශ', 'Sh': 'ෂ', 'gn': 'ඥ', 'kn': 'ඞ', 'ndh': 'න්ධ' };
     const singleConsonants = { 'k': 'ක', 'g': 'ග', 't': 'ට', 'd': 'ඩ', 'p': 'ප', 'b': 'බ', 'm': 'ම', 'n': 'න', 's': 'ස', 'h': 'හ', 'l': 'ල', 'r': 'ර', 'w': 'ව', 'v': 'ව', 'y': 'ය', 'j': 'ජ', 'c': 'ක', 'f': 'ෆ', 'x': 'ක්ෂ', 'z': 'ස', 'T': 'ඨ', 'D': 'ඪ', 'N': 'ණ', 'L': 'ළ', 'G': 'ඝ', 'R': 'ඍ', 'K': 'ඛ', 'P': 'ඵ', 'B': 'භ', 'M': 'ඹ', 'Y': 'ය', 'W': 'ව' };
-    const vowels = { 'aa': { s: 'ා', iso: 'ආ' }, 'ae': { s: 'ැ', iso: 'ඇ' }, 'aee': { s: 'ෑ', iso: 'ඈ' }, 'a': { s: '', iso: 'අ' }, 'ii': { s: 'ී', iso: 'ඊ' }, 'i': { s: 'ි', iso: 'ඉ' }, 'uu': { s: 'ූ', iso: 'ඌ' }, 'u': { s: 'ු', iso: 'උ' }, 'oo': { s: 'ෝ', iso: 'ඕ' }, 'o': { s: 'ො', iso: 'ඔ' }, 'ou': { s: 'ෞ', iso: 'ඖ' }, 'ei': { s: 'ෛ', iso: 'ඓ' }, 'ee': { s: 'ේ', iso: 'ඒ' }, 'ea': { s: 'ේ', iso: 'ඒ' }, 'e': { s: 'ෙ', iso: 'එ' }, 'I': { s: 'ෛ', iso: 'ඓ' }, 'O': { s: 'ෞ', iso: 'ඖ' } };
+    const vowels = { 'aa': { s: 'ා', iso: 'ආ' }, 'ae': { s: 'ැ', iso: 'ඇ' }, 'aee': { s: 'ෑ', iso: 'ඈ' }, 'a': { s: '', iso: 'අ' }, 'ii': { s: 'ී', iso: 'ඊ' }, 'i': { s: 'ิ', iso: 'ඉ' }, 'uu': { s: 'ූ', iso: 'ඌ' }, 'u': { s: 'ු', iso: 'උ' }, 'oo': { s: 'ෝ', iso: 'ඕ' }, 'o': { s: 'ො', iso: 'ඔ' }, 'ou': { s: 'ෞ', iso: 'ඖ' }, 'ei': { s: 'ෛ', iso: 'ඓ' }, 'ee': { s: 'ේ', iso: 'ඒ' }, 'ea': { s: 'ේ', iso: 'ඒ' }, 'e': { s: 'ෙ', iso: 'එ' }, 'I': { s: 'ෛ', iso: 'ඓ' }, 'O': { s: 'ෞ', iso: 'ඖ' } };
     for (let v in vowels) s = s.replace(new RegExp(`(^|\\s)${v}`, 'g'), `$1${vowels[v].iso}`);
     for (let c in multiConsonants) { for (let v in vowels) s = s.replace(new RegExp(c + v, 'g'), multiConsonants[c] + vowels[v].s); s = s.replace(new RegExp(c, 'g'), multiConsonants[c] + '්'); }
     for (let c in singleConsonants) { for (let v in vowels) s = s.replace(new RegExp(c + v, 'g'), singleConsonants[c] + vowels[v].s); s = s.replace(new RegExp(c, 'g'), singleConsonants[c] + '්'); }
     s = s.replace(/ර්‍ර/g, '්‍ර'); s = s.replace(/්්/g, '්'); 
     return s;
-};
-
-const getShiftData = (dateString) => {
-    if (!dateString) return { dateStr: 'Unknown', label: 'Unknown Date', timestamp: 0 };
-    
-    const d = new Date(dateString);
-    const shiftDate = new Date(d);
-    
-    if (d.getHours() < 8) {
-        shiftDate.setDate(shiftDate.getDate() - 1);
-    }
-    
-    shiftDate.setHours(0, 0, 0, 0);
-    
-    const now = new Date();
-    const todayShift = new Date(now);
-    if (now.getHours() < 8) todayShift.setDate(todayShift.getDate() - 1);
-    todayShift.setHours(0, 0, 0, 0);
-    
-    const yesterdayShift = new Date(todayShift);
-    yesterdayShift.setDate(yesterdayShift.getDate() - 1);
-    
-    if (shiftDate.getTime() === todayShift.getTime()) {
-        return { label: 'Today', timestamp: shiftDate.getTime() };
-    } else if (shiftDate.getTime() === yesterdayShift.getTime()) {
-        return { label: 'Yesterday', timestamp: shiftDate.getTime() };
-    } else {
-        return { label: shiftDate.toLocaleDateString('en-CA'), timestamp: shiftDate.getTime() };
-    }
 };
 
 const monthNames = [
@@ -58,6 +29,9 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(true);
     const [drafts, setDrafts] = useState({});
+
+    // Collapsible Header State
+    const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
 
     // BACKEND REAL STATS
     const [retentionStats, setRetentionStats] = useState({
@@ -230,7 +204,6 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
             setDrafts(newDrafts);
             localStorage.removeItem(`draft_paid_remark_${leadId}`);
             
-            // Re-fetch retention metrics to update dashboard stats immediately
             fetchPaidCampaignData();
         } catch (error) { 
             toast.error("Failed to save data."); 
@@ -296,52 +269,6 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         });
     }, [leads, activeMainTab, activeSubTab, activeRound, activePhase, statusFilter, showOnlyDelayed, searchQuery]);
 
-    const groupedLeads = useMemo(() => {
-        const groups = {};
-        
-        filteredLeads.forEach(lead => {
-            if (!lead) return;
-            
-            let targetDate = lead.newInqTimestamp || lead.createdAt;
-            if (lead.phase > 1 || (lead.coordinationRound || 1) > 1 || (lead.callStatus && lead.callStatus !== 'pending')) {
-                targetDate = lead.updatedAt || lead.createdAt;
-            }
-
-            const shiftInfo = getShiftData(targetDate);
-            const label = shiftInfo.label;
-
-            if (!groups[label]) {
-                groups[label] = { 
-                    label: label, timestamp: shiftInfo.timestamp, leads: [], 
-                    stats: { assigned: 0, covered: 0, pending: 0, delayed: 0 } 
-                };
-            }
-
-            groups[label].leads.push(lead);
-            groups[label].stats.assigned++;
-            
-            const isPending = !lead.callStatus || lead.callStatus === 'pending';
-            if (isPending) groups[label].stats.pending++;
-            else groups[label].stats.covered++;
-            
-            if (checkIsLate(lead)) groups[label].stats.delayed++;
-        });
-
-        const sortedGroups = Object.values(groups).sort((a, b) => b.timestamp - a.timestamp);
-
-        sortedGroups.forEach(group => {
-            group.leads.sort((a, b) => {
-                const aPending = !a?.callStatus || a?.callStatus === 'pending';
-                const bPending = !b?.callStatus || b?.callStatus === 'pending';
-                if (aPending && !bPending) return -1;
-                if (!aPending && bPending) return 1;
-                return new Date(b?.updatedAt || 0) - new Date(a?.updatedAt || 0);
-            });
-        });
-
-        return sortedGroups;
-    }, [filteredLeads]);
-
     if (!filters.selectedBatch) {
         return (
             <div className="text-center py-20 text-slate-500 bg-[#0f172a] rounded-2xl h-full flex flex-col items-center justify-center font-medium">
@@ -354,84 +281,149 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
     return (
         <div className="w-full h-full flex flex-col bg-[#0f172a] rounded-2xl border border-slate-800 overflow-hidden font-sans text-slate-200">
             
-            {/* TOP HEADER & MONTH SWITCHER & METRICS OVERVIEW */}
-            <div className="bg-[#1e293b]/70 backdrop-blur-md p-5 border-b border-slate-800 shrink-0">
-                <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-5">
-                    <div>
-                        <h2 className="text-white font-extrabold text-lg flex items-center gap-2">
-                            <CalendarDays className="text-indigo-400 w-5 h-5"/> Retention & Billing Management
-                        </h2>
-                        <p className="text-xs text-slate-400 mt-1">Manage monthly renewals and follow-ups professionally.</p>
+            {/* COLLAPSIBLE TOP HEADER & METRICS OVERVIEW */}
+            {!isHeaderCollapsed ? (
+                <div className="bg-[#1e293b]/70 backdrop-blur-md p-5 border-b border-slate-800 shrink-0 relative transition-all">
+                    {/* COLLAPSE TOGGLE BUTTON */}
+                    <button 
+                        onClick={() => setIsHeaderCollapsed(true)} 
+                        className="absolute right-4 top-4 text-slate-400 hover:text-white transition-colors cursor-pointer bg-white/5 p-2 rounded-lg border border-white/10 hover:bg-white/10 outline-none"
+                        title="Collapse Header"
+                    >
+                        <FaChevronLeft className="rotate-90 w-3 h-3" />
+                    </button>
+
+                    <div className="flex flex-col md:flex-row justify-between items-center gap-4 mb-5 mr-8">
+                        <div>
+                            <h2 className="text-white font-extrabold text-lg flex items-center gap-2">
+                                <CalendarDays className="text-indigo-400 w-5 h-5"/> Retention & Billing Management
+                            </h2>
+                            <p className="text-xs text-slate-400 mt-1">Manage monthly renewals and follow-ups professionally.</p>
+                        </div>
+                        
+                        <div className="flex items-center gap-3 flex-wrap">
+                            {/* START ROUND 2 CAMPAIGN BUTTON */}
+                            <button 
+                                onClick={handleStartRoundTwo} 
+                                className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-2 shadow-md outline-none cursor-pointer uppercase tracking-wider transition-all"
+                            >
+                                🚀 Start Round 2
+                            </button>
+
+                            {/* DUAL ARROW-DROPDOWN MONTH SWITCHER */}
+                            <div className="flex items-center gap-2 bg-[#0f172a] px-3 py-1.5 rounded-lg border border-slate-700 shadow-sm">
+                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide mr-1 select-none">Target Month:</span>
+                                <button 
+                                    onClick={() => setSelectedMonth(prev => Math.max(1, prev - 1))}
+                                    className="text-slate-400 hover:text-white transition-colors cursor-pointer p-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                                    disabled={selectedMonth === 1}
+                                >
+                                    <FaChevronLeft size={12} />
+                                </button>
+                                <select 
+                                    value={selectedMonth} 
+                                    onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
+                                    className="bg-transparent text-indigo-400 font-extrabold text-sm outline-none cursor-pointer border-none text-center px-1"
+                                >
+                                    {monthNames.map((name, i) => (
+                                        <option key={i+1} value={i+1} className="bg-[#1e293b] text-white font-semibold">
+                                            {name} ({String(i+1).padStart(2, '0')})
+                                        </option>
+                                    ))}
+                                </select>
+                                <button 
+                                    onClick={() => setSelectedMonth(prev => Math.min(12, prev + 1))}
+                                    className="text-slate-400 hover:text-white transition-colors cursor-pointer p-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                                    disabled={selectedMonth === 12}
+                                >
+                                    <FaChevronRight size={12} />
+                                </button>
+                            </div>
+                        </div>
                     </div>
-                    
-                    <div className="flex items-center gap-3 flex-wrap">
-                        {/* START ROUND 2 CAMPAIGN BUTTON */}
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="bg-white/5 p-4 rounded-2xl border border-white/10 flex items-center gap-4 shadow-sm hover:scale-[1.01] transition-transform">
+                            <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl"><Users className="w-6 h-6"/></div>
+                            <div>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">M-{selectedMonth - 1} Enrolled</p>
+                                <h3 className="text-2xl font-black text-white mt-0.5">{retentionStats.prevMonthEnrolled}</h3>
+                            </div>
+                        </div>
+                        <div className="bg-white/5 p-4 rounded-2xl border border-white/10 flex items-center gap-4 shadow-sm hover:scale-[1.01] transition-transform">
+                            <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl"><TrendingUp className="w-6 h-6"/></div>
+                            <div>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">M-{selectedMonth} Renewed</p>
+                                <h3 className="text-2xl font-black text-emerald-400 mt-0.5">{retentionStats.thisMonthRenewed}</h3>
+                            </div>
+                        </div>
+                        <div className="bg-white/5 p-4 rounded-2xl border border-white/10 flex items-center gap-4 shadow-sm hover:scale-[1.01] transition-transform">
+                            <div className="p-3 bg-red-500/10 text-red-400 rounded-xl"><TrendingDown className="w-6 h-6"/></div>
+                            <div>
+                                <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">M-{selectedMonth} Dropped</p>
+                                <h3 className="text-2xl font-black text-red-400 mt-0.5">{retentionStats.thisMonthDropped}</h3>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                <div className="bg-[#1e293b]/70 backdrop-blur-md px-5 py-2.5 border-b border-slate-800 shrink-0 flex items-center justify-between gap-4 transition-all">
+                    <div className="flex items-center gap-3">
+                        <button 
+                            onClick={() => setIsHeaderCollapsed(false)} 
+                            className="text-slate-400 hover:text-white transition-colors cursor-pointer bg-white/5 p-2 rounded-lg border border-white/10 hover:bg-white/10 outline-none"
+                            title="Expand Header"
+                        >
+                            <FaChevronLeft className="-rotate-90 w-3 h-3" />
+                        </button>
+                        <span className="text-white font-extrabold text-sm flex items-center gap-2">
+                            <CalendarDays className="text-indigo-400 w-4 h-4"/> Retention & Billing (Collapsed)
+                        </span>
+                        
                         <button 
                             onClick={handleStartRoundTwo} 
-                            className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold py-2 px-4 rounded-xl text-xs flex items-center gap-2 shadow-md outline-none cursor-pointer uppercase tracking-wider transition-all"
+                            className="bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold py-1 px-3 rounded-lg text-[10px] flex items-center gap-1.5 shadow-sm outline-none cursor-pointer uppercase tracking-wider transition-all"
                         >
-                            🚀 Start Round 2
+                            🚀 Round 2
                         </button>
+                    </div>
 
-                        {/* DUAL ARROW-DROPDOWN MONTH SWITCHER */}
-                        <div className="flex items-center gap-2 bg-[#0f172a] px-3 py-1.5 rounded-lg border border-slate-700 shadow-sm">
-                            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide mr-1 select-none">Target Month:</span>
+                    <div className="flex items-center gap-3">
+                        {/* DUAL ARROW-DROPDOWN MONTH SWITCHER (COMPACT) */}
+                        <div className="flex items-center gap-1.5 bg-[#0f172a] px-2 py-1 rounded-lg border border-slate-700 shadow-sm">
                             <button 
                                 onClick={() => setSelectedMonth(prev => Math.max(1, prev - 1))}
-                                className="text-slate-400 hover:text-white transition-colors cursor-pointer p-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                                className="text-slate-400 hover:text-white transition-colors cursor-pointer p-0.5 disabled:opacity-30"
                                 disabled={selectedMonth === 1}
                             >
-                                <FaChevronLeft size={12} />
+                                <FaChevronLeft size={10} />
                             </button>
                             <select 
                                 value={selectedMonth} 
                                 onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                                className="bg-transparent text-indigo-400 font-extrabold text-sm outline-none cursor-pointer border-none text-center px-1"
+                                className="bg-transparent text-indigo-400 font-extrabold text-xs outline-none cursor-pointer border-none text-center px-0.5"
                             >
                                 {monthNames.map((name, i) => (
-                                    <option key={i+1} value={i+1} className="bg-[#1e293b] text-white font-semibold">
-                                        {name} ({String(i+1).padStart(2, '0')})
+                                    <option key={i+1} value={i+1} className="bg-[#1e293b] text-white">
+                                        {name}
                                     </option>
                                 ))}
                             </select>
                             <button 
                                 onClick={() => setSelectedMonth(prev => Math.min(12, prev + 1))}
-                                className="text-slate-400 hover:text-white transition-colors cursor-pointer p-1 disabled:opacity-30 disabled:cursor-not-allowed"
+                                className="text-slate-400 hover:text-white transition-colors cursor-pointer p-0.5 disabled:opacity-30"
                                 disabled={selectedMonth === 12}
                             >
-                                <FaChevronRight size={12} />
+                                <FaChevronRight size={10} />
                             </button>
                         </div>
                     </div>
                 </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-white/5 p-4 rounded-2xl border border-white/10 flex items-center gap-4 shadow-sm hover:scale-[1.01] transition-transform">
-                        <div className="p-3 bg-blue-500/10 text-blue-400 rounded-xl"><Users className="w-6 h-6"/></div>
-                        <div>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">M-{selectedMonth - 1} Enrolled</p>
-                            <h3 className="text-2xl font-black text-white mt-0.5">{retentionStats.prevMonthEnrolled}</h3>
-                        </div>
-                    </div>
-                    <div className="bg-white/5 p-4 rounded-2xl border border-white/10 flex items-center gap-4 shadow-sm hover:scale-[1.01] transition-transform">
-                        <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl"><TrendingUp className="w-6 h-6"/></div>
-                        <div>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">M-{selectedMonth} Renewed</p>
-                            <h3 className="text-2xl font-black text-emerald-400 mt-0.5">{retentionStats.thisMonthRenewed}</h3>
-                        </div>
-                    </div>
-                    <div className="bg-white/5 p-4 rounded-2xl border border-white/10 flex items-center gap-4 shadow-sm hover:scale-[1.01] transition-transform">
-                        <div className="p-3 bg-red-500/10 text-red-400 rounded-xl"><TrendingDown className="w-6 h-6"/></div>
-                        <div>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">M-{selectedMonth} Dropped</p>
-                            <h3 className="text-2xl font-black text-red-400 mt-0.5">{retentionStats.thisMonthDropped}</h3>
-                        </div>
-                    </div>
-                </div>
-            </div>
+            )}
 
             {/* TAB PANELS & CRM SEARCH FILTERS */}
             <div className="px-5 py-4 bg-[#1e293b]/40 backdrop-blur-md border-b border-slate-800 shrink-0 flex flex-col gap-4 shadow-sm z-10">
+                {/* 3 Main Header Buttons */}
                 <div className="flex gap-2">
                     {['FULL', 'MONTHLY', 'INSTALLMENT'].map(tab => (
                         <button key={tab} onClick={() => setActiveMainTab(tab)} className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeMainTab === tab ? 'bg-indigo-600 text-white shadow-md' : 'bg-white/5 text-slate-400 border border-white/10 hover:text-white hover:bg-white/10'}`}>
@@ -448,13 +440,15 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                     </button>
                 </div>
 
+                {/* Enrolled & Non-Enrolled subtabs (Only if Monthly or Installment) */}
                 {activeMainTab !== 'FULL' && (
-                    <div className="flex gap-2 bg-[#0f172a] p-1.5 rounded-xl border border-slate-800 w-full md:w-max">
+                    <div className="flex gap-2 bg-[#0f172a] p-1.5 rounded-xl border border-slate-800 w-full md:w-max animate-fade-in">
                         <button onClick={() => setActiveSubTab('ENROLLED')} className={`flex-1 md:flex-none px-6 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${activeSubTab === 'ENROLLED' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}>Enrolled</button>
                         <button onClick={() => setActiveSubTab('NON_ENROLLED')} className={`flex-1 md:flex-none px-6 py-1.5 rounded-lg text-xs font-bold uppercase transition-all ${activeSubTab === 'NON_ENROLLED' ? 'bg-red-500/20 text-red-400' : 'text-slate-500 hover:text-slate-300'}`}>Non-Enrolled</button>
                     </div>
                 )}
 
+                {/* Unified Filters Bar */}
                 <div className="flex justify-between items-center bg-[#0f172a] p-2.5 rounded-xl border border-slate-850 flex-wrap gap-3">
                     <div className="flex gap-2">
                         <button onClick={() => setActiveRound(1)} className={`px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all ${activeRound === 1 ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}>Round 1</button>
@@ -499,7 +493,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                 </div>
             </div>
 
-            {/* LEADS LIST AREA (GRID & SHIFT-DATE HEADERS) */}
+            {/* LEADS LIST AREA (DIRECT GRID WITH NO DATE SHIFTS) */}
             <div className="flex-1 bg-[#0b1120] flex flex-col relative overflow-hidden">
                 {loading && (
                     <div className="absolute inset-0 flex justify-center items-center bg-[#0b1120]/80 backdrop-blur-sm z-10">
@@ -507,62 +501,34 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                     </div>
                 )}
 
-                {groupedLeads.length === 0 && !loading ? (
+                {filteredLeads.length === 0 && !loading ? (
                     <div className="flex-1 flex flex-col justify-center items-center text-slate-500">
                         <Users className="w-12 h-12 mb-3 text-slate-700 opacity-30"/>
                         <p className="text-sm font-medium">No leads in Phase {activePhase} matching current criteria.</p>
                     </div>
                 ) : (
-                    <div className="overflow-y-auto custom-scrollbar flex-1 p-5 space-y-8 pb-16">
-                        {groupedLeads.map((group, gIdx) => (
-                            <div key={gIdx} className="space-y-4">
-                                <div className="sticky top-0 z-10 py-1 backdrop-blur-md">
-                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-[#1e293b]/95 border border-slate-700/50 rounded-xl px-5 py-3 shadow-lg gap-4">
-                                        <h3 className="text-sm font-black uppercase tracking-widest text-white flex items-center gap-2">
-                                            {group.label}
-                                        </h3>
-                                        <div className="flex flex-wrap items-center gap-4 md:gap-6">
-                                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
-                                                <span>Assign:</span> <span className="text-white text-sm bg-black/30 px-2 py-0.5 rounded border border-white/10">{group.stats.assigned}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
-                                                <FaCheckCircle className="text-emerald-400"/> <span>Cov:</span> <span className="text-emerald-400 text-sm bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">{group.stats.covered}</span>
-                                            </div>
-                                            <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
-                                                <FaClock className="text-amber-400"/> <span>Pen:</span> <span className="text-amber-400 text-sm bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">{group.stats.pending}</span>
-                                            </div>
-                                            {group.stats.delayed > 0 && (
-                                                <div className="flex items-center gap-1.5 text-xs font-bold text-red-400 animate-pulse">
-                                                    <FaExclamationTriangle/> <span>Delay:</span> <span className="bg-red-500/20 px-2 py-0.5 rounded text-sm border border-red-500/20">{group.stats.delayed}</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 px-2 animate-fade-in">
-                                    {group.leads.slice(0, displayLimit).map((l, index) => {
-                                        const realIndex = index + 1;
-                                        return (
-                                            <PaidLeadCard 
-                                                key={l.id} 
-                                                lead={{...l, realIndex}} 
-                                                timer={getTimerDataText(l)} 
-                                                drafts={drafts} 
-                                                activeTab={activeMainTab === 'FULL' ? 'ENROLLED' : `ROUND_${activeRound}`} 
-                                                isManager={false} 
-                                                typingMode={typingMode} 
-                                                handleUpdateLocalLead={handleUpdateLocalLead} 
-                                                handleLocalCallStatusChange={handleLocalCallStatusChange} 
-                                                handleRemarkTyping={handleRemarkTyping} 
-                                                handleSaveCallData={handleSaveCallData} 
-                                                setChatModalLead={setChatModalLead}
-                                            />
-                                        );
-                                    })}
-                                </div>
-                            </div>
-                        ))}
+                    <div className="overflow-y-auto custom-scrollbar flex-1 p-5 pb-16">
+                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 px-2 animate-fade-in">
+                            {filteredLeads.slice(0, displayLimit).map((l, index) => {
+                                const realIndex = index + 1;
+                                return (
+                                    <PaidLeadCard 
+                                        key={l.id} 
+                                        lead={{...l, realIndex}} 
+                                        timer={getTimerDataText(l)} 
+                                        drafts={drafts} 
+                                        activeTab={activeMainTab === 'FULL' ? 'ENROLLED' : `ROUND_${activeRound}`} 
+                                        isManager={false} 
+                                        typingMode={typingMode} 
+                                        handleUpdateLocalLead={handleUpdateLocalLead} 
+                                        handleLocalCallStatusChange={handleLocalCallStatusChange} 
+                                        handleRemarkTyping={handleRemarkTyping} 
+                                        handleSaveCallData={handleSaveCallData} 
+                                        setChatModalLead={setChatModalLead}
+                                    />
+                                );
+                            })}
+                        </div>
 
                         {filteredLeads.length > displayLimit && (
                             <div className="flex justify-center mt-6">

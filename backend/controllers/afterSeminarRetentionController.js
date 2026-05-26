@@ -142,8 +142,8 @@ exports.runMonthlyRetentionReset = async () => {
         const allBatches = await prisma.batch.findMany({ select: { id: true } });
 
         for (const batch of allBatches) {
-            // ඒ Batch එකේ MONTHLY & INSTALLMENT Enrolled ළමයි ගන්නවා
-            const activeLeads = await prisma.lead.findMany({
+            // ඒ Batch එකේ MONTHLY & INSTALLMENT Enrolled ළමයි ගන්නවා (Stats සේව් කරන්න විතරයි)
+            const enrolledLeads = await prisma.lead.findMany({
                 where: {
                     batchId: batch.id,
                     campaignType: 'AFTER_SEMINAR',
@@ -156,8 +156,8 @@ exports.runMonthlyRetentionReset = async () => {
                 where: { batchId: batch.id, campaignType: 'AFTER_SEMINAR', enrollmentStatus: 'ENROLLED', paymentIntention: 'FULL' }
             });
             
-            const monthlyCount = activeLeads.filter(l => l.paymentIntention === 'MONTHLY').length;
-            const installCount = activeLeads.filter(l => l.paymentIntention === 'INSTALLMENT').length;
+            const monthlyCount = enrolledLeads.filter(l => l.paymentIntention === 'MONTHLY').length;
+            const installCount = enrolledLeads.filter(l => l.paymentIntention === 'INSTALLMENT').length;
 
             // 2. BatchMonthlyStats ටේබල් එකට ගිය මාසේ අගයන් සේව් කරනවා (Chart එකට)
             await prisma.batchMonthlyStats.create({
@@ -173,19 +173,28 @@ exports.runMonthlyRetentionReset = async () => {
                 }
             });
 
-            // 3. MONTHLY & INSTALLMENT අයව NON_ENROLLED කරලා Call Phase 1 කරනවා
-            if (activeLeads.length > 0) {
-                const leadIds = activeLeads.map(l => l.id);
+            // ඒ Batch එකේ MONTHLY & INSTALLMENT ඔක්කොම ළමයි ගන්නවා (Enrolled & Non-Enrolled දෙකම reset කරන්න)
+            const allMonthlyInstallmentLeads = await prisma.lead.findMany({
+                where: {
+                    batchId: batch.id,
+                    campaignType: 'AFTER_SEMINAR',
+                    paymentIntention: { in: ['MONTHLY', 'INSTALLMENT'] }
+                }
+            });
+
+            // 3. MONTHLY & INSTALLMENT ඔක්කොම අයව NON_ENROLLED කරලා Call Phase 1 සහ Round 1 (Fresh Pending) කරනවා
+            if (allMonthlyInstallmentLeads.length > 0) {
+                const leadIds = allMonthlyInstallmentLeads.map(l => l.id);
                 await prisma.lead.updateMany({
                     where: { id: { in: leadIds } },
                     data: { 
                         enrollmentStatus: 'NON_ENROLLED',
                         phase: 1,               // ආයෙත් 1st Phase එකෙන් කෝල් කරන්න ඕනේ
-                        callStatus: 'pending',  // අලුත් මාසෙට කෝල් එක තාම ගත්තේ නෑ
-                        coordinationRound: { increment: 1 } // Round එක අලුත් මාසෙට අප්ඩේට් වෙනවා
+                        callStatus: 'pending',  // අලුත් මාසෙට කෝල් එක fresh pending වෙනවා
+                        coordinationRound: 1    // අලුත් මාසෙට Round 1 fresh විදිහට පටන් ගන්නවා
                     }
                 });
-                console.log(`[RETENTION ENGINE] Reset ${activeLeads.length} leads in Batch ${batch.id} to NON_ENROLLED.`);
+                console.log(`[RETENTION ENGINE] Reset ${allMonthlyInstallmentLeads.length} leads in Batch ${batch.id} to Round 1 Pending.`);
             }
         }
 
