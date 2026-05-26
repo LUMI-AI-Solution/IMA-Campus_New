@@ -196,6 +196,29 @@ exports.runMonthlyRetentionReset = async () => {
                 });
                 console.log(`[RETENTION ENGINE] Reset ${allMonthlyInstallmentLeads.length} leads in Batch ${batch.id} to Round 1 Pending.`);
             }
+
+            // ඒ Batch එකේ FULL ඔක්කොම ළමයි ගන්නවා
+            const allFullLeads = await prisma.lead.findMany({
+                where: {
+                    batchId: batch.id,
+                    campaignType: 'AFTER_SEMINAR',
+                    paymentIntention: 'FULL'
+                }
+            });
+
+            // 4. FULL ඔක්කොම අයව Call Phase 1 සහ Round 1 (Fresh Pending) කරනවා (Remains ENROLLED)
+            if (allFullLeads.length > 0) {
+                const fullLeadIds = allFullLeads.map(l => l.id);
+                await prisma.lead.updateMany({
+                    where: { id: { in: fullLeadIds } },
+                    data: { 
+                        phase: 1,               // ආයෙත් 1st Phase එකෙන් කෝල් කරන්න ඕනේ
+                        callStatus: 'pending',  // අලුත් මාසෙට කෝල් එක fresh pending වෙනවා
+                        coordinationRound: 1    // අලුත් මාසෙට Round 1 fresh විදිහට පටන් ගන්නවා
+                    }
+                });
+                console.log(`[RETENTION ENGINE] Reset ${allFullLeads.length} FULL leads in Batch ${batch.id} to Round 1 Pending.`);
+            }
         }
 
         console.log(`[RETENTION ENGINE] Monthly reset completed successfully!`);
