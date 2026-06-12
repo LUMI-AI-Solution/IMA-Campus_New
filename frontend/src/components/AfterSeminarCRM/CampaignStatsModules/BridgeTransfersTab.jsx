@@ -1,29 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import axios from '../../../api/axios';
 import toast from 'react-hot-toast';
-import { Users, Loader2, ArrowRight } from 'lucide-react';
-import { FaCheckCircle, FaExclamationCircle, FaUserTie, FaSearch, FaFileExcel, FaCalendarAlt } from 'react-icons/fa';
+import { Users, Loader2, ArrowRight, PhoneForwarded } from 'lucide-react';
+import { FaCheckCircle, FaUserTie, FaSearch, FaFileExcel, FaCalendarAlt } from 'react-icons/fa';
+import BusinessBadge from '../../common/BusinessBadge';
 
-export default function BridgeTransfersTab({ filters }) {
+export default function BridgeTransfersTab({ filters, allBatches }) {
     const [pendingLeads, setPendingLeads] = useState([]);
     const [selectedLeads, setSelectedLeads] = useState([]);
     const [pushing, setPushing] = useState(false);
     
     const [searchQuery, setSearchQuery] = useState('');
-    const [bulkAmount, setBulkAmount] = useState(''); // Bulk Assign Amount
+    const [bulkAmount, setBulkAmount] = useState(''); 
 
     const [coordinators, setCoordinators] = useState([]);
     const [selectedStaff, setSelectedStaff] = useState('');
 
     const [loadingStats, setLoadingStats] = useState(true);
     
-    // 🔥 NEW: Date Range States 🔥
+    // Date Range States
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
 
     const [bridgeStats, setBridgeStats] = useState({
-    totalTransferred: 0, totalContacted: 0, totalPending: 0, totalEnrolled: 0, totalReplied: 0, staffBreakdown: []
-});
+        totalTransferred: 0, totalContacted: 0, totalPending: 0, totalEnrolled: 0, totalReplied: 0, staffBreakdown: []
+    });
 
     useEffect(() => {
         if (filters?.selectedBusiness) {
@@ -40,7 +41,33 @@ export default function BridgeTransfersTab({ filters }) {
         try {
             const token = localStorage.getItem('token');
             const res = await axios.get('/admin/staff', { headers: { Authorization: `Bearer ${token}` } });
-            setCoordinators(res.data.filter(s => s.role === 'Coordinator' || s.role === 'CALLER' || s.role === 'MANAGER'));
+            
+            let staffList = res.data.filter(s => s.role === 'Coordinator' || s.role === 'CALLER' || s.role === 'MANAGER');
+            
+            // Filter by selected business
+            if (filters?.selectedBusiness) {
+                const selectedBizId = String(filters.selectedBusiness).trim();
+                
+                // Find the business name from allBatches
+                let selectedBizName = '';
+                if (allBatches && allBatches.length > 0) {
+                    const batchWithBiz = allBatches.find(b => String(b.business?.id) === selectedBizId);
+                    if (batchWithBiz && batchWithBiz.business) {
+                        selectedBizName = batchWithBiz.business.name.toLowerCase().trim();
+                    }
+                }
+                
+                staffList = staffList.filter(s => {
+                    // Include System Admins or Directors always if needed, or maybe just class coordinators of the biz
+                    if (!s.businessType) return false;
+                    const sBiz = String(s.businessType).trim().toLowerCase();
+                    return sBiz === selectedBizId || 
+                           (selectedBizName && sBiz.includes(selectedBizName)) ||
+                           (selectedBizName && selectedBizName.includes(sBiz));
+                });
+            }
+            
+            setCoordinators(staffList);
         } catch (e) { console.error("Failed to load staff"); }
     };
 
@@ -76,7 +103,6 @@ export default function BridgeTransfersTab({ filters }) {
         setLoadingStats(false);
     };
 
-    // 🔥 DATE FILTER HANDLERS 🔥
     const handleDailyClick = () => {
         const today = new Date().toISOString().split('T')[0];
         setStartDate(today);
@@ -88,12 +114,10 @@ export default function BridgeTransfersTab({ filters }) {
         setEndDate('');
     };
 
-    // Filter by Search Query
     const filteredLeads = pendingLeads.filter(l => 
         l.phone.includes(searchQuery) || (l.name && l.name.toLowerCase().includes(searchQuery.toLowerCase()))
     );
 
-    // BULK SELECTION LOGIC
     const handleBulkSelect = () => {
         const amount = parseInt(bulkAmount);
         if (isNaN(amount) || amount <= 0) {
@@ -120,8 +144,10 @@ export default function BridgeTransfersTab({ filters }) {
         else setSelectedLeads([...selectedLeads, id]);
     };
 
-    const handlePushToCampaign = async () => {
+    const handlePushToCampaign = async (isHandover = false) => {
         if (selectedLeads.length === 0) return toast.error("Select leads to transfer.");
+        if (!isHandover && !selectedStaff) return toast.error("Please select a coordinator to assign leads.");
+        
         setPushing(true);
         try {
             const token = localStorage.getItem('token');
@@ -129,11 +155,18 @@ export default function BridgeTransfersTab({ filters }) {
                 leadIds: selectedLeads,
                 businessId: filters.selectedBusiness,
                 batchId: filters.selectedBatch,
-                staffId: selectedStaff || null
+                staffId: isHandover ? null : selectedStaff,
+                handoverToCallCenter: isHandover
             }, { headers: { Authorization: `Bearer ${token}` } });
             
-            toast.success(`Successfully pushed & assigned ${selectedLeads.length} leads!`);
+            if (isHandover) {
+                toast.success(`Handed over ${selectedLeads.length} leads to the Call Center!`);
+            } else {
+                toast.success(`Successfully pushed & assigned ${selectedLeads.length} leads!`);
+            }
+            
             setBulkAmount('');
+            setSelectedStaff('');
             fetchBridgeData(); 
         } catch (error) { toast.error("Failed to transfer leads"); }
         setPushing(false);
@@ -145,7 +178,7 @@ export default function BridgeTransfersTab({ filters }) {
         const leadsToExport = filteredLeads.filter(l => selectedLeads.includes(l.id));
         
         let csvContent = "data:text/csv;charset=utf-8,";
-        csvContent += "Student Name,Phone Number,Status\n"; // Header row
+        csvContent += "Student Name,Phone Number,Status\n"; 
 
         leadsToExport.forEach(row => {
             const name = row.name ? row.name.replace(/,/g, '') : 'Unknown';
@@ -166,60 +199,63 @@ export default function BridgeTransfersTab({ filters }) {
     };
 
     if (!filters?.selectedBusiness) {
-        return <div className="flex justify-center items-center h-[400px] text-slate-500 font-sans tracking-wide">Please select a Campaign/Business to view Bridge Analytics.</div>;
+        return (
+            <div className="flex flex-col justify-center items-center h-[500px] text-slate-500 font-sans tracking-wide animate-fade-in-up">
+                <div className="w-24 h-24 bg-white/5 rounded-full flex items-center justify-center mb-6 border border-white/10 shadow-xl backdrop-blur-xl">
+                    <ArrowRight size={40} className="text-slate-600 opacity-50" />
+                </div>
+                <h2 className="text-2xl font-black text-slate-300">Workspace Pending</h2>
+                <p className="mt-2 text-sm">Please select a Business Campaign to access the Bridge Transfer Hub.</p>
+            </div>
+        );
     }
 
     const conversionRate = bridgeStats.totalTransferred > 0 ? Math.round((bridgeStats.totalEnrolled / bridgeStats.totalTransferred) * 100) : 0;
     const unassignedCount = bridgeStats.totalTransferred - bridgeStats.staffBreakdown.reduce((sum, s) => sum + s.assigned, 0);
 
     return (
-        <div className="space-y-6 font-sans text-slate-200">
+        <div className="space-y-8 font-sans text-slate-200 animate-fade-in-up">
             
-            {/* 🔥 DATE FILTERS ROW 🔥 */}
-            <div className="flex flex-col md:flex-row justify-between items-center bg-[#141a23] p-4 rounded-2xl border border-slate-800 shadow-md gap-4">
-                <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-lg">
-                        <FaCalendarAlt size={18}/>
+            {/* Header & Date Filters - Premium Glassmorphism */}
+            <div className="flex flex-col xl:flex-row justify-between items-center bg-white/5 backdrop-blur-2xl p-5 rounded-[24px] border border-white/10 shadow-2xl gap-5 relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-gradient-to-br from-indigo-500/10 to-purple-500/5 rounded-full blur-[100px] -z-10 pointer-events-none"></div>
+                
+                <div className="flex items-center gap-4 z-10">
+                    <div className="p-3.5 bg-gradient-to-br from-indigo-500 to-purple-600 text-white rounded-2xl shadow-[0_0_20px_rgba(99,102,241,0.4)]">
+                        <ArrowRight size={22} className="rotate-[-45deg]"/>
                     </div>
                     <div>
-                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">Campaign Stats Filter</h3>
-                        <p className="text-[10px] text-slate-400">Filter by specific dates or view today's performance</p>
+                        <h2 className="text-2xl font-black text-white uppercase tracking-widest bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">Bridge Transfer Hub</h2>
+                        <p className="text-[11px] text-indigo-200 font-bold uppercase tracking-[0.2em] mt-0.5 opacity-80">Free Seminar to After Seminar</p>
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3 flex-wrap">
-                    {/* DAILY BUTTON */}
+                <div className="flex items-center gap-3 flex-wrap bg-black/20 p-2 rounded-2xl border border-white/5 z-10">
                     <button 
                         onClick={handleDailyClick}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all"
+                        className="px-5 py-2.5 bg-white/10 hover:bg-indigo-500/20 hover:text-indigo-300 text-white border border-white/10 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
                     >
-                        Today (Daily)
+                        Today
                     </button>
 
-                    {/* DATE RANGE PICKER */}
-                    <div className="flex items-center gap-2 bg-[#0b0e14] border border-slate-700 p-1.5 rounded-lg">
+                    <div className="flex items-center gap-2 bg-black/40 border border-white/10 p-1 rounded-xl">
                         <input 
-                            type="date" 
-                            value={startDate} 
-                            onChange={(e) => setStartDate(e.target.value)} 
-                            className="bg-transparent text-slate-300 text-xs font-semibold outline-none px-2 cursor-pointer"
+                            type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} 
+                            className="bg-transparent text-slate-300 text-[11px] font-bold outline-none px-3 py-1 cursor-pointer"
                             style={{colorScheme: 'dark'}}
                         />
-                        <span className="text-slate-500 text-xs">to</span>
+                        <span className="text-slate-500 text-[10px] font-black uppercase">to</span>
                         <input 
-                            type="date" 
-                            value={endDate} 
-                            onChange={(e) => setEndDate(e.target.value)} 
-                            className="bg-transparent text-slate-300 text-xs font-semibold outline-none px-2 cursor-pointer"
+                            type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} 
+                            className="bg-transparent text-slate-300 text-[11px] font-bold outline-none px-3 py-1 cursor-pointer"
                             style={{colorScheme: 'dark'}}
                         />
                     </div>
 
-                    {/* CLEAR FILTER */}
                     {(startDate || endDate) && (
                         <button 
                             onClick={handleClearDates}
-                            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all"
+                            className="px-4 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
                         >
                             Clear
                         </button>
@@ -227,170 +263,248 @@ export default function BridgeTransfersTab({ filters }) {
                 </div>
             </div>
 
-            {/* MANAGER OVERALL STATS */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700">
-                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">Pending in Free</p>
-                    <h2 className="text-3xl font-black text-white mt-1">{pendingLeads.length}</h2>
-                </div>
-                <div className="bg-blue-900/20 p-5 rounded-2xl border border-blue-500/20">
-                    <p className="text-[10px] text-blue-400 font-black uppercase tracking-widest">Total Transferred</p>
-                    <h2 className="text-3xl font-black text-blue-400 mt-1">{bridgeStats.totalTransferred}</h2>
-                </div>
-                <div className="bg-indigo-900/20 p-5 rounded-2xl border border-indigo-500/20">
-                    <p className="text-[10px] text-indigo-400 font-black uppercase tracking-widest">Un-Assigned</p>
-                    <h2 className="text-3xl font-black text-indigo-400 mt-1">{unassignedCount}</h2>
-                </div>
-
-                {/* 🔥 ALUTH CARD EKA: Student Replies 🔥 */}
-                <div className="bg-purple-900/20 p-5 rounded-2xl border border-purple-500/20 shadow-[0_0_15px_rgba(168,85,247,0.1)] relative overflow-hidden">
-                    <div className="absolute -right-4 -top-4 w-16 h-16 bg-purple-500/10 rounded-full blur-xl animate-pulse"></div>
-                    <p className="text-[10px] text-purple-400 font-black uppercase tracking-widest relative z-10">Student Replies</p>
-                    <h2 className="text-3xl font-black text-purple-400 mt-1 relative z-10">{bridgeStats.totalReplied || 0}</h2>
-                </div>
-
-                <div className="bg-rose-900/20 p-5 rounded-2xl border border-rose-500/20">
-                    <p className="text-[10px] text-rose-400 font-black uppercase tracking-widest">Pending Calls</p>
-                    <h2 className="text-3xl font-black text-rose-400 mt-1">{bridgeStats.totalPending}</h2>
-                </div>
-                <div className="bg-emerald-900/20 p-5 rounded-2xl border border-emerald-500/20">
-                    <p className="text-[10px] text-emerald-400 font-black uppercase tracking-widest">Total Enrolled</p>
-                    <div className="flex items-baseline gap-2 mt-1">
-                        <h2 className="text-3xl font-black text-emerald-400 leading-none">{bridgeStats.totalEnrolled}</h2>
-                        <span className="text-xs font-bold text-emerald-500">({conversionRate}% Rate)</span>
+            {/* Premium Stats Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-5">
+                {[
+                    { label: 'Pending in Free', value: pendingLeads.length, color: 'text-slate-100', bg: 'bg-white/5 border-white/10', glow: '' },
+                    { label: 'Total Transferred', value: bridgeStats.totalTransferred, color: 'text-blue-400', bg: 'bg-blue-500/5 border-blue-500/20', glow: 'shadow-[0_0_20px_rgba(59,130,246,0.1)]' },
+                    { label: 'Un-Assigned', value: unassignedCount, color: 'text-indigo-400', bg: 'bg-indigo-500/5 border-indigo-500/20', glow: 'shadow-[0_0_20px_rgba(99,102,241,0.1)]' },
+                    { label: 'Student Replies', value: bridgeStats.totalReplied || 0, color: 'text-purple-400', bg: 'bg-purple-500/5 border-purple-500/20', glow: 'shadow-[0_0_30px_rgba(168,85,247,0.15)] ring-1 ring-purple-500/30 relative overflow-hidden' },
+                    { label: 'Pending Calls', value: bridgeStats.totalPending, color: 'text-rose-400', bg: 'bg-rose-500/5 border-rose-500/20', glow: 'shadow-[0_0_20px_rgba(244,63,94,0.1)]' },
+                    { label: 'Total Enrolled', value: bridgeStats.totalEnrolled, color: 'text-emerald-400', bg: 'bg-emerald-500/5 border-emerald-500/20', glow: 'shadow-[0_0_20px_rgba(16,185,129,0.1)]', extra: `(${conversionRate}% Rate)` }
+                ].map((stat, idx) => (
+                    <div key={idx} className={`p-6 rounded-[20px] backdrop-blur-md border ${stat.bg} ${stat.glow} flex flex-col justify-center transition-transform hover:scale-[1.02] duration-300`}>
+                        {idx === 3 && <div className="absolute -right-4 -top-4 w-16 h-16 bg-purple-500/20 rounded-full blur-xl animate-pulse pointer-events-none"></div>}
+                        <p className={`text-[10px] font-black uppercase tracking-widest opacity-60 mb-1 ${stat.color} relative z-10`}>{stat.label}</p>
+                        <div className="flex items-baseline gap-2 relative z-10">
+                            <h2 className={`text-3xl font-black ${stat.color}`}>{stat.value}</h2>
+                            {stat.extra && <span className={`text-[10px] font-bold uppercase tracking-wider ${stat.color} opacity-70`}>{stat.extra}</span>}
+                        </div>
                     </div>
-                </div>
+                ))}
             </div>
 
-            {/* STAFF PERFORMANCE TABLE */}
-            <div className="bg-[#1e293b]/50 backdrop-blur-lg p-5 rounded-2xl border border-white/5 shadow-xl flex flex-col">
-                <h3 className="text-sm font-black text-white mb-4 uppercase tracking-widest flex items-center gap-2"><FaUserTie className="text-blue-400"/> Coordinator Success on Bridge Leads</h3>
-                <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm whitespace-nowrap">
-                        <thead className="text-slate-400 text-[10px] uppercase font-black tracking-wider border-b border-white/10">
-                            <tr>
-                                <th className="py-3 px-2">Coordinator Name</th>
-                                <th className="py-3 px-2 text-center">Assigned</th>
-                                <th className="py-3 px-2 text-center text-blue-400">Covered</th>
-                                <th className="py-3 px-2 text-center text-rose-400">Pending</th>
-                                <th className="py-3 px-2 text-center text-emerald-400">Enrolled</th>
-                                <th className="py-3 px-2 text-right">Success Rate</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-white/5">
-                            {bridgeStats.staffBreakdown.length === 0 ? (
-                                <tr><td colSpan="6" className="py-8 text-center text-slate-500">No leads assigned to any coordinator yet.</td></tr>
-                            ) : (
-                                bridgeStats.staffBreakdown.map((staff, idx) => {
-                                    const rate = staff.assigned > 0 ? Math.round((staff.enrolled / staff.assigned) * 100) : 0;
-                                    return (
-                                        <tr key={idx} className="hover:bg-white/[0.03] transition-colors">
-                                            <td className="py-3 px-2 font-bold text-slate-200">{staff.name}</td>
-                                            <td className="py-3 px-2 text-center font-mono text-slate-300">{staff.assigned}</td>
-                                            <td className="py-3 px-2 text-center font-mono font-bold text-blue-400">{staff.contacted}</td>
-                                            <td className="py-3 px-2 text-center font-mono font-bold text-rose-400">{staff.pending}</td>
-                                            <td className="py-3 px-2 text-center font-mono font-bold text-emerald-400 bg-emerald-500/10 rounded-lg">{staff.enrolled}</td>
-                                            <td className="py-3 px-2 text-right font-black">
-                                                <span className={`px-2 py-1 rounded-md text-[11px] ${rate > 50 ? 'bg-emerald-500/20 text-emerald-400' : rate > 20 ? 'bg-amber-500/20 text-amber-400' : 'bg-rose-500/20 text-rose-400'}`}>
-                                                    {rate}%
-                                                </span>
-                                            </td>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                {/* LEFT: TRANSFER WORKSPACE */}
+                <div className="bg-white/5 backdrop-blur-2xl rounded-[32px] border border-white/10 shadow-2xl overflow-hidden flex flex-col relative h-[650px]">
+                    <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/5 to-transparent pointer-events-none"></div>
+                    
+                    <div className="p-6 border-b border-white/5 bg-white/[0.02] relative z-10">
+                        <div className="flex justify-between items-start mb-6">
+                            <div>
+                                <h3 className="text-lg font-black text-white flex items-center gap-2 tracking-wide">
+                                    <Users className="text-indigo-400" size={20} /> Transfer Workspace
+                                </h3>
+                                <p className="text-slate-400 text-[11px] font-bold uppercase tracking-widest mt-1">Select and push leads to execution phase</p>
+                            </div>
+                            <div className="bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 px-4 py-2 rounded-xl text-xs font-black shadow-inner">
+                                {selectedLeads.length} Selected
+                            </div>
+                        </div>
+
+                        {/* Search & Bulk */}
+                        <div className="flex flex-col sm:flex-row gap-3">
+                            <div className="relative flex-1">
+                                <FaSearch className="absolute left-4 top-3.5 text-slate-400 text-sm" />
+                                <input type="text" placeholder="Search by phone or name..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-2xl py-3 pl-10 pr-4 text-xs font-bold text-white outline-none focus:border-indigo-500 shadow-inner transition-all placeholder:text-slate-600" />
+                            </div>
+                            <div className="flex gap-2">
+                                <input type="number" placeholder="Amt" value={bulkAmount} onChange={(e) => setBulkAmount(e.target.value)} className="w-20 bg-black/40 border border-white/10 rounded-2xl py-3 px-3 text-xs font-bold text-center text-white outline-none focus:border-indigo-500 shadow-inner" min="1" max={filteredLeads.length} />
+                                <button onClick={handleBulkSelect} className="bg-white/10 hover:bg-white/20 text-white text-xs font-black uppercase tracking-widest px-4 rounded-2xl transition-all border border-white/10 shadow-sm">Select</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Table View */}
+                    <div className="flex-1 overflow-hidden relative z-10">
+                        {loadingStats ? (
+                            <div className="h-full flex flex-col items-center justify-center text-slate-500">
+                                <Loader2 className="animate-spin mb-4 text-indigo-500" size={32}/> 
+                                <p className="text-xs font-bold uppercase tracking-widest">Loading Transfer Pool...</p>
+                            </div>
+                        ) : filteredLeads.length === 0 ? (
+                            <div className="h-full flex flex-col items-center justify-center text-emerald-500/60 p-10 text-center">
+                                <FaCheckCircle size={48} className="mb-4 opacity-50 drop-shadow-[0_0_15px_rgba(16,185,129,0.3)]" />
+                                <p className="text-sm font-black uppercase tracking-widest">Pool Empty</p>
+                                <p className="text-[10px] mt-2 opacity-80 uppercase tracking-widest">No pending leads matching criteria</p>
+                            </div>
+                        ) : (
+                            <div className="h-full overflow-y-auto custom-scrollbar p-3">
+                                <table className="w-full text-left text-sm whitespace-nowrap border-separate border-spacing-y-2">
+                                    <thead className="text-slate-400 text-[10px] uppercase font-black tracking-widest sticky top-0 bg-transparent z-20">
+                                        <tr>
+                                            <th className="px-4 py-2 w-10">
+                                                <input type="checkbox" checked={selectedLeads.length === filteredLeads.length && filteredLeads.length > 0} onChange={toggleSelectAll} className="w-4 h-4 rounded cursor-pointer accent-indigo-500" />
+                                            </th>
+                                            <th className="px-4 py-2">Lead details</th>
+                                            <th className="px-4 py-2 text-right">Status</th>
                                         </tr>
-                                    );
-                                })
-                            )}
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-
-            {/* TRANSFER AND ASSIGN SECTION */}
-            <div className="bg-[#1e293b]/50 backdrop-blur-lg rounded-2xl border border-white/5 shadow-xl overflow-hidden flex flex-col">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center bg-black/20 p-5 border-b border-white/5 gap-4">
-                    <div>
-                        <h3 className="text-white font-black flex items-center gap-2">
-                            <Users className="text-blue-400" size={18} /> Push & Assign Free Seminar Leads
-                        </h3>
-                        <p className="text-slate-400 text-xs mt-1 font-medium">Select pending leads, choose a coordinator, and transfer them.</p>
-                    </div>
-
-                    {/* SEARCH & BULK SELECT */}
-                    <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-                        <div className="relative w-full sm:w-48">
-                            <FaSearch className="absolute left-3 top-3 text-slate-400 text-sm" />
-                            <input type="text" placeholder="Search numbers..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="w-full bg-[#0f172a] border border-slate-600 rounded-xl py-2 pl-9 pr-3 text-xs text-white outline-none focus:border-blue-500 shadow-inner" />
-                        </div>
-                        <div className="flex items-center gap-2 w-full sm:w-auto">
-                            <input type="number" placeholder="Count" value={bulkAmount} onChange={(e) => setBulkAmount(e.target.value)} className="w-20 bg-[#0f172a] border border-slate-600 rounded-xl py-2 px-3 text-xs text-center text-white outline-none focus:border-blue-500" min="1" max={filteredLeads.length} />
-                            <button onClick={handleBulkSelect} className="bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold px-3 py-2 rounded-xl transition-all">Select</button>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="p-4 bg-slate-900/50 flex flex-col sm:flex-row justify-between items-center gap-4">
-                    <div className="flex items-center gap-4">
-                        <span className="text-sm font-bold text-slate-300">
-                            {selectedLeads.length} Leads Selected
-                        </span>
-                        {selectedLeads.length > 0 && (
-                            <button 
-                                onClick={handleExportSelected} 
-                                className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 font-bold text-xs rounded-lg transition-all"
-                            >
-                                <FaFileExcel size={14} /> Export CSV
-                            </button>
+                                    </thead>
+                                    <tbody>
+                                        {filteredLeads.map((l) => (
+                                            <tr key={l.id} className={`transition-all duration-200 cursor-pointer group ${selectedLeads.includes(l.id) ? 'bg-indigo-500/10 border-indigo-500/30' : 'bg-white/[0.02] hover:bg-white/[0.05] border-transparent'}`} onClick={() => toggleLead(l.id)}>
+                                                <td className="px-4 py-4 rounded-l-2xl border-y border-l border-inherit">
+                                                    <input type="checkbox" checked={selectedLeads.includes(l.id)} onChange={() => {}} className="w-4 h-4 rounded cursor-pointer accent-indigo-500 pointer-events-none" />
+                                                </td>
+                                                <td className="px-4 py-4 border-y border-inherit">
+                                                    <h4 className="font-black text-white text-sm tracking-wide">{l.name || 'Unknown'}</h4>
+                                                    <p className="font-mono text-slate-400 text-[11px] mt-1">{l.phone}</p>
+                                                </td>
+                                                <td className="px-4 py-4 text-right rounded-r-2xl border-y border-r border-inherit">
+                                                    <span className="px-3 py-1.5 bg-black/40 text-slate-300 text-[9px] font-black rounded-lg uppercase tracking-widest border border-white/5 shadow-inner">
+                                                        {l.status || 'NEW'}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
                         )}
                     </div>
-                    
-                    <div className="flex items-center gap-3 w-full sm:w-auto">
-                        <select value={selectedStaff} onChange={(e) => setSelectedStaff(e.target.value)}
-                            className="bg-[#0f172a] text-xs font-bold text-slate-300 border border-slate-600 rounded-xl px-4 py-3 outline-none focus:border-blue-500 flex-1 sm:w-48 shadow-inner"
-                        >
-                            <option value="">-- Leave Unassigned --</option>
-                            {coordinators.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}
-                        </select>
-                        <button onClick={handlePushToCampaign} disabled={selectedLeads.length === 0 || pushing}
-                            className="flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-widest rounded-xl shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                        >
-                            {pushing ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
-                            Transfer
-                        </button>
+
+                    {/* Action Area */}
+                    <div className="p-5 border-t border-white/5 bg-white/[0.02] backdrop-blur-3xl z-20 shrink-0">
+                        <div className="flex flex-col gap-4">
+                            {/* Coordinator Assignment */}
+                            <div className="flex flex-col sm:flex-row gap-3">
+                                <select 
+                                    value={selectedStaff} 
+                                    onChange={(e) => setSelectedStaff(e.target.value)}
+                                    className="bg-black/50 text-[11px] font-black uppercase tracking-widest text-slate-300 border border-white/10 rounded-2xl px-4 py-3.5 outline-none focus:border-indigo-500 flex-1 shadow-inner cursor-pointer"
+                                >
+                                    <option value="">-- Select Coordinator --</option>
+                                    {coordinators.map(c => <option key={c.id} value={c.id}>{c.firstName} {c.lastName}</option>)}
+                                </select>
+                                <button 
+                                    onClick={() => handlePushToCampaign(false)} 
+                                    disabled={selectedLeads.length === 0 || pushing || !selectedStaff}
+                                    className="flex items-center justify-center gap-2 px-6 py-3.5 bg-indigo-600 hover:bg-indigo-500 text-white font-black text-[11px] uppercase tracking-widest rounded-2xl shadow-[0_0_20px_rgba(79,70,229,0.3)] hover:shadow-[0_0_25px_rgba(79,70,229,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed shrink-0 border border-indigo-400/50"
+                                >
+                                    {pushing ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
+                                    Transfer & Assign
+                                </button>
+                            </div>
+
+                            {/* Divider */}
+                            <div className="flex items-center gap-3">
+                                <div className="h-px bg-white/10 flex-1"></div>
+                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">OR</span>
+                                <div className="h-px bg-white/10 flex-1"></div>
+                            </div>
+
+                            {/* Call Center Handover */}
+                            <div className="flex gap-3">
+                                <button 
+                                    onClick={() => handlePushToCampaign(true)} 
+                                    disabled={selectedLeads.length === 0 || pushing}
+                                    className="w-full flex items-center justify-center gap-2 px-6 py-4 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-black text-[11px] uppercase tracking-widest rounded-2xl shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed border border-amber-500/30 group"
+                                >
+                                    <PhoneForwarded size={16} className="group-hover:-rotate-12 transition-transform" />
+                                    Hand Over to Call Center
+                                </button>
+                                {selectedLeads.length > 0 && (
+                                    <button 
+                                        onClick={handleExportSelected} 
+                                        className="flex items-center justify-center gap-2 px-4 py-4 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-400 font-black text-[11px] uppercase tracking-widest rounded-2xl transition-all"
+                                        title="Export CSV"
+                                    >
+                                        <FaFileExcel size={16} />
+                                    </button>
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                {loadingStats ? (
-                    <div className="p-10 flex flex-col items-center justify-center text-slate-500">
-                        <Loader2 className="animate-spin mb-2" size={24}/> Loading transfer pool...
+                {/* RIGHT: STAFF PERFORMANCE */}
+                <div className="bg-white/5 backdrop-blur-2xl rounded-[32px] border border-white/10 shadow-2xl flex flex-col h-[650px] overflow-hidden relative">
+                    <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-500/10 rounded-full blur-[80px] pointer-events-none"></div>
+                    
+                    <div className="p-6 border-b border-white/5 bg-white/[0.02] relative z-10 shrink-0">
+                        <h3 className="text-lg font-black text-white flex items-center gap-2 tracking-wide">
+                            <FaUserTie className="text-blue-400" size={18} /> Staff Performance Matrix
+                        </h3>
+                        <p className="text-slate-400 text-[11px] font-bold uppercase tracking-widest mt-1">Analytics for bridge leads assignment</p>
                     </div>
-                ) : filteredLeads.length === 0 ? (
-                    <div className="p-10 flex flex-col items-center justify-center text-emerald-500 font-medium bg-emerald-500/5">
-                        <FaCheckCircle size={24} className="mb-2 opacity-50" />
-                        No Pending Leads Found!
+
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-5 relative z-10">
+                        <div className="space-y-6">
+                            {bridgeStats.staffBreakdown.length === 0 ? (
+                                <div className="text-center py-20 text-slate-500 font-bold text-sm uppercase tracking-widest">No leads assigned yet.</div>
+                            ) : (
+                                (() => {
+                                    const callCenterRoles = ['Call Center Agent', 'CALLER'];
+                                    const callCenterStaff = bridgeStats.staffBreakdown.filter(s => callCenterRoles.includes(s.role));
+                                    const coordinatorStaff = bridgeStats.staffBreakdown.filter(s => !callCenterRoles.includes(s.role));
+
+                                    const renderStaffCard = (staff, idx) => {
+                                        const rate = staff.assigned > 0 ? Math.round((staff.enrolled / staff.assigned) * 100) : 0;
+                                        const isHigh = rate > 50;
+                                        const isMid = rate > 20 && rate <= 50;
+                                        
+                                        return (
+                                            <div key={idx} className="bg-black/30 border border-white/5 p-5 rounded-[20px] hover:border-white/10 transition-all group shadow-sm mb-4">
+                                                <div className="flex justify-between items-center mb-4">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500/20 to-purple-500/20 border border-white/10 flex items-center justify-center text-white font-black shadow-inner">
+                                                            {staff.name.charAt(0)}
+                                                        </div>
+                                                        <div>
+                                                            <h4 className="font-black text-white text-sm tracking-wide">{staff.name}</h4>
+                                                            <BusinessBadge businessType={staff.businessType} role={staff.role} />
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border ${isHigh ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : isMid ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                                                            {rate}% Success
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-4 gap-3">
+                                                    <div className="bg-white/5 rounded-xl p-3 text-center border border-white/5">
+                                                        <p className="text-[9px] font-black uppercase tracking-widest text-slate-500 mb-1">Assigned</p>
+                                                        <p className="font-mono text-sm font-bold text-slate-300">{staff.assigned}</p>
+                                                    </div>
+                                                    <div className="bg-blue-500/5 rounded-xl p-3 text-center border border-blue-500/10">
+                                                        <p className="text-[9px] font-black uppercase tracking-widest text-blue-500/70 mb-1">Covered</p>
+                                                        <p className="font-mono text-sm font-bold text-blue-400">{staff.contacted}</p>
+                                                    </div>
+                                                    <div className="bg-rose-500/5 rounded-xl p-3 text-center border border-rose-500/10">
+                                                        <p className="text-[9px] font-black uppercase tracking-widest text-rose-500/70 mb-1">Pending</p>
+                                                        <p className="font-mono text-sm font-bold text-rose-400">{staff.pending}</p>
+                                                    </div>
+                                                    <div className="bg-emerald-500/5 rounded-xl p-3 text-center border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.05)]">
+                                                        <p className="text-[9px] font-black uppercase tracking-widest text-emerald-500/80 mb-1">Enrolled</p>
+                                                        <p className="font-mono text-sm font-bold text-emerald-400">{staff.enrolled}</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    };
+
+                                    return (
+                                        <>
+                                            {coordinatorStaff.length > 0 && (
+                                                <div className="mb-6">
+                                                    <h4 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-4 border-b border-white/10 pb-2">Coordinators</h4>
+                                                    {coordinatorStaff.map((staff, idx) => renderStaffCard(staff, `coord-${idx}`))}
+                                                </div>
+                                            )}
+                                            {callCenterStaff.length > 0 && (
+                                                <div>
+                                                    <h4 className="text-xs font-black uppercase tracking-widest text-blue-400 mb-4 border-b border-blue-500/20 pb-2">Call Center Agents</h4>
+                                                    {callCenterStaff.map((staff, idx) => renderStaffCard(staff, `caller-${idx}`))}
+                                                </div>
+                                            )}
+                                        </>
+                                    );
+                                })()
+                            )}
+                        </div>
                     </div>
-                ) : (
-                    <div className="max-h-[350px] overflow-y-auto custom-scrollbar p-2">
-                        <table className="w-full text-left text-sm text-slate-300">
-                            <thead className="bg-[#0f172a] text-slate-400 text-[10px] uppercase font-black tracking-wider sticky top-0 z-10">
-                                <tr>
-                                    <th className="p-3 w-10 rounded-l-lg"><input type="checkbox" checked={selectedLeads.length === filteredLeads.length && filteredLeads.length > 0} onChange={toggleSelectAll} className="accent-blue-500 w-4 h-4 rounded cursor-pointer" /></th>
-                                    <th className="p-3">Student Name</th>
-                                    <th className="p-3">Phone Number</th>
-                                    <th className="p-3 rounded-r-lg">Previous Status</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-white/5">
-                                {filteredLeads.map((l) => (
-                                    <tr key={l.id} className="hover:bg-white/[0.03] transition-colors cursor-pointer" onClick={() => toggleLead(l.id)}>
-                                        <td className="p-3"><input type="checkbox" checked={selectedLeads.includes(l.id)} onChange={() => {}} className="accent-blue-500 w-4 h-4 rounded cursor-pointer pointer-events-none" /></td>
-                                        <td className="p-3 font-bold text-white">{l.name}</td>
-                                        <td className="p-3 font-mono text-slate-400">{l.phone}</td>
-                                        <td className="p-3"><span className="px-2 py-1 bg-slate-800 text-slate-300 text-[10px] font-black rounded-md uppercase tracking-wider">{l.status || 'NEW'}</span></td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                )}
+                </div>
             </div>
         </div>
     );

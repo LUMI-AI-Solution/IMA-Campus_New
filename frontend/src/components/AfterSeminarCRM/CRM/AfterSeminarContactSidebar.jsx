@@ -1,7 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import axios from '../../../api/axios'; 
 import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaLock, FaBullhorn, FaCommentDots, FaPaperPlane, FaUserCheck, FaHeadset, FaClock } from 'react-icons/fa';
 import toast from 'react-hot-toast';
+import CustomSelect from '../../common/CustomSelect';
+import BusinessBadge from '../../common/BusinessBadge';
 
 export default function AfterSeminarContactSidebar({ activeMode, selectedLead, setSelectedLead, filters, onRedirectToCampaign }) {
   const rawRole = JSON.parse(localStorage.getItem('user'))?.role || '';
@@ -9,7 +12,12 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER'].includes(userRole);
   const currentUserId = JSON.parse(localStorage.getItem('user'))?.id;
 
-  const [activeTab, setActiveTab] = useState(isManager ? 'NEW_INQ' : 'ASSIGNED');
+  const location = useLocation();
+  const initialSearchQuery = useMemo(() => {
+      return new URLSearchParams(location.search).get('searchQuery') || '';
+  }, [location.search]);
+
+  const [activeTab, setActiveTab] = useState(initialSearchQuery ? 'ALL' : (isManager ? 'NEW_INQ' : 'ASSIGNED'));
   const [newSubTab, setNewSubTab] = useState('OPEN_SEMINAR'); 
   
   const [leads, setLeads] = useState([]);
@@ -24,7 +32,6 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   const [showImportModal, setShowImportModal] = useState(false); 
   const [csvFile, setCsvFile] = useState(null); 
   
-  // 🔥 ALUTH STATE EKA: ASSIGN CONFIRM POPUP EKA WENUWEN 🔥
   const [assignConfirmation, setAssignConfirmation] = useState(null);
   
   const [staffFilter, setStaffFilter] = useState('');
@@ -33,9 +40,24 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   const [assignedInqFilter, setAssignedInqFilter] = useState('');
   const [roundFilter, setRoundFilter] = useState('');
   const [phaseFilter, setPhaseFilter] = useState('');
+  const [unassignedOnlyFilter, setUnassignedOnlyFilter] = useState(false);
 
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialSearchQuery);
+  
+  useEffect(() => {
+      if (initialSearchQuery) {
+          setSearchQuery(initialSearchQuery);
+          setActiveTab('ALL');
+      }
+  }, [initialSearchQuery]);
+
   const [visibleCount, setVisibleCount] = useState(50);
+
+  // 🔥 ALUTH STATE: Pagination wenuwen 🔥
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const pageRef = useRef(1); // Background polling waladi current page eka track karanna
+  const [totalMatching, setTotalMatching] = useState(0);
 
   const [subTabStats, setSubTabStats] = useState({
       OPEN_SEMINAR: { total: 0, unread: 0 },
@@ -53,7 +75,8 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
       setVisibleCount(50);
   }, [activeTab, newSubTab, searchQuery]);
 
-  const fetchLeads = async (showLoading = true) => {
+  // 🔥 UPDATE: Pagination variables (fetchPage, fetchLimit) api call ekata yawanawa 🔥
+  const fetchLeads = async (showLoading = true, fetchPage = 1, fetchLimit = 50) => {
     if (showLoading) setLoading(true);
     try {
         const token = localStorage.getItem('token');
@@ -70,7 +93,12 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                 loggedUserId: currentUserId, 
                 loggedUserRole: rawRole,
                 businessId: filters?.selectedBusiness || '', 
-                batchId: filters?.selectedBatch || ''
+                batchId: filters?.selectedBatch || '',
+                searchQuery: searchQuery,
+                unassignedOnly: unassignedOnlyFilter ? 'true' : 'false',
+                page: fetchPage,     // Backend ekata yawanawa
+                limit: fetchLimit,   // Backend ekata yawanawa
+                excludeColdBridge: 'true' // 🔥 Hide bridge transfers that have never messaged us 🔥
             }
         });
 
@@ -96,10 +124,23 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
           fetchedLeads = fetchedLeads.filter(l => l.assignedTo !== null);
       }
       
-      setLeads(fetchedLeads);
+      // 🔥 UPDATE: Page 1 nam replace karanawa, naththam parana ekata ekathu karanawa (Append) 🔥
+      if (fetchPage === 1) {
+          setLeads(fetchedLeads);
+      } else {
+          setLeads(prev => {
+              const existingIds = new Set(prev.map(l => l.id));
+              const newUnique = fetchedLeads.filter(l => !existingIds.has(l.id));
+              return [...prev, ...newUnique];
+          });
+      }
+
+      setHasMore(response.data.leads?.length === fetchLimit); // Thawa leads thiyenawada balanawa
+
       setTabCounts(response.data.counts || {});
       setUnreadCounts(response.data.unreadCounts || { NEW: 0, NEW_INQ: 0, ASSIGNED: 0, ALL: 0, OPEN_SEMINAR: 0, IMPORTED: 0 });
       setTotalUnread(response.data.totalUnread || 0);
+      setTotalMatching(response.data.totalMatching || 0);
     } catch (error) {
         if(showLoading) toast.error("Failed to load leads"); 
     }
@@ -118,9 +159,12 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
           const selectedBizObj = bizRes.data.find(b => String(b.id) === String(filters.selectedBusiness));
           const bizName = selectedBizObj ? selectedBizObj.name : '';
           coords = coords.filter(c => {
-              const cBiz = String(c.businessType || '').toLowerCase().trim();
-              if (!cBiz) return false;
-              return cBiz === String(filters.selectedBusiness).toLowerCase().trim() || cBiz === String(bizName).toLowerCase().trim() || String(c.businessId) === String(filters.selectedBusiness);
+              if (!c.businessType) return false;
+              const cBizList = String(c.businessType).toLowerCase().split(',').map(b => b.trim());
+              const selBizId = String(filters.selectedBusiness).toLowerCase().trim();
+              const selBizName = String(bizName).toLowerCase().trim();
+              
+              return cBizList.includes(selBizId) || cBizList.some(biz => biz.includes(selBizName)) || String(c.businessId) === String(filters.selectedBusiness);
           });
       }
       setCoordinators(coords);
@@ -129,16 +173,40 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
 
   useEffect(() => { fetchCoordinatorsAndQuotas(); }, [filters?.selectedBusiness, filters?.selectedBatch]);
 
+  // 🔥 Debounced search API call 🔥
+  useEffect(() => {
+      const delayDebounceFn = setTimeout(() => {
+          setPage(1);
+          pageRef.current = 1;
+          fetchLeads(false, 1, 50); 
+          setCheckedLeads([]);
+      }, 500);
+      return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
+
   useEffect(() => { 
-      fetchLeads(true); 
+      // Filter ekak maru unama page 1 ta reset wenawa
+      setPage(1);
+      pageRef.current = 1;
+      fetchLeads(true, 1, 50); 
       setCheckedLeads([]); 
-      const interval = setInterval(() => { fetchLeads(false); }, 10000);
+
+      // Polling eke limit eka pageRef eken gannawa (e.g. Page 3 innam 150k refresh wenawa)
+      const interval = setInterval(() => { 
+          fetchLeads(false, 1, pageRef.current * 50); 
+      }, 10000);
       return () => clearInterval(interval);
-  }, [activeTab, newSubTab, staffFilter, groupFilter, statusFilter, assignedInqFilter, roundFilter, phaseFilter, filters?.selectedBusiness, filters?.selectedBatch]);
+  }, [activeTab, newSubTab, staffFilter, groupFilter, statusFilter, assignedInqFilter, roundFilter, phaseFilter, unassignedOnlyFilter, filters?.selectedBusiness, filters?.selectedBatch]);
+
+  useEffect(() => {
+      if (initialSearchQuery && leads.length > 0 && !selectedLead) {
+          const match = leads.find(l => l.phone && l.phone.includes(initialSearchQuery));
+          if (match) handleLeadClick(match);
+      }
+  }, [leads, initialSearchQuery, selectedLead]);
 
   const handleSelectAll = () => { if (checkedLeads.length === leads.length) setCheckedLeads([]); else setCheckedLeads(leads.map(l => l.id)); };
 
-  // 🔥 UPDATE: ASSIGN action eka modal ekata harawala thiyenne 🔥
   const handleBulkAction = async (action, assignStaffId = null, specificLeads = null) => {
     const leadsToProcess = specificLeads || checkedLeads;
     if (leadsToProcess.length === 0) return;
@@ -157,8 +225,21 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
       await axios.post('/after-seminar-crm/leads/bulk-action', { action, leadIds: leadsToProcess, staffId: assignStaffId }, { headers: { Authorization: `Bearer ${token}` } });
       toast.success("Action applied successfully!");
       if (!specificLeads) setCheckedLeads([]); 
-      fetchLeads(true);
+      fetchLeads(false, 1, pageRef.current * 50); // Refresh current list
     } catch (e) { toast.error("Action failed"); }
+  };
+
+  const handleHandOverToCallCenter = async () => {
+    if (checkedLeads.length === 0) return toast.error("Please select leads to hand over");
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post('/call-center/request-transfer', { leadIds: checkedLeads }, { headers: { Authorization: `Bearer ${token}` } });
+      toast.success("Successfully requested handover to call center!");
+      setCheckedLeads([]);
+      fetchLeads(false, 1, pageRef.current * 50);
+    } catch (e) {
+      toast.error("Failed to hand over leads");
+    }
   };
 
   const handleSendTestFollowUp = async () => {
@@ -174,7 +255,6 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
     }
   };
 
-  // 🔥 UPDATE: Bulk assign form eka modal ekata harawala thiyenne 🔥
   const handleAssignSubmit = async (e, type) => {
     e.preventDefault();
     if (type === 'bulk') {
@@ -194,7 +274,6 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
     }
   };
 
-  // 🔥 ALUTH FUNCTION EKA: Final Assignment eka Run Karanna 🔥
   const executeAssignment = async (assignType) => {
       try {
           const token = localStorage.getItem('token');
@@ -214,7 +293,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
           }
           toast.success("Leads Assigned Successfully!");
           setAssignConfirmation(null);
-          fetchLeads(true);
+          fetchLeads(false, 1, pageRef.current * 50); // Refresh
       } catch (error) {
           toast.error(error.response?.data?.error || "Assignment Failed");
       }
@@ -243,7 +322,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
 
   const getAssignedStats = () => {
       if (activeTab === 'ASSIGNED' && (staffFilter || groupFilter || statusFilter || assignedInqFilter || roundFilter || phaseFilter)) {
-          return { total: leads.length, unread: leads.filter(l => l.unreadCount > 0).length };
+          return { total: totalMatching, unread: leads.filter(l => l.unreadCount > 0).length };
       }
       return { total: tabCounts.ASSIGNED, unread: unreadCounts.ASSIGNED };
   };
@@ -259,30 +338,44 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
     { id: 'ALL', label: 'All', total: tabCounts.ALL, unread: unreadCounts.ALL }
   ];
 
-  const displayedLeads = filteredLeads.slice(0, visibleCount);
+  const displayedLeads = filteredLeads;
 
   return (
-    <div className="w-[350px] xl:w-[400px] bg-[#1a2430] rounded-2xl flex flex-col overflow-hidden shrink-0 border border-white/10 shadow-xl relative">
+    <div className="w-[380px] xl:w-[440px] bg-[#1a2430] rounded-3xl flex flex-col overflow-hidden shrink-0 border border-white/10 shadow-2xl relative">
       {checkedLeads.length > 0 ? (
         <div className="p-4 bg-emerald-900/90 border-b border-emerald-500/50 flex flex-col gap-3">
           <div className="flex justify-between items-center text-white">
             <span className="font-bold">{checkedLeads.length} Selected</span>
             <button onClick={() => setCheckedLeads([])} className="text-white/60 hover:text-white"><FaTimes/></button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
              <button onClick={handleSelectAll} title="Select All" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaCheckSquare/></button>
              <button onClick={() => handleBulkAction('MARK_READ')} title="Mark Read" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaEnvelopeOpenText/></button>
              <button onClick={() => handleBulkAction('MARK_UNREAD')} title="Mark Unread" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaEnvelope/></button>
              <button onClick={() => handleBulkAction('ASSIGN', currentUserId)} title="Assign To Me" className="p-2 bg-emerald-500/30 hover:bg-emerald-500 rounded-lg text-emerald-200 hover:text-white transition-all"><FaUserCheck/></button>
+             
+             {/* Call Center Handover */}
+             <button onClick={handleHandOverToCallCenter} title="Hand Over to Call Center" className="p-2 bg-purple-500/30 hover:bg-purple-500 rounded-lg text-purple-200 hover:text-white transition-all flex items-center gap-1 shadow-md shadow-purple-500/20 border border-purple-500/30">
+               <FaHeadset/> <span className="text-[10px] font-bold uppercase tracking-wider hidden xl:block">Call Center</span>
+             </button>
+
              {checkedLeads.length === 1 && (
                  <button onClick={handleSendTestFollowUp} title="Send Test Follow-Up Message" className="p-2 bg-blue-600/50 hover:bg-blue-600 rounded-lg text-blue-200 hover:text-white transition-all"><FaPaperPlane/></button>
              )}
              {isManager && <button onClick={() => handleBulkAction('UNASSIGN')} title="Unassign Leads" className="p-2 bg-red-500/20 hover:bg-red-500 rounded-lg text-red-300 hover:text-white transition-all"><FaUserMinus/></button>}
              {isManager && (
-                <select onChange={(e) => { if (e.target.value) { handleBulkAction('ASSIGN', e.target.value); e.target.value=''; } }} className="flex-1 bg-white/10 border-none text-white text-xs font-bold rounded-lg p-2 outline-none">
-                  <option value="">Assign To...</option>
-                  {coordinators.map(c => <option key={c.id} value={c.id} className="text-black">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'})</option>)}
-                </select>
+                <CustomSelect 
+                  value=""
+                  onChange={(e) => handleBulkAction('ASSIGN', e.target.value)} 
+                  className="flex-1 min-w-[120px]"
+                  placeholder="Assign To..."
+                  options={[
+                      ...coordinators.map(c => ({
+                          value: c.id, 
+                          label: <div className="flex items-center gap-1.5">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'}) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                      }))
+                  ]}
+                />
              )}
           </div>
         </div>
@@ -301,7 +394,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
           
           <div className="relative mb-4">
             <FaSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search by number or name..." className="w-full bg-[#0f172a] border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-base text-slate-200 focus:outline-none focus:border-emerald-600 shadow-inner" />
+            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search loaded leads..." className="w-full bg-[#0f172a] border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-base text-slate-200 focus:outline-none focus:border-emerald-600 shadow-inner" />
           </div>
           
           <div className="flex justify-between items-center bg-[#0f172a] p-1 rounded-xl border border-slate-800 gap-1">
@@ -337,13 +430,32 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
              </div>
           )}
 
+          {activeTab === 'ALL' && (
+            <div className="flex justify-between items-center bg-[#0f172a] p-2 rounded-xl border border-slate-800 mt-3">
+               <span className="text-slate-300 text-[10px] font-bold uppercase tracking-wider pl-2">Unassigned Only</span>
+               <label className="relative inline-flex items-center cursor-pointer">
+                 <input type="checkbox" className="sr-only peer" checked={unassignedOnlyFilter} onChange={(e) => setUnassignedOnlyFilter(e.target.checked)} />
+                 <div className="w-8 h-4 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-emerald-500"></div>
+               </label>
+            </div>
+          )}
+
           {activeTab === 'ASSIGNED' && (
             <div className="flex flex-col gap-2 mt-4">
               <div className="flex gap-2">
-                <select onChange={e=>setStaffFilter(e.target.value)} value={staffFilter} className="flex-1 bg-[#0f172a] text-slate-300 text-[10px] font-bold uppercase rounded-lg px-2 py-2 border border-slate-700 outline-none">
-                  <option value="">All Staff</option>
-                  {coordinators.map(c => <option key={c.id} value={c.id}>{c.firstName}</option>)}
-                </select>
+                <CustomSelect 
+                  value={staffFilter}
+                  onChange={e=>setStaffFilter(e.target.value)} 
+                  className="flex-[1.5]"
+                  placeholder="All Staff"
+                  options={[
+                      { value: '', label: 'All Staff' },
+                      ...coordinators.map(c => ({
+                          value: c.id, 
+                          label: <div className="flex items-center gap-1.5">{c.firstName} <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                      }))
+                  ]}
+                />
                 
                 <select onChange={e=>setAssignedInqFilter(e.target.value)} value={assignedInqFilter} className="flex-1 bg-[#0f172a] text-slate-300 text-[10px] font-bold uppercase rounded-lg px-2 py-2 border border-slate-700 outline-none">
                   <option value="">All Types</option>
@@ -397,7 +509,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
           <>
             {displayedLeads.map(lead => {
                 
-              const leadTime = new Date(lead.updatedAt || lead.createdAt);
+              const leadTime = new Date(lead.lastMessageAt || lead.updatedAt || lead.createdAt);
               const hoursPassed = (currentTime.getTime() - leadTime.getTime()) / (1000 * 60 * 60);
 
               let overlayClass = ''; 
@@ -439,8 +551,17 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                               )}
                           </div>
                           
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                              {lead.name && (
+                                  <span className="text-[11px] font-semibold text-slate-300">{lead.name}</span>
+                              )}
+                              {lead.enrollmentStatus === 'ENROLLED' && (
+                                  <span className="bg-emerald-500 text-white text-[8px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm border border-emerald-600">Enrolled</span>
+                              )}
+                          </div>
+                          
                           {lead.assignedUser ? (
-                              <span className="text-[10px] text-blue-400 font-semibold mt-0.5">👤 {lead.assignedUser.firstName} {lead.assignedUser.lastName}</span>
+                              <span className="text-[10px] text-blue-400 font-semibold mt-0.5 flex items-center gap-1">👤 {lead.assignedUser.firstName} {lead.assignedUser.lastName} <BusinessBadge businessType={lead.assignedUser.businessType} role={lead.assignedUser.role} /></span>
                           ) : (
                               (!lead.assignedTo && (
                                   <button onClick={(e) => { e.stopPropagation(); handleBulkAction('ASSIGN', currentUserId, [lead.id]); }} className="text-[9px] w-max bg-emerald-600/80 hover:bg-emerald-500 text-white px-2 py-1 rounded shadow-md flex items-center gap-1 transition-all mt-1">
@@ -452,8 +573,8 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                       
                       <div className="flex flex-col items-end shrink-0 ml-2 gap-1.5">
                           <div className="text-right">
-                              <span className="text-[10px] text-slate-400 font-bold block mb-0.5">{new Date(lead.updatedAt).toLocaleDateString('en-GB')}</span>
-                              <span className="text-[9px] text-slate-500 block">{new Date(lead.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                              <span className="text-[10px] text-slate-400 font-bold block mb-0.5">{new Date(lead.lastMessageAt || lead.updatedAt).toLocaleDateString('en-GB')}</span>
+                              <span className="text-[9px] text-slate-500 block">{new Date(lead.lastMessageAt || lead.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                           </div>
                           
                           {(String(lead.assignedTo) === String(currentUserId) || isManager) && (
@@ -487,13 +608,20 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
               </div>
             )})}
 
-            {filteredLeads.length > visibleCount && (
+            {/* 🔥 UPDATE: Load More Leads Button 🔥 */}
+            {hasMore && !searchQuery && (
                 <div className="flex justify-center mt-4 mb-2">
                     <button 
-                        onClick={() => setVisibleCount(prev => prev + 50)} 
-                        className="bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-bold py-2 px-6 rounded-full transition-colors shadow-lg"
+                        onClick={() => {
+                            const nextPage = page + 1;
+                            setPage(nextPage);
+                            pageRef.current = nextPage;
+                            fetchLeads(true, nextPage, 50);
+                        }} 
+                        disabled={loading}
+                        className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-300 text-xs font-bold py-2 px-6 rounded-full transition-colors shadow-lg"
                     >
-                        Load More Leads
+                        {loading ? 'Loading...' : 'Load More Leads'}
                     </button>
                 </div>
             )}
@@ -518,10 +646,19 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                      </select>
                      <input name="count" type="number" placeholder="Lead Count" required className="col-span-2 bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none" />
                   </div>
-                  <select name="staffId" required className="w-full bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 mb-3 text-xs outline-none">
-                     <option value="">Select Coordinator / Team...</option>
-                     {coordinators.map(c => <option key={c.id} value={c.id}>{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'})</option>)}
-                  </select>
+                  <CustomSelect 
+                      value=""
+                      onChange={() => {}} // Form submission relies on the hidden input
+                      className="w-full mb-3"
+                      placeholder="Select Coordinator / Team..."
+                      options={[
+                          { value: '', label: 'Select Coordinator / Team...' },
+                          ...coordinators.map(c => ({
+                              value: c.id, 
+                              label: <div className="flex items-center gap-1.5">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'}) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                          }))
+                      ]}
+                  />
                   <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg text-xs uppercase tracking-widest transition-colors">Assign Selected Leads</button>
                </form>
             </div>
@@ -572,7 +709,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                                   inquiryType: targetTab
                               }, { headers: { Authorization: `Bearer ${token}` } });
                               toast.success(`${leadsList.length} Leads Imported to ${targetTab}!`);
-                              setShowImportModal(false); setCsvFile(null); fetchLeads(true);
+                              setShowImportModal(false); setCsvFile(null); fetchLeads(true, 1, 50); // Refresh
                           } catch (error) { toast.error("Bulk import failed!"); }
                       };
                       reader.readAsText(csvFile);
@@ -596,7 +733,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                         }, { headers: { Authorization: `Bearer ${token}` } });
                         toast.success(`Imported successfully to ${targetTab}`);
                         setShowImportModal(false);
-                        fetchLeads(true);
+                        fetchLeads(true, 1, 50); // Refresh
                     } catch(err) {
                         toast.error("Import failed");
                     }
@@ -610,7 +747,6 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
          </div>
       )}
 
-      {/* 🔥 ALUTH MODAL EKA: ASSIGN KARANNA KALIN INQUIRY TYPE EKA AHANAWA 🔥 */}
       {assignConfirmation && (
           <div className="absolute inset-0 z-[60] bg-[#0f172a]/90 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-[#1a2430] border border-slate-700 rounded-3xl p-6 w-[90%] max-w-sm shadow-2xl animate-fade-in">
@@ -646,7 +782,6 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
               </div>
           </div>
       )}
-
     </div>
   );
 }

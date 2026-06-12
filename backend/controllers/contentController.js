@@ -2,69 +2,76 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const admin = require("firebase-admin");
 const axios = require('axios');
+const { getScopedBusinessId } = require('../utils/scopeUtils');
 
 // 🔥 පරණ Hardcoded Keys අයින් කළා. දැන් කෙලින්ම ගන්නේ .env ෆයිල් එකෙන් 🔥
 
 const getZoomDirectMp4Link = async (meetingId) => {
-    // 🔥 FIX: Meeting ID එකේ තියෙන හිස්තැන් ඔක්කොම අයින් කරනවා 🔥
     const cleanMeetingId = meetingId.replace(/\s+/g, '');
-
     console.log(`\n================ ZOOM DEBUG START ================`);
     console.log(`[1] Requested Meeting ID: "${cleanMeetingId}" (Original: "${meetingId}")`);
 
     try {
-        const accountId = process.env.ZOOM_ACCOUNT_ID;
-        const clientId = process.env.ZOOM_CLIENT_ID;
-        const clientSecret = process.env.ZOOM_CLIENT_SECRET;
-
-        if (!accountId || !clientId || !clientSecret) {
-            console.error(`[!] ERROR: Zoom Credentials missing in .env file!`);
-            return null;
+        let zoomAccounts = [];
+        try {
+            zoomAccounts = await prisma.zoomAccount.findMany({ where: { isActive: true } });
+        } catch (e) {
+            console.error("[!] Error fetching zoom accounts from DB:", e);
         }
 
-        const authHeader = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
-        console.log(`[2] Requesting Access Token...`);
+        // If no accounts in DB, fallback to .env
+        if (zoomAccounts.length === 0) {
+            zoomAccounts.push({
+                name: 'Default ENV Account',
+                accountId: process.env.ZOOM_ACCOUNT_ID,
+                clientId: process.env.ZOOM_CLIENT_ID,
+                clientSecret: process.env.ZOOM_CLIENT_SECRET
+            });
+        }
 
-        const tokenRes = await axios.post(`https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${accountId}`, null, {
-            headers: { 'Authorization': `Basic ${authHeader}` }
-        });
-
-        const accessToken = tokenRes.data.access_token;
-        console.log(`[3] Access Token Received (First 10 chars): ${accessToken.substring(0, 10)}...`);
-        console.log(`[4] Fetching recordings for Meeting ID: ${cleanMeetingId}...`);
-
-        // 🔥 හිස්තැන් අයින් කරපු ID එක යවනවා 🔥
-        const recRes = await axios.get(`https://api.zoom.us/v2/meetings/${cleanMeetingId}/recordings`, {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-
-        console.log(`[5] Zoom API Response Status: ${recRes.status}`);
-        console.log(`[6] Available Files Count: ${recRes.data?.recording_files?.length || 0}`);
-
-        if (recRes.data && recRes.data.recording_files) {
-            const mp4File = recRes.data.recording_files.find(file => file.file_type === 'MP4');
-            
-            if (mp4File) {
-                console.log(`[7] MP4 File Found! Size: ${(mp4File.file_size / (1024*1024)).toFixed(2)} MB`);
-                console.log(`================ ZOOM DEBUG END ================\n`);
-                
-                return `${mp4File.download_url}?access_token=${accessToken}`;
-            } else {
-                console.log(`[!] Error: No MP4 format found in this recording.`);
-                console.log(`[!] Available types:`, recRes.data.recording_files.map(f => f.file_type));
+        for (const account of zoomAccounts) {
+            console.log(`[>>] Trying Account: ${account.name || 'Unknown'}`);
+            if (!account.accountId || !account.clientId || !account.clientSecret) {
+                console.error(`[!] Missing credentials for account: ${account.name}`);
+                continue;
             }
-        } else {
-            console.log(`[!] Error: No recording_files array in response.`);
-        }
 
+            try {
+                const authHeader = Buffer.from(`${account.clientId}:${account.clientSecret}`).toString('base64');
+                const tokenRes = await axios.post(`https://zoom.us/oauth/token?grant_type=account_credentials&account_id=${account.accountId}`, null, {
+                    headers: { 'Authorization': `Basic ${authHeader}` }
+                });
+
+                const accessToken = tokenRes.data.access_token;
+                
+                // Try fetching recording
+                const recRes = await axios.get(`https://api.zoom.us/v2/meetings/${cleanMeetingId}/recordings`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` },
+                    validateStatus: function (status) { return status < 500; } // Don't throw error on 404
+                });
+
+                if (recRes.status === 200 && recRes.data && recRes.data.recording_files) {
+                    const mp4File = recRes.data.recording_files.find(file => file.file_type === 'MP4');
+                    if (mp4File) {
+                        console.log(`[✔] MP4 Found in account ${account.name}! Size: ${(mp4File.file_size / (1024*1024)).toFixed(2)} MB`);
+                        console.log(`================ ZOOM DEBUG END ================\n`);
+                        return `${mp4File.download_url}?access_token=${accessToken}`;
+                    }
+                } else if (recRes.status === 404) {
+                    console.log(`[x] Recording not found in ${account.name}, trying next...`);
+                } else {
+                    console.log(`[!] Unexpected status ${recRes.status} from ${account.name}`);
+                }
+            } catch (innerError) {
+                console.error(`[!] Error fetching from account ${account.name}:`, innerError.message);
+            }
+        }
+        
+        console.log(`[!] Error: MP4 not found in any available Zoom accounts.`);
         console.log(`================ ZOOM DEBUG END ================\n`);
         return null;
-
     } catch (error) {
-        console.log(`\n[!!!] ZOOM API CRASHED [!!!]`);
-        console.log(`[!] Request URL:`, error.config?.url);
-        console.log(`[!] Status Code:`, error.response?.status);
-        console.log(`[!] Zoom Error Message:`, error.response?.data?.message || error.message);
+        console.error(`[!] SYSTEM ERROR in getZoomDirectMp4Link:`, error.message);
         console.log(`================ ZOOM DEBUG END ================\n`);
         return null;
     }
@@ -265,8 +272,14 @@ exports.createSubject = async (req, res) => {
             if (!gp.tuteCover && commonCover) gp.tuteCover = commonCover;
             if (!gp.tuteName && commonTuteName) gp.tuteName = commonTuteName;
         });
-        const startMonth = safeStr(req.body.startMonth) || null;
-        const endMonth = safeStr(req.body.endMonth) || null;
+        console.log("START MONTH IN REQ:", req.body.startMonth, "END MONTH IN REQ:", req.body.endMonth);
+        console.log("UPDATE SUBJECT RECEIVED START MONTH:", req.body.startMonth, "END MONTH:", req.body.endMonth);
+        const getMonthVal = (val) => {
+            const s = safeStr(val);
+            return (s === 'null' || s === 'undefined' || s === '') ? null : s;
+        };
+        const startMonth = getMonthVal(req.body.startMonth);
+        const endMonth = getMonthVal(req.body.endMonth);
 
         let activeMonths = null;
         if (startMonth && endMonth) {
@@ -375,8 +388,13 @@ exports.updateSubject = async (req, res) => {
             const { _existingCourse, ...cleanGp } = gp;
             return cleanGp;
         }));
-        const startMonth = safeStr(req.body.startMonth) || null;
-        const endMonth = safeStr(req.body.endMonth) || null;
+        console.log("UPDATE SUBJECT RECEIVED START MONTH:", req.body.startMonth, "END MONTH:", req.body.endMonth);
+        const getMonthVal = (val) => {
+            const s = safeStr(val);
+            return (s === 'null' || s === 'undefined' || s === '') ? null : s;
+        };
+        const startMonth = getMonthVal(req.body.startMonth);
+        const endMonth = getMonthVal(req.body.endMonth);
 
         let activeMonths = null;
         if (startMonth && endMonth) {
@@ -397,11 +415,22 @@ exports.updateSubject = async (req, res) => {
             if (existingCourse) {
                 return prisma.course.update({
                     where: { id: existingCourse.id },
-                    data: { name, code, stream, streams: streamsStr, description, lecturerName, itemOrder: parseInt(itemOrder || 1), price: parseFloat(gp.price || 0), groupPrices: finalGroupPricesStr, isDiscountExcluded: excludeDiscount, activeMonths, startMonth, endMonth }
+                    data: { 
+                        name, code, stream, streams: streamsStr, description, lecturerName, 
+                        itemOrder: parseInt(itemOrder || 1), price: parseFloat(gp.price || 0), 
+                        groupPrices: finalGroupPricesStr, isDiscountExcluded: excludeDiscount,
+                        activeMonths, startMonth, endMonth 
+                    }
                 });
             } else {
                 return prisma.course.create({
-                    data: { name, code, stream, streams: streamsStr, description, lecturerName, itemOrder: parseInt(itemOrder || 1), price: parseFloat(gp.price || 0), groupPrices: finalGroupPricesStr, groupId: parseInt(gp.groupId), isDiscountExcluded: excludeDiscount, activeMonths, startMonth, endMonth }
+                    data: { 
+                        name, code, stream, streams: streamsStr, description, lecturerName, 
+                        itemOrder: parseInt(itemOrder || 1), price: parseFloat(gp.price || 0), 
+                        groupPrices: finalGroupPricesStr, groupId: parseInt(gp.groupId), 
+                        isDiscountExcluded: excludeDiscount,
+                        activeMonths, startMonth, endMonth 
+                    }
                 });
             }
         });
@@ -466,6 +495,17 @@ exports.createInstallment = async (req, res) => {
         await prisma.installment.create({ data: { batchId: parseInt(batch_id), subjectCount: parseInt(subjectCount), details: JSON.stringify(installmentsData) } });
         res.status(201).json({ message: "Created" });
     } catch (e) { res.status(500).json({ error: "Failed to create installment" }); }
+};
+
+exports.updateInstallment = async (req, res) => {
+    try {
+        const { plan_id, subjectCount, installmentsData } = req.body;
+        await prisma.installment.update({
+            where: { id: parseInt(plan_id) },
+            data: { subjectCount: parseInt(subjectCount), details: JSON.stringify(installmentsData) }
+        });
+        res.status(200).json({ message: "Updated" });
+    } catch (e) { res.status(500).json({ error: "Failed to update installment" }); }
 };
 
 // ================= FOLDERS (CONTENT GROUPS) =================
@@ -772,7 +812,33 @@ exports.getContents = async (req, res) => {
 // ================= BATCHES FULL DATA =================
 exports.getBatchesFull = async (req, res) => {
     try {
+        const userId = req.user.userId || req.user.id;
+        const userRole = req.user.role;
+        const businessType = req.user.businessType;
+        
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
+        
+        let whereClause = {};
+        
+        if (!isAdmin) {
+            const allBiz = await prisma.business.findMany();
+            const myBizs = allBiz.filter(biz => {
+                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
+                const matchesBizType = businessType && (
+                    String(biz.id) === String(businessType).trim() ||
+                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
+                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
+                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+                );
+                return isManagerOf || matchesBizType;
+            });
+            const myBizIds = myBizs.map(b => b.id);
+            whereClause = { businessId: { in: myBizIds } };
+        }
+
         const batches = await prisma.batch.findMany({ 
+            where: whereClause,
             include: { 
                 business: true, 
                 groups: { 
@@ -793,7 +859,12 @@ exports.getBatchesFull = async (req, res) => {
 
 exports.createAdminPost = async (req, res) => {
     try {
-        const { title, description, businessId, batchId } = req.body;
+        let { title, description, businessId, batchId } = req.body;
+        
+        const scopedBizId = await getScopedBusinessId(req.user);
+        if (scopedBizId) {
+            businessId = scopedBizId; // Force their assigned business
+        }
 
         const finalBizId = (businessId === 'all' || !businessId || businessId === 'null') ? null : BigInt(businessId);
         const finalBatchId = (batchId === 'all' || !batchId || batchId === 'null') ? null : BigInt(batchId);
@@ -884,9 +955,11 @@ exports.getPosts = async (req, res) => {
         const { businessId } = req.query;
         
         let whereClause = {};
+        const scopedBizId = await getScopedBusinessId(req.user);
         
-        // Business ID එකක් එවලා තියෙනවා නම්, ඒකට අදාල පෝස්ට් විතරක් ගන්නවා
-        if (businessId && businessId !== 'all' && businessId !== 'null') {
+        if (scopedBizId) {
+            whereClause = { business_id: BigInt(scopedBizId) };
+        } else if (businessId && businessId !== 'all' && businessId !== 'null') {
             whereClause = {
                 OR: [
                     { business_id: BigInt(businessId) }, // ඒ අදාල Business එකේ පෝස්ට්
@@ -900,7 +973,17 @@ exports.getPosts = async (req, res) => {
             orderBy: { created_at: 'desc' } 
         });
         
-        const safeData = JSON.parse(JSON.stringify(posts, (key, value) => typeof value === 'bigint' ? value.toString() : value));
+        const businesses = await prisma.business.findMany({ select: { id: true, name: true } });
+        
+        const mappedPosts = posts.map(post => {
+            const biz = businesses.find(b => b.id.toString() === post.business_id?.toString());
+            return {
+                ...post,
+                Business: biz ? { name: biz.name } : null
+            };
+        });
+
+        const safeData = JSON.parse(JSON.stringify(mappedPosts, (key, value) => typeof value === 'bigint' ? value.toString() : value));
         res.status(200).json(safeData);
     } catch (e) { 
         console.error(e);
@@ -910,6 +993,14 @@ exports.getPosts = async (req, res) => {
 
 exports.deletePost = async (req, res) => {
     try {
+        const scopedBizId = await getScopedBusinessId(req.user);
+        const post = await prisma.post.findUnique({ where: { id: parseInt(req.body.post_id) } });
+        
+        if (!post) return res.status(404).json({ error: "Post not found" });
+        if (scopedBizId && post.business_id && post.business_id.toString() !== scopedBizId.toString()) {
+            return res.status(403).json({ error: "Unauthorized to delete this post" });
+        }
+
         await prisma.post.delete({ where: { id: parseInt(req.body.post_id) } });
         res.status(200).json({ message: "Post Deleted" });
     } catch (e) { res.status(500).json({ error: "Failed to delete post" }); }

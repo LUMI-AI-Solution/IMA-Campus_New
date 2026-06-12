@@ -1,27 +1,28 @@
 import React, { useState, useEffect } from 'react';
 import axios from "../../../api/axios";
-import { 
-    Loader2, Bell, AlertTriangle, CheckCircle, Calendar, Clock, 
-    User, X, Smartphone, Download, AlertCircle, Apple, 
-    Video, Play, Radio, CalendarDays, Lock, BookOpen 
+import {
+    Loader2, Bell, AlertTriangle, CheckCircle, Calendar, Clock,
+    User, X, Smartphone, Download, AlertCircle, Apple,
+    Video, Play, Radio, CalendarDays, Lock, BookOpen
 } from 'lucide-react';
 import AIChatWidget from './AIChatWidget';
+import UpgradeOfferWidget from './UpgradeOfferWidget';
 import toast from 'react-hot-toast';
 
 export default function StudentOverview() {
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [currentTime, setCurrentTime] = useState(new Date());
-    const [selectedImage, setSelectedImage] = useState(null); 
-    
+    const [selectedImage, setSelectedImage] = useState(null);
+
     // Popup State
-    const [showAppPopup, setShowAppPopup] = useState(true); 
+    const [showAppPopup, setShowAppPopup] = useState(true);
 
     const user = JSON.parse(localStorage.getItem('user') || '{}');
     const backendBaseUrl = axios.defaults.baseURL ? axios.defaults.baseURL.replace('/api', '') : 'https://imacampus.online';
 
     const profilePic = user.image && user.image !== 'default.png' && user.image !== 'null'
-        ? `${backendBaseUrl}/storage/images/${user.image}` 
+        ? `${backendBaseUrl}/storage/images/${user.image}`
         : null;
 
     useEffect(() => {
@@ -31,7 +32,7 @@ export default function StudentOverview() {
                 setData(res.data);
                 if (res.data?.alerts) {
                     res.data.alerts.forEach(alert => {
-                        if(alert.type === 'locked') toast.error(alert.msg, { duration: 8000 });
+                        if (alert.type === 'locked') toast.error(alert.msg, { duration: 8000 });
                         else toast(alert.msg, { icon: '⚠️', duration: 5000 });
                     });
                 }
@@ -59,7 +60,7 @@ export default function StudentOverview() {
             const [h, m] = c.startTime.split(':');
             sDate.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
         }
-        
+
         const eDate = new Date(sDate);
         if (c.endTime) {
             const [h, m] = c.endTime.split(':');
@@ -77,7 +78,7 @@ export default function StudentOverview() {
 
         const diff = liveClass.startObj - currentTime;
         const isLiveNow = diff <= 0 && liveClass.endObj > currentTime;
-       // const isJoinable = diff <= 15 * 60 * 1000; // Joinable 15 mins before
+        // const isJoinable = diff <= 15 * 60 * 1000; // Joinable 15 mins before
         const isJoinable = true;
         const isUrgent = diff > 0 && diff < 10 * 60 * 1000; // Pulse animation 10 mins before
 
@@ -113,7 +114,7 @@ export default function StudentOverview() {
 
         return (
             <div className={`rounded-2xl md:rounded-[1.5rem] p-4 md:p-6 relative overflow-hidden flex flex-col lg:flex-row items-center lg:items-center justify-between gap-5 transition-all duration-700 w-full ${isJoinable ? 'bg-gradient-to-br from-red-600/20 via-[#0a0f1c] to-red-900/20 border border-red-500/50 shadow-[0_0_30px_rgba(220,38,38,0.15)]' : 'glass-card border-white/10'}`}>
-                
+
                 {/* Decorative Elements */}
                 {isJoinable && <div className="absolute top-0 left-0 w-1.5 bg-red-500 h-full shadow-[0_0_20px_red]"></div>}
                 <div className="absolute -top-32 -right-32 w-64 h-64 bg-red-600/10 blur-[120px] rounded-full pointer-events-none"></div>
@@ -124,28 +125,28 @@ export default function StudentOverview() {
                         <Video size={12} className={isJoinable ? "text-red-400 animate-pulse" : "text-white/60"} />
                         <span className={`font-bold uppercase tracking-widest text-[9px] ${isJoinable ? "text-red-400" : "text-white/60"}`}>Upcoming Live Class</span>
                     </div>
-                    
+
                     {/* Fixed Text Wrapping & Size Issue Here */}
-                    <h2 
-                        className="text-lg md:text-xl font-black text-white mb-1.5 leading-snug line-clamp-2" 
+                    <h2
+                        className="text-lg md:text-xl font-black text-white mb-1.5 leading-snug line-clamp-2"
                         title={liveClass.title}
                     >
                         {liveClass.title}
                     </h2>
-                    
+
                     <p className="text-white/70 text-xs md:text-sm font-medium mb-4 truncate">{liveClass.courseName || "Subject Name"}</p>
-                    
+
                     {liveClass.startTime && (
-                         <div className="flex flex-row flex-wrap items-center gap-2.5">
-                             <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 md:px-3 md:py-2 rounded-lg border border-white/5 w-max">
-                                 <CalendarDays size={12} className="text-blue-400 shrink-0"/>
-                                 <span className="text-white/80 text-[10px] md:text-xs font-bold uppercase tracking-wider">{liveClass.startObj.toDateString()}</span>
-                             </div>
-                             <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 md:px-3 md:py-2 rounded-lg border border-white/5 w-max">
-                                 <Clock size={12} className="text-yellow-400 shrink-0"/>
-                                 <span className="text-white/80 text-[10px] md:text-xs font-bold uppercase tracking-wider">{liveClass.startTime} {liveClass.endTime ? `- ${liveClass.endTime}` : ''}</span>
-                             </div>
-                         </div>
+                        <div className="flex flex-row flex-wrap items-center gap-2.5">
+                            <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 md:px-3 md:py-2 rounded-lg border border-white/5 w-max">
+                                <CalendarDays size={12} className="text-blue-400 shrink-0" />
+                                <span className="text-white/80 text-[10px] md:text-xs font-bold uppercase tracking-wider">{liveClass.startObj.toDateString()}</span>
+                            </div>
+                            <div className="flex items-center gap-2 bg-black/40 px-3 py-1.5 md:px-3 md:py-2 rounded-lg border border-white/5 w-max">
+                                <Clock size={12} className="text-yellow-400 shrink-0" />
+                                <span className="text-white/80 text-[10px] md:text-xs font-bold uppercase tracking-wider">{liveClass.startTime} {liveClass.endTime ? `- ${liveClass.endTime}` : ''}</span>
+                            </div>
+                        </div>
                     )}
                 </div>
 
@@ -173,14 +174,13 @@ export default function StudentOverview() {
 
     return (
         <div className="w-full max-w-6xl mx-auto pb-20 relative px-3 sm:px-0 custom-scrollbar">
-            
 
             {/* 🔥 NEW APP DOWNLOAD BANNER (IN-PAGE) 🔥 */}
             <div className="bg-gradient-to-r from-[#0f172a] to-blue-900/30 border border-blue-500/30 rounded-2xl md:rounded-[1.5rem] p-5 mb-6 flex flex-col lg:flex-row items-center justify-between gap-5 shadow-[0_0_30px_rgba(59,130,246,0.1)] relative overflow-hidden">
-                
+
                 {/* Decorative background element */}
                 <div className="absolute -right-20 -top-20 w-64 h-64 bg-blue-500/10 blur-[80px] rounded-full pointer-events-none"></div>
-                
+
                 <div className="flex items-center gap-4 w-full lg:w-auto text-left z-10">
                     <div className="bg-gradient-to-br from-blue-500 to-blue-700 p-3 md:p-4 rounded-xl md:rounded-2xl text-white shadow-lg shadow-blue-500/30 shrink-0">
                         <Smartphone size={28} className="md:w-8 md:h-8" />
@@ -193,13 +193,13 @@ export default function StudentOverview() {
 
                 <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto z-10">
                     {/* Android / Play Store Button */}
-                    <a 
-                        href="https://play.google.com/store/apps/details?id=com.imaacademyapp&pcampaignid=web_share" 
-                        target="_blank" 
+                    <a
+                        href="https://play.google.com/store/apps/details?id=com.imaacademyapp&pcampaignid=web_share"
+                        target="_blank"
                         rel="noreferrer"
                         className="w-full sm:w-auto flex items-center justify-center gap-3 bg-[#0a0f1c]/80 hover:bg-black border border-white/10 hover:border-blue-500/50 px-5 py-3 rounded-xl transition-all duration-300 group shadow-inner"
                     >
-                        <img src="https://upload.wikimedia.org/wikipedia/commons/d/d0/Google_Play_Arrow_logo.svg" alt="Play Store" className="w-5 h-5 group-hover:scale-110 transition-transform" /> 
+                        <img src="https://upload.wikimedia.org/wikipedia/commons/d/d0/Google_Play_Arrow_logo.svg" alt="Play Store" className="w-5 h-5 group-hover:scale-110 transition-transform" />
                         <div className="text-left flex flex-col justify-center">
                             <span className="text-[9px] text-white/50 font-bold uppercase tracking-wider leading-none mb-1">Get it on</span>
                             <span className="text-sm md:text-base font-black text-white leading-none tracking-wide">Play Store</span>
@@ -207,9 +207,9 @@ export default function StudentOverview() {
                     </a>
 
                     {/* iOS / App Store Button */}
-                    <a 
-                        href="https://apps.apple.com/lk/app/ima-campus/id6759137655" 
-                        target="_blank" 
+                    <a
+                        href="https://apps.apple.com/lk/app/ima-campus/id6759137655"
+                        target="_blank"
                         rel="noreferrer"
                         className="w-full sm:w-auto flex items-center justify-center gap-3 bg-[#0a0f1c]/80 hover:bg-black border border-white/10 hover:border-white/50 px-5 py-3 rounded-xl transition-all duration-300 group shadow-inner"
                     >
@@ -235,11 +235,11 @@ export default function StudentOverview() {
                             {getGreeting()}, <span className="text-red-500">{user.fName}</span> 👋
                         </h1>
                         <p className="text-white/50 text-[10px] md:text-xs font-medium mt-0.5 flex items-center justify-center sm:justify-start gap-1.5">
-                            <Calendar size={12}/> {currentTime.toLocaleDateString()} <span className="mx-1">•</span> <Clock size={12}/> {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            <Calendar size={12} /> {currentTime.toLocaleDateString()} <span className="mx-1">•</span> <Clock size={12} /> {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </p>
                     </div>
                 </div>
-                
+
                 <div className="bg-white/5 border border-white/10 px-4 py-2 md:px-5 md:py-2.5 rounded-xl flex items-center justify-center gap-3 w-full sm:w-auto min-w-max">
                     <div className="bg-red-500/20 p-2 rounded-lg text-red-400 shrink-0">
                         <BookOpen size={18} />
@@ -251,16 +251,63 @@ export default function StudentOverview() {
                 </div>
             </div>
 
+            {/* 🔥 NEW: ENROLLED SUBJECTS UI EXACTLY LIKE ENROLLMENT TAB 🔥 */}
+            {data?.enrolledCourses && data.enrolledCourses.length > 0 && (
+                <div className="mb-6 space-y-4">
+                    <h3 className="text-lg md:text-xl font-bold text-white flex items-center gap-2.5 px-2">
+                        <BookOpen className="text-red-500 w-5 h-5" /> My Enrolled Subjects
+                    </h3>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        {data.enrolledCourses.map(course => (
+                            <div key={course.id} className="flex flex-col md:flex-row items-start md:items-center justify-between p-4 md:p-5 rounded-2xl border transition-all gap-4 w-full bg-red-600/10 border-red-500 shadow-lg shadow-red-500/5 hover:border-red-400">
+
+                                <div className="flex items-center gap-4 flex-1 min-w-0 w-full md:w-auto">
+                                    <div className="relative flex items-center justify-center shrink-0">
+                                        <div className="shrink-0 w-5 h-5 rounded border-2 border-transparent bg-red-600 text-white flex items-center justify-center shadow-lg shadow-red-500/30">
+                                            <CheckCircle size={14} strokeWidth={3} />
+                                        </div>
+                                    </div>
+                                    <div className="flex flex-col min-w-0 flex-1">
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="block font-bold text-white text-base md:text-lg truncate w-full md:w-auto md:max-w-[300px]" title={course.name}>{course.name}</span>
+                                            {course.code && <span className="text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 font-bold uppercase tracking-widest shrink-0">{course.code}</span>}
+                                        </div>
+                                        <span className="text-[10px] text-green-400 font-bold uppercase tracking-widest mt-1 flex items-center gap-1">
+                                            <CheckCircle size={10} /> Active Enrollment
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-3 flex-1 min-w-0 w-full md:w-auto md:border-l md:border-white/10 md:pl-4 pl-8 md:pl-0 pt-3 md:pt-0 border-t border-white/10 md:border-t-0 mt-3 md:mt-0">
+                                    {course.lecturerImage && course.lecturerImage !== 'default.png' && course.lecturerImage !== 'null' ? (
+                                        <img src={`${backendBaseUrl}/storage/icons/${course.lecturerImage}`} alt="Lecturer" className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover border-2 border-white/10 shrink-0" />
+                                    ) : (
+                                        <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white/5 flex items-center justify-center border border-white/10 shrink-0 text-white/50">
+                                            <User size={18} />
+                                        </div>
+                                    )}
+                                    <div className="flex flex-col min-w-0">
+                                        <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Lecturer</span>
+                                        <span className="text-sm md:text-base text-slate-200 font-semibold truncate" title={course.lecturerName || 'TBA'}>{course.lecturerName || 'TBA'}</span>
+                                    </div>
+                                </div>
+
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
             {/* MAIN GRID LAYOUT */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
+
                 {/* LEFT COLUMN: Updates + Live Classes */}
                 <div className="lg:col-span-2 flex flex-col gap-6">
-                    
+
                     {/* 🔥 LATEST UPDATES (MOVED TO TOP) 🔥 */}
                     <div className="glass-card rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-8">
                         <h3 className="text-lg md:text-xl font-bold text-white mb-5 flex items-center gap-2.5">
-                            <Bell className="text-yellow-400 w-5 h-5"/> Latest Announcements
+                            <Bell className="text-yellow-400 w-5 h-5" /> Latest Announcements
                         </h3>
                         <div className="space-y-4 md:space-y-5">
                             {data?.posts?.length === 0 ? (
@@ -276,8 +323,8 @@ export default function StudentOverview() {
                                             <h4 className="text-white font-bold text-sm md:text-base mb-1.5 break-words line-clamp-2">{post.title}</h4>
                                             <p className="text-white/60 text-xs leading-relaxed line-clamp-2 md:line-clamp-3 mb-3 break-words">{post.caption || post.description}</p>
                                             <div className="flex items-center gap-3 text-[9px] md:text-[10px] text-white/40 font-bold uppercase tracking-widest mt-auto">
-                                                <span className="flex items-center gap-1"><Calendar size={10} md:size={12}/> {new Date(post.created_at).toLocaleDateString()}</span>
-                                                <span className="flex items-center gap-1"><Clock size={10} md:size={12}/> {new Date(post.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+                                                <span className="flex items-center gap-1"><Calendar size={10} md:size={12} /> {new Date(post.created_at).toLocaleDateString()}</span>
+                                                <span className="flex items-center gap-1"><Clock size={10} md:size={12} /> {new Date(post.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                             </div>
                                         </div>
                                     </div>
@@ -295,12 +342,12 @@ export default function StudentOverview() {
                 <div className="flex flex-col gap-6">
                     <div className="glass-card rounded-[1.5rem] md:rounded-[2rem] p-5 md:p-8">
                         <h3 className="text-lg md:text-xl font-bold text-white mb-5 flex items-center gap-2.5">
-                            <AlertTriangle className="text-red-500 w-5 h-5"/> Due Payments
+                            <AlertTriangle className="text-red-500 w-5 h-5" /> Due Payments
                         </h3>
                         <div className="space-y-3">
                             {data?.duePayments?.length === 0 ? (
                                 <div className="text-center py-8 bg-black/20 rounded-2xl border border-white/5">
-                                    <CheckCircle className="text-green-500 mx-auto mb-2" size={28}/>
+                                    <CheckCircle className="text-green-500 mx-auto mb-2" size={28} />
                                     <p className="text-white/60 text-xs font-medium">All clear!</p>
                                 </div>
                             ) : data?.duePayments?.map((p, idx) => (
@@ -319,6 +366,7 @@ export default function StudentOverview() {
                             ))}
                         </div>
                     </div>
+                    <UpgradeOfferWidget compactMode={true} hideFloatingWidget={true} />
                 </div>
             </div>
 
@@ -327,7 +375,7 @@ export default function StudentOverview() {
             {/* FULL SCREEN IMAGE VIEWER */}
             {selectedImage && (
                 <div className="fixed inset-0 z-[400] bg-black/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setSelectedImage(null)}>
-                    <button className="absolute top-4 right-4 md:top-6 md:right-6 text-white/50 hover:text-white bg-white/5 hover:bg-white/10 rounded-full p-2 transition-all"><X size={24}/></button>
+                    <button className="absolute top-4 right-4 md:top-6 md:right-6 text-white/50 hover:text-white bg-white/5 hover:bg-white/10 rounded-full p-2 transition-all"><X size={24} /></button>
                     <img src={selectedImage} alt="" className="max-w-full max-h-[90vh] object-contain rounded-2xl shadow-2xl border border-white/10 animate-in zoom-in-95 duration-300" />
                 </div>
             )}

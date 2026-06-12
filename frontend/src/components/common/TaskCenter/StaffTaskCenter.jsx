@@ -55,6 +55,7 @@ export default function StaffTaskCenter({ loggedInUser }) {
         if (task.taskType === 'CUSTOM') return { icon: CheckSquare, color: 'text-pink-600 dark:text-pink-400', bg: 'bg-pink-50 dark:bg-pink-500/10', border: 'border-pink-200 dark:border-pink-500/20', label: task.customTitle || 'Custom Task' };
         switch(task.taskType) {
             case 'LIVE_LINK': return { icon: Play, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-500/10', border: 'border-blue-200 dark:border-blue-500/20', label: 'Upload Live Link' };
+            case 'TECH_DELIVERABLES': return { icon: MonitorPlay, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-500/10', border: 'border-blue-200 dark:border-blue-500/20', label: 'Technical Deliverables' };
             case 'RECORDING': return { icon: Video, color: 'text-purple-600 dark:text-purple-400', bg: 'bg-purple-50 dark:bg-purple-500/10', border: 'border-purple-200 dark:border-purple-500/20', label: 'Upload Recording' };
             case 'NOTES': return { icon: FileText, color: 'text-emerald-600 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-500/10', border: 'border-emerald-200 dark:border-emerald-500/20', label: 'Upload Document' };
             case 'MCQ': return { icon: FileText, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-500/10', border: 'border-orange-200 dark:border-orange-500/20', label: 'Upload MCQ Paper' };
@@ -88,10 +89,10 @@ export default function StaffTaskCenter({ loggedInUser }) {
     };
 
     return (
-        <div className="w-full min-h-screen text-gray-900 dark:text-slate-200 font-sans pb-10 bg-gray-50 dark:bg-slate-950 animate-in fade-in duration-500 relative transition-colors">
+        <div className="w-full min-h-screen text-gray-900 dark:text-slate-200 font-sans pb-10 bg-gray-50 dark:bg-transparent animate-in fade-in duration-500 relative transition-colors">
             
             {/* Header */}
-            <div className="mb-8 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 p-6 md:p-8 rounded-[2rem] shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6 transition-colors">
+            <div className="mb-8 bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl border border-gray-200 dark:border-slate-800 p-6 md:p-8 rounded-[2rem] shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6 transition-colors">
                 
                 <div className="flex items-center gap-5 z-10">
                     <div className="p-3.5 bg-brand-accentLight/50 dark:bg-brand-accent/10 rounded-2xl border border-brand-accent/20 text-brand-accent shadow-sm transition-colors">
@@ -159,7 +160,7 @@ export default function StaffTaskCenter({ loggedInUser }) {
                                     </div>
 
                                     {/* TASK CARD */}
-                                    <div className={`bg-white dark:bg-slate-900 border p-6 md:p-8 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-8 transition-all duration-300 shadow-sm hover:shadow-md hover:-translate-y-1 ${task.isOverdue && task.status !== 'COMPLETED' ? 'border-red-300 dark:border-red-500/30 hover:border-red-400 dark:hover:border-red-500/50' : 'border-gray-200 dark:border-slate-800 hover:border-brand-accent/30 dark:hover:border-brand-accent/30'}`}>
+                                    <div className={`bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl border p-6 md:p-8 rounded-3xl flex flex-col md:flex-row justify-between items-start md:items-center gap-8 transition-all duration-300 shadow-sm hover:shadow-md hover:-translate-y-1 ${task.isOverdue && task.status !== 'COMPLETED' ? 'border-red-300 dark:border-red-500/30 hover:border-red-400 dark:hover:border-red-500/50' : 'border-gray-200 dark:border-slate-800 hover:border-brand-accent/30 dark:hover:border-brand-accent/30'}`}>
                                         
                                         <div className="flex items-start gap-5 flex-1 min-w-0 w-full transition-colors">
                                             <div className={`p-3.5 rounded-2xl ${details.bg} border ${details.border} shrink-0 shadow-sm transition-colors`}>
@@ -257,6 +258,7 @@ export default function StaffTaskCenter({ loggedInUser }) {
 const TaskExecutionModal = ({ task, onClose, onComplete }) => {
     const [submitting, setSubmitting] = useState(false);
     const isCustom = task.taskType === 'CUSTOM';
+    const isTechDeliverables = task.taskType === 'TECH_DELIVERABLES';
     
     const [batches, setBatches] = useState([]);
     const [lessonGroups, setLessonGroups] = useState([]);
@@ -273,8 +275,8 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
     const [selectedExistingContent, setSelectedExistingContent] = useState(null);
 
     // Map Task types to Content Hub types
-    const typeMap = { 'LIVE_LINK': 'live', 'RECORDING': 'recording', 'NOTES': 'document', 'MCQ': 'paper', 'STRUCTURED_PAPER': 'sPaper' };
-    const contentType = isCustom ? '' : typeMap[task.taskType];
+    const typeMap = { 'LIVE_LINK': 'live', 'TECH_DELIVERABLES': 'live', 'RECORDING': 'recording', 'NOTES': 'document', 'MCQ': 'paper', 'STRUCTURED_PAPER': 'sPaper' };
+    const contentType = isCustom || isTechDeliverables ? '' : typeMap[task.taskType];
 
     const getTypeInt = (typeStr) => {
         switch (typeStr) {
@@ -288,7 +290,7 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
         return url.endsWith('/') ? url.slice(0, -1) : url;
     };
 
-    useEffect(() => { if (!isCustom) fetchHubData(); }, [task]);
+    useEffect(() => { if (!isCustom && !isTechDeliverables) fetchHubData(); }, [task]);
 
     const fetchHubData = async () => {
         try {
@@ -362,6 +364,9 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
             if (isCustom) {
                 formData.append('taskId', task.id);
                 await api.post('/admin/tasks/complete-custom', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
+            } else if (isTechDeliverables) {
+                formData.append('taskId', task.id);
+                await api.post('/admin/tasks/complete-technical-deliverables', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
             } else if (isVerification) {
                 if (!selectedExistingContent) { toast.error("Please select a content to verify!"); setSubmitting(false); return; }
                 await api.post('/admin/tasks/complete', { taskId: task.id, contentId: selectedExistingContent });
@@ -410,6 +415,42 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
             </div>
         );
     }
+
+    // ----- TECH DELIVERABLES VIEW -----
+    if (isTechDeliverables) {
+        return (
+            <div className="fixed inset-0 z-[120] flex items-center justify-center bg-gray-900/60 dark:bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in duration-200 transition-colors">
+                <div className="bg-white dark:bg-slate-900/60 dark:backdrop-blur-xl border border-gray-200 dark:border-slate-700/50 rounded-[2rem] w-full max-w-md shadow-2xl p-8 transition-colors">
+                    <div className="flex justify-between items-center mb-6 transition-colors border-b border-gray-200 dark:border-slate-800 pb-4">
+                        <h3 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-3 transition-colors"><MonitorPlay className="text-brand-accent"/> Technical Deliverables</h3>
+                        <button onClick={onClose} className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white bg-gray-50 dark:bg-slate-800 p-2.5 rounded-xl border border-gray-200 dark:border-slate-700 outline-none transition-colors"><X size={18}/></button>
+                    </div>
+                    <p className="text-sm text-gray-700 dark:text-slate-300 mb-6 bg-gray-50 dark:bg-slate-800/30 p-5 rounded-2xl border border-gray-200 dark:border-slate-700/50 shadow-sm font-medium transition-colors leading-relaxed">Submit the live link, attachments, and notes to the Technical Department.</p>
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase mb-2 block tracking-widest transition-colors">Live Link (URL)</label>
+                            <input type="url" name="liveLink" placeholder="https://..." required className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-blue-600 dark:text-blue-400 font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm shadow-sm transition-colors" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase mb-2 block tracking-widest transition-colors">Attachment (PDF/Image)</label>
+                            <input type="file" name="attachment" className="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-3 text-sm text-gray-600 dark:text-slate-300 cursor-pointer shadow-sm file:bg-brand-accent file:text-white file:border-0 file:rounded-xl file:px-4 file:py-2 file:mr-4 file:font-bold transition-colors" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase mb-2 block tracking-widest transition-colors">Notes (Optional)</label>
+                            <textarea name="notes" rows="3" placeholder="Any additional notes for the tech team..." className="w-full bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-2xl p-4 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors resize-none shadow-sm placeholder-gray-400 dark:placeholder-slate-500"></textarea>
+                        </div>
+                        <div className="pt-4">
+                            <button type="submit" disabled={submitting} className="w-full bg-brand-accent hover:bg-brand-accentHover text-white font-black py-4 rounded-2xl transition-all disabled:opacity-70 text-sm uppercase tracking-widest flex items-center justify-center gap-3 shadow-[0_4px_20px_rgba(225,29,72,0.3)] hover:-translate-y-0.5 outline-none">
+                                {submitting ? <Loader2 className="animate-spin" size={20}/> : <CheckCircle2 size={20}/>}
+                                {submitting ? 'EXECUTING...' : 'SUBMIT DELIVERABLES'}
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        );
+    }
+
 
     const filteredExistingContents = existingContents.filter(c => String(c.contentType) === String(getTypeInt(contentType)) || c.contentType === contentType);
 

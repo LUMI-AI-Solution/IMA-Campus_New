@@ -9,7 +9,7 @@ export default function RightSidePanel({ selectedLead, activeMode }) {
   const [loading, setLoading] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
   const [newPassword, setNewPassword] = useState('');
-  
+  const [lastResetPassword, setLastResetPassword] = useState(null);
   // 🔥 DRAG AND DROP STATE 🔥
   const [iframePos, setIframePos] = useState({ x: 50, y: 50 });
   const [ghostIframe, setGhostIframe] = useState(null);
@@ -72,11 +72,16 @@ export default function RightSidePanel({ selectedLead, activeMode }) {
       try {
           await axios.post('/coordinator-crm/reset-password', { studentId: studentDetails.student.id, newPassword });
           toast.success("Password successfully reset!");
-          setShowResetModal(false);
-          setNewPassword('');
+          setLastResetPassword(newPassword);
       } catch (error) {
           toast.error("Password reset failed.");
       }
+  };
+
+  const copyToClipboard = () => {
+      navigator.clipboard.writeText(lastResetPassword);
+      toast.success("Password Copied!");
+      setTimeout(() => { setShowResetModal(false); setLastResetPassword(null); setNewPassword(''); }, 1000); 
   };
 
   const getPaymentOption = (payment) => {
@@ -243,12 +248,25 @@ export default function RightSidePanel({ selectedLead, activeMode }) {
              <div className="bg-[#1e293b] border border-slate-700 rounded-2xl p-5 w-full shadow-2xl">
                  <div className="flex justify-between items-center mb-4">
                      <h3 className="text-sm font-bold text-amber-500 flex items-center gap-2"><FaKey/> Reset Password</h3>
-                     <button onClick={()=>setShowResetModal(false)} className="text-slate-500 hover:text-white"><FaTimes/></button>
+                     <button onClick={()=>{setShowResetModal(false); setLastResetPassword(null); setNewPassword('');}} className="text-slate-500 hover:text-white"><FaTimes/></button>
                  </div>
-                 <form onSubmit={handleResetPassword}>
-                     <input type="text" value={newPassword} onChange={e=>setNewPassword(e.target.value)} placeholder="Enter new password" required className="w-full bg-[#0f172a] border border-slate-700 text-white rounded-lg p-3 mb-4 text-sm outline-none focus:border-amber-500" />
-                     <button type="submit" className="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 rounded-lg text-sm shadow-lg">Confirm Reset</button>
-                 </form>
+                 {lastResetPassword ? (
+                     <div className="animate-in zoom-in duration-300">
+                         <div className="bg-emerald-500/10 border border-emerald-500/30 p-4 rounded-xl text-center mb-4 shadow-inner">
+                             <FaCheckCircle className="text-emerald-400 mx-auto mb-2" size={28} />
+                             <p className="text-emerald-400 font-bold text-[10px] uppercase mb-1">Password Changed!</p>
+                             <p className="text-white text-lg font-mono tracking-widest bg-black/40 py-2 rounded-lg border border-white/5 mt-2 shadow-inner select-all">{lastResetPassword}</p>
+                         </div>
+                         <button onClick={copyToClipboard} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-lg text-sm shadow-lg uppercase">
+                             Copy Password & Close
+                         </button>
+                     </div>
+                 ) : (
+                     <form onSubmit={handleResetPassword}>
+                         <input type="text" value={newPassword} onChange={e=>setNewPassword(e.target.value)} placeholder="Enter new password" required className="w-full bg-[#0f172a] border border-slate-700 text-white rounded-lg p-3 mb-4 text-sm outline-none focus:border-amber-500" />
+                         <button type="submit" className="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 rounded-lg text-sm shadow-lg">Confirm Reset</button>
+                     </form>
+                 )}
              </div>
          </div>
       )}

@@ -1,10 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { Search, Edit3, KeyRound, LogIn, MessageSquare, Loader2, X, CheckCircle, Database, ChevronLeft, ChevronRight, MonitorPlay, Palette, Trash2, BarChart3, FileText, Download, Sparkles } from 'lucide-react';
 import axios from '../../api/axios';
 import toast from 'react-hot-toast';
 
 export default function StudentDataCenter({ loggedInUser }) {
+    const navigate = useNavigate();
     const isAdmin = loggedInUser?.role?.toUpperCase() === 'SYSTEM_ADMIN' || loggedInUser?.role?.toUpperCase() === 'DIRECTOR';
     
     const [loading, setLoading] = useState(true);
@@ -438,7 +440,7 @@ const handleDeleteStudent = async (studentId, studentName) => {
                             </div>
                             
                             <div className="flex flex-wrap items-center justify-end gap-2 w-full xl:w-auto pt-4 xl:pt-0 border-t border-white/5 xl:border-t-0 shrink-0">
-                                <button className="p-2.5 rounded-xl bg-white/5 text-white hover:bg-white/20 border border-white/10 transition-all shadow-sm outline-none" title="CRM Chat">
+                                <button onClick={() => navigate(`/workspace/after-seminar-crm?searchQuery=${student.phone}`)} className="p-2.5 rounded-xl bg-white/5 text-white hover:bg-white/20 border border-white/10 transition-all shadow-sm outline-none" title="CRM Chat">
                                     <MessageSquare size={18} />
                                 </button>
                                 

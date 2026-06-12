@@ -5,6 +5,7 @@ const path = require('path');
 
 // 🔥 අපි ෆයිල් එකේ නම වෙනස් කරපු නිසා මෙතන නමත් 'freeSeminarController' කියලා හැදුවා 
 const freeSeminarController = require('../controllers/freeSeminarController'); 
+const verifyToken = require('../middlewares/authMiddleware'); 
 
 // Multer Storage Configuration
 const storage = multer.diskStorage({
@@ -50,10 +51,20 @@ router.post('/webhook', freeSeminarController.receiveMessage);
 
 router.get('/campaign-stats', freeSeminarController.getCampaignStats);
 
+router.get('/overview-stats', verifyToken, freeSeminarController.getCoordinatorOverviewStats);
+
 router.get('/followup-status', freeSeminarController.getFollowUpStatusAPI);
 router.post('/toggle-followup', freeSeminarController.toggleFollowUpAPI);
 router.post('/test-followup', freeSeminarController.testFollowUpMessage);
 
 router.get('/meta-analytics', freeSeminarController.getUniqueNumbersCount);
 
+const coordinatorOverviewV2Controller = require('../controllers/coordinatorOverviewV2Controller');
+
+// V2 Dashboard Routes
+router.get('/v2-overview-stats', verifyToken, coordinatorOverviewV2Controller.getCoordinatorV2Stats);
+router.get('/v2-daily-logs', verifyToken, coordinatorOverviewV2Controller.getCoordinatorDailyLogs);
+router.post('/v2-daily-logs', verifyToken, coordinatorOverviewV2Controller.saveCoordinatorDailyLog);
+
 module.exports = router;
+

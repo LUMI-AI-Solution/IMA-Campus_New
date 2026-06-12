@@ -21,10 +21,15 @@ export default function DataExportDashboard() {
                     headers: { Authorization: `Bearer ${token}` }
                 });
                 
+                let fetchedBiz = [];
                 if (res.data && res.data.businesses) {
-                    setBusinesses(res.data.businesses);
+                    fetchedBiz = res.data.businesses;
                 } else if (Array.isArray(res.data)) {
-                    setBusinesses(res.data);
+                    fetchedBiz = res.data;
+                }
+                setBusinesses(fetchedBiz);
+                if (fetchedBiz.length === 1) {
+                    setSelectedBusiness(fetchedBiz[0].id.toString());
                 }
             } catch (error) {
                 console.error("Failed to fetch businesses", error);
@@ -82,16 +87,18 @@ export default function DataExportDashboard() {
                     <div className="flex items-center gap-2 bg-black/40 border border-slate-700/50 p-2 rounded-2xl w-full md:w-auto shadow-inner">
                         <Filter size={16} className="text-slate-500 ml-2" />
                         
-                        <select 
-                            value={selectedBusiness} 
-                            onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }}
-                            className="bg-transparent text-xs font-bold text-white outline-none py-1.5 px-2 cursor-pointer w-full md:w-48 border-r border-slate-700"
-                        >
-                            <option value="" className="bg-slate-900">Select Campaign</option>
-                            {businesses.map(b => (
-                                <option key={b.id} value={b.id} className="bg-slate-900">{b.name}</option>
-                            ))}
-                        </select>
+                        {businesses.length > 1 && (
+                            <select 
+                                value={selectedBusiness} 
+                                onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }}
+                                className="bg-transparent text-xs font-bold text-white outline-none py-1.5 px-2 cursor-pointer w-full md:w-48 border-r border-slate-700"
+                            >
+                                <option value="" className="bg-slate-900">Select Campaign</option>
+                                {businesses.map(b => (
+                                    <option key={b.id} value={b.id} className="bg-slate-900">{b.name}</option>
+                                ))}
+                            </select>
+                        )}
                         
                         <select 
                             value={selectedBatch} 

@@ -2,7 +2,7 @@ import React from 'react';
 import ManagerCampaignStats from './ManagerCampaignStats';
 import StaffCampaignExecution from './StaffCampaignExecution';
 
-export default function CallCampaignModule({ loggedInUser, filters, setActiveMode, setSelectedLead }) {
+export default function CallCampaignModule({ loggedInUser, filters, setActiveMode, setSelectedLead, forceStatsView }) {
     
     // 1. Role eka ganna logic eka (poddak thawath strong kara)
     let rawRole = '';
@@ -27,11 +27,11 @@ export default function CallCampaignModule({ loggedInUser, filters, setActiveMod
     return (
         <div className="h-full w-full overflow-y-auto custom-scrollbar p-2 relative">
             
-            {isManager ? (
-                <ManagerCampaignStats filters={filters} />
+            {(isManager || forceStatsView) ? (
+                <ManagerCampaignStats filters={filters} isManager={isManager} />
             ) : (
                 <StaffCampaignExecution 
-                    filters={filters} /* 🔥 FIX: Me line eka thama aluthen ekathu kale 🔥 */
+                    filters={filters} 
                     setActiveMode={setActiveMode} 
                     setSelectedLead={setSelectedLead} 
                 />

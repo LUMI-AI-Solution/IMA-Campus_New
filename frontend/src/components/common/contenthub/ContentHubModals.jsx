@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Send, UploadCloud, Users, CheckCircle, Plus, Edit3, Trash2, CreditCard, MessageSquare, MonitorPlay, ExternalLink, Ban, BookOpen, Building2, User, Layers } from 'lucide-react';
+import { X, Send, UploadCloud, Users, CheckCircle, Plus, Edit3, Trash2, CreditCard, MessageSquare, MonitorPlay, ExternalLink, Ban, BookOpen, Building2, User, Layers, Save } from 'lucide-react';
 import api from '../../../api/axios'; 
 
 export default function ContentHubModals({ state, actions }) {
@@ -395,63 +395,97 @@ export default function ContentHubModals({ state, actions }) {
             {/* SETUP INSTALLMENTS MODAL */}
             {showInstallmentModal && (
                 <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-                    <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-6 md:p-8 w-full max-w-5xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col backdrop-blur-3xl">
+                    <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-6 md:p-8 w-full max-w-7xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col backdrop-blur-3xl">
                         <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-4 shrink-0"><h3 className="text-2xl font-extrabold text-white flex items-center gap-3 drop-shadow-sm"><CreditCard className="text-orange-400"/> Setup Installments</h3><button onClick={() => setShowInstallmentModal(false)} className="text-gray-400 hover:text-white bg-white/5 p-2.5 rounded-xl border border-white/10 transition-colors hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={20}/></button></div>
                         
-                        {existingInstallments.length > 0 && (
-                            <div className="mb-8 bg-black/40 border border-white/10 rounded-[2rem] p-6 shadow-inner">
-                                <h4 className="text-sm font-extrabold text-orange-400 mb-4 uppercase tracking-widest drop-shadow-sm">Existing Installment Plans</h4>
-                                <div className="space-y-4">
-                                    {existingInstallments.map(plan => (
-                                        <div key={plan.id} className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 bg-black/60 p-5 rounded-2xl border border-white/10 shadow-sm hover:border-white/30 transition-all">
-                                            <div>
-                                                <span className="font-extrabold text-white text-lg drop-shadow-sm">Trigger: {plan.subjectCount} Subjects</span>
-                                                <span className="text-sm font-bold text-gray-400 ml-3">({JSON.parse(plan.details).length} Steps)</span>
+                        <div className="flex flex-col lg:flex-row gap-8 items-start">
+                            {/* LEFT COLUMN - EXISTING PLANS */}
+                            <div className="w-full lg:w-[380px] shrink-0 flex flex-col gap-4">
+                                <h4 className="text-sm font-extrabold text-orange-400 mb-2 uppercase tracking-widest drop-shadow-sm px-2">Existing Plans</h4>
+                                {existingInstallments.length > 0 ? (
+                                    <div className="flex flex-col gap-4 max-h-[70vh] overflow-y-auto custom-scrollbar pr-2">
+                                        {existingInstallments.map(plan => (
+                                            <div key={plan.id} className="flex flex-col gap-4 bg-[#0F1523] p-5 rounded-2xl border border-white/10 shadow-[inset_0_2px_10px_rgba(0,0,0,0.5)] hover:border-orange-500/50 transition-all">
+                                                <div className="flex items-center gap-4">
+                                                    <div className="bg-orange-500/10 text-orange-400 p-3 rounded-xl border border-orange-500/20">
+                                                        <CreditCard size={24} />
+                                                    </div>
+                                                    <div>
+                                                        <h5 className="font-extrabold text-white text-lg drop-shadow-sm">{plan.subjectCount} Subjects</h5>
+                                                        <p className="text-xs font-bold text-gray-400 mt-1">{JSON.parse(plan.details).length} Steps Configured</p>
+                                                    </div>
+                                                </div>
+                                                <div className="flex gap-2 w-full">
+                                                    <button type="button" onClick={() => handleEditInstallment(plan)} className="flex-1 text-blue-400 bg-blue-500/10 border border-blue-500/20 hover:bg-blue-500/30 hover:border-blue-500/50 py-2 rounded-xl transition-all outline-none font-bold text-xs flex items-center justify-center gap-2"><Edit3 size={14}/> Edit</button>
+                                                    <button type="button" onClick={() => handleDeleteInstallment(plan.id)} className="flex-1 text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/30 hover:border-red-500/50 py-2 rounded-xl transition-all outline-none font-bold text-xs flex items-center justify-center gap-2"><Trash2 size={14}/> Delete</button>
+                                                </div>
                                             </div>
-                                            <div className="flex gap-2">
-                                                <button type="button" onClick={() => handleEditInstallment(plan)} className="text-blue-400 bg-blue-500/10 border border-transparent hover:bg-blue-500/30 hover:border-blue-500/50 p-2.5 rounded-xl transition-all outline-none"><Edit3 size={18}/></button>
-                                                <button type="button" onClick={() => handleDeleteInstallment(plan.id)} className="text-red-400 bg-red-500/10 border border-transparent hover:bg-red-500/30 hover:border-red-500/50 p-2.5 rounded-xl transition-all outline-none"><Trash2 size={18}/></button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <div className="bg-white/5 border border-white/10 rounded-2xl p-6 text-center">
+                                        <p className="text-sm font-bold text-gray-500">No installment plans configured.</p>
+                                    </div>
+                                )}
                             </div>
-                        )}
 
-                        <form onSubmit={handleInstallmentSubmit} className="space-y-8 flex-1">
-                            <div className="bg-black/40 p-6 md:p-8 rounded-[2rem] border border-white/10 shadow-inner">
-                                <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Trigger Subject Count * (e.g. 3)</label>
-                                <input type="number" name="subjectCount" value={installmentSubjectCount} onChange={(e) => setInstallmentSubjectCount(e.target.value)} placeholder="Number of subjects needed to trigger installment" required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-orange-500 shadow-inner transition-all focus:bg-black/80" />
-                            </div>
-                            
-                            <div className="bg-orange-500/10 p-6 md:p-8 rounded-[2rem] border border-orange-500/20 shadow-inner">
-                                <div className="flex justify-between items-center mb-8">
-                                    <h4 className="text-lg font-extrabold text-orange-400 uppercase tracking-widest drop-shadow-sm">Installment Steps</h4>
-                                    <button type="button" onClick={addInstallmentStep} className="bg-orange-600/90 hover:bg-orange-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm outline-none border border-transparent"><Plus size={18}/> Add Step</button>
-                                </div>
-                                <div className="space-y-4">
-                                    {installmentSteps.map((step, idx) => (
-                                        <div key={idx} className="flex flex-col sm:flex-row gap-5 items-center bg-black/50 p-5 rounded-2xl border border-white/10 shadow-sm">
-                                            <div className="font-extrabold text-slate-400 w-full sm:w-16 uppercase tracking-wider text-xs">Step {step.step}:</div>
-                                            <div className="flex-1 w-full">
-                                                <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Amount (Rs) *</label>
-                                                <input type="number" required value={step.amount} onChange={(e) => { const newSteps=[...installmentSteps]; newSteps[idx].amount=e.target.value; setInstallmentSteps(newSteps); }} className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 text-sm text-white outline-none focus:border-orange-500 shadow-inner transition-all focus:bg-black/80" />
-                                            </div>
-                                            <div className="w-full sm:w-40">
-                                                <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider" title="Gap from previous payment">Gap (Days) *</label>
-                                                <input type="number" required value={step.gapDays} onChange={(e) => { const newSteps=[...installmentSteps]; newSteps[idx].gapDays=e.target.value; setInstallmentSteps(newSteps); }} className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 text-sm text-white outline-none focus:border-orange-500 shadow-inner transition-all focus:bg-black/80" />
-                                            </div>
-                                            {installmentSteps.length > 1 && (
-                                                <button type="button" onClick={() => removeInstallmentStep(idx)} className="mt-0 sm:mt-6 w-full sm:w-auto text-red-400 bg-red-500/10 border border-transparent hover:bg-red-500/30 hover:border-red-500/50 p-3.5 rounded-xl transition-all flex justify-center outline-none"><Trash2 size={20}/></button>
-                                            )}
+                            {/* RIGHT COLUMN - SETUP FORM */}
+                            <div className="w-full flex-1">
+                                <form onSubmit={handleInstallmentSubmit} className="space-y-6">
+                                    <div className="bg-black/40 p-6 rounded-[2rem] border border-white/10 shadow-inner">
+                                        <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Trigger Subject Count * (e.g. 3)</label>
+                                        <input type="number" name="subjectCount" value={installmentSubjectCount} onChange={(e) => setInstallmentSubjectCount(e.target.value)} placeholder="Number of subjects needed to trigger installment" required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-orange-500 shadow-inner transition-all focus:bg-black/80" />
+                                    </div>
+                                    
+                                    <div className="bg-orange-500/10 p-6 md:p-8 rounded-[2rem] border border-orange-500/20 shadow-inner">
+                                        <div className="flex justify-between items-center mb-8">
+                                            <h4 className="text-lg font-extrabold text-orange-400 uppercase tracking-widest drop-shadow-sm">Installment Steps</h4>
+                                            <button type="button" onClick={addInstallmentStep} className="bg-orange-600/90 hover:bg-orange-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 shadow-sm outline-none border border-transparent"><Plus size={18}/> Add Step</button>
                                         </div>
-                                    ))}
-                                </div>
+                                        <div className="space-y-4">
+                                            {installmentSteps.map((step, idx) => (
+                                                <div key={idx} className="bg-black/50 p-5 rounded-2xl border border-white/10 shadow-sm">
+                                                    <div className="flex flex-col sm:flex-row gap-5 items-center mb-4">
+                                                        <div className="font-extrabold text-slate-400 w-full sm:w-16 uppercase tracking-wider text-xs">Step {step.step}:</div>
+                                                        <div className="flex-1 w-full">
+                                                            <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Amount (Rs) *</label>
+                                                            <input type="number" required value={step.amount} onChange={(e) => { const newSteps=[...installmentSteps]; newSteps[idx].amount=e.target.value; setInstallmentSteps(newSteps); }} className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 text-sm text-white outline-none focus:border-orange-500 shadow-inner transition-all focus:bg-black/80" />
+                                                        </div>
+                                                        <div className="w-full sm:w-40">
+                                                            <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider" title="Gap from previous payment">Gap (Days) *</label>
+                                                            <input type="number" required value={step.gapDays} onChange={(e) => { const newSteps=[...installmentSteps]; newSteps[idx].gapDays=e.target.value; setInstallmentSteps(newSteps); }} className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 text-sm text-white outline-none focus:border-orange-500 shadow-inner transition-all focus:bg-black/80" />
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-col gap-2 mt-2 ml-0 sm:ml-20">
+                                                        <span className="text-[11px] font-extrabold text-orange-400 uppercase tracking-widest border-b border-orange-500/20 pb-1 w-max">Finance Matrix Mapping (e.g. 1-4)</span>
+                                                        <div className="flex flex-wrap gap-4">
+                                                            <div className="flex-1 min-w-[120px]">
+                                                                <label className="text-[10px] font-bold text-gray-400 mb-1 block">Normal Range</label>
+                                                                <input type="text" placeholder="Auto" value={step.rangeNormal || ''} onChange={(e) => { const newSteps=[...installmentSteps]; newSteps[idx].rangeNormal=e.target.value; setInstallmentSteps(newSteps); }} className="w-full bg-black/60 border border-white/10 rounded-xl p-2.5 text-xs text-white outline-none focus:border-orange-500 shadow-inner transition-all focus:bg-black/80" />
+                                                            </div>
+                                                            <div className="flex-1 min-w-[120px]">
+                                                                <label className="text-[10px] font-bold text-gray-400 mb-1 block">Upgraded after 1 Month</label>
+                                                                <input type="text" placeholder="Auto" value={step.rangeUp1 || ''} onChange={(e) => { const newSteps=[...installmentSteps]; newSteps[idx].rangeUp1=e.target.value; setInstallmentSteps(newSteps); }} className="w-full bg-black/60 border border-white/10 rounded-xl p-2.5 text-xs text-white outline-none focus:border-orange-500 shadow-inner transition-all focus:bg-black/80" />
+                                                            </div>
+                                                            <div className="flex-1 min-w-[120px]">
+                                                                <label className="text-[10px] font-bold text-gray-400 mb-1 block">Upgraded after 2 Months</label>
+                                                                <input type="text" placeholder="Auto" value={step.rangeUp2 || ''} onChange={(e) => { const newSteps=[...installmentSteps]; newSteps[idx].rangeUp2=e.target.value; setInstallmentSteps(newSteps); }} className="w-full bg-black/60 border border-white/10 rounded-xl p-2.5 text-xs text-white outline-none focus:border-orange-500 shadow-inner transition-all focus:bg-black/80" />
+                                                            </div>
+                                                            {installmentSteps.length > 1 && (
+                                                                <div className="flex items-end">
+                                                                    <button type="button" onClick={() => removeInstallmentStep(idx)} className="text-red-400 bg-red-500/10 border border-transparent hover:bg-red-500/30 hover:border-red-500/50 p-2.5 rounded-xl transition-all flex justify-center outline-none h-max"><Trash2 size={18}/></button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <button type="submit" className="w-full bg-gradient-to-r from-orange-500 to-red-600 hover:from-orange-600 hover:to-red-700 text-white font-extrabold py-4 rounded-2xl shadow-[0_5px_20px_rgba(249,115,22,0.4)] transition-all flex items-center justify-center gap-3 outline-none"><Save size={20}/> {editInstallmentId ? 'Update Installment Plan' : 'Save Installment Plan'}</button>
+                                </form>
                             </div>
-                            <button type="submit" className="w-full bg-orange-600/90 hover:bg-orange-600 text-white font-extrabold py-4 text-lg rounded-2xl shadow-[0_4px_15px_rgba(234,88,12,0.4)] mt-6 outline-none transition-transform hover:scale-[1.01] uppercase tracking-wide border border-transparent">
-                                {editInstallmentId ? 'Update Installment Plan' : 'Save Installment Plan'}
-                            </button>
-                        </form>
+                        </div>
                     </div>
                 </div>
             )}

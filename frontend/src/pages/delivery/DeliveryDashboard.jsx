@@ -2,18 +2,28 @@ import React, { useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Truck, Search } from 'lucide-react';
 
-import Overview from './components/Overview';
 import PendingHolds from './components/PendingHolds';
 import DispatchDelivered from './components/DispatchDelivered'; 
 import TuteStock from './components/TuteStock';
 import DeliveryHistory from './components/DeliveryHistory';
+import PaymentDetails from './components/PaymentDetails';
+import Overview from './components/Overview';
 
-export default function DeliveryDashboard() {
+export default function DeliveryDashboard({ loggedInUser }) {
     const location = useLocation();
     const queryParams = new URLSearchParams(location.search);
     const activeTab = queryParams.get('tab') || 'overview'; 
 
     const [searchQuery, setSearchQuery] = useState('');
+
+    const userRole = loggedInUser?.role ? loggedInUser.role.toUpperCase().replace(' ', '_') : '';
+    const userDept = loggedInUser?.department ? loggedInUser.department.toUpperCase() : '';
+
+    const isDeliveryManager = (userRole === 'MANAGER' || userRole === 'ASS_MANAGER') && userDept === 'DELIVERY';
+    const isTopLevelAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER'].includes(userRole);
+    
+    const hasFullAccess = isDeliveryManager || isTopLevelAdmin;
+    const isReadOnly = !hasFullAccess;
 
     return (
         <div className="w-full animate-fade-in text-gray-900 dark:text-gray-100 pb-10 font-sans relative transition-colors duration-500 z-10">
@@ -25,11 +35,12 @@ export default function DeliveryDashboard() {
                 </div>
                 <div className="flex-1">
                     <h2 className="text-2xl md:text-4xl font-black text-gray-900 dark:text-white tracking-wide capitalize transition-colors">
-                        {activeTab === 'overview' && 'Overview'}
+                        {activeTab === 'overview' && 'Delivery Overview'}
                         {activeTab === 'pending' && 'Pending & Holds'}
                         {activeTab === 'delivered' && 'Dispatch & Delivered'} 
                         {activeTab === 'stock' && 'Tute Stock'}
                         {activeTab === 'history' && 'Delivery History'}
+                        {activeTab === 'payment_details' && 'Payment Details'}
                     </h2>
                     <p className="text-gray-500 dark:text-slate-400 font-bold text-sm mt-1.5 transition-colors uppercase tracking-widest">Manage student deliveries, tracking, and tute inventory.</p>
                 </div>
@@ -54,10 +65,11 @@ export default function DeliveryDashboard() {
             {/* Render the active module based on URL parameter */}
             <div className="mt-4">
                 {activeTab === 'overview' && <Overview />}
-                {activeTab === 'pending' && <PendingHolds searchQuery={searchQuery} />}
-                {activeTab === 'history' && <DeliveryHistory />}
-                {activeTab === 'delivered' && <DispatchDelivered searchQuery={searchQuery} />} 
-                {activeTab === 'stock' && <TuteStock searchQuery={searchQuery} />}
+                {activeTab === 'pending' && <PendingHolds searchQuery={searchQuery} isReadOnly={isReadOnly} />}
+                {activeTab === 'history' && <DeliveryHistory isReadOnly={isReadOnly} />}
+                {activeTab === 'delivered' && <DispatchDelivered searchQuery={searchQuery} isReadOnly={isReadOnly} />} 
+                {activeTab === 'stock' && <TuteStock searchQuery={searchQuery} isReadOnly={isReadOnly} />}
+                {activeTab === 'payment_details' && <PaymentDetails isReadOnly={isReadOnly} />}
             </div>
 
         </div>

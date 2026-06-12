@@ -151,6 +151,7 @@ export default function AfterSeminarDashboard() {
 
             <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)} className="bg-black/40 border border-white/10 text-slate-300 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-brand-accent transition-all cursor-pointer">
               <option value="">Select Batch (All)</option>
+              <option value="UNASSIGNED" className="bg-slate-900 text-yellow-400 font-bold">⚠️ Unassigned (No Batch)</option>
               {displayBatches.map(b => <option key={b.id} value={b.id} className="bg-slate-900">{b.name}</option>)}
             </select>
           </div>
@@ -174,7 +175,7 @@ export default function AfterSeminarDashboard() {
           {selectedLead ? (
             <>
               <AfterSeminarChatArea selectedLead={selectedLead} businessId={activeBusinessId} />
-              <AfterSeminarRightPanel selectedLead={selectedLead} activeMode={'CRM'} />
+              <AfterSeminarRightPanel selectedLead={selectedLead} activeMode={'CRM'} activeBusinessId={activeBusinessId} />
             </>
           ) : (
             <div className="flex-1 bg-white/5 backdrop-blur-md rounded-2xl flex flex-col items-center justify-center text-slate-400 shadow-xl border border-white/10">

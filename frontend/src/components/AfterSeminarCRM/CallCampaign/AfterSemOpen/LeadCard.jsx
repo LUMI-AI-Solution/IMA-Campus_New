@@ -170,8 +170,9 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="text-[10px] font-bold text-slate-400 block mb-1">Status</label>
-                            <select disabled={isLocked} value={localData.enrollmentStatus} onChange={(e) => setLocalData({...localData, enrollmentStatus: e.target.value})} className="w-full bg-white/5 border border-white/10 text-slate-200 text-xs font-semibold rounded-lg px-2 py-1.5 outline-none focus:border-indigo-500 transition-colors cursor-pointer">
+                            <select disabled value={localData.enrollmentStatus} onChange={(e) => setLocalData({...localData, enrollmentStatus: e.target.value})} className="w-full bg-white/5 border border-white/10 text-slate-200 text-xs font-semibold rounded-lg px-2 py-1.5 outline-none opacity-80 cursor-not-allowed">
                                 <option value="NON_ENROLLED" className="bg-slate-800">Non-Enrolled</option>
+                                <option value="PAYMENT_PROCESSING" className="bg-slate-800 text-yellow-400">Payment Processing</option>
                                 <option value="ENROLLED" className="bg-slate-800 text-emerald-400">Enrolled</option>
                             </select>
                         </div>

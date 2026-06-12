@@ -62,6 +62,11 @@ router.get('/bridge/pending', afterSeminarBridgeController.getPendingBridgeLeads
 router.post('/bridge/push', afterSeminarBridgeController.pushToAfterSeminar);
 router.post('/bridge/revert-pending', afterSeminarBridgeController.revertPendingBridgeLeads);
 
+// 📞 MODULE 2.1: BRIDGE CALL CENTER HANDOVERS
+router.get('/bridge/call-center/handovers', afterSeminarBridgeController.getCallCenterHandovers);
+router.post('/bridge/call-center/approve', afterSeminarBridgeController.approveAndAssignHandovers);
+router.post('/bridge/call-center/start-round-two', afterSeminarBridgeController.startBridgeRoundTwo);
+
 // ============================================================================
 // 🏆 MODULE 3: THE FINALE (Enrolled Retention & Monthly Tracking)
 // ============================================================================
@@ -77,6 +82,7 @@ router.get('/stats/new-inquiries', afterSeminarManagerStatsController.getNewInqu
 router.get('/stats/open-seminar', afterSeminarManagerStatsController.getOpenSeminarStats);
 router.get('/stats/bridge', afterSeminarManagerStatsController.getBridgePerformanceStats);
 router.get('/stats/paid-campaign', afterSeminarManagerStatsController.getPaidCampaignStats);
+router.get('/stats/coordinator-progress', afterSeminarManagerStatsController.getCoordinatorProgressSheetStats);
 router.get('/leads/master-directory', afterSeminarManagerStatsController.getMasterDirectory);
 
 router.get('/retention/campaign-data', afterSeminarRetentionController.getRetentionCampaignData);

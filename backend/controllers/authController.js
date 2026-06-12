@@ -83,7 +83,7 @@ exports.loginUser = async (req, res) => {
           sessionId: sessionId 
       },
       process.env.JWT_SECRET, 
-      { expiresIn: '1d' }
+      { expiresIn: '30d' }
     );
 
 res.status(200).json({
@@ -151,7 +151,7 @@ exports.ghostLogin = async (req, res) => {
           sessionId: sessionId 
       },
       process.env.JWT_SECRET, 
-      { expiresIn: '1h' }
+      { expiresIn: '30d' }
     );
 
     console.log("Ghost login completely successful, sending response to frontend.");

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import axios from '../../api/axios';
-import { BarChart2, MessageCircle, Users, Percent, Download, Clock, Plus, Upload, Megaphone, Search, AlertCircle, CheckCircle, Trash2, UserPlus, Lock, User, Phone, RefreshCw } from 'lucide-react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { BarChart2, MessageCircle, PhoneCall, Users, Percent, Download, Clock, Plus, Upload, Megaphone, Search, AlertCircle, CheckCircle, Trash2, UserPlus, Lock, User, Phone, RefreshCw, Send, ChevronLeft, ChevronRight } from 'lucide-react';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid , PieChart, Pie, Cell } from 'recharts';
 import toast from 'react-hot-toast';
 
 export default function ManagerCampaignStats({ filters }) {
@@ -37,6 +37,15 @@ export default function ManagerCampaignStats({ filters }) {
     const [bcastTemplate, setBcastTemplate] = useState('');
     const [bcastFile, setBcastFile] = useState(null);
     const [bcastResults, setBcastResults] = useState(null);
+
+    const [handoverPage, setHandoverPage] = useState(1);
+    const [handoverSearch, setHandoverSearch] = useState('');
+    const [handoverStatusFilter, setHandoverStatusFilter] = useState('ALL');
+    const [handoverStaffFilter, setHandoverStaffFilter] = useState('ALL');
+    const [checkedHandoverLeads, setCheckedHandoverLeads] = useState([]);
+    const [handoverBulkCount, setHandoverBulkCount] = useState('');
+    const [handoverSelectedLeads, setHandoverSelectedLeads] = useState([]);
+    const HANDOVER_ITEMS_PER_PAGE = 50;
     
     const [sendingBcast, setSendingBcast] = useState(false);
     const [broadcastProgress, setBroadcastProgress] = useState({ current: 0, total: 0 });
@@ -215,6 +224,59 @@ export default function ManagerCampaignStats({ filters }) {
         if (selectedLeads.length > 0 && selectedLeads.length === validIds.length) { setSelectedLeads([]); } else { setSelectedLeads(validIds); }
     };
 
+    const handleSelectNHandover = () => {
+        const n = parseInt(handoverBulkCount);
+        if (isNaN(n) || n <= 0) return toast.error("Enter a valid number");
+        const validLeads = handoverPaginated.filter(l => !l.isCallCenter && l.callCenterRequestStatus !== 'REQUESTED');
+        const idsToSelect = validLeads.slice(0, n).map(l => l.id);
+        setHandoverSelectedLeads([...new Set([...handoverSelectedLeads, ...idsToSelect])]);
+        toast.success(`Selected top ${idsToSelect.length} valid leads`);
+    };
+
+    const handleHandoverSubmit = async () => {
+        if (handoverSelectedLeads.length === 0) return toast.error("Select leads first");
+        try {
+            const token = localStorage.getItem('token');
+            await axios.post('/call-center/request-transfer', { leadIds: handoverSelectedLeads }, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("Successfully requested call center transfer!");
+            setHandoverSelectedLeads([]);
+            fetchData();
+        } catch (err) {
+            toast.error("Failed to request transfer");
+        }
+    };
+
+    const toggleHandoverLead = (id) => {
+        setHandoverSelectedLeads(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+    };
+
+    const filteredHandoverLeads = useMemo(() => {
+        return allLeads.filter(l => {
+            if (handoverSearch) {
+                const search = handoverSearch.toLowerCase();
+                const name = String(l.name || '').toLowerCase();
+                const phone = String(l.phone || '').toLowerCase();
+                if (!name.includes(search) && !phone.includes(search)) return false;
+            }
+            if (handoverStatusFilter !== 'ALL') {
+                if (handoverStatusFilter === 'UNASSIGNED') {
+                    if (l.assignedTo) return false;
+                } else if (handoverStatusFilter === 'ASSIGNED') {
+                    if (!l.assignedTo) return false;
+                    if (handoverStaffFilter !== 'ALL' && l.assignedTo !== parseInt(handoverStaffFilter)) return false;
+                } else if (handoverStatusFilter === 'CALL_CENTER') {
+                    if (!l.isCallCenter) return false;
+                }
+            }
+            return true;
+        });
+    }, [allLeads, handoverSearch, handoverStatusFilter, handoverStaffFilter]);
+
+    const handoverPaginated = useMemo(() => {
+        const start = (handoverPage - 1) * HANDOVER_ITEMS_PER_PAGE;
+        return filteredHandoverLeads.slice(start, start + HANDOVER_ITEMS_PER_PAGE);
+    }, [filteredHandoverLeads, handoverPage]);
+
     const handleBroadcast = async () => {
         if (selectedLeads.length === 0) return toast.error("Select leads first!");
         
@@ -314,6 +376,26 @@ if (bcastFile) formData.append('media', bcastFile);
         } catch (error) { toast.error("Failed to remove"); }
     };
 
+    const handleStartRound = async (campaignType) => {
+        if (!window.confirm(`Are you sure you want to start Round 2 for ${campaignType}? This will reset all assigned leads to pending for another round of calls.`)) return;
+        try {
+            const token = localStorage.getItem('token');
+            const targetBusinessId = filters?.selectedBusiness || user.businessId;
+            await axios.post('/api/call-center/manager/start-round', {
+                businessId: targetBusinessId,
+                campaignType: campaignType
+            }, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            toast.success(`Round 2 started successfully for ${campaignType}!`);
+            fetchStats();
+            fetchAllLeads();
+        } catch (error) {
+            console.error("Start round error", error);
+            toast.error("Failed to start Round 2.");
+        }
+    };
+
     const displayReport = useMemo(() => {
         const rawReport = data?.report || [];
         if (!teamMembers || teamMembers.length === 0) return rawReport;
@@ -342,13 +424,24 @@ if (bcastFile) formData.append('media', bcastFile);
         });
     }, [data?.msgReport, teamMembers]);
 
-    const statsCalculations = useMemo(() => {
-        const rawReport = data?.report || [];
-        const covered = rawReport.reduce((acc, curr) => acc + curr.answered + curr.noAnswer + curr.reject, 0);
-        const pending = rawReport.reduce((acc, curr) => acc + curr.pending, 0);
-        const assigned = rawReport.reduce((acc, curr) => acc + curr.assigned, 0);
-        return { covered, pending, assigned };
-    }, [data?.report]);
+    const coordReport = useMemo(() => (data?.report || []).filter(r => r.role !== 'CALLER'), [data?.report]);
+    const ccReport = useMemo(() => (data?.report || []).filter(r => r.role === 'CALLER'), [data?.report]);
+
+    const coordStats = useMemo(() => {
+        const covered = coordReport.reduce((acc, curr) => acc + curr.answered + curr.noAnswer + curr.reject, 0);
+        const pending = coordReport.reduce((acc, curr) => acc + curr.pending, 0);
+        const assigned = coordReport.reduce((acc, curr) => acc + curr.assigned, 0);
+        const rate = assigned > 0 ? Math.round((covered / assigned) * 100) : 0;
+        return { covered, pending, assigned, rate };
+    }, [coordReport]);
+
+    const ccStats = useMemo(() => {
+        const covered = ccReport.reduce((acc, curr) => acc + curr.answered + curr.noAnswer + curr.reject, 0);
+        const pending = ccReport.reduce((acc, curr) => acc + curr.pending, 0);
+        const assigned = ccReport.reduce((acc, curr) => acc + curr.assigned, 0);
+        const rate = assigned > 0 ? Math.round((covered / assigned) * 100) : 0;
+        return { covered, pending, assigned, rate };
+    }, [ccReport]);
 
     return (
         <div className="space-y-6 animate-in fade-in duration-500">
@@ -358,7 +451,7 @@ if (bcastFile) formData.append('media', bcastFile);
                     <button onClick={() => setActiveTab('WHATSAPP')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === 'WHATSAPP' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>WhatsApp Metrics</button>
                     <button onClick={() => setActiveTab('TEMPLATES')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === 'TEMPLATES' ? 'bg-purple-600 text-white' : 'text-slate-400'}`}>Meta Templates</button>
                     <button onClick={() => setActiveTab('BROADCAST')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === 'BROADCAST' ? 'bg-amber-600 text-white' : 'text-slate-400'}`}>Broadcast</button>
-                    {(isSystemAdmin || isManager) && <button onClick={() => setActiveTab('TEAM')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === 'TEAM' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}>My Team</button>}
+                    {(isSystemAdmin || userIsManager) && <button onClick={() => setActiveTab('CALL_CENTER_STATS')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === 'CALL_CENTER_STATS' ? 'bg-orange-600 text-white' : 'text-slate-400'}`}>Call Center Stats</button>}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
@@ -390,85 +483,143 @@ if (bcastFile) formData.append('media', bcastFile);
             {loading && (activeTab === 'CALLS' || activeTab === 'WHATSAPP') ? <div className="text-center py-10 text-slate-500">Loading metrics...</div> : (
                 <>
                     {activeTab === 'CALLS' && (
-                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-                            <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-5 rounded-2xl border border-white/5 shadow-lg relative overflow-hidden">
-                                <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Total Leads</p>
-                                <h3 className="text-2xl font-bold text-white">{data?.summary?.totalLeads || 0}</h3>
-                                <div className="absolute bottom-0 right-0 bg-red-500/20 text-red-400 px-4 py-1.5 rounded-tl-xl text-xs font-black border-t border-l border-red-500/30">{data?.summary?.unassignedLeads || 0} UNASSIGNED</div>
+                        <div className="flex flex-col gap-10">
+                            {/* ===================== COORDINATOR PROGRESS ===================== */}
+                            <div>
+                                <h2 className="text-xl font-black text-white mb-6 border-b border-white/5 pb-4 flex items-center gap-2"><PhoneCall className="text-emerald-400" size={24}/> Coordinator Progress</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
+                                    <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-5 rounded-2xl border border-white/5 shadow-lg relative overflow-hidden">
+                                        <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Total Leads</p>
+                                        <h3 className="text-2xl font-bold text-white">{data?.summary?.totalLeads || 0}</h3>
+                                        <div className="absolute bottom-0 right-0 bg-red-500/20 text-red-400 px-4 py-1.5 rounded-tl-xl text-xs font-black border-t border-l border-red-500/30">{data?.summary?.unassignedLeads || 0} UNASSIGNED</div>
+                                    </div>
+                                    <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
+                                        <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Total Assigned</p>
+                                        <h3 className="text-2xl font-bold text-indigo-400">{coordStats.assigned} <span className="text-[10px] text-slate-500 font-normal">Coordinators</span></h3>
+                                    </div>
+                                    <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
+                                        <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Covered Leads</p>
+                                        <h3 className="text-2xl font-bold text-emerald-400">{coordStats.covered} <span className="text-[10px] text-slate-500 font-normal">Contacted</span></h3>
+                                    </div>
+                                    <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
+                                        <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Pending Leads</p>
+                                        <h3 className="text-2xl font-bold text-blue-400">{coordStats.pending} <span className="text-[10px] text-slate-500 font-normal">Remaining</span></h3>
+                                    </div>
+                                    <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
+                                        <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Response Rate</p>
+                                        <h3 className="text-2xl font-bold text-amber-400">{coordStats.rate}%</h3>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] gap-6">
+                                    <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl overflow-hidden backdrop-blur-xl shadow-xl">
+                                        <table className="w-full text-left text-sm text-slate-300">
+                                            <thead className="bg-black/40 text-slate-400 text-[10px] uppercase tracking-wider">
+                                                <tr>
+                                                    <th className="p-4">Coordinator</th>
+                                                    <th className="p-4 text-center">Assigned</th>
+                                                    <th className="p-4 text-center text-blue-400">Pending</th>
+                                                    <th className="p-4 text-center text-emerald-400">Answered</th>
+                                                    <th className="p-4 text-center text-amber-400">No Answer</th>
+                                                    <th className="p-4 text-center text-rose-400">Reject</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-white/5">
+                                                {coordReport.map((row, idx) => (
+                                                    <tr key={idx} className="hover:bg-white/5">
+                                                        <td className="p-4 font-bold text-white">{row.agentName}</td>
+                                                        <td className="p-4 text-center">{row.assigned}</td>
+                                                        <td className="p-4 text-center font-bold text-blue-400">{row.pending}</td>
+                                                        <td className="p-4 text-center font-bold text-emerald-400">{row.answered}</td>
+                                                        <td className="p-4 text-center font-bold text-amber-400">{row.noAnswer}</td>
+                                                        <td className="p-4 text-center font-bold text-rose-400">{row.reject}</td>
+                                                    </tr>
+                                                ))}
+                                                {coordReport.length === 0 && <tr><td colSpan="6" className="text-center p-8 text-slate-500 italic">No coordinator stats available</td></tr>}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl p-6 backdrop-blur-xl shadow-xl">
+                                        <h3 className="text-sm font-bold text-white mb-4">Coordinator Performance</h3>
+                                        <div style={{ width: '100%', height: '100%', minHeight: '300px' }}>
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <BarChart data={coordReport} barSize={12}> 
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
+                                                    <XAxis dataKey="agentName" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
+                                                    <Tooltip cursor={{fill: '#ffffff05'}} contentStyle={{backgroundColor: '#1e293b', border: '1px solid #ffffff10', borderRadius: '8px'}} />
+                                                    <Bar dataKey="answered" name="Answered" fill="#10b981" radius={[4, 4, 0, 0]} />
+                                                    <Bar dataKey="noAnswer" name="No Answer" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                                                    <Bar dataKey="reject" name="Reject" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                            <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
-                                <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Total Assigned</p>
-                                <h3 className="text-2xl font-bold text-indigo-400">{statsCalculations.assigned} <span className="text-[10px] text-slate-500 font-normal">Agents</span></h3>
-                            </div>
-                            <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
-                                <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Covered Leads</p>
-                                <h3 className="text-2xl font-bold text-emerald-400">{statsCalculations.covered} <span className="text-[10px] text-slate-500 font-normal">Contacted</span></h3>
-                            </div>
-                            <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
-                                <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Pending Leads</p>
-                                <h3 className="text-2xl font-bold text-blue-400">{statsCalculations.pending} <span className="text-[10px] text-slate-500 font-normal">Remaining</span></h3>
-                            </div>
-                            <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
-                                <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Response Rate</p>
-                                <h3 className="text-2xl font-bold text-amber-400">{data?.summary?.rate || 0}%</h3>
-                            </div>
-                        </div>
-                    )}
 
-                    {activeTab === 'WHATSAPP' && (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
-                                <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Unique Numbers Contacted (Sent)</p>
-                                <h3 className="text-2xl font-bold text-blue-400">{data?.summary?.totalSent || 0} <span className="text-[10px] text-slate-500 font-normal">Numbers</span></h3>
-                            </div>
-                            <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
-                                <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Unique Numbers Replied (Received)</p>
-                                <h3 className="text-2xl font-bold text-emerald-400">{data?.summary?.totalReceived || 0} <span className="text-[10px] text-slate-500 font-normal">Numbers</span></h3>
-                            </div>
-                        </div>
-                    )}
-
-                    {activeTab === 'CALLS' && (
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                            <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl overflow-hidden backdrop-blur-xl shadow-xl max-h-[400px] overflow-y-auto custom-scrollbar">
-                                <table className="w-full text-left text-sm text-slate-300">
-                                    <thead className="bg-black/40 text-slate-400 text-xs uppercase tracking-wider sticky top-0 z-10">
-                                        <tr>
-                                            <th className="p-4">Agent Name</th>
-                                            <th className="p-4 text-center">Assigned</th>
-                                            <th className="p-4 text-center text-blue-400">Pending</th>
-                                            <th className="p-4 text-center text-emerald-400">Answered</th>
-                                            <th className="p-4 text-center text-amber-400">No Answer</th>
-                                            <th className="p-4 text-center text-red-400">Reject</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-white/5">
-                                        {displayReport.map((r, i) => (
-                                            <tr key={i} className="hover:bg-white/5">
-                                                <td className="p-4 font-bold text-white">{r.agentName}</td>
-                                                <td className="p-4 text-center">{r.assigned}</td>
-                                                <td className="p-4 text-center font-bold text-blue-400">{r.pending}</td>
-                                                <td className="p-4 text-center font-bold text-emerald-400">{r.answered}</td>
-                                                <td className="p-4 text-center font-bold text-amber-400">{r.noAnswer}</td>
-                                                <td className="p-4 text-center font-bold text-red-400">{r.reject}</td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl p-6 backdrop-blur-xl shadow-xl">
-                                <h3 className="text-sm font-bold text-white mb-4">Calls Performance</h3>
-                                <div style={{ width: '100%', height: '100%', minHeight: '300px' }}>
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <BarChart data={displayReport} barSize={12}> 
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
-                                            <XAxis dataKey="agentName" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
-                                            <Tooltip cursor={{fill: '#ffffff05'}} contentStyle={{backgroundColor: '#1e293b', border: '1px solid #ffffff10', borderRadius: '8px'}} />
-                                            <Bar dataKey="answered" name="Answered" fill="#10b981" radius={[4, 4, 0, 0]} />
-                                            <Bar dataKey="noAnswer" name="No Answer" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                                            <Bar dataKey="reject" name="Reject" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                                        </BarChart>
-                                    </ResponsiveContainer>
+                            {/* ===================== CALL CENTER PROGRESS ===================== */}
+                            <div>
+                                <h2 className="text-xl font-black text-white mb-6 border-b border-white/5 pb-4 flex items-center gap-2"><PhoneCall className="text-rose-500" size={24}/> Call Center Progress</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                                    <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
+                                        <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Total Assigned in CC</p>
+                                        <h3 className="text-2xl font-bold text-indigo-400">{ccStats.assigned} <span className="text-[10px] text-slate-500 font-normal">Callers</span></h3>
+                                    </div>
+                                    <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
+                                        <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Covered Leads</p>
+                                        <h3 className="text-2xl font-bold text-emerald-400">{ccStats.covered} <span className="text-[10px] text-slate-500 font-normal">Contacted</span></h3>
+                                    </div>
+                                    <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
+                                        <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Pending Leads</p>
+                                        <h3 className="text-2xl font-bold text-blue-400">{ccStats.pending} <span className="text-[10px] text-slate-500 font-normal">Remaining</span></h3>
+                                    </div>
+                                    <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
+                                        <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Response Rate</p>
+                                        <h3 className="text-2xl font-bold text-amber-400">{ccStats.rate}%</h3>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] gap-6">
+                                    <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl overflow-hidden backdrop-blur-xl shadow-xl">
+                                        <table className="w-full text-left text-sm text-slate-300">
+                                            <thead className="bg-black/40 text-slate-400 text-[10px] uppercase tracking-wider">
+                                                <tr>
+                                                    <th className="p-4">Caller</th>
+                                                    <th className="p-4 text-center">Assigned</th>
+                                                    <th className="p-4 text-center text-blue-400">Pending</th>
+                                                    <th className="p-4 text-center text-emerald-400">Answered</th>
+                                                    <th className="p-4 text-center text-amber-400">No Answer</th>
+                                                    <th className="p-4 text-center text-rose-400">Reject</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-white/5">
+                                                {ccReport.map((row, idx) => (
+                                                    <tr key={idx} className="hover:bg-white/5">
+                                                        <td className="p-4 font-bold text-white">{row.agentName}</td>
+                                                        <td className="p-4 text-center">{row.assigned}</td>
+                                                        <td className="p-4 text-center font-bold text-blue-400">{row.pending}</td>
+                                                        <td className="p-4 text-center font-bold text-emerald-400">{row.answered}</td>
+                                                        <td className="p-4 text-center font-bold text-amber-400">{row.noAnswer}</td>
+                                                        <td className="p-4 text-center font-bold text-rose-400">{row.reject}</td>
+                                                    </tr>
+                                                ))}
+                                                {ccReport.length === 0 && <tr><td colSpan="6" className="text-center p-8 text-slate-500 italic">No call center stats available</td></tr>}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                    <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl p-6 backdrop-blur-xl shadow-xl">
+                                        <h3 className="text-sm font-bold text-white mb-4">Call Center Performance</h3>
+                                        <div style={{ width: '100%', height: '100%', minHeight: '300px' }}>
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <BarChart data={ccReport} barSize={12}> 
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
+                                                    <XAxis dataKey="agentName" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
+                                                    <Tooltip cursor={{fill: '#ffffff05'}} contentStyle={{backgroundColor: '#1e293b', border: '1px solid #ffffff10', borderRadius: '8px'}} />
+                                                    <Bar dataKey="answered" name="Answered" fill="#10b981" radius={[4, 4, 0, 0]} />
+                                                    <Bar dataKey="noAnswer" name="No Answer" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+                                                    <Bar dataKey="reject" name="Reject" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                                                </BarChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -694,98 +845,248 @@ if (bcastFile) formData.append('media', bcastFile);
                         </div>
                     )}
 
-                    {activeTab === 'TEAM' && (isSystemAdmin || isManager) && (
-                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                            <div className="bg-[#1e293b]/60 p-6 rounded-3xl border border-white/5 shadow-xl h-fit">
-                                <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2"><UserPlus size={20} className="text-blue-500"/> Add Call Agent</h3>
-                                <form onSubmit={handleAddTeamMember} className="space-y-4">
-                                    <div className="grid grid-cols-2 gap-4">
-                                        <div>
-                                            <label className="text-xs font-bold text-slate-400 mb-1 block uppercase">First Name</label>
-                                            <div className="relative">
-                                                <User size={16} className="absolute left-3 top-3 text-slate-500"/>
-                                                <input type="text" required value={teamForm.firstName} onChange={e=>setTeamForm({...teamForm, firstName: e.target.value})} className="w-full bg-[#0f172a] border border-slate-700 rounded-xl py-2.5 pl-10 pr-3 text-white text-sm outline-none focus:border-blue-500" placeholder="John" />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="text-xs font-bold text-slate-400 mb-1 block uppercase">Last Name</label>
-                                            <input type="text" required value={teamForm.lastName} onChange={e=>setTeamForm({...teamForm, lastName: e.target.value})} className="w-full bg-[#0f172a] border border-slate-700 rounded-xl py-2.5 px-3 text-white text-sm outline-none focus:border-blue-500" placeholder="Doe" />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-400 mb-1 block uppercase">Phone Number</label>
-                                        <div className="relative">
-                                            <Phone size={16} className="absolute left-3 top-3 text-slate-500"/>
-                                            <input type="text" required value={teamForm.phone} onChange={e=>setTeamForm({...teamForm, phone: e.target.value})} className="w-full bg-[#0f172a] border border-slate-700 rounded-xl py-2.5 pl-10 pr-3 text-white text-sm outline-none focus:border-blue-500" placeholder="07XXXXXXXX" />
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label className="text-xs font-bold text-slate-400 mb-1 block uppercase">Login Password</label>
-                                        <div className="relative">
-                                            <Lock size={16} className="absolute left-3 top-3 text-slate-500"/>
-                                            <input type="text" required value={teamForm.password} onChange={e=>setTeamForm({...teamForm, password: e.target.value})} className="w-full bg-[#0f172a] border border-slate-700 rounded-xl py-2.5 pl-10 pr-3 text-white text-sm outline-none focus:border-blue-500" placeholder="Set a secure password" />
-                                        </div>
-                                    </div>
-                                    <button type="submit" disabled={teamLoading} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl shadow-lg mt-2 disabled:opacity-50 transition-colors">
-                                        {teamLoading ? "Adding..." : "Create Team Member"}
-                                    </button>
-                                </form>
+                    {activeTab === 'CALL_CENTER_STATS' && (
+                        <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl p-6 backdrop-blur-xl shadow-xl flex flex-col min-h-[500px]">
+                            <div className="flex justify-between items-center mb-8 border-b border-white/5 pb-4">
+                                <h3 className="text-xl font-bold text-white flex items-center gap-2"><PhoneCall size={20} className="text-orange-500" /> Call Center Detailed Stats</h3>
                             </div>
-                            <div className="lg:col-span-2 bg-[#1e293b]/60 border border-white/5 rounded-3xl p-6 backdrop-blur-xl shadow-xl max-h-[600px] overflow-y-auto custom-scrollbar">
-                                <h3 className="text-lg font-bold text-white mb-6">Active Call Center Team</h3>
-                                {teamMembers.length === 0 ? (
-                                    <div className="text-center py-10 text-slate-500 bg-black/20 rounded-2xl border border-white/5">No external callers added yet.</div>
-                                ) : (
-                                    <div className="space-y-6">
-                                        
-                                        <div>
-                                            <h4 className="text-xs text-blue-400 font-bold uppercase tracking-widest mb-3 border-b border-slate-700 pb-2">External Callers</h4>
-                                            <div className="space-y-3">
-                                                {teamMembers.filter(m => m.role === 'CALLER').map(caller => (
-                                                    <div key={caller.id} className="bg-black/30 p-4 rounded-2xl border border-white/5 flex justify-between items-center hover:border-white/20 transition-colors">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="w-10 h-10 rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-lg border border-blue-500/20">
-                                                                {caller.firstName.charAt(0)}
-                                                            </div>
-                                                            <div>
-                                                                <h4 className="text-white font-bold">{caller.firstName} {caller.lastName}</h4>
-                                                                <p className="text-xs text-slate-400 flex items-center gap-1"><Phone size={12}/> {caller.phone}</p>
-                                                            </div>
-                                                        </div>
-                                                        <button onClick={() => deleteTeamMember(caller.id)} className="p-2.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl transition-colors border border-transparent hover:border-red-500/30">
-                                                            <Trash2 size={18}/>
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                                {teamMembers.filter(m => m.role === 'CALLER').length === 0 && <p className="text-xs text-slate-500 italic">No external callers found.</p>}
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <h4 className="text-xs text-emerald-400 font-bold uppercase tracking-widest mb-3 border-b border-slate-700 pb-2">Staff Coordinators</h4>
-                                            <div className="space-y-3">
-                                                {teamMembers.filter(m => m.role !== 'CALLER').map(caller => (
-                                                    <div key={caller.id} className="bg-black/30 p-4 rounded-2xl border border-white/5 flex justify-between items-center hover:border-white/20 transition-colors">
-                                                        <div className="flex items-center gap-4">
-                                                            <div className="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-lg border border-emerald-500/20">
-                                                                {caller.firstName.charAt(0)}
-                                                            </div>
-                                                            <div>
-                                                                <h4 className="text-white font-bold">{caller.firstName} {caller.lastName}</h4>
-                                                                <p className="text-xs text-slate-400 flex items-center gap-1"><Phone size={12}/> {caller.phone}</p>
-                                                            </div>
-                                                        </div>
-                                                        <button onClick={() => deleteTeamMember(caller.id)} className="p-2.5 bg-red-500/10 text-red-400 hover:bg-red-500 hover:text-white rounded-xl transition-colors border border-transparent hover:border-red-500/30">
-                                                            <Trash2 size={18}/>
-                                                        </button>
-                                                    </div>
-                                                ))}
-                                                {teamMembers.filter(m => m.role !== 'CALLER').length === 0 && <p className="text-xs text-slate-500 italic">No staff coordinators found.</p>}
-                                            </div>
-                                        </div>
-
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                                <div className="bg-gradient-to-br from-orange-900/40 to-slate-900 border border-orange-500/30 p-6 rounded-2xl">
+                                    <p className="text-orange-400 text-xs font-bold uppercase mb-2">Total Handed Over</p>
+                                    <h2 className="text-4xl font-black text-white">{allLeads.filter(l => l.isCallCenter || l.callCenterRequestStatus === 'REQUESTED').length}</h2>
+                                </div>
+                                <div className="bg-gradient-to-br from-indigo-900/40 to-slate-900 border border-indigo-500/30 p-6 rounded-2xl">
+                                    <p className="text-indigo-400 text-xs font-bold uppercase mb-2">Currently Assigned</p>
+                                    <h2 className="text-4xl font-black text-white">{allLeads.filter(l => l.isCallCenter && l.assignedTo).length}</h2>
+                                </div>
+                                <div className="bg-gradient-to-br from-emerald-900/40 to-slate-900 border border-emerald-500/30 p-6 rounded-2xl">
+                                    <p className="text-emerald-400 text-xs font-bold uppercase mb-2">Covered by Call Center</p>
+                                    <h2 className="text-4xl font-black text-white">{allLeads.filter(l => l.isCallCenter && l.callCenterStatus === 'completed').length}</h2>
+                                </div>
+                                <div className="bg-gradient-to-br from-blue-900/40 to-slate-900 border border-blue-500/30 p-6 rounded-2xl">
+                                    <p className="text-blue-400 text-xs font-bold uppercase mb-2">Pending in Call Center</p>
+                                    <h2 className="text-4xl font-black text-white">{allLeads.filter(l => l.isCallCenter && l.callCenterStatus === 'pending').length}</h2>
+                                </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1">
+                                <div className="bg-black/30 border border-white/5 rounded-2xl p-6">
+                                    <h4 className="text-sm font-bold text-slate-300 mb-4">Handovers vs Coverage Status</h4>
+                                    <div style={{ width: '100%', height: '300px' }}>
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <PieChart>
+                                                <Pie
+                                                    data={[
+                                                        { name: 'Pending Handover Requests', value: allLeads.filter(l => !l.isCallCenter && l.callCenterRequestStatus === 'REQUESTED').length, fill: '#f59e0b' },
+                                                        { name: 'In Call Center (Pending)', value: allLeads.filter(l => l.isCallCenter && l.callCenterStatus === 'pending').length, fill: '#3b82f6' },
+                                                        { name: 'Completed by Call Center', value: allLeads.filter(l => l.isCallCenter && l.callCenterStatus === 'completed').length, fill: '#10b981' }
+                                                    ]}
+                                                    cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={5} dataKey="value"
+                                                >
+                                                    <Cell key="cell-0" fill="#f59e0b" />
+                                                    <Cell key="cell-1" fill="#3b82f6" />
+                                                    <Cell key="cell-2" fill="#10b981" />
+                                                </Pie>
+                                                <Tooltip contentStyle={{backgroundColor: '#1e293b', border: '1px solid #ffffff10', borderRadius: '8px'}} />
+                                            </PieChart>
+                                        </ResponsiveContainer>
                                     </div>
+                                </div>
+                                <div className="bg-black/30 border border-white/5 rounded-2xl p-6 flex flex-col justify-center items-center text-center">
+                                    <h4 className="text-sm font-bold text-slate-300 mb-2">Need to assign more leads?</h4>
+                                    <p className="text-xs text-slate-500 mb-6">Use the Hand Over tab to send more leads to the call center queue.</p>
+                                    <button onClick={() => {setActiveTab('HANDOVER'); }} className="px-6 py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl shadow-lg transition-all flex items-center gap-2">
+                                        <PhoneCall size={18}/> Go to Hand Over
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'HANDOVER' && (
+                        <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl p-6 backdrop-blur-xl shadow-xl flex flex-col min-h-[700px]">
+                            <div className="flex justify-between items-center mb-6">
+                                <h3 className="text-xl font-bold text-white flex items-center gap-2"><PhoneCall size={20} className="text-rose-500" /> Call Center Handover</h3>
+                                <div className="flex gap-2 text-sm text-slate-400">
+                                    <span className="bg-rose-500/20 text-rose-400 px-3 py-1 rounded-lg border border-rose-500/30">Total Leads: {filteredHandoverLeads.length}</span>
+                                </div>
+                            </div>
+                            
+                            {/* Handover Filters */}
+                            <div className="flex flex-wrap items-center gap-3 mb-6 bg-black/20 p-3 rounded-xl border border-white/5">
+                                <div className="relative flex-1 min-w-[200px]">
+                                    <Search className="absolute left-3 top-2.5 text-slate-500" size={16}/>
+                                    <input 
+                                        type="text" 
+                                        placeholder="Search by name or phone..." 
+                                        value={handoverSearch} 
+                                        onChange={e => setHandoverSearch(e.target.value)} 
+                                        className="w-full bg-[#0f172a] border border-slate-700 text-white rounded-xl py-2 pl-10 pr-4 text-sm outline-none focus:border-rose-500" 
+                                    />
+                                </div>
+                                <select 
+                                    value={handoverStatusFilter} 
+                                    onChange={e => setHandoverStatusFilter(e.target.value)} 
+                                    className="bg-[#0f172a] text-slate-300 text-sm p-2 rounded-xl border border-slate-700 outline-none"
+                                >
+                                    <option value="ALL">All CRM Leads</option>
+                                    <option value="UNASSIGNED">Unassigned Leads</option>
+                                    <option value="ASSIGNED">Assigned Leads</option>
+                                    <option value="CALL_CENTER">In Call Center</option>
+                                </select>
+                                
+                                {handoverStatusFilter === 'ASSIGNED' && (
+                                    <select 
+                                        value={handoverStaffFilter} 
+                                        onChange={e => setHandoverStaffFilter(e.target.value)} 
+                                        className="bg-[#0f172a] text-slate-300 text-sm p-2 rounded-xl border border-slate-700 outline-none"
+                                    >
+                                        <option value="ALL">All Coordinators</option>
+                                        {teamMembers.map(m => <option key={m.id} value={m.id}>{m.firstName} {m.lastName}</option>)}
+                                    </select>
                                 )}
+                            </div>
+
+                            {/* Bulk Selection Bar */}
+                            <div className="flex justify-between items-center bg-rose-500/5 p-3 rounded-xl border border-rose-500/20 mb-4 flex-wrap gap-4">
+                                <div className="flex items-center gap-3">
+                                    <span className="text-sm font-bold text-slate-300">Bulk Select:</span>
+                                    <input 
+                                        type="number" 
+                                        placeholder="Count" 
+                                        value={handoverBulkCount} 
+                                        onChange={e => setHandoverBulkCount(e.target.value)} 
+                                        className="w-24 bg-[#0f172a] border border-slate-700 text-white rounded-lg p-2 text-sm outline-none text-center" 
+                                    />
+                                    <button 
+                                        onClick={handleSelectNHandover} 
+                                        className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded-lg text-sm transition-colors shadow-sm"
+                                    >
+                                        Select First N
+                                    </button>
+                                    {handoverSelectedLeads.length > 0 && (
+                                        <button 
+                                            onClick={() => setHandoverSelectedLeads([])} 
+                                            className="text-slate-400 hover:text-white text-sm font-medium underline ml-2"
+                                        >
+                                            Clear Selection
+                                        </button>
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <span className="font-bold text-rose-400">{handoverSelectedLeads.length} Selected</span>
+                                    <button 
+                                        onClick={handleHandoverSubmit}
+                                        disabled={handoverSelectedLeads.length === 0}
+                                        className={`flex items-center gap-2 font-bold py-2 px-5 rounded-xl transition-all shadow-lg ${handoverSelectedLeads.length > 0 ? 'bg-rose-600 hover:bg-rose-500 text-white' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}`}
+                                    >
+                                        <Send size={16} />
+                                        Hand Over
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Data Table */}
+                            <div className="flex-1 overflow-auto custom-scrollbar border border-white/5 rounded-xl bg-black/40">
+                                <table className="w-full text-left text-sm text-slate-300">
+                                    <thead className="bg-[#0f172a] text-slate-400 text-xs uppercase tracking-wider sticky top-0 z-10 border-b border-white/10">
+                                        <tr>
+                                            <th className="p-3 w-12 text-center">
+                                                <input 
+                                                    type="checkbox" 
+                                                    onChange={e => {
+                                                        const validIds = handoverPaginated.filter(l => !l.isCallCenter && l.callCenterRequestStatus !== 'REQUESTED').map(l => l.id);
+                                                        if (e.target.checked) {
+                                                            const newSelection = [...new Set([...handoverSelectedLeads, ...validIds])];
+                                                            setHandoverSelectedLeads(newSelection);
+                                                        } else {
+                                                            setHandoverSelectedLeads(handoverSelectedLeads.filter(id => !validIds.includes(id)));
+                                                        }
+                                                    }}
+                                                    checked={handoverPaginated.length > 0 && handoverPaginated.filter(l => !l.isCallCenter && l.callCenterRequestStatus !== 'REQUESTED').every(l => handoverSelectedLeads.includes(l.id))}
+                                                    className="w-4 h-4 accent-rose-500 rounded" 
+                                                />
+                                            </th>
+                                            <th className="p-3">Name</th>
+                                            <th className="p-3">Phone</th>
+                                            <th className="p-3">Coordinator</th>
+                                            <th className="p-3">Call Center Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5">
+                                        {handoverPaginated.map(lead => {
+                                            const isCC = lead.isCallCenter;
+                                            const reqStatus = lead.callCenterRequestStatus; // REQUESTED, APPROVED, REJECTED
+                                            const status = lead.callCenterStatus; // pending, completed
+                                            const assignedStaff = teamMembers.find(m => m.id === lead.assignedTo);
+                                            const isTransferable = !isCC && reqStatus !== 'REQUESTED';
+
+                                            return (
+                                                <tr key={lead.id} className="hover:bg-white/5">
+                                                    <td className="p-3 text-center">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={handoverSelectedLeads.includes(lead.id)}
+                                                            onChange={() => toggleHandoverLead(lead.id)}
+                                                            disabled={!isTransferable}
+                                                            className="w-4 h-4 accent-rose-500 rounded" 
+                                                        />
+                                                    </td>
+                                                    <td className="p-3 font-medium text-white">{lead.name || '-'}</td>
+                                                    <td className="p-3 text-slate-400 font-mono">{lead.phone}</td>
+                                                    <td className="p-3">
+                                                        {assignedStaff ? <span className="text-blue-400 font-bold text-xs">{assignedStaff.firstName} {assignedStaff.lastName}</span> : <span className="text-slate-500 text-xs italic">Unassigned</span>}
+                                                    </td>
+                                                    <td className="p-3">
+                                                        {isCC && status === 'completed' ? (
+                                                            <span className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-[10px] font-black rounded-lg border border-emerald-500/30 flex items-center gap-1 w-max"><CheckCircle size={10} /> Completed</span>
+                                                        ) : isCC ? (
+                                                            <span className="px-2 py-1 bg-blue-500/20 text-blue-400 text-[10px] font-black rounded-lg border border-blue-500/30 flex items-center gap-1 w-max"><Clock size={10} /> In Call Center</span>
+                                                        ) : reqStatus === 'REQUESTED' ? (
+                                                            <span className="px-2 py-1 bg-amber-500/20 text-amber-400 text-[10px] font-black rounded-lg border border-amber-500/30 flex items-center gap-1 w-max"><Clock size={10} /> Pending Approval</span>
+                                                        ) : reqStatus === 'REJECTED' ? (
+                                                            <span className="px-2 py-1 bg-red-500/20 text-red-400 text-[10px] font-black rounded-lg border border-red-500/30 flex items-center gap-1 w-max"><AlertCircle size={10} /> Rejected</span>
+                                                        ) : (
+                                                            <span className="px-2 py-1 bg-slate-800 text-slate-400 text-[10px] font-bold rounded-lg border border-slate-700 w-max block">Not Requested</span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
+                                        {handoverPaginated.length === 0 && (
+                                            <tr>
+                                                <td colSpan="5" className="p-8 text-center text-slate-500">No leads found matching criteria.</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Pagination */}
+                            <div className="flex justify-between items-center mt-4 pt-4 border-t border-white/5">
+                                <p className="text-xs text-slate-500">
+                                    Showing {(handoverPage - 1) * HANDOVER_ITEMS_PER_PAGE + 1} to {Math.min(handoverPage * HANDOVER_ITEMS_PER_PAGE, filteredHandoverLeads.length)} of {filteredHandoverLeads.length}
+                                </p>
+                                <div className="flex items-center gap-2">
+                                    <button 
+                                        onClick={() => setHandoverPage(Math.max(1, handoverPage - 1))}
+                                        disabled={handoverPage === 1}
+                                        className="p-1.5 bg-[#0f172a] rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-50"
+                                    >
+                                        <ChevronLeft size={16} />
+                                    </button>
+                                    <span className="text-xs font-bold text-white bg-[#0f172a] px-3 py-1.5 rounded-lg border border-slate-700">
+                                        Page {handoverPage}
+                                    </span>
+                                    <button 
+                                        onClick={() => setHandoverPage(handoverPage + 1)}
+                                        disabled={handoverPage * HANDOVER_ITEMS_PER_PAGE >= filteredHandoverLeads.length}
+                                        className="p-1.5 bg-[#0f172a] rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 disabled:opacity-50"
+                                    >
+                                        <ChevronRight size={16} />
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     )}

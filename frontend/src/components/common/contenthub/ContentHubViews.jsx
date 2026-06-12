@@ -1,11 +1,12 @@
 import React from 'react';
-import { FolderOpen, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar } from 'lucide-react';
+import { FolderOpen, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp } from 'lucide-react';
 import api from '../../../api/axios'; 
+import UpgradePricingConfig from '../../admin/UpgradePricingConfig'; 
 
 export default function ContentHubViews({ state, actions }) {
     const {
         isSystemAdmin, canManageBatches, canManageGroupsAndSubjects, canManageContent,
-        viewLevel, activeBusiness, activeBatch, batchTab, activeSubject, contentTab, businesses, batches, 
+        viewLevel, activeBusiness, activeBatch, batchTab, activeSubject, contentTab, businesses, batches, uniqueSubjects,
         lessonGroups, subjectContents, editMode, openFolders, groupedSubjects
     } = state;
 
@@ -103,6 +104,7 @@ export default function ContentHubViews({ state, actions }) {
                         <button onClick={() => setBatchTab('groups')} className={`flex-1 md:flex-none justify-center px-4 md:px-6 py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent ${batchTab === 'groups' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><Layers size={18} className="hidden sm:block"/> Groups</button>
                         <button onClick={() => setBatchTab('subjects')} className={`flex-1 md:flex-none justify-center px-4 md:px-6 py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent ${batchTab === 'subjects' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><BookOpen size={18} className="hidden sm:block"/> Subjects</button>
                         <button onClick={() => setBatchTab('lecturers')} className={`flex-1 md:flex-none justify-center px-4 md:px-6 py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent ${batchTab === 'lecturers' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><Users size={18} className="hidden sm:block"/> Lecturers</button>
+                        <button onClick={() => setBatchTab('upgrade-pricing')} className={`flex-1 md:flex-none justify-center px-4 md:px-6 py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent ${batchTab === 'upgrade-pricing' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><TrendingUp size={18} className="hidden sm:block"/> Upgrade Prices</button>
                     </div>
 
                     <div className="space-y-6">
@@ -245,6 +247,11 @@ export default function ContentHubViews({ state, actions }) {
                                     </div>
                                 ))}
                             </div>
+                        )}
+
+                        {/* UPGRADE PRICING TAB */}
+                        {batchTab === 'upgrade-pricing' && (
+                            <UpgradePricingConfig activeBatch={activeBatch} uniqueSubjects={uniqueSubjects} />
                         )}
                     </div>
                 </div>

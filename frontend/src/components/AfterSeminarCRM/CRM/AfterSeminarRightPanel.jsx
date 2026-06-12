@@ -4,7 +4,7 @@ import axios from '../../../api/axios';
 import { FaPhoneAlt, FaCheckCircle, FaTimesCircle, FaUserSecret, FaKey, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaTimes, FaArrowsAlt, FaChevronRight, FaChevronLeft, FaLayerGroup } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 
-export default function RightSidePanel({ selectedLead, activeMode }) {
+export default function RightSidePanel({ selectedLead, activeMode, activeBusinessId }) {
   const [studentDetails, setStudentDetails] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
@@ -170,7 +170,7 @@ export default function RightSidePanel({ selectedLead, activeMode }) {
 
   // 🔥 Extract Business ID from Phone and Filter Batches 🔥
   const bizMatch = selectedLead?.phone?.match(/_BIZ_(\d+)/);
-  const leadBizId = bizMatch ? bizMatch[1] : null;
+  const leadBizId = activeBusinessId || (bizMatch ? bizMatch[1] : null);
   const displayBatches = leadBizId ? batches.filter(b => String(b.businessId) === String(leadBizId)) : batches;
 
   return (

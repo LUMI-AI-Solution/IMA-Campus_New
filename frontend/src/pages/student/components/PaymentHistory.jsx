@@ -18,6 +18,11 @@ export default function PaymentHistory() {
     const [remark, setRemark] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [showSlipInstructions, setShowSlipInstructions] = useState(false);
+    const [paymentMethod, setPaymentMethod] = useState('slip');
+
+    const backendBaseUrl = window.location.protocol === 'https:'
+        ? 'https://imacampus.online'
+        : 'http://72.62.249.211:5000';
 
     const fetchPayments = async () => {
         setLoading(true);
@@ -81,28 +86,116 @@ export default function PaymentHistory() {
 
     const handlePayDue = async (e) => {
         e.preventDefault();
-        if (slipFiles.length === 0) return toast.error("Please upload your bank slip(s).");
-        
-        setIsSubmitting(true);
-        const formData = new FormData();
-        formData.append('paymentId', payModal.id); 
-        if (remark) formData.append('remark', remark);
 
-        slipFiles.forEach(file => {
-            formData.append('slipImages', file);
-        });
+        if (paymentMethod === 'payhere') {
+            if (typeof window.payhere === 'undefined') {
+                return toast.error("PayHere integration is missing! Please refresh the page.");
+            }
 
-        try {
-            await axios.post('/student/upload-due-slip', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
-            toast.success("Slip uploaded successfully! Awaiting verification.");
-            setPayModal(null);
-            setSlipFiles([]);
-            setRemark('');
-            await fetchPayments();
-        } catch (error) {
-            toast.error("Failed to upload slip. Try again.");
-        } finally {
-            setIsSubmitting(false);
+            setIsSubmitting(true);
+
+            try {
+                const orderId = payModal.id.toString();
+                const hashRes = await axios.post('/student/payhere-hash', {
+                    amount: parseFloat(payModal.amount).toFixed(2),
+                    orderId: orderId,
+                    currency: "LKR"
+                });
+
+                const isSandbox = import.meta.env.VITE_PAYHERE_ENV === 'sandbox';
+                const backendBaseUrl = window.location.protocol === 'https:'
+                    ? 'https://imacampus.online'
+                    : 'http://72.62.249.211:5000';
+
+                const payment = {
+                    sandbox: isSandbox,
+                    merchant_id: import.meta.env.VITE_PAYHERE_MERCHANT_ID || "222646",
+                    return_url: window.location.origin + "/student/dashboard",
+                    cancel_url: window.location.origin + "/student/dashboard",
+                    notify_url: `${backendBaseUrl}/api/student/payhere-notify`,
+                    order_id: orderId,
+                    items: `Due: ${payModal.courseName}`,
+                    amount: parseFloat(payModal.amount).toFixed(2),
+                    currency: "LKR",
+                    hash: hashRes.data.hash || "",
+                    first_name: "Student",
+                    last_name: "Name",
+                    email: "student@imacampus.lk",
+                    phone: "0770000000",
+                    address: "Sri Lanka",
+                    city: "Colombo",
+                    country: "Sri Lanka"
+                };
+
+                window.payhere.onCompleted = async function onCompleted(orderId) {
+                    toast.success("Payment successful! Synchronizing with dashboard...");
+                    try {
+                        await axios.post('/student/pay-due-online', {
+                            paymentId: payModal.id,
+                            orderId: orderId
+                        });
+                        toast.success("Payment updated successfully!");
+                        setPayModal(null);
+                        setSlipFiles([]);
+                        setRemark('');
+                        setPaymentMethod('slip');
+                        await fetchPayments();
+                    } catch (syncErr) {
+                        console.error("Dashboard sync error:", syncErr);
+                        toast.error("Payment succeeded but failed to instantly sync. The backend will verify it shortly via webhook.");
+                        setPayModal(null);
+                        setSlipFiles([]);
+                        setRemark('');
+                        setPaymentMethod('slip');
+                        await fetchPayments();
+                    } finally {
+                        setIsSubmitting(false);
+                    }
+                };
+
+                window.payhere.onDismissed = function onDismissed() {
+                    toast.error("Payment dismissed.");
+                    setIsSubmitting(false);
+                };
+
+                window.payhere.onError = function onError(error) {
+                    toast.error("Payment Error: " + error);
+                    setIsSubmitting(false);
+                };
+
+                window.payhere.startPayment(payment);
+
+            } catch (error) {
+                console.error("PayHere Dues Error:", error);
+                toast.error("Failed to initiate card payment.");
+                setIsSubmitting(false);
+            }
+
+        } else {
+            // 🔥 SLIP PAYMENT
+            if (slipFiles.length === 0) return toast.error("Please upload your bank slip(s).");
+            
+            setIsSubmitting(true);
+            const formData = new FormData();
+            formData.append('paymentId', payModal.id); 
+            if (remark) formData.append('remark', remark);
+
+            slipFiles.forEach(file => {
+                formData.append('slipImages', file);
+            });
+
+            try {
+                await axios.post('/student/upload-due-slip', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
+                toast.success("Slip uploaded successfully! Awaiting verification.");
+                setPayModal(null);
+                setSlipFiles([]);
+                setRemark('');
+                await fetchPayments();
+            } catch (error) {
+                toast.error("Failed to upload slip. Try again.");
+            } finally {
+                setIsSubmitting(false);
+            }
         }
     };
 
@@ -230,13 +323,13 @@ export default function PaymentHistory() {
                 <div className="fixed inset-0 z-[9999] bg-[#0a0f1c]/95 backdrop-blur-md overflow-y-auto custom-scrollbar">
                     <div className="flex min-h-full items-start justify-center p-4 py-12">
                         <div className="bg-[#15192b] border border-white/10 rounded-[2rem] w-full max-w-md p-6 md:p-8 relative shadow-2xl animate-in zoom-in-95 duration-200 my-auto">
-                            <button onClick={() => {setPayModal(null); setSlipFiles([]); setRemark('');}} className="absolute top-5 right-5 text-white/50 hover:text-white bg-white/5 hover:bg-white/10 p-2.5 rounded-xl transition-all border border-transparent hover:border-red-500/30">
+                            <button onClick={() => {setPayModal(null); setSlipFiles([]); setRemark(''); setPaymentMethod('slip');}} className="absolute top-5 right-5 text-white/50 hover:text-white bg-white/5 hover:bg-white/10 p-2.5 rounded-xl transition-all border border-transparent hover:border-red-500/30">
                                 <X size={20} strokeWidth={3} />
                             </button>
                             
                             <div className="mb-6 border-b border-white/5 pb-6">
                                 <h3 className="text-xl md:text-2xl font-black text-white">Submit Payment</h3>
-                                <p className="text-xs text-slate-400 mt-2 font-medium">Upload your receipt for verification.</p>
+                                <p className="text-xs text-slate-400 mt-2 font-medium">Select a payment option and complete your transaction.</p>
                             </div>
                             
                             <div className="bg-black/40 border border-white/5 rounded-2xl p-5 text-center mb-6 shadow-inner">
@@ -245,37 +338,72 @@ export default function PaymentHistory() {
                                 <p className="text-xs font-bold text-white mt-2">{payModal.courseName}</p>
                             </div>
 
+                            {/* Payment Method Selector Tabs */}
+                            <div className="flex gap-2 bg-black/30 p-1 rounded-2xl border border-white/10 mb-6 shrink-0">
+                                <button
+                                    type="button"
+                                    onClick={() => setPaymentMethod('slip')}
+                                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors ${paymentMethod === 'slip' ? 'bg-white/20 text-white border border-white/10 shadow' : 'text-white/40 hover:text-white/80'}`}
+                                >
+                                    Bank Slip
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPaymentMethod('payhere')}
+                                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors ${paymentMethod === 'payhere' ? 'bg-white/20 text-white border border-white/10 shadow' : 'text-white/40 hover:text-white/80'}`}
+                                >
+                                    Online / Card
+                                </button>
+                            </div>
+
                             <form onSubmit={handlePayDue}>
-                                <div className="border-2 border-dashed border-white/20 bg-white/5 rounded-[1.5rem] p-6 text-center hover:border-red-500/50 hover:bg-red-500/5 transition-colors cursor-pointer mb-4 group relative" onClick={openSlipInstructions}>
-                                    <div className="absolute top-3 right-3 bg-blue-500 text-white p-1.5 rounded-full"><Info size={14}/></div>
-                                    <input type="file" id="slip-upload-due" className="hidden" multiple accept="image/*,application/pdf" capture="environment" onChange={handleFileChange} />
-                                    <div className="flex flex-col items-center w-full">
-                                        <div className="flex gap-3 mb-3 text-white/30 group-hover:text-red-500 transition-colors">
-                                            <UploadCloud size={32} />
-                                            <Camera size={32} />
+                                {paymentMethod === 'payhere' ? (
+                                    <div className="bg-gradient-to-br from-indigo-600/10 to-purple-600/10 border border-indigo-500/25 rounded-[1.5rem] p-6 text-center mb-6 backdrop-blur-sm">
+                                        <div className="w-16 h-16 mx-auto mb-4 bg-indigo-500/10 rounded-2xl flex items-center justify-center border border-indigo-500/20 text-indigo-400">
+                                            <Wallet size={32} />
                                         </div>
-                                        <span className="text-white font-bold text-sm mb-1">
-                                            {slipFiles.length > 0 ? `${slipFiles.length} File(s) Selected` : 'Click to Upload Slip'}
-                                        </span>
-                                        <span className="text-[10px] text-white/50 font-medium">Max 4 slips. PNG, JPG, PDF</span>
+                                        <h4 className="text-white font-extrabold text-sm mb-1">Pay Instantly with PayHere</h4>
+                                        <p className="text-xs text-white/60 leading-relaxed mb-4">
+                                            We support Visa, MasterCard, AMEX, Frimi, Genie, eZ Cash, mCash, and Internet Banking.
+                                        </p>
+                                        <div className="flex justify-center gap-2 text-[10px] uppercase font-extrabold tracking-widest text-indigo-400 bg-indigo-500/5 py-2 px-4 rounded-xl border border-indigo-500/10 w-max mx-auto">
+                                            <span>Secure Gateway</span>
+                                        </div>
                                     </div>
-                                </div>
-                                
-                                {slipFiles.length > 0 && (
-                                    <div className="mb-4 bg-black/30 p-3 rounded-xl border border-white/5 space-y-1.5">
-                                        {slipFiles.map((file, i) => (
-                                            <div key={i} className="flex justify-between items-center text-xs">
-                                                <div className="flex items-center gap-2 truncate pr-3">
-                                                    <Paperclip size={12} className="text-white/40 shrink-0"/>
-                                                    <span className="text-white truncate">{file.name}</span>
+                                ) : (
+                                    <>
+                                        <div className="border-2 border-dashed border-white/20 bg-white/5 rounded-[1.5rem] p-6 text-center hover:border-red-500/50 hover:bg-red-500/5 transition-colors cursor-pointer mb-4 group relative" onClick={openSlipInstructions}>
+                                            <div className="absolute top-3 right-3 bg-blue-500 text-white p-1.5 rounded-full"><Info size={14}/></div>
+                                            <input type="file" id="slip-upload-due" className="hidden" multiple accept="image/*,application/pdf" capture="environment" onChange={handleFileChange} />
+                                            <div className="flex flex-col items-center w-full">
+                                                <div className="flex gap-3 mb-3 text-white/30 group-hover:text-red-500 transition-colors">
+                                                    <UploadCloud size={32} />
+                                                    <Camera size={32} />
                                                 </div>
-                                                <div className="flex items-center gap-3 shrink-0">
-                                                    <span className="text-white/40">{(file.size / 1024 / 1024).toFixed(1)}MB</span>
-                                                    <button type="button" onClick={() => removeFile(i)} className="text-red-400 hover:text-red-300"><X size={14}/></button>
-                                                </div>
+                                                <span className="text-white font-bold text-sm mb-1">
+                                                    {slipFiles.length > 0 ? `${slipFiles.length} File(s) Selected` : 'Click to Upload Slip'}
+                                                </span>
+                                                <span className="text-[10px] text-white/50 font-medium">Max 4 slips. PNG, JPG, PDF</span>
                                             </div>
-                                        ))}
-                                    </div>
+                                        </div>
+                                        
+                                        {slipFiles.length > 0 && (
+                                            <div className="mb-4 bg-black/30 p-3 rounded-xl border border-white/5 space-y-1.5">
+                                                {slipFiles.map((file, i) => (
+                                                    <div key={i} className="flex justify-between items-center text-xs">
+                                                        <div className="flex items-center gap-2 truncate pr-3">
+                                                            <Paperclip size={12} className="text-white/40 shrink-0"/>
+                                                            <span className="text-white truncate">{file.name}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-3 shrink-0">
+                                                            <span className="text-white/40">{(file.size / 1024 / 1024).toFixed(1)}MB</span>
+                                                            <button type="button" onClick={() => removeFile(i)} className="text-red-400 hover:text-red-300"><X size={14}/></button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </>
                                 )}
 
                                 <div className="mb-6">
@@ -283,9 +411,9 @@ export default function PaymentHistory() {
                                     <textarea value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="Type any message..." rows="2" className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs text-white outline-none focus:border-red-500 transition-colors resize-none"></textarea>
                                 </div>
                                 
-                                <button type="submit" disabled={isSubmitting || slipFiles.length === 0} className="w-full bg-gradient-to-r from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 disabled:opacity-50 text-white font-black py-4 rounded-xl transition-all flex items-center justify-center gap-2 text-xs uppercase tracking-widest border border-red-500/50 shadow-lg">
+                                <button type="submit" disabled={isSubmitting || (paymentMethod === 'slip' && slipFiles.length === 0)} className={`w-full bg-gradient-to-r ${paymentMethod === 'payhere' ? 'from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 border-indigo-500/50 shadow-indigo-500/20' : 'from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 border-red-500/50 shadow-red-500/20'} disabled:opacity-50 text-white font-black py-4 rounded-xl transition-all flex items-center justify-center gap-2 text-xs uppercase tracking-widest border shadow-lg`}>
                                     {isSubmitting ? <Loader2 size={18} className="animate-spin"/> : <CheckCircle size={18}/>} 
-                                    Submit Payment
+                                    {paymentMethod === 'payhere' ? 'Pay Securely' : 'Submit Payment'}
                                 </button>
                             </form>
                         </div>

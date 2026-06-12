@@ -1,9 +1,21 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
+// Helper: Get all active staff IDs (No strict business filtering to prevent breaking cross-business assignments)
+const getActiveStaffIds = async (businessId, batchId) => {
+    const businessStaff = await prisma.user.findMany({
+        where: {
+            role: { notIn: ['Student', 'USER', 'STUDENT'] }
+        }
+    });
+
+    const activeStaffIds = new Set(businessStaff.map(u => u.id));
+    return activeStaffIds;
+};
+
 // Helper: Get verified student phone numbers (last 9 digits) for a business/batch
 const getVerifiedPhones = async (businessId, batchId) => {
-    const paymentWhere = { status: { in: [1, 4] } }; 
+    const paymentWhere = { status: { in: [1, 4] } };
     if (batchId && batchId !== 'ALL') {
         paymentWhere.batchId = parseInt(batchId);
     } else if (businessId && businessId !== 'ALL') {
@@ -70,27 +82,64 @@ const getVerifiedPhones = async (businessId, batchId) => {
     });
 
     const verifiedPhones = new Set();
+    const phoneSuffixToStudentId = {};
     verifiedPayments.forEach(p => {
         if (p.student) {
             const relatedSuffixes = studentIdToRelatedPhonesMap[p.student.id] || new Set();
-            relatedSuffixes.forEach(suffix => verifiedPhones.add(suffix));
+            relatedSuffixes.forEach(suffix => {
+                verifiedPhones.add(suffix);
+                phoneSuffixToStudentId[suffix] = p.student.id;
+            });
         }
     });
 
+    verifiedPhones.studentIdMap = phoneSuffixToStudentId;
     return verifiedPhones;
 };
 
+
+// 🔥 Helper: Get primary enrolled lead IDs to prevent duplicates across campaigns 🔥
+const getPrimaryEnrolledLeadIds = async (businessId, batchId, verifiedPhones) => {
+    const whereClause = buildStatsWhereClause(businessId, batchId, null, null, { campaignType: 'AFTER_SEMINAR' });
+    const allLeads = await prisma.lead.findMany({
+        where: whereClause,
+        select: { id: true, phone: true, createdAt: true }
+    });
+
+    const phoneSuffixToStudentId = verifiedPhones.studentIdMap || {};
+    const studentToLeads = {};
+    allLeads.forEach(l => {
+        const cleanPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
+        if (cleanPhone.length >= 7 && verifiedPhones.has(cleanPhone.slice(-7))) {
+            const studentId = phoneSuffixToStudentId[cleanPhone.slice(-7)];
+            if (studentId) {
+                if (!studentToLeads[studentId]) studentToLeads[studentId] = [];
+                studentToLeads[studentId].push(l);
+            }
+        }
+    });
+
+    const primaryLeadIds = new Set();
+    Object.values(studentToLeads).forEach(group => {
+        group.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)); // Latest lead gets the enrollment
+        primaryLeadIds.add(group[0].id);
+    });
+
+    return primaryLeadIds;
+};
 
 // 🔥 STRICT HELPER: Fixed BIZ_ string format to prevent Business ID bleeding 🔥
 const buildStatsWhereClause = (businessId, batchId, startDate, endDate, baseConditions = {}) => {
     let whereClause = { ...baseConditions };
 
-    if (batchId && batchId !== '' && batchId !== 'ALL') {
+    if (batchId === 'UNASSIGNED') {
+        whereClause.batchId = null;
+    } else if (batchId && batchId !== '' && batchId !== 'ALL') {
         whereClause.batchId = parseInt(batchId);
     } else if (businessId && businessId !== '' && businessId !== 'ALL') {
         whereClause.OR = [
-            { phone: { endsWith: `_BIZ_${businessId}` } },         
-            { phone: { endsWith: `_BIZ_${businessId}_AS` } },      
+            { phone: { endsWith: `_BIZ_${businessId}` } },
+            { phone: { endsWith: `_BIZ_${businessId}_AS` } },
             { phone: { contains: `_BIZ_${businessId}_BATCH_` } },
             // 🔥 මේ කෑලි දෙක තමා Manager Stats වලට අඩු වෙලා තිබ්බේ! 🔥
             { phone: { contains: `_BIZ_${businessId}_ROUND_` } },
@@ -118,7 +167,7 @@ const buildStatsWhereClause = (businessId, batchId, startDate, endDate, baseCond
 // ==========================================
 exports.getManagerDashboardStats = async (req, res) => {
     try {
-        const { businessId, batchId, startDate, endDate } = req.query; 
+        const { businessId, batchId, startDate, endDate } = req.query;
 
         let courseWhere = {};
         if (batchId && batchId !== 'ALL') {
@@ -130,15 +179,22 @@ exports.getManagerDashboardStats = async (req, res) => {
             courseWhere.groupId = { in: bizGroups.map(g => g.id) };
         }
 
+        const activeStaffIds = await getActiveStaffIds(businessId, batchId);
         const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, { campaignType: 'AFTER_SEMINAR' });
+
+        // 🔥 Exclude cold bridge transfer leads from campaign overview statistics 🔥
+        whereClause.NOT = {
+            source: 'bridge_transfer',
+            lastMessage: null
+        };
 
         const leads = await prisma.lead.findMany({
             where: whereClause,
-            include: { assignedUser: { select: { firstName: true, lastName: true } } }
+            include: { assignedUser: { select: { firstName: true, lastName: true, businessType: true, role: true } } }
         });
 
         // 🔥 1. PAYMENT VERIFICATION (Get all verified phones first) 🔥
-        const paymentWhere = { status: { in: [1, 4] } }; 
+        const paymentWhere = { status: { in: [1, 4] } };
         if (batchId && batchId !== 'ALL') paymentWhere.batchId = parseInt(batchId);
         else if (businessId && businessId !== 'ALL') paymentWhere.businessId = parseInt(businessId);
 
@@ -274,9 +330,9 @@ exports.getManagerDashboardStats = async (req, res) => {
         for (const l of leads) {
             if (l.source === 'bridge_transfer') stats.bridgeLeads++;
             else if (l.inquiryType === 'NEW_INQ') stats.newInqLeads++;
-            else stats.openSemLeads++; 
+            else stats.openSemLeads++;
 
-            if (l.assignedTo) {
+            if (l.assignedTo && activeStaffIds.has(l.assignedTo)) {
                 stats.assignedLeads++;
                 const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown`;
                 if (!staffMap[staffName]) staffMap[staffName] = 0;
@@ -296,7 +352,7 @@ exports.getManagerDashboardStats = async (req, res) => {
         paymentData.forEach(p => {
             if (!p.studentId) return;
             if (!studentPaymentMap[p.studentId]) studentPaymentMap[p.studentId] = { typeStr: 'MONTHLY', typeValue: 1, subjects: new Set() };
-            
+
             const pType = parseInt(p.payment_type);
             if (pType === 3) { studentPaymentMap[p.studentId].typeStr = 'FULL'; studentPaymentMap[p.studentId].typeValue = 3; }
             else if (pType === 2 && studentPaymentMap[p.studentId].typeValue < 3) { studentPaymentMap[p.studentId].typeStr = 'INSTALLMENT'; studentPaymentMap[p.studentId].typeValue = 2; }
@@ -308,7 +364,7 @@ exports.getManagerDashboardStats = async (req, res) => {
                         const sName = globalCourseMap[parseInt(item.id || item)];
                         if (sName) studentPaymentMap[p.studentId].subjects.add(sName);
                     });
-                } catch(e) {}
+                } catch (e) { }
             }
         });
 
@@ -337,7 +393,7 @@ exports.getManagerDashboardStats = async (req, res) => {
             ...stats,
             staffAllocation: Object.keys(staffMap).map(name => ({ name, assigned: staffMap[name] })),
             subjectEnrollments: Object.values(subjectAggregates),
-            mixerData: realMixerData, 
+            mixerData: realMixerData,
             realEnrollmentTotals: { full: realFullCount, monthly: realMonthlyCount, installment: realInstallCount, total: realTotalEnrolled },
             verifiedStudentsNotInCrm
         });
@@ -354,37 +410,38 @@ exports.getNewInquiryStats = async (req, res) => {
     try {
         const { businessId, batchId, startDate, endDate } = req.query;
 
-        const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, { 
-            campaignType: 'AFTER_SEMINAR', inquiryType: 'NEW_INQ' 
+        const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, {
+            campaignType: 'AFTER_SEMINAR', inquiryType: 'NEW_INQ'
         });
 
         let leads = await prisma.lead.findMany({
             where: whereClause,
-            include: { assignedUser: { select: { firstName: true, lastName: true } } }
+            include: { assignedUser: { select: { firstName: true, lastName: true, businessType: true, role: true } } }
         });
 
         // 🔥 FIX: Bridge Transfers අනිවාර්යයෙන්ම අයින් කරන්න
         leads = leads.filter(l => l.source !== 'bridge_transfer');
 
         const verifiedPhones = await getVerifiedPhones(businessId, batchId);
+        const primaryEnrolledLeadIds = await getPrimaryEnrolledLeadIds(businessId, batchId, verifiedPhones);
+        const activeStaffIds = await getActiveStaffIds(businessId, batchId);
 
         let totalNewInq = leads.length;
-        let totalAssigned = 0; 
-        let totalContacted = 0; 
-        let totalPending = 0; 
-        let totalEnrolled = 0; 
+        let totalAssigned = 0;
+        let totalContacted = 0;
+        let totalPending = 0;
+        let totalEnrolled = 0;
         let totalDelayed = 0;
         let staffMap = {};
-        
+
         const now = new Date();
 
         leads.forEach(l => {
             const isPending = l.callStatus === 'pending' || !l.callStatus;
-            
-            const cleanPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
-            const isReallyEnrolled = cleanPhone.length >= 7 && verifiedPhones.has(cleanPhone.slice(-7));
-            const isEnrolled = isReallyEnrolled;
-            
+
+            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
+            const isEnrolled = isReallyEnrolled || l.enrollmentStatus === 'ENROLLED';
+
             const isContacted = !isPending;
             const round = l.coordinationRound || 1;
 
@@ -400,18 +457,20 @@ exports.getNewInquiryStats = async (req, res) => {
 
             if (isEnrolled) totalEnrolled++;
 
-            if (l.assignedTo) {
+            if (l.assignedTo && activeStaffIds.has(l.assignedTo)) {
                 totalAssigned++;
                 if (isContacted) totalContacted++;
                 if (isPending) totalPending++;
                 if (isDelayed) totalDelayed++;
 
                 const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown Staff`;
-                
+
                 // 🔥 Initialize Staff Object if not exists 🔥
                 if (!staffMap[staffName]) {
-                    staffMap[staffName] = { 
-                        name: staffName, 
+                    staffMap[staffName] = {
+                        name: staffName,
+                        businessType: l.assignedUser?.businessType,
+                        role: l.assignedUser?.role,
                         overall: { assigned: 0, contacted: 0, pending: 0, enrolled: 0, delayed: 0 },
                         rounds: {
                             1: { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] },
@@ -432,7 +491,7 @@ exports.getNewInquiryStats = async (req, res) => {
                 // Prepare Lead Object for Export (Inside the rows)
                 const exportLead = {
                     id: l.id,
-                    phone: l.phone ? l.phone.split('_')[0] : '', 
+                    phone: l.phone ? l.phone.split('_')[0] : '',
                     name: l.name || 'Unknown',
                     phase: l.phase || 1,
                     status: l.callStatus || 'pending',
@@ -474,8 +533,8 @@ exports.getNewInquiryStats = async (req, res) => {
             remark: l.feedback || 'No Remark'
         }));
 
-        res.status(200).json({ 
-            totalNewInq, totalAssigned, totalContacted, totalPending, totalEnrolled, totalDelayed, 
+        res.status(200).json({
+            totalNewInq, totalAssigned, totalContacted, totalPending, totalEnrolled, totalDelayed,
             staffBreakdown: Object.values(staffMap),
             rawLeads: rawLeadsForExport
         });
@@ -493,37 +552,38 @@ exports.getOpenSeminarStats = async (req, res) => {
         const { businessId, batchId, startDate, endDate } = req.query;
 
         // 🔥 FIX: Reverted to purely OPEN_SEMINAR and NORMAL. 
-        const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, { 
-            campaignType: 'AFTER_SEMINAR', inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL'] } 
+        const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, {
+            campaignType: 'AFTER_SEMINAR', inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL'] }
         });
 
         let leads = await prisma.lead.findMany({
             where: whereClause,
-            include: { assignedUser: { select: { firstName: true, lastName: true } } }
+            include: { assignedUser: { select: { firstName: true, lastName: true, businessType: true, role: true } } }
         });
 
         // Bridge Transfers අනිවාර්යයෙන්ම අයින් කරන්න
         leads = leads.filter(l => l.source !== 'bridge_transfer');
 
         const verifiedPhones = await getVerifiedPhones(businessId, batchId);
+        const primaryEnrolledLeadIds = await getPrimaryEnrolledLeadIds(businessId, batchId, verifiedPhones);
+        const activeStaffIds = await getActiveStaffIds(businessId, batchId);
 
         let totalOpenSem = leads.length;
-        let totalAssigned = 0; 
-        let totalContacted = 0; 
-        let totalPending = 0; 
-        let totalEnrolled = 0; 
+        let totalAssigned = 0;
+        let totalContacted = 0;
+        let totalPending = 0;
+        let totalEnrolled = 0;
         let totalDelayed = 0;
         let staffMap = {};
-        
+
         const now = new Date();
 
         leads.forEach(l => {
             const isPending = l.callStatus === 'pending' || !l.callStatus;
-            
-            const cleanPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
-            const isReallyEnrolled = cleanPhone.length >= 7 && verifiedPhones.has(cleanPhone.slice(-7));
-            const isEnrolled = isReallyEnrolled;
-            
+
+            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
+            const isEnrolled = isReallyEnrolled || l.enrollmentStatus === 'ENROLLED';
+
             const isContacted = !isPending;
             const round = l.coordinationRound || 1;
 
@@ -538,23 +598,25 @@ exports.getOpenSeminarStats = async (req, res) => {
 
             if (isEnrolled) totalEnrolled++;
 
-            if (l.assignedTo) {
+            if (l.assignedTo && activeStaffIds.has(l.assignedTo)) {
                 totalAssigned++;
                 if (isContacted) totalContacted++;
                 if (isPending) totalPending++;
                 if (isDelayed) totalDelayed++;
 
                 const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown Staff`;
-                
+
                 // Initialize Staff Object if not exists
                 if (!staffMap[staffName]) {
-                    staffMap[staffName] = { 
-                        name: staffName, 
+                    staffMap[staffName] = {
+                        name: staffName,
+                        businessType: l.assignedUser?.businessType,
+                        role: l.assignedUser?.role,
                         overall: { assigned: 0, contacted: 0, pending: 0, enrolled: 0, delayed: 0 },
                         rounds: {
                             1: { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] },
                             2: { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] },
-                            3: { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] },
+                            NON_ENROLLED: { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] },
                             PAID: { assigned: 0, contacted: 0, pending: 0, leads: [] }
                         }
                     };
@@ -584,7 +646,13 @@ exports.getOpenSeminarStats = async (req, res) => {
                     if (isContacted) staffMap[staffName].rounds.PAID.contacted++;
                     if (isPending) staffMap[staffName].rounds.PAID.pending++;
                     staffMap[staffName].rounds.PAID.leads.push(exportLead);
-                } else if (round <= 3) {
+                } else if (l.inquiryType === 'NORMAL') {
+                    staffMap[staffName].rounds.NON_ENROLLED.assigned++;
+                    if (isContacted) staffMap[staffName].rounds.NON_ENROLLED.contacted++;
+                    if (isPending) staffMap[staffName].rounds.NON_ENROLLED.pending++;
+                    if (isDelayed) staffMap[staffName].rounds.NON_ENROLLED.delayed++;
+                    staffMap[staffName].rounds.NON_ENROLLED.leads.push(exportLead);
+                } else if (round <= 2) {
                     staffMap[staffName].rounds[round].assigned++;
                     if (isContacted) staffMap[staffName].rounds[round].contacted++;
                     if (isPending) staffMap[staffName].rounds[round].pending++;
@@ -608,8 +676,8 @@ exports.getOpenSeminarStats = async (req, res) => {
             remark: l.feedback || 'No Remark'
         }));
 
-        res.status(200).json({ 
-            totalOpenSem, totalAssigned, totalContacted, totalPending, totalEnrolled, totalDelayed, 
+        res.status(200).json({
+            totalOpenSem, totalAssigned, totalContacted, totalPending, totalEnrolled, totalDelayed,
             staffBreakdown: Object.values(staffMap),
             rawLeads: rawLeadsForExport // 🔥 Export එකට මේක අත්‍යවශ්‍යයි
         });
@@ -626,13 +694,13 @@ exports.getBridgePerformanceStats = async (req, res) => {
     try {
         const { businessId, batchId, startDate, endDate } = req.query;
 
-        const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, { 
-            campaignType: 'AFTER_SEMINAR', source: 'bridge_transfer' 
+        const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, {
+            campaignType: 'AFTER_SEMINAR', source: 'bridge_transfer'
         });
 
         const leads = await prisma.lead.findMany({
             where: whereClause,
-            include: { assignedUser: { select: { firstName: true, lastName: true } } }
+            include: { assignedUser: { select: { firstName: true, lastName: true, businessType: true, role: true } } }
         });
 
         // 🔥 ALUTH KALLA: Lamai ewapu messages (inbound) thiyena leads count karanawa 🔥
@@ -642,16 +710,18 @@ exports.getBridgePerformanceStats = async (req, res) => {
         if (leadIds.length > 0) {
             const inboundMsgCounts = await prisma.chatMessage.groupBy({
                 by: ['leadId'],
-                where: { 
-                    leadId: { in: leadIds }, 
+                where: {
+                    leadId: { in: leadIds },
                     direction: 'inbound' // Lamaya ewapu messages pamanai
                 }
             });
             // Me leads set eke lamai kidenek message karalada kiyala gannawa
-            totalReplied = inboundMsgCounts.length; 
+            totalReplied = inboundMsgCounts.length;
         }
 
         const verifiedPhones = await getVerifiedPhones(businessId, batchId);
+        const primaryEnrolledLeadIds = await getPrimaryEnrolledLeadIds(businessId, batchId, verifiedPhones);
+        const activeStaffIds = await getActiveStaffIds(businessId, batchId);
 
         let totalTransferred = leads.length;
         let totalContacted = 0; let totalPending = 0; let totalEnrolled = 0;
@@ -659,21 +729,20 @@ exports.getBridgePerformanceStats = async (req, res) => {
 
         leads.forEach(l => {
             const isPending = l.callStatus === 'pending' || !l.callStatus;
-            
-            const cleanPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
-            const isReallyEnrolled = cleanPhone.length >= 7 && verifiedPhones.has(cleanPhone.slice(-7));
-            const isEnrolled = isReallyEnrolled;
-            
+
+            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
+            const isEnrolled = isReallyEnrolled || l.enrollmentStatus === 'ENROLLED';
+
             const isContacted = !isPending;
 
             if (isContacted) totalContacted++;
             if (isPending) totalPending++;
             if (isEnrolled) totalEnrolled++;
 
-            if (l.assignedTo) {
+            if (l.assignedTo && activeStaffIds.has(l.assignedTo)) {
                 const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown`;
                 if (!staffMap[staffName]) {
-                    staffMap[staffName] = { name: staffName, assigned: 0, contacted: 0, pending: 0, enrolled: 0 };
+                    staffMap[staffName] = { name: staffName, businessType: l.assignedUser?.businessType, role: l.assignedUser?.role, assigned: 0, contacted: 0, pending: 0, enrolled: 0 };
                 }
                 staffMap[staffName].assigned++;
                 if (isContacted) staffMap[staffName].contacted++;
@@ -682,10 +751,10 @@ exports.getBridgePerformanceStats = async (req, res) => {
             }
         });
 
-        res.status(200).json({ 
-            totalTransferred, totalContacted, totalPending, totalEnrolled, 
+        res.status(200).json({
+            totalTransferred, totalContacted, totalPending, totalEnrolled,
             totalReplied, // 🔥 Frontend ekata aluth stat eka yawanawa
-            staffBreakdown: Object.values(staffMap) 
+            staffBreakdown: Object.values(staffMap)
         });
     } catch (error) {
         console.error("Bridge Stats Error:", error);
@@ -700,16 +769,17 @@ exports.getPaidCampaignStats = async (req, res) => {
     try {
         const { businessId, batchId, startDate, endDate } = req.query;
 
-        const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, { 
-            campaignType: 'AFTER_SEMINAR', enrollmentStatus: 'ENROLLED' 
+        const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, {
+            campaignType: 'AFTER_SEMINAR', inquiryType: 'PAID_CAMP', enrollmentStatus: 'ENROLLED'
         });
 
         const leads = await prisma.lead.findMany({
             where: whereClause,
-            include: { assignedUser: { select: { firstName: true, lastName: true } } }
+            include: { assignedUser: { select: { firstName: true, lastName: true, businessType: true, role: true } } }
         });
 
         const verifiedPhones = await getVerifiedPhones(businessId, batchId);
+        const activeStaffIds = await getActiveStaffIds(businessId, batchId);
 
         const activeLeads = leads.filter(l => {
             if (!l.phone) return false;
@@ -728,10 +798,10 @@ exports.getPaidCampaignStats = async (req, res) => {
             if (isContacted) totalContacted++;
             if (isPending) totalPending++;
 
-            if (l.assignedTo) {
+            if (l.assignedTo && activeStaffIds.has(l.assignedTo)) {
                 const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown Staff`;
                 if (!staffMap[staffName]) {
-                    staffMap[staffName] = { name: staffName, assigned: 0, contacted: 0, pending: 0 };
+                    staffMap[staffName] = { name: staffName, businessType: l.assignedUser?.businessType, assigned: 0, contacted: 0, pending: 0 };
                 }
                 staffMap[staffName].assigned++;
                 if (isContacted) staffMap[staffName].contacted++;
@@ -739,9 +809,9 @@ exports.getPaidCampaignStats = async (req, res) => {
             }
         });
 
-        res.status(200).json({ 
-            totalPaidLeads, totalContacted, totalPending, 
-            staffBreakdown: Object.values(staffMap) 
+        res.status(200).json({
+            totalPaidLeads, totalContacted, totalPending,
+            staffBreakdown: Object.values(staffMap)
         });
     } catch (error) {
         console.error("Paid Campaign Stats Error:", error);
@@ -756,8 +826,8 @@ exports.getMasterDirectory = async (req, res) => {
     try {
         const { businessId } = req.query;
 
-        const whereClause = buildStatsWhereClause(businessId, null, null, null, { 
-            campaignType: 'AFTER_SEMINAR' 
+        const whereClause = buildStatsWhereClause(businessId, null, null, null, {
+            campaignType: 'AFTER_SEMINAR'
         });
 
         const leads = await prisma.lead.findMany({
@@ -767,7 +837,7 @@ exports.getMasterDirectory = async (req, res) => {
         });
 
         // 🏦 1. Fetch all verified payments (status: 1 or 4)
-        const paymentWhere = { status: { in: [1, 4] } }; 
+        const paymentWhere = { status: { in: [1, 4] } };
         if (businessId && businessId !== 'ALL') {
             paymentWhere.businessId = parseInt(businessId);
         }
@@ -922,16 +992,16 @@ exports.transferB2BLeads = async (req, res) => {
 
         const updatePromises = leads.map(lead => {
             let newPhone = lead.phone;
-            
-            newPhone = newPhone.replace(/_BIZ_\d+(_[A-Z0-9_]+)?/g, ''); 
+
+            newPhone = newPhone.replace(/_BIZ_\d+(_[A-Z0-9_]+)?/g, '');
             newPhone = `${newPhone}_BIZ_${targetBusinessId}`;
 
             // System Message + Custom Message
             const systemRemark = `[B2B_LOG] FROM:${sourceBusinessId || '0'} TO:${targetBusinessId} DATE:${timestamp}\n[B2B TRANSFER]: Auto-transferred from Business Unit ${sourceBusinessId || 'Unknown'} to ${targetBusinessId}`;
             const userRemark = transferRemark ? `\n[TRANSFER NOTE]: ${transferRemark}` : '';
-            
-            const newFeedback = lead.feedback 
-                ? `${lead.feedback}\n\n${systemRemark}${userRemark}` 
+
+            const newFeedback = lead.feedback
+                ? `${lead.feedback}\n\n${systemRemark}${userRemark}`
                 : `${systemRemark}${userRemark}`;
 
             let dataToUpdate = {
@@ -973,7 +1043,7 @@ exports.getB2BTransferHistory = async (req, res) => {
 
         transferLeads.forEach(lead => {
             const lines = lead.feedback.split('\n');
-            
+
             // අන්තිමට දාපු Remark එක ගන්නවා
             let currentNote = "";
             const noteMatches = lead.feedback.match(/\[TRANSFER NOTE\]:\s*(.*)/g);
@@ -1023,5 +1093,103 @@ exports.getB2BTransferHistory = async (req, res) => {
     } catch (error) {
         console.error("B2B History Error:", error);
         res.status(500).json({ error: "Failed to load transfer history" });
+    }
+};
+
+// ==========================================
+// 8. COORDINATOR PROGRESS SHEET API
+// ==========================================
+exports.getCoordinatorProgressSheetStats = async (req, res) => {
+    try {
+        const { businessId, batchId, startDate, endDate } = req.query;
+
+        // Fetch leads using the existing filter builder
+        const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, {
+            campaignType: 'AFTER_SEMINAR'
+        });
+
+        // Bridge Transfers should be excluded from performance tracking to maintain accuracy
+        whereClause.NOT = {
+            source: 'bridge_transfer',
+            lastMessage: null
+        };
+
+        const leads = await prisma.lead.findMany({
+            where: whereClause,
+            include: { assignedUser: { select: { firstName: true, lastName: true, businessType: true, role: true } } }
+        });
+
+        const activeStaffIds = await getActiveStaffIds(businessId, batchId);
+        let coordinatorMap = {};
+
+        leads.forEach(l => {
+            // Only aggregate if lead is assigned to active staff
+            if (l.assignedTo && activeStaffIds.has(l.assignedTo)) {
+                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown`;
+
+                if (!coordinatorMap[staffName]) {
+                    coordinatorMap[staffName] = {
+                        name: staffName,
+                        totalAssigned: 0,
+                        openSem: { total: 0, pending: 0, covered: 0, rounds: {} },
+                        newInq: { total: 0, pending: 0, covered: 0 },
+                        paid: { total: 0, pending: 0, covered: 0 }
+                    };
+                }
+
+                const staffStats = coordinatorMap[staffName];
+                staffStats.totalAssigned++;
+
+                const isPending = l.callStatus === 'pending' || !l.callStatus;
+
+                if (l.inquiryType === 'NEW_INQ') {
+                    staffStats.newInq.total++;
+                    if (isPending) staffStats.newInq.pending++;
+                    else staffStats.newInq.covered++;
+                } else if (l.inquiryType === 'PAID_CAMP') {
+                    staffStats.paid.total++;
+                    if (isPending) staffStats.paid.pending++;
+                    else staffStats.paid.covered++;
+                } else {
+                    // Treat everything else (like OPEN_SEMINAR, NORMAL) as Open Seminar
+                    staffStats.openSem.total++;
+                    if (isPending) staffStats.openSem.pending++;
+                    else staffStats.openSem.covered++;
+
+                    // Breakdown by round
+                    const round = l.coordinationRound || 1;
+                    if (!staffStats.openSem.rounds[round]) {
+                        staffStats.openSem.rounds[round] = { total: 0, pending: 0, covered: 0 };
+                    }
+                    staffStats.openSem.rounds[round].total++;
+                    if (isPending) staffStats.openSem.rounds[round].pending++;
+                    else staffStats.openSem.rounds[round].covered++;
+                }
+            }
+        });
+
+        // Prepare raw leads for Export Data Sheet
+        const rawLeadsForExport = leads.map(l => ({
+            id: l.id,
+            coordinatorName: l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : 'Unassigned',
+            phone: l.phone ? l.phone.split('_')[0] : '', // Clean Phone
+            name: l.name || 'Unknown',
+            inquiryType: l.inquiryType || 'OPEN_SEMINAR',
+            round: l.coordinationRound || 1,
+            phase: l.phase || 1,
+            callStatus: l.callStatus || 'pending',
+            enrollmentStatus: l.enrollmentStatus || 'NON_ENROLLED',
+            paymentPlan: l.paymentIntention || 'NOT_DECIDED',
+            remark: l.feedback || 'No Remark'
+        }));
+
+        res.status(200).json({
+            coordinators: Object.values(coordinatorMap),
+            rawLeads: rawLeadsForExport
+        });
+
+    } catch (error) {
+        console.error("Coordinator Progress Stats Error:", error);
+        res.status(500).json({ error: "Failed to fetch coordinator progress stats" });
     }
 };

@@ -230,8 +230,8 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
                         const currentRemark = drafts[lead.id] !== undefined ? drafts[lead.id] : (lead.feedback || '');
                         const isPending = lead.callStatus === 'pending' || !lead.callStatus;
                         
-                        const currentLeadDate = new Date(lead.updatedAt || lead.createdAt).toLocaleDateString('en-CA');
-                        const prevLeadDate = index > 0 ? new Date(paginatedLeads[index - 1].updatedAt || paginatedLeads[index - 1].createdAt).toLocaleDateString('en-CA') : null;
+                        const currentLeadDate = new Date(lead.roundProgress?.[0]?.updatedAt || lead.updatedAt || lead.createdAt).toLocaleDateString('en-CA');
+                        const prevLeadDate = index > 0 ? new Date(paginatedLeads[index - 1].roundProgress?.[0]?.updatedAt || paginatedLeads[index - 1].updatedAt || paginatedLeads[index - 1].createdAt).toLocaleDateString('en-CA') : null;
                         const showDateHeader = currentLeadDate !== prevLeadDate;
 
                         const getDateHeader = (dateStr) => {

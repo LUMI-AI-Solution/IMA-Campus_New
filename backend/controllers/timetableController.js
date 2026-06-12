@@ -30,6 +30,7 @@ exports.getSchedule = async (req, res) => {
                     lte: endDate,
                 }
             },
+            include: { hall: true },
             orderBy: { startTime: 'asc' }
         });
         res.status(200).json(schedule);
@@ -41,6 +42,31 @@ exports.getSchedule = async (req, res) => {
 exports.createSchedule = async (req, res) => {
     try {
         const { businessId, batchId, date, subjectName, title, startTime, endTime, lecturerName, optionalMCQ, optionalPaper } = req.body;
+        
+        const userId = req.user.userId || req.user.id;
+        const userRole = req.user.role;
+        const businessType = req.user.businessType;
+        
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
+        
+        if (!isAdmin) {
+            const allBiz = await prisma.business.findMany();
+            const myBizs = allBiz.filter(biz => {
+                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
+                const matchesBizType = businessType && (
+                    String(biz.id) === String(businessType).trim() ||
+                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
+                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
+                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+                );
+                return isManagerOf || matchesBizType;
+            });
+            const myBizIds = myBizs.map(b => b.id);
+            if (!myBizIds.includes(parseInt(businessId))) {
+                return res.status(403).json({ error: "Access Denied. You cannot schedule classes for this business." });
+            }
+        }
         
         // 100% ක් නිවැරදි ලංකාවේ වෙලාවන් (SLT Timestamps)
         const classDateSLT = parseSLTDate(date, "00:00");
@@ -66,6 +92,7 @@ exports.createSchedule = async (req, res) => {
         
         const defaultTemplates = [
             { taskType: 'LIVE_LINK', isRequired: true, deadlineHours: 1 }, 
+            { taskType: 'TECH_DELIVERABLES', isRequired: true, deadlineHours: 2 }, 
             { taskType: 'RECORDING', isRequired: true, deadlineHours: 24 }, 
             { taskType: 'NOTES', isRequired: true, deadlineHours: 24 }      
         ];
@@ -151,6 +178,34 @@ exports.createSchedule = async (req, res) => {
 
 exports.deleteSchedule = async (req, res) => {
     try {
+        const userId = req.user.userId || req.user.id;
+        const userRole = req.user.role;
+        const businessType = req.user.businessType;
+        
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
+        
+        const scheduleItem = await prisma.timetable.findUnique({ where: { id: parseInt(req.params.id) } });
+        if (!scheduleItem) return res.status(404).json({ error: "Schedule not found" });
+        
+        if (!isAdmin) {
+            const allBiz = await prisma.business.findMany();
+            const myBizs = allBiz.filter(biz => {
+                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
+                const matchesBizType = businessType && (
+                    String(biz.id) === String(businessType).trim() ||
+                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
+                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
+                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+                );
+                return isManagerOf || matchesBizType;
+            });
+            const myBizIds = myBizs.map(b => b.id);
+            if (!myBizIds.includes(scheduleItem.businessId)) {
+                return res.status(403).json({ error: "Access Denied. You cannot delete schedule items for this business." });
+            }
+        }
+
         await prisma.timetable.delete({ where: { id: parseInt(req.params.id) } });
         res.status(200).json({ message: "Class removed from schedule" });
     } catch (error) {

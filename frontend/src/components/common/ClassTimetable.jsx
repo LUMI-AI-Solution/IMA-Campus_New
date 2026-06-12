@@ -6,7 +6,7 @@ import api from '../../api/axios';
 export default function ClassTimetable() {
     const [loading, setLoading] = useState(false);
     const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
-    const userRole = storedUser.role ? storedUser.role.toUpperCase() : 'STAFF';
+    const userRole = storedUser.role ? storedUser.role.toUpperCase().replace(/ /g, '_') : 'STAFF';
 
     // Role Permissions
     const canEdit = userRole === 'SYSTEM_ADMIN' || userRole === 'MANAGER' || userRole === 'ASS_MANAGER';
@@ -45,7 +45,14 @@ export default function ClassTimetable() {
     const fetchInitialData = async () => {
         try {
             const bizRes = await api.get('/admin/businesses'); 
-            setBusinesses(bizRes.data?.businesses || bizRes.data || []);
+            const fetchedBiz = bizRes.data?.businesses || bizRes.data || [];
+            setBusinesses(fetchedBiz);
+            if (fetchedBiz.length === 1) {
+                const bId = fetchedBiz[0].id.toString();
+                setSelectedBiz(bId);
+                const batchRes = await api.get(`/admin/batches/${bId}`);
+                setBatches(batchRes.data?.batches || batchRes.data || []);
+            }
         } catch (e) {
             console.error(e);
         }
@@ -186,14 +193,18 @@ export default function ClassTimetable() {
                 </div>
                 
                 <div className="flex flex-col sm:flex-row gap-4 w-full xl:w-auto bg-gray-50 dark:bg-brand-darkBg p-2 rounded-2xl border border-gray-200 dark:border-brand-darkBorder transition-colors shadow-sm">
-                    <div className="relative flex-1 sm:w-64">
-                        <Building2 size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 transition-colors" />
-                        <select value={selectedBiz} onChange={handleBusinessChange} className="w-full bg-transparent border-none text-sm font-bold text-gray-700 dark:text-white outline-none focus:ring-0 appearance-none pl-11 pr-4 py-3 cursor-pointer transition-colors">
-                            <option value="" className="bg-white dark:bg-brand-darkCard text-gray-700 dark:text-white">-- Select Business --</option>
-                            {businesses.map(b => <option key={b.id} value={b.id} className="bg-white dark:bg-brand-darkCard text-gray-700 dark:text-white">{b.name}</option>)}
-                        </select>
-                    </div>
-                    <div className="hidden sm:block w-px bg-gray-200 dark:bg-brand-darkBorder my-2 transition-colors"></div>
+                    {businesses.length > 1 && (
+                        <>
+                            <div className="relative flex-1 sm:w-64">
+                                <Building2 size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 transition-colors" />
+                                <select value={selectedBiz} onChange={handleBusinessChange} className="w-full bg-transparent border-none text-sm font-bold text-gray-700 dark:text-white outline-none focus:ring-0 appearance-none pl-11 pr-4 py-3 cursor-pointer transition-colors">
+                                    <option value="" className="bg-white dark:bg-brand-darkCard text-gray-700 dark:text-white">-- Select Business --</option>
+                                    {businesses.map(b => <option key={b.id} value={b.id} className="bg-white dark:bg-brand-darkCard text-gray-700 dark:text-white">{b.name}</option>)}
+                                </select>
+                            </div>
+                            <div className="hidden sm:block w-px bg-gray-200 dark:bg-brand-darkBorder my-2 transition-colors"></div>
+                        </>
+                    )}
                     <div className="relative flex-1 sm:w-64">
                         <Layers size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 transition-colors" />
                         <select 
@@ -302,6 +313,29 @@ export default function ClassTimetable() {
                                                 className="bg-gray-50 dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder hover:border-brand-accent/50 dark:hover:border-brand-accent/50 hover:bg-brand-accentLight dark:hover:bg-brand-accentLight p-2 md:p-2.5 rounded-xl cursor-pointer transition-all shadow-sm"
                                             >
                                                 <h4 className="font-bold text-gray-900 dark:text-white text-[10px] md:text-xs truncate leading-tight transition-colors" title={event.subjectName}>{event.subjectName}</h4>
+                                                
+                                                {/* TECH DEPT STATUS BADGES */}
+                                                <div className="flex gap-1 mt-1 flex-wrap">
+                                                    {event.hall ? (
+                                                        <span className="text-[8px] bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 px-1 py-0.5 rounded font-bold uppercase" title="Allocated Hall">
+                                                            {event.hall.name}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[8px] bg-slate-500/10 text-slate-500 border border-slate-500/20 px-1 py-0.5 rounded font-bold uppercase" title="No Hall Assigned">
+                                                            Pending Hall
+                                                        </span>
+                                                    )}
+                                                    {event.deliveryStatus === 'DELIVERED' ? (
+                                                        <span className="text-[8px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-1 py-0.5 rounded font-bold uppercase" title="Deliverables Sent">
+                                                            Link Sent
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1 py-0.5 rounded font-bold uppercase" title="Deliverables Pending">
+                                                            Link Pending
+                                                        </span>
+                                                    )}
+                                                </div>
+
                                                 <div className="flex items-center justify-between mt-1.5 gap-2">
                                                     <span className="text-[9px] md:text-[10px] text-gray-600 dark:text-slate-300 font-semibold flex items-center gap-1 bg-white dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder px-1.5 py-0.5 rounded-md truncate transition-colors">
                                                         <Clock size={10} className="text-brand-accent"/> {event.startTime}
@@ -428,6 +462,35 @@ export default function ClassTimetable() {
                                 <div>
                                     <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-0.5 transition-colors">Time Allocation</p>
                                     <p className="text-base text-gray-900 dark:text-white font-bold transition-colors">{selectedEvent.startTime} — {selectedEvent.endTime}</p>
+                                </div>
+                            </div>
+
+                            {/* TECH DEPT ALLOCATION DETAILS */}
+                            <div className="flex items-start gap-4 transition-colors">
+                                <div className="bg-indigo-50 dark:bg-indigo-500/10 p-2.5 rounded-xl text-indigo-500 border border-indigo-200 dark:border-indigo-500/20 transition-colors"><Building2 size={20} /></div>
+                                <div className="flex-1">
+                                    <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-0.5 transition-colors">Technical Department Status</p>
+                                    <div className="flex gap-2 mt-1">
+                                        {selectedEvent.hall ? (
+                                            <span className="text-xs bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 px-2 py-1 rounded-md font-bold">
+                                                📍 {selectedEvent.hall.name}
+                                            </span>
+                                        ) : (
+                                            <span className="text-xs bg-slate-500/10 text-slate-500 border border-slate-500/20 px-2 py-1 rounded-md font-bold">
+                                                ⏳ Hall Not Assigned
+                                            </span>
+                                        )}
+                                        
+                                        {selectedEvent.deliveryStatus === 'DELIVERED' ? (
+                                            <span className="text-xs bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-1 rounded-md font-bold">
+                                                ✅ Live Link Sent
+                                            </span>
+                                        ) : (
+                                            <span className="text-xs bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-1 rounded-md font-bold">
+                                                ⚠️ Submit Link in Tasks
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 

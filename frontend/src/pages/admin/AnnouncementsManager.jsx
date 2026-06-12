@@ -35,8 +35,17 @@ export default function AnnouncementsManager({ loggedInUser }) {
             
             // 🔥 මේක දාන්න - Currently Active Animation එක ගන්නවා 🔥
             api.get('/admin/settings/app-event').then(res => setActiveAppEvent(res.data.activeEvent)).catch(console.error);
+        } else {
+            api.get('/admin/businesses').then(res => { 
+                const list = res.data?.businesses || res.data?.data || res.data || []; 
+                if (list.length === 1) { 
+                    setPostBizId(String(list[0].id)); 
+                } else { 
+                    setBusinesses(list); 
+                } 
+            });
         }
-    }, [isSystemAdmin]);
+    }, [isSystemAdmin, loggedInUser]);
 
     useEffect(() => {
         if (postBizId === 'all' || !postBizId) { setPostBatches([]); return; }
@@ -146,7 +155,18 @@ export default function AnnouncementsManager({ loggedInUser }) {
                                                 {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                                             </>
                                         ) : (
-                                            <option value={loggedInUser?.businessId || "all"}>My Business Only</option>
+                                            businesses.length > 1 ? (
+                                                <>
+                                                    <option value="all">All My Businesses</option>
+                                                    {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                                                </>
+                                            ) : (
+                                                businesses.length === 1 ? (
+                                                    <option value={businesses[0].id}>{businesses[0].name}</option>
+                                                ) : (
+                                                    <option value="all">My Business Only</option>
+                                                )
+                                            )
                                         )}
                                     </select>
                                 </div>
@@ -185,7 +205,7 @@ export default function AnnouncementsManager({ loggedInUser }) {
                                         <p className="text-gray-400 text-xs line-clamp-2 mb-3">{post.caption}</p>
                                         <div className="flex flex-wrap gap-2">
                                             <span className="text-[10px] font-bold bg-white/5 border border-white/10 text-gray-400 px-2.5 py-1 rounded-md">{new Date(post.created_at).toLocaleDateString()}</span>
-                                            {post.business_id && <span className="text-[10px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/20 px-2.5 py-1 rounded-md">Targeted</span>}
+                                            {post.business_id && <span className="text-[10px] font-bold bg-purple-500/10 text-purple-300 border border-purple-500/20 px-2.5 py-1 rounded-md">Targeted: {post.Business?.name || 'Business'}</span>}
                                         </div>
                                     </div>
                                 </div>

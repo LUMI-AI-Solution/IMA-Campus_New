@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import axios from '../../api/axios'; 
 import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaClock, FaLock, FaUserCheck } from 'react-icons/fa';
 import toast from 'react-hot-toast';
+import CustomSelect from '../common/CustomSelect';
+import BusinessBadge from '../common/BusinessBadge';
 
 export default function ContactSidebar({ activeMode, selectedLead, setSelectedLead, filters }) {
   const rawRole = JSON.parse(localStorage.getItem('user'))?.role || '';
@@ -70,7 +72,8 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                 loggedUserId: currentUserId, 
                 loggedUserRole: rawRole,
                 businessId: isManager ? (filters?.selectedBusiness || '') : '', 
-                batchId: isManager ? (filters?.selectedBatch || '') : ''        
+                batchId: isManager ? (filters?.selectedBatch || '') : '',
+                searchQuery: searchQuery
             }
         });
 
@@ -114,13 +117,12 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
           const bizName = selectedBizObj ? selectedBizObj.name : '';
 
           coords = coords.filter(c => {
-              const cBiz = String(c.businessType || '').toLowerCase().trim();
+              if (!c.businessType) return false;
+              const cBizList = String(c.businessType).toLowerCase().split(',').map(b => b.trim());
               const selBizId = String(filters.selectedBusiness).toLowerCase().trim();
               const selBizName = String(bizName).toLowerCase().trim();
               
-              if (!cBiz) return false;
-
-              return cBiz === selBizId || cBiz === selBizName || String(c.businessId) === String(filters.selectedBusiness);
+              return cBizList.includes(selBizId) || cBizList.some(biz => biz.includes(selBizName)) || String(c.businessId) === String(filters.selectedBusiness);
           });
       }
       
@@ -135,6 +137,15 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
   };
 
   useEffect(() => { fetchCoordinatorsAndQuotas(); }, [filters?.selectedBusiness, filters?.selectedBatch]);
+
+  // 🔥 Debounced search API call 🔥
+  useEffect(() => {
+      const delayDebounceFn = setTimeout(() => {
+          fetchLeads(false); 
+          setCheckedLeads([]);
+      }, 500);
+      return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery]);
 
   useEffect(() => { 
       fetchLeads(true); 
@@ -160,6 +171,7 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
     } catch (e) { toast.error("Action failed"); }
   };
 
+  
   const handleAssignSubmit = async (e, type) => {
     e.preventDefault();
     try {
@@ -224,14 +236,27 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
 
   // 🔥 OPTIMIZED SEARCH 🔥
   const filteredLeads = useMemo(() => {
-      if (!searchQuery) return leads;
-      const q = String(searchQuery).toLowerCase().trim();
-      return leads.filter(lead => {
-          const phoneMatch = lead.phone ? String(lead.phone).toLowerCase().includes(q) : false;
-          const nameMatch = lead.name ? String(lead.name).toLowerCase().includes(q) : false;
-          return phoneMatch || nameMatch;
-      });
-  }, [leads, searchQuery]);
+      let currentLeads = [...leads];
+      if (searchQuery) {
+          const q = String(searchQuery).toLowerCase().trim();
+          currentLeads = currentLeads.filter(lead => {
+              const phoneMatch = lead.phone ? String(lead.phone).toLowerCase().includes(q) : false;
+              const nameMatch = lead.name ? String(lead.name).toLowerCase().includes(q) : false;
+              return phoneMatch || nameMatch;
+          });
+      }
+      
+      if (selectedLead) {
+          const idx = currentLeads.findIndex(l => l.id === selectedLead.id);
+          if (idx > -1) {
+              const [sel] = currentLeads.splice(idx, 1);
+              currentLeads.unshift(sel);
+          } else {
+              currentLeads.unshift(selectedLead);
+          }
+      }
+      return currentLeads;
+  }, [leads, searchQuery, selectedLead]);
 
   // 🔥 LOAD MORE LOGIC 🔥
   const displayedLeads = filteredLeads.slice(0, visibleCount);
@@ -244,24 +269,33 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
   ];
 
   return (
-    <div className="w-[350px] xl:w-[400px] bg-[#1a2430] rounded-2xl flex flex-col overflow-hidden shrink-0 border border-white/10 shadow-xl relative">
+    <div className="w-[380px] xl:w-[440px] bg-[#1a2430] rounded-2xl flex flex-col overflow-hidden shrink-0 border border-white/10 shadow-xl relative">
       {checkedLeads.length > 0 ? (
         <div className="p-4 bg-emerald-900/90 border-b border-emerald-500/50 flex flex-col gap-3">
           <div className="flex justify-between items-center text-white">
             <span className="font-bold">{checkedLeads.length} Selected</span>
             <button onClick={() => setCheckedLeads([])} className="text-white/60 hover:text-white"><FaTimes/></button>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
              <button onClick={handleSelectAll} title="Select All" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaCheckSquare/></button>
              <button onClick={() => handleBulkAction('MARK_READ')} title="Mark Read" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaEnvelopeOpenText/></button>
              <button onClick={() => handleBulkAction('MARK_UNREAD')} title="Mark Unread" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaEnvelope/></button>
              <button onClick={() => handleBulkAction('ASSIGN', currentUserId)} title="Assign To Me" className="p-2 bg-emerald-500/30 hover:bg-emerald-500 rounded-lg text-emerald-200 hover:text-white transition-all"><FaUserCheck/></button>
+
              {isManager && <button onClick={() => handleBulkAction('UNASSIGN')} title="Unassign Leads" className="p-2 bg-red-500/20 hover:bg-red-500 rounded-lg text-red-300 hover:text-white transition-all"><FaUserMinus/></button>}
              {isManager && (
-                <select onChange={(e) => handleBulkAction('ASSIGN', e.target.value)} className="flex-1 bg-white/10 border-none text-white text-xs font-bold rounded-lg p-2 outline-none">
-                  <option value="">Assign To...</option>
-                  {coordinators.map(c => <option key={c.id} value={c.id} className="text-black">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'})</option>)}
-                </select>
+                <CustomSelect 
+                  value=""
+                  onChange={(e) => handleBulkAction('ASSIGN', e.target.value)} 
+                  className="flex-1 min-w-[120px]"
+                  placeholder="Assign To..."
+                  options={[
+                      ...coordinators.map(c => ({
+                          value: c.id, 
+                          label: <div className="flex items-center gap-1.5">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'}) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                      }))
+                  ]}
+                />
              )}
           </div>
         </div>
@@ -300,10 +334,19 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
 
           {activeTab === 'ASSIGNED' && (
             <div className="flex gap-2 mt-4">
-              <select onChange={e=>setStaffFilter(e.target.value)} className="w-1/3 bg-[#0f172a] text-slate-300 text-[10px] font-bold uppercase rounded-lg px-2 py-2 border border-slate-700 outline-none">
-                <option value="">All Staff</option>
-                {coordinators.map(c => <option key={c.id} value={c.id}>{c.firstName}</option>)}
-              </select>
+              <CustomSelect 
+                  value={staffFilter}
+                  onChange={e=>setStaffFilter(e.target.value)} 
+                  className="flex-[1.5]"
+                  placeholder="All Staff"
+                  options={[
+                      { value: '', label: 'All Staff' },
+                      ...coordinators.map(c => ({
+                          value: c.id, 
+                          label: <div className="flex items-center gap-1.5">{c.firstName} <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                      }))
+                  ]}
+              />
               <select onChange={e=>setPhaseFilter(e.target.value)} className="flex-1 bg-[#0f172a] text-slate-300 text-[10px] font-bold uppercase rounded-lg px-2 py-2 border border-slate-700 outline-none">
                 <option value="">Phases</option>
                 <option value="1">Phase 1</option>
@@ -329,7 +372,7 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
             {displayedLeads.map(lead => {
                 
               // 🔥 24-Hour Active Window Logic 🔥
-              const leadTime = new Date(lead.updatedAt || lead.createdAt);
+              const leadTime = new Date(lead.lastMessageAt || lead.updatedAt || lead.createdAt);
               const hoursPassed = (currentTime.getTime() - leadTime.getTime()) / (1000 * 60 * 60);
 
               let overlayClass = 'bg-[#121a24] border-transparent hover:border-white/10'; // Default
@@ -372,7 +415,7 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                           </div>
                           
                           {lead.assignedUser ? (
-                              <span className="text-[10px] text-blue-400 font-semibold mt-0.5">👤 {lead.assignedUser.firstName} {lead.assignedUser.lastName}</span>
+                              <span className="text-[10px] text-blue-400 font-semibold mt-0.5 flex items-center gap-1">👤 {lead.assignedUser.firstName} {lead.assignedUser.lastName} <BusinessBadge businessType={lead.assignedUser.businessType} role={lead.assignedUser.role} /></span>
                           ) : (
                               (!lead.assignedTo && (
                                   <button onClick={(e) => { e.stopPropagation(); handleBulkAction('ASSIGN', currentUserId, [lead.id]); }} className="text-[9px] w-max bg-emerald-600/80 hover:bg-emerald-500 text-white px-2 py-1 rounded shadow-md flex items-center gap-1 transition-all mt-1">
@@ -384,8 +427,8 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                       
                       <div className="flex flex-col items-end shrink-0 ml-2 gap-1.5">
                           <div className="text-right">
-                              <span className="text-[10px] text-emerald-500 font-bold block mb-0.5">{new Date(lead.updatedAt).toLocaleDateString('en-GB')}</span>
-                              <span className="text-[9px] text-slate-500 block">{new Date(lead.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                              <span className="text-[10px] text-emerald-500 font-bold block mb-0.5">{new Date(lead.lastMessageAt || lead.updatedAt).toLocaleDateString('en-GB')}</span>
+                              <span className="text-[9px] text-slate-500 block">{new Date(lead.lastMessageAt || lead.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                           </div>
                       </div>
                     </div>
@@ -438,10 +481,19 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                      </select>
                      <input name="count" type="number" placeholder="Lead Count" required className="bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none" />
                   </div>
-                  <select name="staffId" required className="w-full bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 mb-3 text-xs outline-none">
-                     <option value="">Select Coordinator / Team...</option>
-                     {coordinators.map(c => <option key={c.id} value={c.id}>{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'})</option>)}
-                  </select>
+                  <CustomSelect 
+                      value=""
+                      onChange={() => {}} // Form submission relies on the hidden input
+                      className="w-full mb-3"
+                      placeholder="Select Coordinator / Team..."
+                      options={[
+                          { value: '', label: 'Select Coordinator / Team...' },
+                          ...coordinators.map(c => ({
+                              value: c.id, 
+                              label: <div className="flex items-center gap-1.5">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'}) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                          }))
+                      ]}
+                  />
                   <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-2 rounded-lg text-xs uppercase tracking-widest">Assign Selected Leads</button>
                </form>
 

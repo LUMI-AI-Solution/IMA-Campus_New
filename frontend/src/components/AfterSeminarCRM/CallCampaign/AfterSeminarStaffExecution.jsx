@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from '../../../api/axios';
 import toast from 'react-hot-toast';
 import { Loader2 } from 'lucide-react';
 
 import AfterSeminarOpenSem from './AfterSemOpen/AfterSeminarOpenSem';
 import AfterSeminarNewInq from './AfterSemNew/AfterSeminarNewInq';
-import AfterSeminarPaidCampaign from './AfterSeminarPaidCampaign';
+import AfterSeminarPaidCampaign from './AftersemPaid/AfterSeminarPaidCampaign';
 import BridgeStaffExecution from "./BridgeStaffExecution";
 
 export default function AfterSeminarStaffExecution({ filters, allBatches, setSelectedLead, externalTab, campaignSearchPhone }) {
@@ -13,6 +13,7 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(false);
     const [drafts, setDrafts] = useState({});
+    const activeLoadingTabRef = useRef('OPEN_SEM');
 
     const currentUser = JSON.parse(localStorage.getItem('user'));
     const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN'].includes(currentUser?.role?.toUpperCase().replace(/ /g, '_'));
@@ -22,12 +23,15 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
     }, [externalTab]);
 
     useEffect(() => {
+        activeLoadingTabRef.current = activeTab;
         if (activeTab === 'OPEN_SEM' || activeTab === 'NEW_INQ') {
             fetchRegularLeads();
         }
     }, [filters, activeTab]);
 
     const fetchRegularLeads = async () => {
+        const currentRequestTab = activeTab;
+        activeLoadingTabRef.current = currentRequestTab;
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
@@ -38,9 +42,16 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
                     loggedUserId: currentUser?.id,
                     loggedUserRole: currentUser?.role,
                     businessId: filters?.selectedBusiness || '', 
-                    batchId: filters?.selectedBatch || ''        
+                    batchId: filters?.selectedBatch || '',
+                    inquiryType: currentRequestTab === 'OPEN_SEM' ? 'OPEN_SEMINAR' : 'NEW_INQ',
+                    limit: 1000
                 }
             });
+            
+            // Race condition check: only update if active tab is still the one requested!
+            if (activeLoadingTabRef.current !== currentRequestTab) {
+                return;
+            }
             
             const regularLeads = (res.data.leads || []).filter(l => l.source !== 'bridge_transfer');
             setLeads(regularLeads);
@@ -52,9 +63,13 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
             });
             setDrafts(loadedDrafts);
         } catch (error) {
-            toast.error("Failed to load assigned leads");
+            if (activeLoadingTabRef.current === currentRequestTab) {
+                toast.error("Failed to load assigned leads");
+            }
         }
-        setLoading(false);
+        if (activeLoadingTabRef.current === currentRequestTab) {
+            setLoading(false);
+        }
     };
 
     const handleUpdateLocalLead = (id, field, value) => {

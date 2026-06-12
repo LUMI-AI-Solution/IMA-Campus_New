@@ -3,7 +3,40 @@ const prisma = new PrismaClient();
 
 exports.getBusinesses = async (req, res) => {
     try {
-        const businesses = await prisma.business.findMany();
+        const userId = req.user.userId || req.user.id;
+        const userRole = req.user.role;
+        const businessType = req.user.businessType;
+        
+        const userDepartment = req.user.department ? req.user.department.toUpperCase() : '';
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper) || userDepartment === 'DELIVERY' || userDepartment === 'CALL_CENTER' || userDepartment === 'CALL CENTER';
+        
+        let businesses;
+        if (isAdmin) {
+            businesses = await prisma.business.findMany({
+                orderBy: [
+                    { itemOrder: 'asc' },
+                    { id: 'asc' }
+                ]
+            });
+        } else {
+            const allBiz = await prisma.business.findMany({
+                orderBy: [
+                    { itemOrder: 'asc' },
+                    { id: 'asc' }
+                ]
+            });
+            businesses = allBiz.filter(biz => {
+                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
+                const matchesBizType = businessType && (
+                    String(biz.id) === String(businessType).trim() ||
+                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
+                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
+                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+                );
+                return isManagerOf || matchesBizType;
+            });
+        }
         res.status(200).json(businesses);
     } catch (error) {
         res.status(500).json({ error: "Failed to fetch businesses" });
@@ -110,5 +143,26 @@ exports.assignManagers = async (req, res) => {
     } catch (error) {
         console.error("Manager Assignment Error:", error);
         res.status(500).json({ error: "Failed to assign managers" });
+    }
+};
+
+exports.reorderBusinesses = async (req, res) => {
+    try {
+        const { orders } = req.body;
+        // orders should be an array of { id, itemOrder }
+        
+        await prisma.$transaction(
+            orders.map(order => 
+                prisma.business.update({
+                    where: { id: parseInt(order.id) },
+                    data: { itemOrder: parseInt(order.itemOrder) }
+                })
+            )
+        );
+        
+        res.status(200).json({ message: "Order updated successfully" });
+    } catch (error) {
+        console.error("Reorder Businesses Error:", error);
+        res.status(500).json({ error: "Failed to update business order" });
     }
 };

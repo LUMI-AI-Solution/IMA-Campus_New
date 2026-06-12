@@ -37,6 +37,7 @@ model User {
 
   assignedTasks        Task[]                @relation("AssignedTasks")
   autoAssignedTemplates CustomTaskTemplate[] @relation("AutoAssignedUser")
+  coordinatorDailyLogs CoordinatorDailyLog[]
 
   actionedPayments Payment[] @relation("ActionedPayments")
   walletBalance    Float     @default(0)
@@ -52,6 +53,7 @@ model Business {
   description                      String?
   logo                             String?
   streams                          String?
+  itemOrder                        Int      @default(1)
   isDiscountEnabledForInstallments Int      @default(0)
   head_manager_id                  Int?
   ass_manager_id                   Int?
@@ -231,6 +233,28 @@ model Payment {
   delivery      Delivery?
   excessAmount  Float     @default(0)
   arrearsAmount Float     @default(0)
+
+  // AI Verification fields
+  aiVerified    Boolean   @default(false)
+  aiConfidence  Float?
+  
+  bankTransactions BankTransaction[]
+}
+
+model BankTransaction {
+  id             Int      @id @default(autoincrement())
+  txnDate        DateTime
+  description    String   @db.Text
+  amount         Float
+  balance        Float?
+  isMatched      Boolean  @default(false)
+  statementMonth String?
+  
+  paymentId      Int?
+  payment        Payment? @relation(fields: [paymentId], references: [id])
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }
 
 model CrmSettings {
@@ -285,8 +309,9 @@ model Lead {
   assignedTo   Int?
   assignedUser User? @relation("AssignedLeads", fields: [assignedTo], references: [id])
 
-  lastMessage String? @db.Text
-  unreadCount Int     @default(0)
+  lastMessage   String?   @db.Text
+  lastMessageAt DateTime?
+  unreadCount   Int       @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -318,6 +343,14 @@ model Lead {
   isDropped     Boolean   @default(false)
   
   assignedAt    DateTime?   // 👈 අලුතෙන් එකතු කරන එක මේක විතරයි! (createdAt එකක් මෙතන ආයේ දාන්න එපා, ඒක උඩ තියෙනවා)
+
+  lastAttemptAt     DateTime?
+  nonEnrolledReason String? @db.Text
+
+  isCallCenter            Boolean   @default(false)
+  callCenterStatus        String    @default("pending")
+  callCenterRequestStatus String?   // "REQUESTED", "APPROVED", "REJECTED"
+  callCenterRequestedBy   Int?      // Coordinator User ID
 
   // 🔥 NEW RELATION: To track progress per round independently 🔥
   roundProgress LeadRoundProgress[]
@@ -403,6 +436,16 @@ model BatchMonthlyStats {
   updatedAt DateTime @updatedAt
 }
 
+model Hall {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  isAvailable Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  timetables  Timetable[]
+}
+
 model Timetable {
   id           Int      @id @default(autoincrement())
   businessId   Int
@@ -414,6 +457,14 @@ model Timetable {
   startTime    String
   endTime      String
   lecturerName String?
+  
+  // Technical Department additions
+  hallId       Int?
+  hall         Hall?    @relation(fields: [hallId], references: [id])
+  liveLink     String?  @db.Text
+  techNotes    String?  @db.Text
+  deliveryStatus String @default("PENDING")
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -525,6 +576,7 @@ model Delivery {
   
   holdReason      String?   
   holdRemark      String?   
+  packRemark      String?   
   
   packedAt        DateTime? 
   onTheWayAt      DateTime? 
@@ -564,7 +616,7 @@ model TuteStockHistory {
 model AppSetting {
   id        Int      @id @default(autoincrement())
   key       String   @unique
-  value     String
+  value     String   @db.LongText
   updatedAt DateTime @updatedAt
 }
 
@@ -595,3 +647,57 @@ model StaffRoster {
 
   @@unique([staffId, date]) // එක දවසකට එක Coordinator කෙනෙක්ට තියෙන්න පුළුවන් එක රෙකෝඩ් එකයි
 }
+
+model UpgradePricing {
+  id             Int      @id @default(autoincrement())
+  batchId        Int
+  courseId       Int?
+  planType       String   // "FULL", "INSTALLMENT", or "BUNDLE_DISCOUNT"
+  subjectCount   Int?     // For BUNDLE_DISCOUNT (2, 3)
+  installmentNum Int?     // Installment index (1, 2, 3)
+  amount         Float
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([batchId, courseId, planType, installmentNum, subjectCount], name: "upgrade_pricing_unique_idx")
+}
+
+model SystemTask {
+  id           Int      @id @default(autoincrement())
+  topic        String
+  description  String   @db.Text
+  images       String?  @db.Text // JSON stringified array of filenames
+  status       String   @default("PENDING") // PENDING, RESOLVED
+  remark       String?  @db.Text
+  staffId      Int?
+  staffName    String
+  department   String?
+  businessName String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model ZoomAccount {
+  id           Int      @id @default(autoincrement())
+  name         String
+  accountId    String
+  clientId     String
+  clientSecret String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+model CoordinatorDailyLog {
+  id              Int      @id @default(autoincrement())
+  coordinatorId   Int
+  date            DateTime
+  newInqCalls     Int      @default(0)
+  generalInqCalls Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  coordinator     User     @relation(fields: [coordinatorId], references: [id], onDelete: Cascade)
+
+  @@unique([coordinatorId, date])
+}
+

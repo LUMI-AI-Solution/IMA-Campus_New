@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Check, X as CloseIcon, Clock, ShieldCheck, Wallet, CalendarDays, AlertCircle, Loader2, User, Tag, Gift, FileImage, MessageSquare, Trash2, ChevronLeft, ChevronRight, CreditCard, FileText, CheckCircle2, Truck, Unlock } from 'lucide-react';
+import { Check, X as CloseIcon, Clock, ShieldCheck, Wallet, CalendarDays, AlertCircle, Loader2, User, Tag, Gift, FileImage, MessageSquare, Trash2, ChevronLeft, ChevronRight, CreditCard, FileText, CheckCircle2, Truck, Unlock, Edit3, Search } from 'lucide-react';
 import axios from '../../api/axios';
 import toast from 'react-hot-toast';
 import PaymentFilters from './PaymentFilters';
 import StaffPerformanceModal from './StaffPerformanceModal';
-import ExportReportModal from './ExportReportModal'; 
+import ExportReportModal from './ExportReportModal';
 
 export default function PaymentManagement({ loggedInUser }) {
     const isSystemAdmin = loggedInUser?.role?.toUpperCase() === 'SYSTEM_ADMIN' || loggedInUser?.role?.toUpperCase() === 'DIRECTOR';
@@ -42,8 +42,23 @@ export default function PaymentManagement({ loggedInUser }) {
     const [approveModal, setApproveModal] = useState(null);
     const [actualAmount, setActualAmount] = useState('');
     const [institutePaymentModal, setInstitutePaymentModal] = useState(null);
-    
+
     const [showExportModal, setShowExportModal] = useState(false);
+
+    // 🔥 NEW STATES: For Editing Payment Subjects & Amount 🔥
+    const [allCourses, setAllCourses] = useState([]);
+    const [editModal, setEditModal] = useState(null);
+    const [editSubjectsList, setEditSubjectsList] = useState([]);
+    const [selectedAddSubjectId, setSelectedAddSubjectId] = useState('');
+    const [editAmount, setEditAmount] = useState('');
+    const [savingEdit, setSavingEdit] = useState(false);
+    
+    // 🔥 NEW STATES: For Upgrade & Upcoming Sub-filters 🔥
+    const [upgradeFilter, setUpgradeFilter] = useState('Pending');
+    const [upcomingFilter, setUpcomingFilter] = useState('Pending');
+    
+    const [subjectSearchQuery, setSubjectSearchQuery] = useState('');
+    const [isSubjectDropdownOpen, setIsSubjectDropdownOpen] = useState(false);
 
     const fetchData = async () => {
         setLoading(true);
@@ -53,6 +68,10 @@ export default function PaymentManagement({ loggedInUser }) {
             if (isAdmin) {
                 const bizRes = await axios.get('/admin/businesses');
                 setBusinesses(bizRes.data || []);
+
+                // Fetch all courses
+                const coursesRes = await axios.get('/admin/payments/courses');
+                setAllCourses(coursesRes.data || []);
             }
         } catch (error) {
             toast.error("Failed to load data.");
@@ -120,19 +139,17 @@ export default function PaymentManagement({ loggedInUser }) {
     useEffect(() => {
         setCurrentPage(1);
         setApprovedFilter('All');
+        setUpgradeFilter('Pending');
+        setUpcomingFilter('Pending');
     }, [activeTab, filters]);
 
-    const filteredPayments = payments.filter(p => {
-        let matchesTab = false;
-        if (activeTab === 'Trash') matchesTab = p.status === 'Trash';
-        else if (activeTab === 'Approved') matchesTab = p.status === 'Approved';
-        else matchesTab = p.status === activeTab && p.status !== 'Trash';
-
+    // Helper to check if a payment matches the selected batch/business/search filters (excluding tab filter itself)
+    const matchesFiltersExcludingTab = (p) => {
         const searchVal = filters.search.toLowerCase();
-        const matchesSearch = 
-    p.studentName?.toLowerCase().includes(searchVal) || 
-    p.studentNo?.toLowerCase().includes(searchVal) || 
-    p.phone?.toLowerCase().includes(searchVal);
+        const matchesSearch =
+            p.studentName?.toLowerCase().includes(searchVal) ||
+            p.studentNo?.toLowerCase().includes(searchVal) ||
+            p.phone?.toLowerCase().includes(searchVal);
 
         const pBizId = p.businessId || p.business_id;
         const pBatchId = p.batchId || p.batch_id;
@@ -159,14 +176,95 @@ export default function PaymentManagement({ loggedInUser }) {
             if (filters.dateTo && payDate > new Date(filters.dateTo)) matchesDate = false;
         }
 
-        return matchesTab && matchesSearch && matchesBiz && matchesBatch && matchesGroup && matchesSubject && matchesDate && matchesMethod;
+        return matchesSearch && matchesBiz && matchesBatch && matchesGroup && matchesSubject && matchesDate && matchesMethod;
+    };
+
+    // Calculate dynamic tab counts based on current filters
+    const tabCounts = {
+        Pending: 0,
+        Approved: 0,
+        'Free Card': 0,
+        Discount: 0,
+        Rejected: 0,
+        Adjusted: 0,
+        'Post Pay': 0,
+        'Upgrade Slips': 0,
+        Upcoming: 0,
+        Trash: 0
+    };
+
+    let pendingUpgradeCount = 0;
+    let pendingUpcomingCount = 0;
+
+    payments.forEach(p => {
+        if (!matchesFiltersExcludingTab(p)) return;
+        
+        let mappedTab = p.status;
+        const isUpgrade = p.isUpgrade || (p.remark && p.remark.includes('[UPGRADE]'));
+        const isAdjusted = parseFloat(p.excessAmount || 0) > 0 || parseFloat(p.arrearsAmount || 0) > 0;
+
+        if (p.status === 'Trash') {
+            mappedTab = 'Trash';
+        } else if (isUpgrade) {
+            mappedTab = 'Upgrade Slips';
+            if (p.status === 'Pending') pendingUpgradeCount++;
+        } else if (p.type === 'Installment' || p.status === 'Upcoming') {
+            mappedTab = 'Upcoming';
+            if (p.status === 'Pending' || p.status === 'Upcoming') pendingUpcomingCount++;
+        } else if (p.status === 'Pending') {
+            mappedTab = 'Pending';
+        } else if (isAdjusted && p.status !== 'Rejected') {
+            mappedTab = 'Adjusted';
+        }
+
+        if (tabCounts[mappedTab] !== undefined) {
+            tabCounts[mappedTab]++;
+        }
+    });
+
+    const filteredPayments = payments.filter(p => {
+        if (!matchesFiltersExcludingTab(p)) return false;
+
+        let mappedTab = p.status;
+        const isUpgrade = p.isUpgrade || (p.remark && p.remark.includes('[UPGRADE]'));
+        const isAdjusted = parseFloat(p.excessAmount || 0) > 0 || parseFloat(p.arrearsAmount || 0) > 0;
+
+        if (p.status === 'Trash') {
+            mappedTab = 'Trash';
+        } else if (isUpgrade) {
+            mappedTab = 'Upgrade Slips';
+        } else if (p.type === 'Installment' || p.status === 'Upcoming') {
+            mappedTab = 'Upcoming';
+        } else if (p.status === 'Pending') {
+            mappedTab = 'Pending';
+        } else if (isAdjusted && p.status !== 'Rejected') {
+            mappedTab = 'Adjusted';
+        }
+
+        if (activeTab !== mappedTab) return false;
+
+        // Apply sub-filters for Upgrade and Upcoming
+        if (activeTab === 'Upgrade Slips') {
+            if (upgradeFilter === 'Pending' && p.status !== 'Pending') return false;
+            if (upgradeFilter === 'Approved' && p.status !== 'Approved') return false;
+            if (upgradeFilter === 'Rejected' && p.status !== 'Rejected') return false;
+        }
+
+        if (activeTab === 'Upcoming') {
+            if (upcomingFilter === 'Pending' && p.status !== 'Pending' && p.status !== 'Upcoming') return false;
+            if (upcomingFilter === 'Approved' && p.status !== 'Approved') return false;
+            if (upcomingFilter === 'Rejected' && p.status !== 'Rejected') return false;
+        }
+
+        return true;
     });
 
     const stats = {
-        pending: payments.filter(p => p.status === 'Pending').length,
-        approved: payments.filter(p => p.status === 'Approved').length,
-        freeCards: payments.filter(p => p.status === 'Free Card').length,
-        discounts: payments.filter(p => p.status === 'Discount').length,
+        pending: tabCounts.Pending,
+        approved: tabCounts.Approved,
+        freeCards: tabCounts['Free Card'],
+        discounts: tabCounts.Discount,
+        upgrades: tabCounts['Upgrade Slips']
     };
 
     const groupedAllByStudent = filteredPayments.reduce((acc, pay) => {
@@ -313,27 +411,27 @@ export default function PaymentManagement({ loggedInUser }) {
     };
 
     const handleAction = async (payment, action, isSelfPicked = false) => {
-        let confirmMessage = `Are you sure you want to ${action} this payment?`;
-        if (isSelfPicked) confirmMessage = `Approve and mark as SELF-PICKED (Tute Delivered)?`;
-        if (action === 'SendToDelivery') confirmMessage = `Send this record to Delivery Hub?`;
+        let confirmMessage = `Are you sure you want to ${action} this payment?`;
+        if (isSelfPicked) confirmMessage = `Approve and mark as SELF-PICKED (Tute Delivered)?`;
+        if (action === 'SendToDelivery') confirmMessage = `Send this record to Delivery Hub?`;
 
-        if (!window.confirm(confirmMessage)) return;
+        if (!window.confirm(confirmMessage)) return;
 
-        try {
-            setActioningPaymentId(payment.id);
-            await axios.post('/admin/payments/action', {
-                paymentId: payment.id,
-                action: action,
-                isSelfPicked: isSelfPicked
-            });
-            toast.success(`Action ${action} successful!`);
-            refreshAfterAction(payment.studentId);
-        } catch (error) {
-            toast.error(`Failed to process payment.`);
-        } finally {
-            setActioningPaymentId(null);
-        }
-    };
+        try {
+            setActioningPaymentId(payment.id);
+            await axios.post('/admin/payments/action', {
+                paymentId: payment.id,
+                action: action,
+                isSelfPicked: isSelfPicked
+            });
+            toast.success(`Action ${action} successful!`);
+            refreshAfterAction(payment.studentId);
+        } catch (error) {
+            toast.error(`Failed to process payment.`);
+        } finally {
+            setActioningPaymentId(null);
+        }
+    };
 
     // 👇 MEKEN PALLAHATA THIYENA TIKA THAMAI ALUTHIN DANGATH THE ONA 👇
 
@@ -368,8 +466,8 @@ export default function PaymentManagement({ loggedInUser }) {
                 toast.success(`Payment processed as ${type}!`);
             }
 
-            // Meken thamai PostPay unoth Post Pay tab ekata yanne, nathnam Pending ekata yanne
-            refreshAfterAction(payment.studentId, type === 'PostPay' ? 'Post Pay' : 'Pending');
+            // Meken thamai PostPay unoth Post Pay tab ekata yanne, nathnam inna tab ekema innawa
+            refreshAfterAction(payment.studentId, type === 'PostPay' ? 'Post Pay' : activeTab);
         } catch (error) {
             toast.error("Failed to process action.");
         } finally {
@@ -377,7 +475,7 @@ export default function PaymentManagement({ loggedInUser }) {
         }
     };
 
-    const refreshAfterAction = async (studentId, targetTab = 'Pending') => {
+    const refreshAfterAction = async (studentId, targetTab = activeTab) => {
         const payRes = await axios.get('/admin/payments');
         setPayments(payRes.data || []);
 
@@ -392,17 +490,65 @@ export default function PaymentManagement({ loggedInUser }) {
 
     // 👆 MEKEN UDATA THIYENA TIKA THAMAI ALUTHIN DANGATH THE ONA 👆
 
-    const openAdvancedModal = (type, payment) => {
-        setAdvancedActionModal({ type, payment });
-        setActionRemark('');
-        if (type === 'Discount') {
-            const initialPrices = {};
-            const subsList = payment.subjectsList || payment.subjects || payment.courses || [];
-            subsList.forEach(s => initialPrices[s.id || s.course_id] = s.price || 0);
-            setCustomPrices(initialPrices);
-        }
-    };
+    const openAdvancedModal = (type, payment) => {
+        setAdvancedActionModal({ type, payment });
+        setActionRemark('');
+        if (type === 'Discount') {
+            const initialPrices = {};
+            const subsList = payment.subjectsList || payment.subjects || payment.courses || [];
+            subsList.forEach(s => initialPrices[s.id || s.course_id] = s.price || 0);
+            setCustomPrices(initialPrices);
+        }
+    };
     const handleCustomPriceChange = (id, val) => setCustomPrices(prev => ({ ...prev, [id]: val }));
+
+    const handleOpenEditModal = (pay) => {
+        setEditModal(pay);
+        setEditSubjectsList(pay.subjectsList ? pay.subjectsList.map(s => ({
+            id: parseInt(s.id),
+            name: s.name,
+            code: s.code,
+            price: parseFloat(s.price || 0)
+        })) : []);
+        setEditAmount(pay.amount || 0);
+        setSelectedAddSubjectId('');
+    };
+
+    const handleSavePaymentDetails = async () => {
+        if (!editSubjectsList.length) {
+            return toast.error("Please select at least one subject.");
+        }
+        if (parseFloat(editAmount) < 0 || isNaN(parseFloat(editAmount))) {
+            return toast.error("Amount must be a valid non-negative number.");
+        }
+
+        setSavingEdit(true);
+        const loadToast = toast.loading("Updating payment details...");
+        const subjectIds = editSubjectsList.map(s => s.id);
+        const customPricesMap = {};
+        editSubjectsList.forEach(s => {
+            customPricesMap[s.id] = s.price;
+        });
+
+        try {
+            await axios.post('/admin/payments/update-details', {
+                paymentId: editModal.id,
+                subjects: subjectIds,
+                customPrices: customPricesMap,
+                amount: parseFloat(editAmount)
+            });
+            toast.success("Payment details updated successfully!", { id: loadToast });
+            setEditModal(null);
+            
+            // Refresh payments list
+            const payRes = await axios.get('/admin/payments');
+            setPayments(payRes.data || []);
+        } catch (error) {
+            toast.error("Failed to update payment details.", { id: loadToast });
+        } finally {
+            setSavingEdit(false);
+        }
+    };
 
     const openSlipsInNewTab = (slips, studentName, studentNo, studentPhone) => {
         if (!slips || slips.length === 0) return toast.error("No slips to view.");
@@ -479,7 +625,7 @@ export default function PaymentManagement({ loggedInUser }) {
     const getTabClass = (tabName) => {
         const base = "px-5 py-2.5 rounded-xl font-extrabold text-sm transition-all flex items-center gap-2 whitespace-nowrap border shadow-sm outline-none scale-[0.98] hover:scale-100 duration-200";
         if (activeTab !== tabName) return `${base} bg-white/5 border-white/5 text-slate-400 hover:bg-white/10 hover:text-white hover:border-white/10 hover:shadow-md`;
-        
+
         switch (tabName) {
             case 'Pending': return `${base} bg-emerald-500/10 text-emerald-400 border-emerald-500/30 shadow-[0_0_15px_rgba(16,185,129,0.15)]`;
             case 'Approved': return `${base} bg-blue-500/10 text-blue-400 border-blue-500/30 shadow-[0_0_15px_rgba(59,130,246,0.15)]`;
@@ -487,8 +633,9 @@ export default function PaymentManagement({ loggedInUser }) {
             case 'Discount': return `${base} bg-cyan-500/10 text-cyan-400 border-cyan-500/30 shadow-[0_0_15px_rgba(6,182,212,0.15)]`;
             case 'Rejected': return `${base} bg-red-500/10 text-red-400 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.15)]`;
             case 'Upcoming': return `${base} bg-purple-500/10 text-purple-400 border-purple-500/30 shadow-[0_0_15px_rgba(168,85,247,0.15)]`;
-            case 'Non Paid': return `${base} bg-red-500/10 text-red-400 border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.15)]`;
+            case 'Adjusted': return `${base} bg-teal-500/10 text-teal-400 border-teal-500/30 shadow-[0_0_15px_rgba(20,184,166,0.15)]`; // 🔥 ALUTH Tiyal eka
             case 'Post Pay': return `${base} bg-orange-500/10 text-orange-400 border-orange-500/30 shadow-[0_0_15px_rgba(249,115,22,0.15)]`;
+            case 'Upgrade Slips': return `${base} bg-pink-500/10 text-pink-400 border-pink-500/30 shadow-[0_0_15px_rgba(236,72,153,0.15)]`;
             case 'Trash': return `${base} bg-white/10 text-slate-200 border-white/20 shadow-[0_0_15px_rgba(255,255,255,0.05)]`;
             default: return `${base} bg-white/10 text-white border-white/20`;
         }
@@ -518,26 +665,36 @@ export default function PaymentManagement({ loggedInUser }) {
                     </div>
                 )}
                 {pay.status !== 'Trash' && (
-                    <button onClick={() => handleAction(pay, 'Trash')} className="bg-gray-50 dark:bg-black/40 hover:bg-red-50 dark:hover:bg-red-500/20 text-gray-400 hover:text-red-500 dark:text-slate-400 dark:hover:text-red-400 border border-gray-200 dark:border-white/5 hover:border-red-200 dark:hover:border-red-500/30 p-2.5 rounded-xl transition-all shadow-sm outline-none" title="Move to Trash">
-                        <Trash2 size={16} />
-                    </button>
+                    <>
+                        <button onClick={() => handleOpenEditModal(pay)} className="bg-gray-50 dark:bg-black/40 hover:bg-indigo-50 dark:hover:bg-indigo-500/20 text-gray-400 hover:text-indigo-500 dark:text-slate-400 dark:hover:text-indigo-400 border border-gray-200 dark:border-white/5 hover:border-indigo-200 dark:hover:border-indigo-500/30 p-2.5 rounded-xl transition-all shadow-sm outline-none" title="Edit Subjects / Amount">
+                            <Edit3 size={16} />
+                        </button>
+                        <button onClick={() => handleAction(pay, 'Trash')} className="bg-gray-50 dark:bg-black/40 hover:bg-red-50 dark:hover:bg-red-500/20 text-gray-400 hover:text-red-500 dark:text-slate-400 dark:hover:text-red-400 border border-gray-200 dark:border-white/5 hover:border-red-200 dark:hover:border-red-500/30 p-2.5 rounded-xl transition-all shadow-sm outline-none" title="Move to Trash">
+                            <Trash2 size={16} />
+                        </button>
+                    </>
                 )}
             </div>
 
             <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6 pl-2 pr-12">
                 <div className="flex-1 min-w-0">
                     <p className="text-[11px] text-gray-500 dark:text-slate-400 font-extrabold uppercase tracking-widest mb-1.5">{pay.date}</p>
-                   <h5 className="text-xl font-extrabold text-gray-900 dark:text-white tracking-tight truncate max-w-full">
-    <span className="text-red-500 text-sm bg-red-100 px-2 py-1 rounded mr-2">
-        [ID: {pay.id}]
-    </span>
-    {pay.business} <span className="text-gray-500 dark:text-slate-500 text-sm font-bold ml-2">{pay.batch}</span>
-</h5>
+                    <h5 className="text-xl font-extrabold text-gray-900 dark:text-white tracking-tight truncate max-w-full">
+                        <span className="text-red-500 text-sm bg-red-100 px-2 py-1 rounded mr-2">
+                            [ID: {pay.id}]
+                        </span>
+                        {pay.business} <span className="text-gray-500 dark:text-slate-500 text-sm font-bold ml-2">{pay.batch}</span>
+                    </h5>
                     <div className="flex items-center gap-2 mt-3">
                         <span className="bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-slate-300 text-[10px] px-3 py-1.5 rounded-lg font-extrabold uppercase tracking-widest border border-gray-200 dark:border-white/10">{pay.type}</span>
                         {pay.type === 'Installment' && (
                             <span className="bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 text-[10px] px-3 py-1.5 rounded-lg font-extrabold uppercase tracking-widest border border-purple-200 dark:border-purple-500/20">
                                 Phase {pay.installmentNo} of {Math.max(pay.installmentNo, pay.totalPhases || 1)}
+                            </span>
+                        )}
+                        {pay.aiVerified && (
+                            <span className="bg-emerald-500/10 text-emerald-400 text-[10px] px-3 py-1.5 rounded-lg font-extrabold uppercase tracking-widest border border-emerald-500/30 flex items-center gap-1 shadow-[0_0_10px_rgba(16,185,129,0.2)]">
+                                <ShieldCheck size={12} /> AI VERIFIED
                             </span>
                         )}
                     </div>
@@ -551,27 +708,44 @@ export default function PaymentManagement({ loggedInUser }) {
 
             <div className="bg-gray-50 dark:bg-black/20 rounded-2xl border border-gray-200 dark:border-white/5 p-5 mb-6 ml-2">
                 <div className="flex justify-between items-center mb-4 border-b border-gray-200 dark:border-white/5 pb-3">
-                    <h6 className="text-xs font-extrabold text-gray-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-2"><ShieldCheck size={16} className="text-emerald-500" /> System Tally</h6>
-
-                    {(pay.excessAmount > 0 || pay.arrearsAmount > 0) && (
-                        <div className="flex gap-2">
-                            {pay.excessAmount > 0 && <span className="text-[11px] text-emerald-700 dark:text-emerald-400 font-extrabold bg-emerald-100 dark:bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-200 dark:border-emerald-500/20 shadow-sm whitespace-nowrap">Excess: +LKR {pay.excessAmount}</span>}
-                            {pay.arrearsAmount > 0 && <span className="text-[11px] text-red-700 dark:text-red-400 font-extrabold bg-red-100 dark:bg-red-500/10 px-2.5 py-1 rounded-lg border border-red-200 dark:border-red-500/20 shadow-sm whitespace-nowrap">Short: -LKR {pay.arrearsAmount}</span>}
-                        </div>
-                    )}
+                    <h6 className="text-xs font-extrabold text-gray-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-2"><ShieldCheck size={16} className="text-emerald-500" /> System Expected Breakdown</h6>
                 </div>
 
                 {pay.subjectsList && pay.subjectsList.length > 0 ? (
                     <div className="space-y-3 mb-4">
+                        {/* 1. Show Selected Subjects and Prices */}
                         {pay.subjectsList.map((sub, i) => (
                             <div key={i} className="flex justify-between items-center text-sm gap-4">
                                 <span className="text-gray-700 dark:text-slate-300 font-bold truncate">{sub.name} <span className="text-xs text-gray-400 dark:text-slate-500 ml-1">({sub.code})</span></span>
                                 <span className="text-emerald-600 dark:text-emerald-400 font-extrabold whitespace-nowrap">LKR {parseFloat(sub.price).toLocaleString()}</span>
                             </div>
                         ))}
-                        <div className="flex justify-between items-center text-sm pt-4 border-t border-gray-200 dark:border-white/10 mt-2">
-                            <span className="text-gray-600 dark:text-slate-300 font-extrabold uppercase tracking-wider text-[11px] shrink-0">System Expected:</span>
-                            <span className="text-gray-900 dark:text-white font-black text-lg whitespace-nowrap">LKR {parseFloat(pay.systemTotal).toLocaleString()}</span>
+                        
+                        <div className="pt-3 border-t border-gray-200 dark:border-white/5 mt-2 space-y-2">
+                            {/* 2. Show Base Expected */}
+                            <div className="flex justify-between items-center text-sm">
+                                <span className="text-gray-500 dark:text-slate-400 font-bold text-xs uppercase tracking-wider">Base Subject Total:</span>
+                                <span className="text-gray-700 dark:text-slate-300 font-bold">LKR {parseFloat(pay.baseTotal || 0).toLocaleString()}</span>
+                            </div>
+
+                            {/* 3. Show Wallet Adjustment (if any) */}
+                            {parseFloat(pay.walletBalance) !== 0 && (
+                                <div className="flex justify-between items-center text-sm">
+                                    <span className="text-gray-500 dark:text-slate-400 font-bold text-xs uppercase tracking-wider flex items-center gap-2">
+                                        <Wallet size={14} className={parseFloat(pay.walletBalance) > 0 ? 'text-emerald-500' : 'text-red-500'}/> 
+                                        Previous Wallet {parseFloat(pay.walletBalance) > 0 ? 'Excess' : 'Due'}:
+                                    </span>
+                                    <span className={`font-extrabold ${parseFloat(pay.walletBalance) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
+                                        {parseFloat(pay.walletBalance) > 0 ? '- LKR' : '+ LKR'} {Math.abs(pay.walletBalance).toLocaleString()}
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 4. Show Final System Expected */}
+                        <div className="flex justify-between items-center text-sm pt-4 border-t border-gray-200 dark:border-white/10 mt-2 bg-gray-100/50 dark:bg-white/5 p-3 rounded-xl shadow-inner">
+                            <span className="text-gray-800 dark:text-slate-200 font-black uppercase tracking-wider text-[11px] shrink-0">Final System Expected:</span>
+                            <span className="text-emerald-600 dark:text-emerald-400 font-black text-xl whitespace-nowrap drop-shadow-sm">LKR {parseFloat(pay.systemTotal).toLocaleString()}</span>
                         </div>
                     </div>
                 ) : (
@@ -632,7 +806,7 @@ export default function PaymentManagement({ loggedInUser }) {
             </div>
 
             {/* PROCESS PAYMENT ACTIONS */}
-            {['Pending', 'Non Paid', 'Upcoming', 'Rejected', 'Post Pay'].includes(activeTab) && pay.status !== 'Approved' && (
+            {['Pending', 'Upcoming', 'Rejected', 'Post Pay', 'Upgrade Slips'].includes(activeTab) && pay.status !== 'Approved' && (
                 <div className="bg-gray-100 dark:bg-slate-900/60 rounded-[2rem] border border-gray-200 dark:border-white/5 p-6 mt-6 shadow-inner ml-2">
                     <p className="text-[10px] font-extrabold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-5 flex items-center justify-center gap-2">
                         <ShieldCheck size={16} /> Action Panel
@@ -679,8 +853,8 @@ export default function PaymentManagement({ loggedInUser }) {
                         disabled={actioningPaymentId === pay.id || !!pay.hasDelivery}
                         onClick={() => handleAction(pay, 'SendToDelivery')}
                         className={`w-full py-4 rounded-2xl transition-all text-sm font-extrabold uppercase tracking-widest flex justify-center items-center gap-3 shadow-sm outline-none ${pay.hasDelivery
-                                ? 'bg-gray-100 dark:bg-black/30 text-gray-400 dark:text-slate-600 border border-gray-200 dark:border-white/5 cursor-not-allowed shadow-none'
-                                : 'bg-purple-50 dark:bg-purple-600/10 hover:bg-purple-600 text-purple-600 dark:text-purple-400 hover:text-white dark:hover:text-white border border-purple-200 dark:border-purple-500/30 hover:border-transparent dark:hover:bg-purple-600 shadow-purple-500/20 hover:shadow-lg'
+                            ? 'bg-gray-100 dark:bg-black/30 text-gray-400 dark:text-slate-600 border border-gray-200 dark:border-white/5 cursor-not-allowed shadow-none'
+                            : 'bg-purple-50 dark:bg-purple-600/10 hover:bg-purple-600 text-purple-600 dark:text-purple-400 hover:text-white dark:hover:text-white border border-purple-200 dark:border-purple-500/30 hover:border-transparent dark:hover:bg-purple-600 shadow-purple-500/20 hover:shadow-lg'
                             }`}
                     >
                         <Truck size={20} /> {pay.hasDelivery ? 'Dispatched to Delivery' : 'Send to Delivery Hub'}
@@ -692,14 +866,14 @@ export default function PaymentManagement({ loggedInUser }) {
 
     return (
         <div className="w-full animate-fade-in text-gray-900 dark:text-slate-200 pb-10 font-sans relative">
-            
+
             {/* Header Section */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-8 bg-white/70 dark:bg-brand-darkCard/80 p-6 md:p-8 rounded-[2rem] border border-gray-200 dark:border-brand-darkBorder shadow-sm backdrop-blur-xl relative overflow-hidden transition-colors">
-                
+
                 {/* Glow Effects - Adjusted for Light/Dark */}
                 <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 dark:bg-emerald-500/10 rounded-full blur-[60px] pointer-events-none"></div>
                 <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/5 dark:bg-blue-500/10 rounded-full blur-[60px] pointer-events-none"></div>
-                
+
                 <div className="flex items-center gap-5 relative z-10">
                     <div className="p-4 bg-emerald-50 dark:bg-emerald-500/10 rounded-2xl border border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400 shadow-sm transition-colors">
                         <Wallet size={32} strokeWidth={1.5} />
@@ -721,16 +895,53 @@ export default function PaymentManagement({ loggedInUser }) {
 
             {/* Tabs Row */}
             <div className="flex gap-3 mb-8 pb-3 overflow-x-auto custom-scrollbar p-1">
-                <button onClick={() => setActiveTab('Pending')} className={getTabClass('Pending')}><Clock size={16} /> Pending</button>
-                <button onClick={() => setActiveTab('Approved')} className={getTabClass('Approved')}><Check size={16} /> Approved</button>
-                <button onClick={() => setActiveTab('Free Card')} className={getTabClass('Free Card')}><Gift size={16} /> Free Card</button>
-                <button onClick={() => setActiveTab('Discount')} className={getTabClass('Discount')}><Tag size={16} /> Discount</button>
-                <button onClick={() => setActiveTab('Rejected')} className={getTabClass('Rejected')}><CloseIcon size={16} /> Rejected</button>
-                <button onClick={() => setActiveTab('Non Paid')} className={getTabClass('Non Paid')}><AlertCircle size={16} /> Non Paid</button>
-                <button onClick={() => setActiveTab('Post Pay')} className={getTabClass('Post Pay')}><Unlock size={16} /> Post Pay</button>
-                <button onClick={() => setActiveTab('Upcoming')} className={getTabClass('Upcoming')}><CalendarDays size={16} /> Upcoming Dues</button>
-                <button onClick={() => setActiveTab('Trash')} className={getTabClass('Trash')}><Trash2 size={16} /> Trash</button>
+                <button onClick={() => setActiveTab('Pending')} className={getTabClass('Pending')}>
+                    <Clock size={16} /> Pending ({tabCounts.Pending})
+                    {tabCounts.Pending > 0 && <span className="bg-red-500 text-white rounded-full h-2 w-2 ml-1 animate-pulse"></span>}
+                </button>
+                <button onClick={() => setActiveTab('Approved')} className={getTabClass('Approved')}><Check size={16} /> Approved ({tabCounts.Approved})</button>
+                <button onClick={() => setActiveTab('Free Card')} className={getTabClass('Free Card')}><Gift size={16} /> Free Card ({tabCounts['Free Card']})</button>
+                <button onClick={() => setActiveTab('Discount')} className={getTabClass('Discount')}><Tag size={16} /> Discount ({tabCounts.Discount})</button>
+                <button onClick={() => setActiveTab('Rejected')} className={getTabClass('Rejected')}><CloseIcon size={16} /> Rejected ({tabCounts.Rejected})</button>
+                <button onClick={() => setActiveTab('Adjusted')} className={getTabClass('Adjusted')}><AlertCircle size={16} /> Adjusted ({tabCounts.Adjusted})</button>
+                <button onClick={() => setActiveTab('Post Pay')} className={getTabClass('Post Pay')}><Unlock size={16} /> Post Pay ({tabCounts['Post Pay']})</button>
+                
+                <button onClick={() => setActiveTab('Upgrade Slips')} className={getTabClass('Upgrade Slips')}>
+                    <ShieldCheck size={16} /> Upgrade Slips ({tabCounts['Upgrade Slips']})
+                    {pendingUpgradeCount > 0 && <span className="bg-red-500 text-white rounded-full px-2 py-0.5 text-[10px] ml-1 font-black shadow-sm">{pendingUpgradeCount}</span>}
+                </button>
+                
+                <button onClick={() => setActiveTab('Upcoming')} className={getTabClass('Upcoming')}>
+                    <CalendarDays size={16} /> Upcoming Dues ({tabCounts.Upcoming})
+                    {pendingUpcomingCount > 0 && <span className="bg-red-500 text-white rounded-full px-2 py-0.5 text-[10px] ml-1 font-black shadow-sm">{pendingUpcomingCount}</span>}
+                </button>
+                
+                <button onClick={() => setActiveTab('Trash')} className={getTabClass('Trash')}><Trash2 size={16} /> Trash ({tabCounts.Trash})</button>
             </div>
+
+            {/* UPGRADE SLIPS SUB-TABS */}
+            {activeTab === 'Upgrade Slips' && (
+                <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-brand-darkCard p-2.5 rounded-2xl w-full md:w-max border border-gray-200 dark:border-brand-darkBorder shadow-sm mb-6 transition-colors">
+                    <button onClick={() => setUpgradeFilter('Pending')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upgradeFilter === 'Pending' ? 'bg-pink-50 dark:bg-pink-500/20 text-pink-700 dark:text-pink-300 border border-pink-200 dark:border-pink-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-pink-700 dark:hover:text-pink-400 hover:bg-pink-50 dark:hover:bg-pink-500/10'}`}>
+                        Pending {pendingUpgradeCount > 0 && <span className="bg-red-500 text-white rounded-full h-2 w-2 ml-2 inline-block"></span>}
+                    </button>
+                    <button onClick={() => setUpgradeFilter('Approved')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upgradeFilter === 'Approved' ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'}`}>Approved</button>
+                    <button onClick={() => setUpgradeFilter('Rejected')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upgradeFilter === 'Rejected' ? 'bg-red-50 dark:bg-red-500/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10'}`}>Rejected</button>
+                </div>
+            )}
+
+            {/* UPCOMING DUES SUB-TABS */}
+            {activeTab === 'Upcoming' && (
+                <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-brand-darkCard p-2.5 rounded-2xl w-full md:w-max border border-gray-200 dark:border-brand-darkBorder shadow-sm mb-6 transition-colors">
+                    <button onClick={() => setUpcomingFilter('Pending')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upcomingFilter === 'Pending' ? 'bg-purple-50 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-purple-700 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-500/10'}`}>
+                        Pending {pendingUpcomingCount > 0 && <span className="bg-red-500 text-white rounded-full h-2 w-2 ml-2 inline-block"></span>}
+                    </button>
+                    <button onClick={() => setUpcomingFilter('Approved')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upcomingFilter === 'Approved' ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'}`}>Approved</button>
+                    <button onClick={() => setUpcomingFilter('Rejected')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upcomingFilter === 'Rejected' ? 'bg-red-50 dark:bg-red-500/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10'}`}>Rejected</button>
+                </div>
+            )}
+
+
 
             {/* APPROVED TAB MAIN VIEW SPLIT */}
             {activeTab === 'Approved' ? (
@@ -887,8 +1098,8 @@ export default function PaymentManagement({ loggedInUser }) {
             {/* 🔥 STUDENT ACTION MODAL (REVIEW PAYMENTS) - WIDER MODAL 🔥 */}
             {studentActionModal && createPortal(
                 <div className="fixed inset-0 z-[9990] bg-slate-900/60 dark:bg-slate-900/80 backdrop-blur-sm p-4 md:p-8 flex items-center justify-center [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] animate-fade-in">
-                    {/* 🔥 Changed max-w-7xl to max-w-[95vw] xl:max-w-[1400px] 🔥 */}
-                    <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-[2.5rem] w-full max-w-[95vw] xl:max-w-[1400px] min-h-[90vh] max-h-[95vh] shadow-2xl relative flex flex-col overflow-hidden transition-colors">
+                    {/* 🔥 Changed max-w-7xl to max-w-[98vw] 2xl:max-w-[1800px] 🔥 */}
+                    <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-[2.5rem] w-full max-w-[98vw] xl:max-w-[1600px] 2xl:max-w-[1800px] min-h-[90vh] max-h-[95vh] shadow-2xl relative flex flex-col overflow-hidden transition-colors">
 
                         <div className="bg-gray-50 dark:bg-white/5 border-b border-gray-200 dark:border-white/5 p-6 md:px-10 rounded-t-[2.5rem] flex justify-between items-center shrink-0 shadow-sm">
                             <div className="flex items-center gap-5">
@@ -1045,18 +1256,18 @@ export default function PaymentManagement({ loggedInUser }) {
                             <div className="space-y-4 mb-8">
                                 <p className="text-xs text-gray-500 dark:text-slate-400 font-extrabold uppercase tracking-widest bg-gray-50 dark:bg-white/5 p-3 rounded-xl border border-gray-200 dark:border-white/5 shadow-sm inline-block">Subject Breakdown</p>
                                 <div className="space-y-3">
-                                {advancedActionModal.payment.subjectsList.map(sub => (
-                                    <div key={sub.id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-white dark:bg-black/20 p-4 rounded-2xl border border-gray-200 dark:border-white/10 shadow-sm gap-4">
-                                        <div className="flex-1 pr-4 overflow-hidden">
-                                            <p className="text-sm font-extrabold text-gray-900 dark:text-white truncate" title={sub.name}>{sub.name}</p>
-                                            <p className="text-[10px] text-gray-500 dark:text-slate-500 font-bold mt-1 uppercase tracking-wider">System: LKR {parseFloat(sub.price).toLocaleString()}</p>
+                                    {advancedActionModal.payment.subjectsList.map(sub => (
+                                        <div key={sub.id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-white dark:bg-black/20 p-4 rounded-2xl border border-gray-200 dark:border-white/10 shadow-sm gap-4">
+                                            <div className="flex-1 pr-4 overflow-hidden">
+                                                <p className="text-sm font-extrabold text-gray-900 dark:text-white truncate" title={sub.name}>{sub.name}</p>
+                                                <p className="text-[10px] text-gray-500 dark:text-slate-500 font-bold mt-1 uppercase tracking-wider">System: LKR {parseFloat(sub.price).toLocaleString()}</p>
+                                            </div>
+                                            <div className="w-full sm:w-1/3 relative shrink-0">
+                                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 dark:text-slate-500 font-black">LKR</span>
+                                                <input type="number" value={customPrices[sub.id] || ''} onChange={e => handleCustomPriceChange(sub.id, e.target.value)} className="w-full bg-gray-50 dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl pl-10 pr-3 py-3 text-sm text-gray-900 dark:text-white font-extrabold outline-none focus:border-cyan-500 dark:focus:border-cyan-500 transition-colors shadow-sm" />
+                                            </div>
                                         </div>
-                                        <div className="w-full sm:w-1/3 relative shrink-0">
-                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-gray-500 dark:text-slate-500 font-black">LKR</span>
-                                            <input type="number" value={customPrices[sub.id] || ''} onChange={e => handleCustomPriceChange(sub.id, e.target.value)} className="w-full bg-gray-50 dark:bg-white/5 border border-gray-300 dark:border-white/10 rounded-xl pl-10 pr-3 py-3 text-sm text-gray-900 dark:text-white font-extrabold outline-none focus:border-cyan-500 dark:focus:border-cyan-500 transition-colors shadow-sm" />
-                                        </div>
-                                    </div>
-                                ))}
+                                    ))}
                                 </div>
                                 <div className="flex justify-between items-center pt-4 px-2 border-t border-gray-200 dark:border-white/10 mt-6">
                                     <span className="text-gray-600 dark:text-slate-400 text-sm font-extrabold uppercase tracking-widest">Calculated Total:</span>
@@ -1163,6 +1374,342 @@ export default function PaymentManagement({ loggedInUser }) {
                 document.body
             )}
 
+            {/* 🔥 EDIT PAYMENT DETAILS MODAL (PREMIUM LANDSCAPE LAYOUT) 🔥 */}
+            {editModal && createPortal(
+                <div className="fixed inset-0 z-[99999] bg-slate-900/60 dark:bg-slate-900/90 flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
+                    <div className="bg-white dark:bg-[#0b1329] border border-gray-200 dark:border-white/10 rounded-[2.5rem] p-6 md:p-8 w-full max-w-6xl shadow-2xl transition-all flex flex-col max-h-[92vh] overflow-hidden">
+                        
+                        {/* Modal Header */}
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 border-b border-gray-200 dark:border-white/10 pb-5 shrink-0">
+                            <div className="flex flex-col gap-1">
+                                <h3 className="text-2xl font-extrabold text-gray-900 dark:text-white flex items-center gap-3">
+                                    <Edit3 className="text-indigo-500 dark:text-indigo-400 animate-pulse" size={26} /> 
+                                    Edit Payment Details
+                                </h3>
+                                <p className="text-xs text-gray-500 dark:text-slate-400">Modify assigned courses, custom pricing, and transaction matching.</p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-3 bg-slate-50 dark:bg-slate-900/50 p-2.5 rounded-2xl border border-gray-200 dark:border-white/5">
+                                <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-500/10 rounded-xl border border-indigo-500/20">
+                                    <User size={14} className="text-indigo-500" />
+                                    <span className="text-xs font-bold text-gray-700 dark:text-slate-200">{editModal.studentName}</span>
+                                    <span className="text-[10px] font-black text-indigo-400">({editModal.studentNo})</span>
+                                </div>
+                                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 rounded-xl border border-emerald-500/20">
+                                    <span className="text-[10px] font-black text-emerald-500 uppercase tracking-wider">Batch</span>
+                                    <span className="text-xs font-bold text-gray-700 dark:text-slate-200 max-w-[200px] truncate">{editModal.batch}</span>
+                                </div>
+                                {editModal.business && (
+                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                                        <span className="text-[10px] font-black text-amber-500 uppercase tracking-wider">Business</span>
+                                        <span className="text-xs font-bold text-gray-700 dark:text-slate-200">{editModal.business}</span>
+                                    </div>
+                                )}
+                            </div>
+                            <button type="button" onClick={() => setEditModal(null)} className="text-gray-400 hover:text-red-500 dark:text-slate-400 dark:hover:text-red-400 bg-gray-50 dark:bg-white/5 hover:bg-red-50 dark:hover:bg-white/10 p-2.5 rounded-xl transition-all border border-gray-200 dark:border-transparent outline-none">
+                                <CloseIcon size={22} />
+                            </button>
+                        </div>
+
+                        {/* Modal Content - Landscape Grid */}
+                        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1 overflow-hidden min-h-0">
+                            
+                            {/* Left Panel: Autocomplete Subject Adder & Total Financial Calculations (5/12 cols) */}
+                            <div className="lg:col-span-5 flex flex-col gap-6 overflow-y-auto pr-2 custom-scrollbar min-h-0">
+                                
+                                {/* Autocomplete Search Dropdown */}
+                                <div className="bg-slate-50/50 dark:bg-slate-900/30 p-5 rounded-3xl border border-gray-200/50 dark:border-white/5 relative">
+                                    <label className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 uppercase tracking-widest mb-3 block">Search & Add Additional Subjects</label>
+                                    
+                                    <div className="relative">
+                                        <div className="relative flex items-center">
+                                            <input
+                                                type="text"
+                                                value={subjectSearchQuery}
+                                                onFocus={() => setIsSubjectDropdownOpen(true)}
+                                                onChange={e => {
+                                                    setSubjectSearchQuery(e.target.value);
+                                                    setIsSubjectDropdownOpen(true);
+                                                }}
+                                                placeholder="Search subject by name or code..."
+                                                className="w-full bg-white dark:bg-black/40 border-2 border-gray-200 dark:border-white/10 rounded-xl p-3 text-xs text-gray-900 dark:text-white outline-none focus:border-indigo-500 dark:focus:border-indigo-500 font-medium pl-9 shadow-sm transition-all"
+                                            />
+                                            <Search className="absolute left-3 text-gray-400 dark:text-slate-500" size={15} />
+                                            {subjectSearchQuery && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSubjectSearchQuery('')}
+                                                    className="absolute right-3 text-gray-400 hover:text-gray-600 dark:hover:text-white transition-colors"
+                                                >
+                                                    <CloseIcon size={14} />
+                                                </button>
+                                            )}
+                                        </div>
+
+                                        {/* Dropdown overlay panel */}
+                                        {isSubjectDropdownOpen && (
+                                            <>
+                                                <div className="fixed inset-0 z-[1000]" onClick={() => setIsSubjectDropdownOpen(false)} />
+                                                <div className="absolute left-0 right-0 mt-2 max-h-60 overflow-y-auto bg-white dark:bg-[#0f172a] border border-gray-200 dark:border-white/15 rounded-2xl shadow-2xl z-[1001] custom-scrollbar divide-y divide-gray-100 dark:divide-white/5 overflow-hidden animate-slide-down">
+                                                    {(() => {
+                                                        const payBiz = editModal.business?.toLowerCase().trim() || '';
+                                                        const filtered = allCourses.filter(c => {
+                                                            const cStream = c.stream?.toLowerCase().trim() || c.streams?.toLowerCase().trim() || '';
+                                                            const isBizMatch = !payBiz || !cStream || cStream.includes(payBiz) || payBiz.includes(cStream) || String(c.groupId) === String(editModal.groupId);
+                                                            const isNotAdded = !editSubjectsList.some(s => s.id === c.id);
+                                                            
+                                                            if (!isBizMatch || !isNotAdded) return false;
+                                                            
+                                                            if (!subjectSearchQuery) return true;
+                                                            const query = subjectSearchQuery.toLowerCase();
+                                                            return c.name.toLowerCase().includes(query) || (c.code && c.code.toLowerCase().includes(query));
+                                                        });
+
+                                                        if (filtered.length === 0) {
+                                                            return (
+                                                                <div className="p-4 text-xs text-gray-400 dark:text-slate-500 italic text-center">
+                                                                    No matching subjects found
+                                                                </div>
+                                                            );
+                                                        }
+
+                                                        return filtered.map(c => (
+                                                            <button
+                                                                key={c.id}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setEditSubjectsList([...editSubjectsList, {
+                                                                        id: c.id,
+                                                                        name: c.name,
+                                                                        code: c.code || 'N/A',
+                                                                        price: parseFloat(c.price || 0)
+                                                                    }]);
+                                                                    setSubjectSearchQuery('');
+                                                                    setIsSubjectDropdownOpen(false);
+                                                                    toast.success(`Added ${c.name}`);
+                                                                }}
+                                                                className="w-full text-left p-3.5 text-xs hover:bg-slate-50 dark:hover:bg-white/5 flex items-center justify-between transition-all outline-none"
+                                                            >
+                                                                <div className="flex flex-col min-w-0 pr-4">
+                                                                    <span className="font-extrabold text-gray-800 dark:text-white truncate">{c.name}</span>
+                                                                    <span className="text-[10px] text-gray-400 dark:text-slate-500 font-bold mt-1 uppercase tracking-wider">Code: {c.code || 'N/A'}</span>
+                                                                </div>
+                                                                <span className="shrink-0 text-[10px] font-black text-indigo-500 dark:text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20">LKR {parseFloat(c.price || 0).toLocaleString()}</span>
+                                                            </button>
+                                                        ));
+                                                    })()}
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Financial Calculations Panel */}
+                                <div className="bg-gradient-to-br from-indigo-50/50 to-purple-50/50 dark:from-slate-900/30 dark:to-indigo-950/20 p-5 rounded-3xl border border-indigo-100 dark:border-white/5 shadow-sm">
+                                    <h4 className="text-[10px] font-black text-indigo-500 dark:text-indigo-400 uppercase tracking-widest mb-4">Financial Math Overview</h4>
+                                    
+                                    <div className="grid grid-cols-2 gap-4 mb-4">
+                                        <div className="bg-white/60 dark:bg-black/30 border border-gray-200/50 dark:border-white/5 rounded-2xl p-3.5 shadow-sm">
+                                            <span className="text-[10px] text-gray-500 dark:text-slate-400 font-extrabold uppercase tracking-wide block mb-1">Expected Sum</span>
+                                            <span className="text-base font-black text-gray-900 dark:text-white">LKR {editSubjectsList.reduce((sum, s) => sum + parseFloat(s.price || 0), 0).toLocaleString()}</span>
+                                        </div>
+                                        <div className="bg-white/60 dark:bg-black/30 border border-gray-200/50 dark:border-white/5 rounded-2xl p-3.5 relative overflow-hidden group shadow-sm">
+                                            <span className="text-[10px] text-gray-500 dark:text-slate-400 font-extrabold uppercase tracking-wide block mb-1">Paid Amount</span>
+                                            <span className="text-base font-black text-gray-900 dark:text-white">LKR {parseFloat(editAmount || 0).toLocaleString()}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const expectedTotal = editSubjectsList.reduce((sum, s) => sum + parseFloat(s.price || 0), 0);
+                                                    setEditAmount(expectedTotal);
+                                                    toast.success("Amount matched to expected sum!");
+                                                }}
+                                                className="absolute right-2 top-2 p-1.5 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-500 dark:text-indigo-400 rounded-lg text-[9px] font-black uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity border border-indigo-500/20 outline-none"
+                                                title="Match Expected Sum"
+                                            >
+                                                Match
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Actual Paid Input Field */}
+                                    <div className="mb-4">
+                                        <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest mb-2 block">Edit Actual Paid Amount (LKR)</label>
+                                        <div className="relative flex items-center bg-white dark:bg-black/50 border-2 border-gray-200 dark:border-white/10 rounded-2xl px-4 py-3.5 focus-within:border-indigo-500 dark:focus-within:border-indigo-500 transition-colors shadow-sm gap-2">
+                                            <span className="text-sm font-black text-slate-400 dark:text-slate-500 select-none">LKR</span>
+                                            <input
+                                                type="number"
+                                                value={editAmount}
+                                                onChange={e => setEditAmount(e.target.value)}
+                                                className="w-full bg-transparent border-none text-left outline-none text-xl font-black text-gray-900 dark:text-white tracking-tight"
+                                                placeholder="0"
+                                            />
+                                            {/* Quick Math Adjusters */}
+                                            <div className="flex gap-1 shrink-0">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const cur = parseFloat(editAmount || 0);
+                                                        setEditAmount(Math.max(0, cur - 1000));
+                                                    }}
+                                                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-600 dark:text-slate-300 rounded-lg text-xs font-bold transition-all border border-gray-200 dark:border-white/5 outline-none"
+                                                >
+                                                    -1k
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const cur = parseFloat(editAmount || 0);
+                                                        setEditAmount(cur + 1000);
+                                                    }}
+                                                    className="px-2 py-1 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-600 dark:text-slate-300 rounded-lg text-xs font-bold transition-all border border-gray-200 dark:border-white/5 outline-none"
+                                                >
+                                                    +1k
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const expectedTotal = editSubjectsList.reduce((sum, s) => sum + parseFloat(s.price || 0), 0);
+                                                        setEditAmount(expectedTotal);
+                                                    }}
+                                                    className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold transition-all outline-none"
+                                                >
+                                                    Match
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Wallet calculations */}
+                                    {(() => {
+                                        const expectedTotal = editSubjectsList.reduce((sum, s) => sum + parseFloat(s.price || 0), 0);
+                                        const diff = parseFloat(editAmount || 0) - expectedTotal;
+                                        if (diff > 0) {
+                                            return (
+                                                <div className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/20 text-center shadow-inner flex items-center justify-center gap-2">
+                                                    <Wallet size={14} className="animate-bounce" />
+                                                    <span>Excess: +LKR {diff.toLocaleString()} will credit to wallet.</span>
+                                                </div>
+                                            );
+                                        } else if (diff < 0) {
+                                            return (
+                                                <div className="text-xs font-extrabold text-red-600 dark:text-red-400 bg-red-500/10 p-3 rounded-2xl border border-red-500/20 text-center shadow-inner flex items-center justify-center gap-2">
+                                                    <AlertCircle size={14} className="animate-pulse" />
+                                                    <span>Arrears: -LKR {Math.abs(diff).toLocaleString()} short will record as arrears.</span>
+                                                </div>
+                                            );
+                                        } else {
+                                            return (
+                                                <div className="text-xs font-extrabold text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 p-3 rounded-2xl border border-indigo-500/20 text-center shadow-inner flex items-center justify-center gap-2">
+                                                    <ShieldCheck size={14} />
+                                                    <span>Perfect Match! Paid amount equals Expected Sum.</span>
+                                                </div>
+                                            );
+                                        }
+                                    })()}
+                                </div>
+
+                                {/* Save Button */}
+                                <button
+                                    onClick={handleSavePaymentDetails}
+                                    disabled={savingEdit}
+                                    className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50 text-white rounded-2xl py-4 text-sm tracking-widest uppercase font-extrabold transition-all hover:scale-[1.01] shadow-lg shadow-indigo-600/20 dark:shadow-none flex justify-center items-center gap-3 outline-none shrink-0"
+                                >
+                                    {savingEdit ? <Loader2 className="animate-spin" size={20} /> : <Check size={20} />} Save Changes
+                                </button>
+							</div>
+
+                            {/* Right Panel: Spacious Scrollable Active Subjects List (7/12 cols) */}
+                            <div className="lg:col-span-7 flex flex-col min-h-0 overflow-hidden border-l border-gray-100 dark:border-white/5 lg:pl-8">
+                                <div className="flex justify-between items-center mb-4 shrink-0">
+                                    <div className="flex flex-col gap-0.5">
+                                        <h4 className="text-xs font-black text-gray-500 dark:text-slate-400 uppercase tracking-widest">Active Subjects List</h4>
+                                        <p className="text-[10px] text-gray-400">Manage individual pricing or remove subjects from this payment card.</p>
+                                    </div>
+                                    <span className="bg-slate-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-600 dark:text-slate-300 text-[10px] px-2.5 py-1 rounded-md font-bold shrink-0">{editSubjectsList.length} subjects</span>
+                                </div>
+
+                                <div className="flex-1 overflow-y-auto pr-1 custom-scrollbar space-y-3 min-h-0">
+                                    {editSubjectsList.map(course => (
+                                        <div
+                                            key={course.id}
+                                            className="p-4 rounded-2xl border bg-gray-50/50 dark:bg-black/20 border-gray-200 dark:border-white/5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 hover:border-gray-300 dark:hover:border-white/10 transition-all duration-200 group shadow-sm"
+                                        >
+                                            <div className="flex flex-col min-w-0 flex-1">
+                                                <span className="text-sm font-black text-gray-800 dark:text-white truncate" title={course.name}>{course.name}</span>
+                                                <span className="text-[10px] text-gray-400 dark:text-slate-500 font-extrabold mt-0.5 uppercase tracking-wider">Code: {course.code || 'N/A'}</span>
+                                            </div>
+                                            
+                                            <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end">
+                                                {/* Price Input Wrapper */}
+                                                <div className="flex items-center bg-white dark:bg-[#0f172a] border-2 border-gray-200 dark:border-white/10 rounded-xl px-3 py-2 max-w-[150px] sm:max-w-[160px] w-full shadow-sm focus-within:border-indigo-500 dark:focus-within:border-indigo-500 transition-colors">
+                                                    <span className="text-[10px] text-slate-400 dark:text-slate-500 mr-2 font-black select-none">LKR</span>
+                                                    <input
+                                                        type="number"
+                                                        value={course.price}
+                                                        onChange={e => {
+                                                            const val = parseFloat(e.target.value) || 0;
+                                                            setEditSubjectsList(editSubjectsList.map(s => s.id === course.id ? { ...s, price: val } : s));
+                                                        }}
+                                                        className="w-full bg-transparent border-none text-right outline-none text-sm font-black text-gray-900 dark:text-white"
+                                                    />
+                                                </div>
+                                                
+                                                {/* Quick Adjust Buttons */}
+                                                <div className="flex gap-1 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const cur = parseFloat(course.price || 0);
+                                                            const newVal = Math.max(0, cur - 500);
+                                                            setEditSubjectsList(editSubjectsList.map(s => s.id === course.id ? { ...s, price: newVal } : s));
+                                                        }}
+                                                        className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-600 dark:text-slate-300 rounded-lg text-[10px] font-bold border border-gray-200 dark:border-white/5 transition-all outline-none"
+                                                        title="Decrease by LKR 500"
+                                                    >
+                                                        -500
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const cur = parseFloat(course.price || 0);
+                                                            const newVal = cur + 500;
+                                                            setEditSubjectsList(editSubjectsList.map(s => s.id === course.id ? { ...s, price: newVal } : s));
+                                                        }}
+                                                        className="px-2 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-white/5 dark:hover:bg-white/10 text-gray-600 dark:text-slate-300 rounded-lg text-[10px] font-bold border border-gray-200 dark:border-white/5 transition-all outline-none"
+                                                        title="Increase by LKR 500"
+                                                    >
+                                                        +500
+                                                    </button>
+                                                </div>
+                                                
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setEditSubjectsList(editSubjectsList.filter(s => s.id !== course.id));
+                                                        toast.success(`Removed ${course.name}`);
+                                                    }}
+                                                    className="p-2.5 bg-red-50 dark:bg-red-500/10 hover:bg-red-500 text-red-500 hover:text-white border border-red-200 dark:border-red-500/20 rounded-xl transition-all outline-none sm:ml-1 shrink-0"
+                                                    title="Remove Subject"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {editSubjectsList.length === 0 && (
+                                        <div className="flex flex-col items-center justify-center py-20 text-center border-2 border-dashed border-gray-300 dark:border-white/10 rounded-2xl text-slate-400 dark:text-slate-500 italic gap-3 bg-slate-50/20 dark:bg-black/10">
+                                            <AlertCircle size={36} className="opacity-30 text-indigo-500" />
+                                            <span className="text-sm font-semibold">No subjects assigned to this payment sheet.</span>
+                                            <span className="text-xs text-gray-400 not-italic">Search & add courses from the sidebar menu to get started.</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
+
             {showStaffModal && (
                 <StaffPerformanceModal
                     onClose={() => setShowStaffModal(false)}
@@ -1171,7 +1718,7 @@ export default function PaymentManagement({ loggedInUser }) {
 
             {/* 🔥 ALUTHIN ADD KALA: EXPORT REPORT MODAL RENDER EKA 🔥 */}
             {showExportModal && (
-                <ExportReportModal 
+                <ExportReportModal
                     onClose={() => setShowExportModal(false)}
                     payments={payments}
                     filters={filters}

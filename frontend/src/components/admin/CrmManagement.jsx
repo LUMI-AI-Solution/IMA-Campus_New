@@ -200,6 +200,7 @@ export default function CrmManagement() {
         } catch (error) { toast.error("Archive Failed"); }
     };
 
+
     return (
         <div className="w-full animate-fade-in text-slate-200 pb-10">
             <div className="flex items-center gap-4 mb-8 bg-slate-800/40 p-6 rounded-3xl border border-white/10 shadow-lg backdrop-blur-xl">
@@ -321,11 +322,14 @@ export default function CrmManagement() {
                             <div className="bg-slate-800/40 p-6 rounded-3xl border border-emerald-500/20">
                                 <div className="flex justify-between items-center mb-4">
                                     <h3 className="text-lg font-bold text-white flex items-center gap-2"><Users className="text-emerald-400"/> Allocate Batch</h3>
-                                    {allocatedBatch && (
-                                        <button onClick={handleArchive} className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors flex items-center gap-2 border border-red-500/30">
-                                            <Archive size={14}/> Archive Campaign
-                                        </button>
-                                    )}
+                                    <div className="flex items-center gap-2">
+
+                                        {allocatedBatch && (
+                                            <button onClick={handleArchive} className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white px-4 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-colors flex items-center gap-2 border border-red-500/30">
+                                                <Archive size={14}/> Archive Campaign
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                                 <select value={allocatedBatch} onChange={e => setAllocatedBatch(e.target.value)} className="w-full bg-black/30 border border-emerald-500/30 rounded-xl p-3 text-white outline-none focus:border-emerald-500">
                                     <option value="">-- Unassigned (Select a Batch) --</option>

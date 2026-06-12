@@ -459,6 +459,8 @@ export default function ContentHub() {
       if (keys.length === 0) return toast.error("Please tick at least one group and enter a price!");
       
       const formData = new FormData(e.target);
+      formData.set("startMonth", formData.get("startMonth") || "");
+      formData.set("endMonth", formData.get("endMonth") || "");
       const selectedStreams = formData.getAll('streams');
       const excludeDiscount = formData.get('isDiscountExcluded') === 'true';
 

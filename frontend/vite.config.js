@@ -16,6 +16,13 @@ export default defineConfig({
         },
     },
   },
+  preview: {
+    allowedHosts: [
+      'test.imacampus.online',
+      'www.imacampus.online',
+      'imacampus.online'
+    ]
+  },
   server: {
     host: '0.0.0.0', 
     port: 5173,
@@ -23,7 +30,8 @@ export default defineConfig({
     allowedHosts: [
       'imacampus.online', 
       'www.imacampus.online', 
-      'localhost'
+      'localhost',
+      'test.imacampus.online'
     ]
   }
 })

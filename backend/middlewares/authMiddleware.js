@@ -12,14 +12,19 @@ const verifyToken = async (req, res, next) => {
     try {
         const verified = jwt.verify(token, process.env.JWT_SECRET);
         
-        // 🔥 වෙනස: select: { session_id: true } දාලා session_id එක විතරක් ගන්නවා.
+        // Select session_id and role to allow concurrent system admin sessions without random logouts
         const user = await prisma.user.findUnique({ 
             where: { id: verified.userId || verified.id }, // userId හරි id හරි දෙකෙන් එකක්
-            select: { session_id: true } 
+            select: { session_id: true, role: true } 
         });
         
-        // 🔥 මේක තමයි Session Check කරන තැන!
-        if (user && user.session_id && user.session_id !== verified.sessionId) {
+        // Skip concurrent session check for everyone EXCEPT Students and standard Users
+        const isExcludedFromConcurrentCheck = user && (
+            String(user.role).toUpperCase() !== 'STUDENT' && 
+            String(user.role).toUpperCase() !== 'USER'
+        );
+
+        if (user && user.session_id && user.session_id !== verified.sessionId && !isExcludedFromConcurrentCheck) {
             return res.status(401).json({ error: "Logged in from another device. Please log in again." });
         }
 

@@ -30,7 +30,7 @@ exports.getPendingBridgeLeads = async (req, res) => {
         let freeSeminarLeads = freeRaw.filter(l => exactBizRegex.test(l.phone));
 
         // Batch එකක් දීලා තියෙනවනම් ඒකත් Filter කරනවා
-        if (batchId && batchId !== '') {
+        if (batchId && batchId !== '' && batchId !== 'ALL') {
             const targetBatchId = parseInt(batchId);
             freeSeminarLeads = freeSeminarLeads.filter(l => 
                 l.batchId === targetBatchId || l.phone.includes(`_BATCH_${targetBatchId}`)
@@ -91,7 +91,7 @@ exports.getPendingBridgeLeads = async (req, res) => {
 // ============================================================================
 exports.pushToAfterSeminar = async (req, res) => {
     try {
-        const { leadIds, businessId, batchId, staffId } = req.body;
+        const { leadIds, businessId, batchId, staffId, handoverToCallCenter } = req.body;
 
         if (!leadIds || !Array.isArray(leadIds) || leadIds.length === 0) {
             return res.status(400).json({ error: "No leads selected to push." });
@@ -111,11 +111,15 @@ exports.pushToAfterSeminar = async (req, res) => {
                 ? `${basePhone}_BIZ_${businessId}_BATCH_${targetBatchId}_AS`
                 : `${basePhone}_BIZ_${businessId}_AS`;
 
+            const isHandover = handoverToCallCenter === true || handoverToCallCenter === 'true';
+
             await prisma.lead.upsert({
                 where: { phone: afterSeminarPhone },
                 update: {
-                    assignedTo: staffId ? parseInt(staffId) : null,
-                    status: staffId ? 'OPEN' : 'NEW',
+                    assignedTo: (!isHandover && staffId) ? parseInt(staffId) : null,
+                    status: (!isHandover && staffId) ? 'OPEN' : 'NEW',
+                    isCallCenter: isHandover,
+                    callCenterStatus: isHandover ? 'pending_approval' : 'pending',
                 },
                 create: {
                     name: freeLead.name,
@@ -123,14 +127,16 @@ exports.pushToAfterSeminar = async (req, res) => {
                     source: 'bridge_transfer',
                     campaignType: 'AFTER_SEMINAR',
                     batchId: targetBatchId ? parseInt(targetBatchId) : null,
-                    assignedTo: staffId ? parseInt(staffId) : null,
-                    status: staffId ? 'OPEN' : 'NEW',
+                    assignedTo: (!isHandover && staffId) ? parseInt(staffId) : null,
+                    status: (!isHandover && staffId) ? 'OPEN' : 'NEW',
                     phase: 1, 
                     callStatus: 'pending',
                     coordinationRound: 1, 
                     paymentIntention: 'NOT_DECIDED',
                     enrollmentStatus: 'NON_ENROLLED',
-                    inquiryType: 'NORMAL'
+                    inquiryType: 'NORMAL',
+                    isCallCenter: isHandover,
+                    callCenterStatus: isHandover ? 'pending_approval' : 'pending',
                 }
             });
 
@@ -208,5 +214,185 @@ exports.revertPendingBridgeLeads = async (req, res) => {
     } catch (error) {
         console.error("Revert Pending Bridge Leads Error:", error);
         res.status(500).json({ error: "Failed to revert pending leads." });
+    }
+};
+
+// ============================================================================
+// 4. GET CALL CENTER HANDOVERS
+// ============================================================================
+exports.getCallCenterHandovers = async (req, res) => {
+    try {
+        const handovers = await prisma.lead.groupBy({
+            by: ['batchId'],
+            where: {
+                campaignType: 'AFTER_SEMINAR',
+                source: 'bridge_transfer',
+                isCallCenter: true,
+                callCenterStatus: 'pending_approval',
+                enrollmentStatus: 'NON_ENROLLED'
+            },
+            _count: { id: true }
+        });
+
+        // We need to resolve business IDs from batch IDs or extract from phone
+        // Since we group by batchId, we can just fetch all leads and group them by business manually for better accuracy
+        const rawLeads = await prisma.lead.findMany({
+            where: {
+                campaignType: 'AFTER_SEMINAR',
+                source: 'bridge_transfer',
+                isCallCenter: true,
+                callCenterStatus: 'pending_approval',
+                enrollmentStatus: 'NON_ENROLLED'
+            },
+            select: { id: true, phone: true }
+        });
+
+        const bizGroups = {};
+        rawLeads.forEach(l => {
+            const match = l.phone.match(/_BIZ_(\d+)/);
+            if (match) {
+                const bizId = parseInt(match[1]);
+                if (!bizGroups[bizId]) bizGroups[bizId] = { businessId: bizId, pendingCount: 0, leadIds: [], leads: [] };
+                bizGroups[bizId].pendingCount++;
+                bizGroups[bizId].leadIds.push(l.id);
+            }
+        });
+
+        // We need to fetch the actual lead data and business details
+        if (Object.keys(bizGroups).length > 0) {
+            const allLeadIds = [];
+            Object.values(bizGroups).forEach(b => allLeadIds.push(...b.leadIds));
+
+            const fullLeads = await prisma.lead.findMany({
+                where: { id: { in: allLeadIds } },
+                include: { assignedUser: true }
+            });
+
+            // Put leads into bizGroups
+            fullLeads.forEach(l => {
+                const match = l.phone.match(/_BIZ_(\d+)/);
+                if (match) {
+                    const bizId = parseInt(match[1]);
+                    if (bizGroups[bizId]) bizGroups[bizId].leads.push(l);
+                }
+            });
+
+            // Fetch business names
+            const bizIds = Object.keys(bizGroups).map(id => parseInt(id));
+            const businesses = await prisma.business.findMany({
+                where: { id: { in: bizIds } }
+            });
+
+            businesses.forEach(b => {
+                if (bizGroups[b.id]) {
+                    bizGroups[b.id].businessName = b.name;
+                    bizGroups[b.id].businessLogo = b.logo;
+                    bizGroups[b.id].count = bizGroups[b.id].leads.length;
+                }
+            });
+        }
+
+        res.status(200).json({ success: true, data: Object.values(bizGroups) });
+    } catch (error) {
+        console.error("Get Call Center Handovers Error:", error);
+        res.status(500).json({ error: "Failed to fetch handovers." });
+    }
+};
+
+// ============================================================================
+// 5. APPROVE AND ASSIGN HANDOVERS
+// ============================================================================
+exports.approveAndAssignHandovers = async (req, res) => {
+    try {
+        const { businessId, staffId, count, leadIds } = req.body;
+
+        if (!staffId) {
+            return res.status(400).json({ error: "Staff ID is required." });
+        }
+
+        let targetLeadIds = [];
+
+        if (leadIds && Array.isArray(leadIds) && leadIds.length > 0) {
+            targetLeadIds = leadIds;
+        } else if (businessId) {
+            const limit = count ? parseInt(count) : undefined;
+            const pendingLeads = await prisma.lead.findMany({
+                where: {
+                    campaignType: 'AFTER_SEMINAR',
+                    source: 'bridge_transfer',
+                    isCallCenter: true,
+                    callCenterStatus: 'pending_approval',
+                    enrollmentStatus: 'NON_ENROLLED',
+                    phone: { contains: `_BIZ_${businessId}` }
+                },
+                take: limit,
+                select: { id: true }
+            });
+            targetLeadIds = pendingLeads.map(l => l.id);
+        } else {
+            return res.status(400).json({ error: "Either leadIds or businessId must be provided." });
+        }
+
+        if (targetLeadIds.length === 0) {
+            return res.status(200).json({ success: true, message: "No pending handovers found to approve.", assignedCount: 0 });
+        }
+
+        await prisma.lead.updateMany({
+            where: { id: { in: targetLeadIds } },
+            data: {
+                assignedTo: parseInt(staffId),
+                status: 'OPEN',
+                callCenterStatus: 'approved',
+                assignedAt: new Date()
+            }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: `Successfully approved and assigned ${targetLeadIds.length} leads.`,
+            assignedCount: targetLeadIds.length
+        });
+
+    } catch (error) {
+        console.error("Approve and Assign Handovers Error:", error);
+        res.status(500).json({ error: "Failed to approve handovers." });
+    }
+};
+
+// ============================================================================
+// 6. START ROUND 2 FOR BRIDGE LEADS
+// ============================================================================
+exports.startBridgeRoundTwo = async (req, res) => {
+    try {
+        const { businessId } = req.body;
+
+        if (!businessId) {
+            return res.status(400).json({ error: "Business ID is required." });
+        }
+
+        const updateResult = await prisma.lead.updateMany({
+            where: {
+                campaignType: 'AFTER_SEMINAR',
+                source: 'bridge_transfer',
+                enrollmentStatus: 'NON_ENROLLED',
+                phone: { contains: `_BIZ_${businessId}` }
+            },
+            data: {
+                coordinationRound: { increment: 1 },
+                phase: 1,
+                callStatus: 'pending',
+                callAttempt: 1
+            }
+        });
+
+        res.status(200).json({
+            success: true,
+            message: `Started next round for ${updateResult.count} bridge leads.`,
+            updatedCount: updateResult.count
+        });
+
+    } catch (error) {
+        console.error("Start Bridge Round 2 Error:", error);
+        res.status(500).json({ error: "Failed to start next round." });
     }
 };

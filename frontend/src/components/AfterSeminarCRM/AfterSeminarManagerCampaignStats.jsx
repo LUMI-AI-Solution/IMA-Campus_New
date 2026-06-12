@@ -10,6 +10,7 @@ import NewInquiriesPerformance from "./CampaignStatsModules/NewInquiriesPerforma
 import PaidCampaignPerformance from "./CampaignStatsModules/PaidCampaignPerformance";
 import BridgeTransfersTab from "./CampaignStatsModules/BridgeTransfersTab";
 import B2BLeadTransferHub from './B2BLeadTransferHub';
+import CoordinatorProgressSheet from "./CampaignStatsModules/CoordinatorProgressSheet";
 
 export default function AfterSeminarManagerCampaignStats({ filters = {}, allBatches, campaignType }) {
     // 🔥 උඩ තියෙන filters = {} කෑල්ල තමයි Error එක නැති කරන්නේ 🔥
@@ -361,8 +362,9 @@ export default function AfterSeminarManagerCampaignStats({ filters = {}, allBatc
             {/* 🔥 2. RENDER SPECIFIC CAMPAIGN STATS 🔥 */}
             {campaignType === 'OPEN_SEM' && <div className="animate-fade-in-up"><OpenSeminarControls filters={filters} allBatches={allBatches} isManager={true} /></div>}
             {campaignType === 'NEW_INQ' && <div className="animate-fade-in-up"><NewInquiriesPerformance filters={filters} allBatches={allBatches} isManager={true} /></div>}
-            {campaignType === 'BRIDGE' && <div className="animate-fade-in-up"><BridgeTransfersTab filters={filters} /></div>}
+            {campaignType === 'BRIDGE' && <div className="animate-fade-in-up"><BridgeTransfersTab filters={filters} allBatches={allBatches} /></div>}
             {campaignType === 'PAID' && <div className="animate-fade-in-up"><PaidCampaignPerformance filters={filters} /></div>}
+            {campaignType === 'COORD_PROGRESS' && <div className="animate-fade-in-up"><CoordinatorProgressSheet filters={filters} /></div>}
 
             {/* 🔥 FULL SCREEN MODAL: MASTER LEAD DIRECTORY (ONLY FOR OVERALL) 🔥 */}
             {showMasterModal && isHigherManagement && (
@@ -439,6 +441,7 @@ export default function AfterSeminarManagerCampaignStats({ filters = {}, allBatc
                                             className="bg-slate-900 border border-white/10 text-white text-xs font-bold rounded-xl px-5 py-3 outline-none focus:border-indigo-500 cursor-pointer shadow-inner"
                                         >
                                             <option value="ALL">All Batches</option>
+                                            <option value="UNASSIGNED">No Batch Assigned</option>
                                             {(allBatches || []).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                                         </select>
                                     </div>

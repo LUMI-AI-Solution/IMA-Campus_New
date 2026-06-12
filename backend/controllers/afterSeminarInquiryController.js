@@ -76,21 +76,53 @@ exports.getLeads = async (req, res) => {
         const userRoleRaw = req.user?.role || req.query.loggedUserRole || 'STAFF'; 
         const userRole = String(userRoleRaw).toUpperCase().replace(/ /g, '_');
 
-        const { tab, staffPhase, status, staffId, batchId, businessId, paymentGroup, enrollmentStatus, inquiryType, round, phase } = req.query; 
+        const { tab, staffPhase, status, staffId, batchId, businessId, paymentGroup, enrollmentStatus, inquiryType, round, phase, excludeColdBridge, searchQuery, page, limit, unassignedOnly } = req.query; 
         const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER'].includes(userRole);
 
-        let whereClause = { campaignType: 'AFTER_SEMINAR' };
+        let whereClause = { campaignType: 'AFTER_SEMINAR', source: { not: 'system' }, AND: [] };
 
         if (businessId && businessId !== '') {
-            whereClause.OR = [
-                { phone: { endsWith: `BIZ_${businessId}` } },
-                { phone: { endsWith: `BIZ_${businessId}_AS` } },
-                { phone: { contains: `BIZ_${businessId}_BATCH_` } },
-                { phone: { contains: `BIZ_${businessId}_ROUND_` } },
-                { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
-            ];
+            whereClause.AND.push({
+                OR: [
+                    { phone: { endsWith: `BIZ_${businessId}` } },
+                    { phone: { endsWith: `BIZ_${businessId}_AS` } },
+                    { phone: { contains: `BIZ_${businessId}_BATCH_` } },
+                    { phone: { contains: `BIZ_${businessId}_ROUND_` } },
+                    { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
+                ]
+            });
         }
-        if (batchId && batchId !== '') whereClause.batchId = parseInt(batchId);
+
+        if (searchQuery && searchQuery.trim() !== '') {
+            const q = searchQuery.trim();
+            whereClause.AND.push({
+                OR: [
+                    { phone: { contains: q } },
+                    { name: { contains: q } }
+                ]
+            });
+        }
+
+        if (excludeColdBridge === 'true') {
+            whereClause.AND.push({
+                NOT: {
+                    AND: [
+                        { source: 'bridge_transfer' },
+                        { lastMessage: null }
+                    ]
+                }
+            });
+        }
+
+        if (whereClause.AND.length === 0) {
+            delete whereClause.AND;
+        }
+
+        if (batchId === 'UNASSIGNED') {
+            whereClause.batchId = null;
+        } else if (batchId && batchId !== '') {
+            whereClause.batchId = parseInt(batchId);
+        }
         if (paymentGroup && paymentGroup !== '') whereClause.paymentIntention = paymentGroup;
         if (enrollmentStatus && enrollmentStatus !== '') whereClause.enrollmentStatus = enrollmentStatus;
         if (inquiryType && inquiryType !== '') whereClause.inquiryType = inquiryType; 
@@ -117,13 +149,26 @@ exports.getLeads = async (req, res) => {
             } else if (staffPhase && staffPhase !== '') {
                 whereClause.phase = parseInt(staffPhase);
             }
+        } else if (tab === 'ALL' && String(unassignedOnly) === 'true') {
+            whereClause.assignedTo = null;
         }
+
+        const pageNum = page ? parseInt(page) : 1;
+        const limitNum = limit ? parseInt(limit) : 50;
+        const skipNum = (pageNum - 1) * limitNum;
+
+        console.log("DEBUG whereClause:", JSON.stringify(whereClause, null, 2));
+        console.log("DEBUG tab:", tab, "unassignedOnly:", unassignedOnly);
 
         let leads = await prisma.lead.findMany({
             where: whereClause, 
-            orderBy: [ { unreadCount: 'desc' }, { updatedAt: 'desc' } ], 
-            include: { assignedUser: { select: { firstName: true, lastName: true } }, batch: { select: { name: true } } }
+            orderBy: [ { unreadCount: 'desc' }, { lastMessageAt: 'desc' }, { updatedAt: 'desc' } ], 
+            include: { assignedUser: { select: { firstName: true, lastName: true, businessType: true } }, batch: { select: { name: true } } },
+            skip: skipNum,
+            take: limitNum
         });
+
+        const totalMatching = await prisma.lead.count({ where: whereClause });
 
         const now = new Date();
 
@@ -178,7 +223,8 @@ if (extractedBizId) {
                         businessId: extractedBizId,
                         status: { in: [1, 4] } // 1 = Approved, 4 = Post Pay
                     },
-                    orderBy: { created_at: 'desc' }
+                    orderBy: { created_at: 'desc' },
+                    include: { batch: true }
                 }
             }
         });
@@ -201,7 +247,8 @@ if (extractedBizId) {
                 needsUpdate = true;
             }
 
-            if (!l.batchId && latestPayment.batchId) {
+            // 🔥 FIX: Only assign batch if the batch belongs to the same business!
+            if (!l.batchId && latestPayment.batchId && latestPayment.batch?.businessId === extractedBizId) {
                 updateData.batchId = latestPayment.batchId;
                 needsUpdate = true;
             }
@@ -231,18 +278,40 @@ if (extractedBizId) {
         }
 
         // --- Calculate Counts ---
-        let countWhere = { campaignType: 'AFTER_SEMINAR' }; 
+        let countWhere = { campaignType: 'AFTER_SEMINAR', source: { not: 'system' }, AND: [] }; 
 
         if (businessId && businessId !== '') {
-            countWhere.OR = [
-                { phone: { endsWith: `BIZ_${businessId}` } },
-                { phone: { endsWith: `BIZ_${businessId}_AS` } },
-                { phone: { contains: `BIZ_${businessId}_BATCH_` } },
-                { phone: { contains: `BIZ_${businessId}_ROUND_` } },
-                { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
-            ];
+            countWhere.AND.push({
+                OR: [
+                    { phone: { endsWith: `BIZ_${businessId}` } },
+                    { phone: { endsWith: `BIZ_${businessId}_AS` } },
+                    { phone: { contains: `BIZ_${businessId}_BATCH_` } },
+                    { phone: { contains: `BIZ_${businessId}_ROUND_` } },
+                    { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
+                ]
+            });
         }
-        if (batchId && batchId !== '') countWhere.batchId = parseInt(batchId);
+
+        if (excludeColdBridge === 'true') {
+            countWhere.AND.push({
+                NOT: {
+                    AND: [
+                        { source: 'bridge_transfer' },
+                        { lastMessage: null }
+                    ]
+                }
+            });
+        }
+
+        if (countWhere.AND.length === 0) {
+            delete countWhere.AND;
+        }
+
+        if (batchId === 'UNASSIGNED') {
+            countWhere.batchId = null;
+        } else if (batchId && batchId !== '') {
+            countWhere.batchId = parseInt(batchId);
+        }
 
         const allLeadsForCounts = await prisma.lead.findMany({ where: countWhere });
         
@@ -286,7 +355,14 @@ if (extractedBizId) {
             else counts.NOT_DECIDED++;
         });
 
-        res.status(200).json({ leads, counts, unreadCounts, totalUnread });
+        if (String(unassignedOnly) === 'true') {
+            counts.ALL = totalMatching;
+            // Also need to count unread matching the unassigned filter? 
+            // The UI expects unreadCounts.ALL, we can let it remain total unread or recalculate it.
+            // Let's at least update counts.ALL.
+        }
+
+        res.status(200).json({ leads, counts, unreadCounts, totalUnread, totalMatching });
     } catch (error) { 
         console.error("Auto Sync Engine Error:", error);
         res.status(500).json({ error: "Failed to fetch leads" }); 
@@ -296,6 +372,8 @@ if (extractedBizId) {
 // ==========================================
 // 3. IMPORT, BULK ACTIONS & ASSIGN
 // ==========================================
+const { normalizePhone } = require('../utils/phoneUtils');
+
 exports.importLead = async (req, res) => {
     try {
         const { name, number, isBulk, leadsList, batchId, businessId, inquiryType } = req.body;
@@ -331,8 +409,9 @@ exports.importLead = async (req, res) => {
         if (isBulk && leadsList && Array.isArray(leadsList)) {
             let importedCount = 0;
             for (const lead of leadsList) {
-                const phone = lead.number?.toString().trim();
+                let phone = lead.number?.toString().trim();
                 if (!phone) continue;
+                phone = normalizePhone(phone); // 🔥 NORMALIZED 🔥
                 const dbPhone = parsedBatchId ? `${phone}_BIZ_${parsedBusinessId}_BATCH_${parsedBatchId}` : `${phone}_BIZ_${parsedBusinessId}`;
                 await prisma.lead.upsert({
                     where: { phone: dbPhone }, 
@@ -343,7 +422,8 @@ exports.importLead = async (req, res) => {
             }
             return res.status(201).json({ message: `${importedCount} leads imported successfully!` });
         } else {
-            const dbPhone = parsedBatchId ? `${number}_BIZ_${parsedBusinessId}_BATCH_${parsedBatchId}` : `${number}_BIZ_${parsedBusinessId}`;
+            const normalizedNumber = normalizePhone(number); // 🔥 NORMALIZED 🔥
+            const dbPhone = parsedBatchId ? `${normalizedNumber}_BIZ_${parsedBusinessId}_BATCH_${parsedBatchId}` : `${normalizedNumber}_BIZ_${parsedBusinessId}`;
             const newLead = await prisma.lead.upsert({
                 where: { phone: dbPhone }, 
                 update: { name }, 
@@ -358,24 +438,28 @@ exports.importLead = async (req, res) => {
 
 exports.bulkActions = async (req, res) => {
     try {
-        const { action, leadIds, staffId, targetRound } = req.body;
+        const { action, leadIds, staffId, targetRound, assignType } = req.body;
 
         if (action === 'MARK_READ') {
             await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { unreadCount: 0 } });
         } 
         else if (action === 'MARK_UNREAD') {
-            await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { unreadCount: 1, assignedTo: null, status: 'NEW' } });
+            await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { unreadCount: 1 } });
         } 
         else if (action === 'ASSIGN') {
+            const updateData = { 
+                assignedTo: parseInt(staffId), 
+                status: 'OPEN', 
+                phase: 1, 
+                callStatus: 'pending',
+                assignedAt: new Date() 
+            };
+            if (assignType) {
+                updateData.inquiryType = assignType;
+            }
             await prisma.lead.updateMany({ 
                 where: { id: { in: leadIds } }, 
-                data: { 
-                    assignedTo: parseInt(staffId), 
-                    status: 'OPEN', 
-                    phase: 1, 
-                    callStatus: 'pending',
-                    assignedAt: new Date() 
-                } 
+                data: updateData 
             });
         } 
         else if (action === 'UNASSIGN') {
@@ -386,38 +470,48 @@ exports.bulkActions = async (req, res) => {
                 const lead = await prisma.lead.findUnique({ where: { id: parseInt(leadId) } });
                 if (!lead) continue;
 
-                const basePhone = lead.phone.split('_ROUND_')[0]; 
-                const newPhoneStr = `${basePhone}_ROUND_${targetRound}`;
+                const currentRound = lead.coordinationRound || 1;
 
-                await prisma.lead.upsert({
-                    where: { phone: newPhoneStr },
-                    update: {}, 
-                    create: {
-                        name: lead.name,
-                        phone: newPhoneStr,
-                        source: lead.source,
-                        campaignType: lead.campaignType,
-                        assignedTo: lead.assignedTo, 
-                        status: 'OPEN',
-                        phase: 1, 
-                        callStatus: 'pending', 
-                        paymentIntention: lead.paymentIntention,
-                        enrollmentStatus: lead.enrollmentStatus,
-                        text: lead.text,
-                        inquiryType: lead.inquiryType,
-                        newInqTimestamp: lead.newInqTimestamp,
-                        batchId: lead.batchId,
-                        feedback: lead.feedback, 
-                        coordinationRound: parseInt(targetRound), 
-                        callAttempt: 1, 
-                        callMethod: 'direct', 
-                        isLocked: false,
-                        unreadCount: 0,
-                        autoReplyStep: lead.autoReplyStep,
-                        sequenceCompleted: lead.sequenceCompleted,
-                        assignedAt: lead.assignedTo ? new Date() : null
+                // 1. Save history to LeadRoundProgress
+                await prisma.leadRoundProgress.create({
+                    data: {
+                        leadId: lead.id,
+                        round: currentRound,
+                        callStatus: lead.callStatus || 'pending',
+                        callMethod: lead.callMethod || 'direct',
+                        callAttempt: lead.callAttempt || 1,
+                        feedback: lead.feedback || 'Manually pushed to next round'
                     }
                 });
+
+                // 2. Update the existing lead
+                if (parseInt(targetRound) >= 3) {
+                    // Send to Non-Enrolled
+                    await prisma.lead.update({
+                        where: { id: lead.id },
+                        data: {
+                            inquiryType: 'NORMAL',
+                            coordinationRound: 1,
+                            phase: 1,
+                            callStatus: 'pending',
+                            callAttempt: 1,
+                            isLocked: false,
+                            updatedAt: new Date()
+                        }
+                    });
+                } else {
+                    await prisma.lead.update({
+                        where: { id: lead.id },
+                        data: {
+                            coordinationRound: parseInt(targetRound),
+                            phase: 1,
+                            callStatus: 'pending',
+                            callAttempt: 1,
+                            isLocked: false,
+                            updatedAt: new Date()
+                        }
+                    });
+                }
             }
         }
 
@@ -440,11 +534,31 @@ exports.assignLeads = async (req, res) => {
         const { type, staffId, count, sort, autoAssignConfig, batchId, businessId, assignType } = req.body;
         
         if (type === 'bulk') {
-            let whereClause = { assignedTo: null, campaignType: 'AFTER_SEMINAR' };
+            let whereClause = { assignedTo: null, campaignType: 'AFTER_SEMINAR', source: { not: 'system' } };
             
-            if (batchId && batchId !== '') {
+            if (batchId && batchId !== '' && batchId !== 'ALL' && batchId !== 'UNASSIGNED') {
                 whereClause.batchId = parseInt(batchId);
-            } else if (businessId && businessId !== '') {
+                if (businessId && businessId !== '' && businessId !== 'ALL') {
+                    whereClause.OR = [
+                        { phone: { endsWith: `BIZ_${businessId}` } },
+                        { phone: { endsWith: `BIZ_${businessId}_AS` } },
+                        { phone: { contains: `BIZ_${businessId}_BATCH_` } },
+                        { phone: { contains: `BIZ_${businessId}_ROUND_` } },
+                        { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
+                    ];
+                }
+            } else if (batchId === 'UNASSIGNED') {
+                whereClause.batchId = null;
+                if (businessId && businessId !== '' && businessId !== 'ALL') {
+                    whereClause.OR = [
+                        { phone: { endsWith: `BIZ_${businessId}` } },
+                        { phone: { endsWith: `BIZ_${businessId}_AS` } },
+                        { phone: { contains: `BIZ_${businessId}_BATCH_` } },
+                        { phone: { contains: `BIZ_${businessId}_ROUND_` } },
+                        { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
+                    ];
+                }
+            } else if (businessId && businessId !== '' && businessId !== 'ALL') {
                 whereClause.OR = [
                     { phone: { endsWith: `BIZ_${businessId}` } },
                     { phone: { endsWith: `BIZ_${businessId}_AS` } },
@@ -452,6 +566,11 @@ exports.assignLeads = async (req, res) => {
                     { phone: { contains: `BIZ_${businessId}_ROUND_` } },
                     { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
                 ];
+            } else {
+                // Prevent assigning from ALL businesses by accident if filters are not applied properly
+                // If a manager really wants ALL, they will face issues, but coordinators should not mix leads.
+                // We will force businessId to be required, or if it's missing, return an error.
+                return res.status(400).json({ error: "Please select a specific Business or Batch before assigning." });
             }
 
             if (assignType === 'NEW_INQ') whereClause.inquiryType = 'NEW_INQ';
@@ -496,7 +615,7 @@ exports.assignLeads = async (req, res) => {
 // ==========================================
 exports.updateCallCampaign = async (req, res) => {
     try {
-        const { leadId, method, status, callStatus, feedback, coordinationRound, paymentIntention, enrollmentStatus, inquiryType, callAttempt } = req.body;
+        const { leadId, method, status, callStatus, feedback, coordinationRound, paymentIntention, enrollmentStatus, inquiryType, callAttempt, nonEnrolledReason } = req.body;
         
         const lead = await prisma.lead.findUnique({ where: { id: parseInt(leadId) } });
         if (!lead) return res.status(404).json({ error: "Lead not found" });
@@ -529,6 +648,22 @@ exports.updateCallCampaign = async (req, res) => {
         const phaseChanged = currentPhase !== nextPhase;
         const statusChanged = actualStatus !== lead.callStatus;
         
+        // --- 5-DAY ATTEMPT LOGIC ---
+        let nextCallAttempt = callAttempt !== undefined ? parseInt(callAttempt) : lead.callAttempt;
+        let nextLastAttemptAt = lead.lastAttemptAt;
+
+        if (lead.callStatus === 'pending' && actualStatus !== 'pending') {
+            // First time updating status from pending
+            nextLastAttemptAt = new Date();
+        } else if (lead.lastAttemptAt && statusChanged) {
+            // Updating status again, check if 5 days passed
+            const daysPassed = (new Date() - new Date(lead.lastAttemptAt)) / (1000 * 60 * 60 * 24);
+            if (daysPassed >= 5) {
+                nextCallAttempt = 2;
+                nextLastAttemptAt = new Date(); // Reset for next attempt window
+            }
+        }
+
         const newTimestamp = (tabChanged || phaseChanged || statusChanged) ? new Date() : lead.updatedAt;
 
         const updatedLead = await prisma.lead.update({
@@ -537,9 +672,11 @@ exports.updateCallCampaign = async (req, res) => {
                 callMethod: method !== undefined ? method : lead.callMethod, 
                 callStatus: finalCallStatus,  // 🔥 අලුත් status එක (pending)
                 feedback: feedback !== undefined ? feedback : lead.feedback, 
+                nonEnrolledReason: nonEnrolledReason !== undefined ? nonEnrolledReason : lead.nonEnrolledReason,
                 phase: nextPhase,             // 🔥 අලුත් Phase එක
                 coordinationRound: coordinationRound !== undefined ? parseInt(coordinationRound) : lead.coordinationRound,
-                callAttempt: callAttempt !== undefined ? parseInt(callAttempt) : lead.callAttempt,
+                callAttempt: nextCallAttempt,
+                lastAttemptAt: nextLastAttemptAt,
                 paymentIntention: paymentIntention || lead.paymentIntention,
                 enrollmentStatus: enrollmentStatus || lead.enrollmentStatus,
                 inquiryType: inquiryType || lead.inquiryType,
@@ -558,8 +695,24 @@ exports.startNewCoordination = async (req, res) => {
     try {
         const { businessId, batchId } = req.body;
         let whereClause = { campaignType: 'AFTER_SEMINAR', enrollmentStatus: 'NON_ENROLLED' };
-        if (businessId && businessId !== '') whereClause.phone = { contains: `_BIZ_${businessId}` };
-        if (batchId && batchId !== '') whereClause.batchId = parseInt(batchId);
+        if (batchId === 'UNASSIGNED') {
+            whereClause.batchId = null;
+        } else if (batchId && batchId !== '') {
+            whereClause.batchId = parseInt(batchId);
+        } else if (businessId && businessId !== '') {
+            whereClause.OR = [
+                { phone: { endsWith: `BIZ_${businessId}` } },
+                { phone: { endsWith: `BIZ_${businessId}_AS` } },
+                { phone: { contains: `BIZ_${businessId}_BATCH_` } },
+                { phone: { contains: `BIZ_${businessId}_ROUND_` } },
+                { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
+            ];
+        }
+        if (batchId === 'UNASSIGNED') {
+            whereClause.batchId = null;
+        } else if (batchId && batchId !== '') {
+            whereClause.batchId = parseInt(batchId);
+        }
 
         await prisma.lead.updateMany({
             where: whereClause,
@@ -576,7 +729,9 @@ exports.getAllCampaignLeads = async (req, res) => {
         const { businessId, batchId } = req.query;
         let whereClause = { campaignType: 'AFTER_SEMINAR' };
         
-        if (batchId && batchId !== '') {
+        if (batchId === 'UNASSIGNED') {
+            whereClause.batchId = null;
+        } else if (batchId && batchId !== '') {
             whereClause.batchId = parseInt(batchId);
         } else if (businessId && businessId !== '') {
             whereClause.OR = [
@@ -730,7 +885,13 @@ exports.receiveMessage = async (req, res) => {
             // ========================================================
             if (settings.campaignType === 'AFTER_SEMINAR') {
                 const msgLower = (messageText || "").toLowerCase().trim();
-                const existingLeadCheck = await prisma.lead.findUnique({ where: { phone: dbPhone } });
+                const existingLeadCheck = await prisma.lead.findFirst({
+                    where: { 
+                        phone: { startsWith: `${phone}_BIZ_${settings.businessId}` },
+                        campaignType: 'AFTER_SEMINAR'
+                    },
+                    orderBy: { updatedAt: 'desc' }
+                });
 
                 const isRestartCommand = ['hi', 'hello', 'hey', 'menu', 'start'].includes(msgLower);
                 const timeSinceLastMsg = existingLeadCheck && existingLeadCheck.updatedAt ? new Date() - new Date(existingLeadCheck.updatedAt) : 10000;
@@ -763,7 +924,7 @@ exports.receiveMessage = async (req, res) => {
 
                 let createDataAfterSeminar = { 
                     name: name, phone: dbPhone, source: 'whatsapp', campaignType: 'AFTER_SEMINAR', 
-                    lastMessage: messageText || 'Received Media', unreadCount: 1, status: 'NEW', 
+                    lastMessage: messageText || 'Received Media', lastMessageAt: new Date(), unreadCount: 1, status: 'NEW', 
                     phase: 1, callStatus: 'pending', paymentIntention: 'NOT_DECIDED', 
                     enrollmentStatus: 'NON_ENROLLED', inquiryType: detInquiryType, 
                     newInqTimestamp: newInqTs, autoReplyStep: 0, sequenceCompleted: false
@@ -771,17 +932,20 @@ exports.receiveMessage = async (req, res) => {
 
                 if (parsedBatchId) createDataAfterSeminar.batch = { connect: { id: parsedBatchId } };
 
+                let targetPhone = existingLeadCheck ? existingLeadCheck.phone : dbPhone;
                 let existingLead;
                 try {
                     existingLead = await prisma.lead.upsert({
-                        where: { phone: dbPhone },
+                        where: { phone: targetPhone },
                         update: { 
                             name: name, 
                             lastMessage: messageText || 'Received Media', 
+                            lastMessageAt: new Date(),
                             unreadCount: { increment: 1 }, 
                             status: existingLeadCheck?.assignedTo ? 'OPEN' : 'NEW', 
                             updatedAt: new Date(),
                             inquiryType: detInquiryType,
+                            source: 'whatsapp',
                             ...resetData
                         },
                         create: createDataAfterSeminar
@@ -790,8 +954,8 @@ exports.receiveMessage = async (req, res) => {
                     if (upsertError.code === 'P2002' && upsertError.meta?.target?.includes('phone')) {
                         await new Promise(resolve => setTimeout(resolve, 50)); 
                         existingLead = await prisma.lead.update({
-                            where: { phone: dbPhone },
-                            data: { name: name, lastMessage: messageText || 'Received Media', unreadCount: { increment: 1 }, status: 'OPEN', updatedAt: new Date(), inquiryType: detInquiryType, ...resetData }
+                            where: { phone: targetPhone },
+                            data: { name: name, lastMessage: messageText || 'Received Media', lastMessageAt: new Date(), unreadCount: { increment: 1 }, status: 'OPEN', updatedAt: new Date(), inquiryType: detInquiryType, ...resetData }
                         });
                     } else throw upsertError;
                 }
@@ -861,7 +1025,7 @@ exports.receiveMessage = async (req, res) => {
 
                 let createDataFreeSeminar = { 
                     name: name, phone: dbPhone, source: 'whatsapp', campaignType: 'FREE_SEMINAR', 
-                    lastMessage: messageText || 'Received Media', unreadCount: 1, status: 'NEW', 
+                    lastMessage: messageText || 'Received Media', lastMessageAt: new Date(), unreadCount: 1, status: 'NEW', 
                     phase: 1, callStatus: 'pending', autoReplyStep: 0, sequenceCompleted: false 
                 };
 
@@ -869,7 +1033,7 @@ exports.receiveMessage = async (req, res) => {
 
                 existingLead = await prisma.lead.upsert({
                     where: { phone: dbPhone },
-                    update: { name: name, lastMessage: messageText || 'Received Media', unreadCount: { increment: 1 }, status: existingLead?.assignedTo ? 'OPEN' : 'NEW', updatedAt: new Date(), ...resetData },
+                    update: { name: name, lastMessage: messageText || 'Received Media', lastMessageAt: new Date(), unreadCount: { increment: 1 }, status: existingLead?.assignedTo ? 'OPEN' : 'NEW', updatedAt: new Date(), ...resetData },
                     create: createDataFreeSeminar
                 });
 

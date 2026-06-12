@@ -1,5 +1,8 @@
+const { getScopedBusinessId } = require("../utils/scopeUtils");
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const crypto = require('crypto');
+const bcrypt = require('bcrypt');
 const axios = require('axios');
 const fs = require('fs'); 
 const path = require('path');
@@ -136,17 +139,40 @@ exports.getLeads = async (req, res) => {
         const userRoleRaw = req.user?.role || req.query.loggedUserRole || 'STAFF'; 
         const userRole = String(userRoleRaw).toUpperCase().replace(/ /g, '_');
 
-        const { campaignType, tab, staffPhase, status, staffId, batchId, businessId } = req.query; 
+        let { campaignType, tab, staffPhase, status, staffId, batchId, businessId, searchQuery, limit } = req.query; 
+        const limitNum = limit ? parseInt(limit) : 100;
+
+        const scopedBizId = await getScopedBusinessId(req.user);
+        if (scopedBizId) {
+            businessId = scopedBizId.toString();
+        }
+
         const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER'].includes(userRole);
 
-        let whereClause = { campaignType: campaignType || 'FREE_SEMINAR' };
+        let whereClause = {};
+
+        if (tab === 'ALL' || tab === 'ASSIGNED') {
+            whereClause.campaignType = { in: ['FREE_SEMINAR', 'AFTER_SEMINAR'] };
+        } else {
+            whereClause.campaignType = campaignType || 'FREE_SEMINAR';
+        }
 
         // 🔥 FIX: Replaced Phone String Mapping with strict Batch ID lookup
         if (batchId && batchId !== '') {
             whereClause.batchId = parseInt(batchId);
         } else if (businessId && businessId !== '') {
             const bizBatches = await prisma.batch.findMany({ where: { businessId: parseInt(businessId) }, select: { id: true }});
-            whereClause.batchId = { in: bizBatches.map(b => b.id) };
+            
+            whereClause.AND = [
+                ...(whereClause.AND || []),
+                {
+                    OR: [
+                        { batchId: { in: bizBatches.map(b => b.id) } },
+                        { phone: { endsWith: `_BIZ_${businessId}` } },
+                        { phone: { contains: `_BIZ_${businessId}_` } }
+                    ]
+                }
+            ];
         }
 
         // 🔥 TAB FILTERING LOGIC 🔥
@@ -175,11 +201,25 @@ exports.getLeads = async (req, res) => {
             else if (!isManager) whereClause.assignedTo = parseInt(userId);
         }
 
+        if (searchQuery && searchQuery.trim() !== '') {
+            const sq = searchQuery.trim();
+            whereClause.AND = [
+                ...(whereClause.AND || []),
+                {
+                    OR: [
+                        { phone: { contains: sq } },
+                        { name: { contains: sq } }
+                    ]
+                }
+            ];
+        }
+
         const leads = await prisma.lead.findMany({
             where: whereClause, 
-            orderBy: [ { unreadCount: 'desc' }, { updatedAt: 'desc' } ], 
+            orderBy: [ { unreadCount: 'desc' }, { lastMessageAt: 'desc' }, { updatedAt: 'desc' } ], 
+            take: limitNum,
             include: { 
-                assignedUser: { select: { firstName: true, lastName: true } }, 
+                assignedUser: { select: { firstName: true, lastName: true, businessType: true } }, 
                 batch: { select: { name: true } } 
             }
         });
@@ -189,8 +229,13 @@ exports.getLeads = async (req, res) => {
             phone: l.phone ? l.phone.split('_BIZ')[0] : ''
         }));
 
-        // 🔥 FIX: COUNTS LOGIC - Strict Batch isolation
-        let countWhere = { campaignType: campaignType || 'FREE_SEMINAR' };
+        let countWhere = {};
+        if (tab === 'ALL' || tab === 'ASSIGNED') {
+            countWhere.campaignType = { in: ['FREE_SEMINAR', 'AFTER_SEMINAR'] };
+        } else {
+            countWhere.campaignType = campaignType || 'FREE_SEMINAR';
+        }
+        
         if (batchId && batchId !== '') {
             countWhere.batchId = parseInt(batchId);
         } else if (businessId && businessId !== '') {
@@ -198,38 +243,43 @@ exports.getLeads = async (req, res) => {
             countWhere.batchId = { in: bizBatches.map(b => b.id) };
         }
 
-        const allLeadsForCounts = await prisma.lead.findMany({ where: countWhere });
+        const allLeadsForCounts = await prisma.lead.findMany({ 
+            where: {
+                 campaignType: { in: ['FREE_SEMINAR', 'AFTER_SEMINAR'] },
+                 batchId: countWhere.batchId
+            } 
+        });
+        
         let counts = { NEW: 0, IMPORTED: 0, ASSIGNED: 0, ALL: 0 };
         let unreadCounts = { NEW: 0, IMPORTED: 0, ASSIGNED: 0, ALL: 0 };
         let totalUnread = 0;
 
         allLeadsForCounts.forEach(l => {
-            if (!isManager && l.assignedTo && l.assignedTo !== parseInt(userId)) return;
-
-            counts.ALL++;
-            if (l.status === 'NEW' && !l.assignedTo) counts.NEW++;
-            if (l.source === 'import' || l.source === 'bulk_import') counts.IMPORTED++;
-            
-            if (l.assignedTo) {
-                if (staffId && staffId !== '') {
-                    if (l.assignedTo === parseInt(staffId)) counts.ASSIGNED++;
-                } else {
-                    counts.ASSIGNED++;
-                }
+            if (!isManager) {
+                if (l.assignedTo !== parseInt(userId)) return;
+            } else {
+                if (staffId && staffId !== '' && l.assignedTo !== parseInt(staffId)) return;
             }
 
+            counts.ALL++;
             if (l.unreadCount > 0) {
                 totalUnread++;
                 unreadCounts.ALL++;
-                if (l.status === 'NEW' && !l.assignedTo) unreadCounts.NEW++;
-                if (l.source === 'import' || l.source === 'bulk_import') unreadCounts.IMPORTED++;
-                
-                if (l.assignedTo) {
-                    if (staffId && staffId !== '') {
-                        if (l.assignedTo === parseInt(staffId)) unreadCounts.ASSIGNED++;
-                    } else {
-                        unreadCounts.ASSIGNED++;
-                    }
+            }
+
+            if (l.assignedTo) {
+                counts.ASSIGNED++;
+                if (l.unreadCount > 0) unreadCounts.ASSIGNED++;
+            }
+
+            if (l.campaignType === (campaignType || 'FREE_SEMINAR')) {
+                if (l.status === 'NEW' && !l.assignedTo) {
+                    counts.NEW++;
+                    if (l.unreadCount > 0) unreadCounts.NEW++;
+                }
+                if (l.source === 'import' || l.source === 'bulk_import') {
+                    counts.IMPORTED++;
+                    if (l.unreadCount > 0) unreadCounts.IMPORTED++;
                 }
             }
         });
@@ -302,7 +352,7 @@ exports.bulkActions = async (req, res) => {
             await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { unreadCount: 0 } });
         } 
         else if (action === 'MARK_UNREAD') {
-            await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { unreadCount: 1, assignedTo: null, status: 'NEW' } });
+            await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { unreadCount: 1 } });
         } 
         else if (action === 'ASSIGN') {
             await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { assignedTo: parseInt(staffId), status: 'OPEN', phase: 1, callStatus: 'pending' } });
@@ -316,17 +366,14 @@ exports.bulkActions = async (req, res) => {
 
 exports.assignLeads = async (req, res) => {
     try {
-        console.log("\n🚀 --- ASSIGN LEADS DEBUG START ---");
-        console.log("📥 Payload Received (req.body):", req.body);
-
         const { type, staffId, count, sort, autoAssignConfig, batchId, businessId } = req.body;
         
         if (type === 'bulk') {
             let whereClause = { assignedTo: null, status: 'NEW' };
             
-            if (batchId && batchId !== '') {
+            if (batchId && batchId !== '' && batchId !== 'ALL' && batchId !== 'UNASSIGNED') {
                 whereClause.batchId = parseInt(batchId);
-            } else if (businessId && businessId !== '') {
+            } else if (businessId && businessId !== '' && businessId !== 'ALL') {
                 const bizBatches = await prisma.batch.findMany({ 
                     where: { businessId: parseInt(businessId) }, 
                     select: { id: true } 
@@ -339,7 +386,7 @@ exports.assignLeads = async (req, res) => {
                     whereClause.batchId = -1; 
                 }
             } else {
-                console.log("🚨 CRITICAL WARNING: No batchId or businessId provided!");
+                return res.status(400).json({ error: "Please select a specific Business or Batch before assigning." });
             }
 
             const leadsToAssign = await prisma.lead.findMany({ 
@@ -441,288 +488,277 @@ const downloadMetaMedia = async (mediaId, metaApiKey) => {
 };
 
 // ==========================================
-// 6. RECEIVE MESSAGE WEBHOOK (UNIFIED FIX WITH LOGS)
+// 6. RECEIVE MESSAGE WEBHOOK (WITH EXTREME RAW LOGGING)
 // ==========================================
 exports.receiveMessage = async (req, res) => {
-    // 🔥 මෙන්න මේ ලොග් එක තමයි අපි අලුතෙන් දැම්මේ, මේකෙන් හරියටම පෙනෙයි Webhook එකට එන දේවල්
-    console.log("\n🚀 ================= WEBHOOK HIT! =================");
-    console.log("📥 Payload:", JSON.stringify(req.body).substring(0, 300)); 
-    
     try {
         let body = req.body;
+        
+        if (body.object === "whatsapp_business_account" && body.entry?.[0]?.changes?.[0]?.value?.statuses?.[0]) {
+            return res.status(200).send("EVENT_RECEIVED");
+        }
 
-        if (body.object === "whatsapp_business_account") {
+        if (body.object === "whatsapp_business_account" && body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]) {
+            let msgData = body.entry[0].changes[0].value.messages[0];
+            let contactData = body.entry[0].changes[0].value.contacts?.[0] || {};
+            let phone = msgData.from; 
+            let name = contactData?.profile?.name || "Unknown"; 
+            let metaMsgId = msgData.id; 
 
-            // 1. DELIVERY STATUS TRACKER 
-            if (body.entry?.[0]?.changes?.[0]?.value?.statuses?.[0]) {
-                const hasMessage = body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
-                if (!hasMessage) {
-                    return res.status(200).send("EVENT_RECEIVED");
-                }
+            let metadata = body.entry[0].changes[0].value.metadata;
+            let receivingWaNumId = metadata ? metadata.phone_number_id : null;
+            let displayPhone = metadata ? metadata.display_phone_number : null;
+
+            let messageText = "";
+            let interactiveId = null;
+            let isFollowUpReply = false;
+            let mediaObjRaw = null;
+            
+            if (msgData.type === "text") {
+                messageText = msgData.text.body;
+            } else if (msgData.type === "interactive" && msgData.interactive?.type === "button_reply") {
+                interactiveId = msgData.interactive.button_reply.id; 
+                messageText = msgData.interactive.button_reply.title; 
+                if (interactiveId === "FU_YES" || interactiveId === "FU_NO") isFollowUpReply = true;
+            } else if (msgData.type === "button" && msgData.button) {
+                interactiveId = msgData.button.payload; 
+                messageText = msgData.button.text; 
+            } else if (["image", "audio", "video", "document", "sticker"].includes(msgData.type)) {
+                mediaObjRaw = msgData[msgData.type];
+                messageText = mediaObjRaw.caption || mediaObjRaw.filename || `${msgData.type.toUpperCase()} Message`;
+            } else {
+                messageText = `Unsupported Message (${msgData.type})`;
             }
 
-            // 2. INCOMING MESSAGES TRACKER
-            if (body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]) {
-                let msgData = body.entry[0].changes[0].value.messages[0];
-                let contactData = body.entry?.[0]?.changes?.[0]?.value?.contacts?.[0] || {};
-                let phone = msgData.from; 
-                let name = contactData?.profile?.name || "Unknown";
-                let metaMsgId = msgData.id; 
+            const existingMessage = await prisma.chatMessage.findFirst({
+                where: { metaMessageId: metaMsgId }
+            });
+            if (existingMessage) return res.status(200).send("EVENT_RECEIVED");
 
-                const existingMessage = await prisma.chatMessage.findFirst({ where: { metaMessageId: metaMsgId } });
-                if (existingMessage) return res.status(200).send("EVENT_RECEIVED");
+            const settings = await prisma.crmSettings.findFirst({ 
+                where: { waNumId: receivingWaNumId } 
+            });
 
-                let metadata = body.entry[0].changes[0].value.metadata;
-                let receivingWaNumId = metadata ? metadata.phone_number_id : null;
+            if (!settings) return res.status(200).send("EVENT_RECEIVED");
 
-                const settings = await prisma.crmSettings.findFirst({ 
-                    where: { waNumId: receivingWaNumId },
-                    orderBy: { id: 'desc' } 
+            let mediaUrl = null;
+            let mediaType = null;
+            if (mediaObjRaw) {
+                const mediaRes = await downloadMetaMedia(mediaObjRaw.id, settings.metaApiKey);
+                if (mediaRes) { mediaUrl = mediaRes.url; mediaType = mediaRes.type; }
+            }
+
+            let parsedBatchId = settings.batchId ? parseInt(settings.batchId) : null;
+            let dbPhone = `${phone}_BIZ_${settings.businessId}`;
+            if (parsedBatchId) dbPhone += `_BATCH_${parsedBatchId}`;
+
+            // ========================================================
+            // 🔴 AFTER SEMINAR LOGIC
+            // ========================================================
+            if (settings.campaignType === 'AFTER_SEMINAR') {
+                const msgLower = (messageText || "").toLowerCase().trim();
+                const existingLeadCheck = await prisma.lead.findUnique({ where: { phone: dbPhone } });
+
+                const isRestartCommand = ['hi', 'hello', 'hey', 'menu', 'start'].includes(msgLower);
+                const timeSinceLastMsg = existingLeadCheck && existingLeadCheck.updatedAt ? new Date() - new Date(existingLeadCheck.updatedAt) : 10000;
+                const isSpamming = timeSinceLastMsg < 10000; 
+
+                let resetData = {};
+                if (isRestartCommand || timeSinceLastMsg > 43200000) { 
+                    resetData = { autoReplyStep: 0, sequenceCompleted: false };
+                }
+
+                let detInquiryType = 'NEW_INQ'; 
+                let newInqTs = null;
+
+                if (!existingLeadCheck) {
+                    if (msgLower === 'opening seminar') { 
+                        detInquiryType = 'OPEN_SEMINAR';
+                    } else if (msgLower === 'yes') {
+                        detInquiryType = 'NORMAL';
+                    } else {
+                        detInquiryType = 'NEW_INQ';
+                        newInqTs = new Date(); 
+                    }
+                } else {
+                    detInquiryType = existingLeadCheck.inquiryType || 'NEW_INQ';
+                    if (msgLower === 'opening seminar') { 
+                        detInquiryType = 'OPEN_SEMINAR';
+                    }
+                }
+
+                let createDataAfterSeminar = { 
+                    name: name, phone: dbPhone, source: 'whatsapp', campaignType: 'AFTER_SEMINAR', 
+                    lastMessage: messageText || 'Received Media', lastMessageAt: new Date(), unreadCount: 1, status: 'NEW', 
+                    phase: 1, callStatus: 'pending', paymentIntention: 'NOT_DECIDED', 
+                    enrollmentStatus: 'NON_ENROLLED', inquiryType: detInquiryType, 
+                    newInqTimestamp: newInqTs, autoReplyStep: 0, sequenceCompleted: false
+                };
+
+                if (parsedBatchId) createDataAfterSeminar.batch = { connect: { id: parsedBatchId } };
+
+                let targetPhone = existingLeadCheck ? existingLeadCheck.phone : dbPhone;
+
+                let existingLead;
+                try {
+                    existingLead = await prisma.lead.upsert({
+                        where: { phone: targetPhone },
+                        update: { 
+                            name: name, 
+                            lastMessage: messageText || 'Received Media', 
+                            lastMessageAt: new Date(),
+                            unreadCount: { increment: 1 }, 
+                            status: existingLeadCheck?.assignedTo ? 'OPEN' : 'NEW', 
+                            updatedAt: new Date(),
+                            inquiryType: detInquiryType,
+                            source: 'whatsapp',
+                            ...resetData
+                        },
+                        create: createDataAfterSeminar
+                    });
+                } catch (upsertError) {
+                    if (upsertError.code === 'P2002' && upsertError.meta?.target?.includes('phone')) {
+                        await new Promise(resolve => setTimeout(resolve, 50)); 
+                        existingLead = await prisma.lead.update({
+                            where: { phone: dbPhone },
+                            data: { name: name, lastMessage: messageText || 'Received Media', lastMessageAt: new Date(), unreadCount: { increment: 1 }, status: 'OPEN', updatedAt: new Date(), source: 'whatsapp', inquiryType: detInquiryType, ...resetData }
+                        });
+                    } else throw upsertError;
+                }
+
+                await prisma.chatMessage.create({ 
+                    data: { leadId: existingLead.id, message: messageText, mediaUrl: mediaUrl, mediaType: mediaType, direction: 'inbound', senderType: 'USER', senderName: name, metaMessageId: metaMsgId } 
                 });
 
-                if (!settings) {
-                    console.error(`🚨 CRITICAL: No CRM Settings found for incoming waNumId: ${receivingWaNumId}. Phone: ${phone}`);
-                    return res.status(200).send("EVENT_RECEIVED");
-                }
+                const botAllowed = ['ON', 'AUTO_REPLY_ONLY', 'AUTO_FOLLOW_UP'].includes(settings?.botMode);
                 
-                let messageText = "Media Message";
-                let interactiveId = null;
-                let isFollowUpReply = false;
-                let mediaUrl = null; 
-                let mediaType = null;
-
-                if (["image", "audio", "video", "document", "sticker"].includes(msgData.type)) {
-                    const mediaObj = msgData[msgData.type];
-                    messageText = mediaObj.caption || mediaObj.filename || `${msgData.type.toUpperCase()} Message`;
-                    const mediaRes = await downloadMetaMedia(mediaObj.id, settings.metaApiKey);
-                    if (mediaRes) { mediaUrl = mediaRes.url; mediaType = mediaRes.type; }
-                } else if (msgData.type === "interactive" && msgData.interactive?.type === "button_reply") {
-                    interactiveId = msgData.interactive.button_reply.id; 
-                    messageText = msgData.interactive.button_reply.title; 
-                    if (interactiveId === "FU_YES" || interactiveId === "FU_NO") isFollowUpReply = true;
-                } else if (msgData.text) {
-                    messageText = msgData.text.body;
-                }
-                // Meta OTP Interception Logic
-                if (messageText && (messageText.includes("Facebook confirmation code") || messageText.includes("confirmation code") || phone === "447710173736")) {
-                    let otpCode = "UNKNOWN";
-                    const codeMatch = messageText.match(/\b\d{5,6}\b/);
-                    if (codeMatch) otpCode = codeMatch[0];
-
-                    console.log("\n🔑 ==========================================");
-                    console.log(`🔑 [META INTERCEPTED OTP] CODE: ${otpCode}`);
-                    console.log(`🔑 TARGET CRM NUMBER: ${metadata ? metadata.display_phone_number : 'UNKNOWN'}`);
-                    console.log(`🔑 FULL MSG: ${messageText}`);
-                    console.log("🔑 ==========================================\n");
-
-                    const displayPhone = metadata ? metadata.display_phone_number : null;
-                    
-                    await prisma.webhookLog.create({
-                        data: {
-                            phone: phone,
-                            waNumId: receivingWaNumId,
-                            message: messageText,
-                            status: "OTP",
-                            errorMsg: displayPhone
-                        }
+                if (botAllowed && !existingLead.sequenceCompleted && !isSpamming && !isFollowUpReply) {
+                    const autoReplies = await prisma.autoReply.findMany({ 
+                        where: { campaignType: 'AFTER_SEMINAR', businessId: settings.businessId }, 
+                        orderBy: { stepOrder: 'asc' } 
                     });
-                }
-
-                let parsedBatchId = settings.batchId ? parseInt(settings.batchId) : null;
-                let dbPhone = `${phone}_BIZ_${settings.businessId}`;
-                if (parsedBatchId) dbPhone += `_BATCH_${parsedBatchId}`;
-
-                const msgLower = messageText.toLowerCase().trim();
-                const isRestartCommand = /^(hi|hello|hey|menu|start|0|1|details|wistara|wisthara|help)(\s|$)/i.test(msgLower);
-
-                // ========================================================
-                // 🟢 AFTER SEMINAR LOGIC
-                // ========================================================
-                if (settings.campaignType === 'AFTER_SEMINAR') {
                     
-                    const existingLeadCheck = await prisma.lead.findUnique({ where: { phone: dbPhone } });
-                    const timeSinceLastMsg = existingLeadCheck && existingLeadCheck.updatedAt ? new Date() - new Date(existingLeadCheck.updatedAt) : 10000;
-                    const isSpamming = timeSinceLastMsg < 2000; 
+                    if (autoReplies.length > 0) {
+                        const currentStep = existingLead.autoReplyStep || 0;
+                        const nextReply = autoReplies.find(r => r.stepOrder > currentStep);
 
-                    let resetData = {};
-                    if (isRestartCommand) resetData = { autoReplyStep: 0, sequenceCompleted: false };
+                        if (nextReply) {
+                            let formattedPhone = phone.startsWith('0') ? '94' + phone.substring(1) : phone;
+                            let metaPayload = { messaging_product: "whatsapp", recipient_type: "individual", to: formattedPhone };
 
-                    let detInquiryType = 'NEW_INQ';
-                    let newInqTs = null;
+                            if (nextReply.attachment) {
+                                const attachmentPath = nextReply.attachment.startsWith('/') ? nextReply.attachment : `/${nextReply.attachment}`;
+                                const liveMediaUrl = `https://imacampus.online${attachmentPath}`; 
+                                if (nextReply.attachmentType === 'Image') { metaPayload.type = "image"; metaPayload.image = { link: liveMediaUrl, caption: nextReply.message || "" }; } 
+                                else if (nextReply.attachmentType === 'Video') { metaPayload.type = "video"; metaPayload.video = { link: liveMediaUrl, caption: nextReply.message || "" }; } 
+                                else { metaPayload.type = "document"; metaPayload.document = { link: liveMediaUrl, caption: nextReply.message || "" }; }
+                            } else { 
+                                metaPayload.type = "text"; metaPayload.text = { body: nextReply.message }; 
+                            }
 
-                    if (!existingLeadCheck) {
-                        if (msgLower === 'opening seminar') detInquiryType = 'OPEN_SEMINAR';
-                        else if (msgLower === 'yes') detInquiryType = 'NORMAL';
-                        else { detInquiryType = 'NEW_INQ'; newInqTs = new Date(); }
-                    } else {
-                        detInquiryType = existingLeadCheck.inquiryType || 'NEW_INQ';
-                        if (msgLower === 'opening seminar') detInquiryType = 'OPEN_SEMINAR';
-                    }
-
-                    let createDataAfterSeminar = { 
-                        name: name, phone: dbPhone, source: 'whatsapp', campaignType: 'AFTER_SEMINAR', 
-                        lastMessage: messageText || 'Received Media', unreadCount: 1, status: 'NEW', 
-                        phase: 1, callStatus: 'pending', paymentIntention: 'NOT_DECIDED', enrollmentStatus: 'NON_ENROLLED',
-                        inquiryType: detInquiryType, newInqTimestamp: newInqTs, autoReplyStep: 0, sequenceCompleted: false
-                    };
-                    if (parsedBatchId) createDataAfterSeminar.batch = { connect: { id: parsedBatchId } };
-
-                    let existingLead;
-                    try {
-                        existingLead = await prisma.lead.upsert({
-                            where: { phone: dbPhone },
-                            update: { 
-                                name: name, lastMessage: messageText || 'Received Media', unreadCount: { increment: 1 }, 
-                                status: existingLeadCheck?.assignedTo ? 'OPEN' : 'NEW', updatedAt: new Date(), 
-                                inquiryType: detInquiryType, ...resetData
-                            },
-                            create: createDataAfterSeminar
-                        });
-                    } catch (upsertError) {
-                        console.error("🚨 Prisma Upsert Error (AFTER_SEMINAR):", upsertError.message); 
-                        if (upsertError.code === 'P2002') {
-                            await new Promise(resolve => setTimeout(resolve, 50)); 
                             try {
-                                existingLead = await prisma.lead.update({
-                                    where: { phone: dbPhone },
-                                    data: { name: name, lastMessage: messageText, unreadCount: { increment: 1 }, status: 'OPEN', updatedAt: new Date(), inquiryType: detInquiryType, ...resetData }
-                                });
-                            } catch (updateErr) {
-                                console.error("🚨 Prisma Update Error (AFTER_SEMINAR):", updateErr.message); 
+                                const metaRes = await axios.post(`https://graph.facebook.com/v19.0/${settings.waNumId}/messages`, metaPayload, { headers: { 'Authorization': `Bearer ${settings.metaApiKey}` } });
+                                await prisma.chatMessage.create({ data: { leadId: existingLead.id, message: nextReply.message, mediaUrl: nextReply.attachment, mediaType: nextReply.attachmentType, direction: 'outbound', senderType: 'SYSTEM', senderName: 'AutoBot', metaMessageId: metaRes.data?.messages?.[0]?.id } });
+                                
+                                const isLastStep = autoReplies[autoReplies.length - 1].id === nextReply.id;
+                                await prisma.lead.update({ where: { id: existingLead.id }, data: { autoReplyStep: nextReply.stepOrder, sequenceCompleted: isLastStep } });
+                            } catch (sendErr) {
+                                console.log(`🔴 ERROR: Meta API rejected the AFTER_SEMINAR auto-reply!`);
                             }
                         }
                     }
-
-                    if(existingLead) {
-                        await prisma.chatMessage.create({ 
-                            data: { leadId: existingLead.id, message: messageText, mediaUrl: mediaUrl, mediaType: mediaType, direction: 'inbound', senderType: 'USER', senderName: name, metaMessageId: metaMsgId } 
-                        });
-                    }
-
-                    // Auto Reply Sender
-                    const botAllowed = (settings?.botMode === 'ON' || settings?.botMode === 'AUTO_REPLY_ONLY');
-                    if (botAllowed && existingLead && !existingLead.sequenceCompleted && !isSpamming && !isFollowUpReply) {
-                        const autoReplies = await prisma.autoReply.findMany({ 
-                            where: { campaignType: 'AFTER_SEMINAR', businessId: settings.businessId }, 
-                            orderBy: { stepOrder: 'asc' } 
-                        });
-                        
-                        if (autoReplies.length > 0) {
-                            const currentStep = existingLead.autoReplyStep || 0;
-                            const nextReply = autoReplies.find(r => r.stepOrder > currentStep);
-
-                            if (nextReply) {
-                                let formattedPhone = phone.startsWith('0') ? '94' + phone.substring(1) : phone;
-                                let metaPayload = { messaging_product: "whatsapp", recipient_type: "individual", to: formattedPhone };
-
-                                if (nextReply.attachment) {
-                                    const attachmentPath = nextReply.attachment.startsWith('/') ? nextReply.attachment : `/${nextReply.attachment}`;
-                                    const liveMediaUrl = `https://imacampus.online${attachmentPath}`; 
-                                    if (nextReply.attachmentType === 'Image') { metaPayload.type = "image"; metaPayload.image = { link: liveMediaUrl, caption: nextReply.message || "" }; } 
-                                    else if (nextReply.attachmentType === 'Video') { metaPayload.type = "video"; metaPayload.video = { link: liveMediaUrl, caption: nextReply.message || "" }; } 
-                                    else { metaPayload.type = "document"; metaPayload.document = { link: liveMediaUrl, caption: nextReply.message || "" }; }
-                                } else { 
-                                    metaPayload.type = "text"; metaPayload.text = { body: nextReply.message }; 
-                                }
-
-                                try {
-                                    const axios = require('axios');
-                                    await axios.post(`https://graph.facebook.com/v19.0/${settings.waNumId}/messages`, metaPayload, { headers: { 'Authorization': `Bearer ${settings.metaApiKey}` } });
-                                    await prisma.chatMessage.create({ data: { leadId: existingLead.id, message: nextReply.message, mediaUrl: nextReply.attachment, mediaType: nextReply.attachmentType, direction: 'outbound', senderType: 'SYSTEM', senderName: 'AutoBot' } });
-                                    const isLastStep = autoReplies[autoReplies.length - 1].id === nextReply.id;
-                                    await prisma.lead.update({ where: { id: existingLead.id }, data: { autoReplyStep: nextReply.stepOrder, sequenceCompleted: isLastStep } });
-                                } catch (sendErr) { console.error("Auto Reply Error:", sendErr.message); }
-                            }
-                        }
-                    }
-                    return res.status(200).send("EVENT_RECEIVED");
                 }
-
-                // ========================================================
-                // 🔵 FREE SEMINAR LOGIC
-                // ========================================================
-                else if (settings.campaignType === 'FREE_SEMINAR') {
-                    
-                    let existingLead = await prisma.lead.findUnique({ where: { phone: dbPhone } });
-                    const timeSinceLastMsg = existingLead && existingLead.updatedAt ? new Date() - new Date(existingLead.updatedAt) : 10000;
-                    const isSpamming = timeSinceLastMsg < 2000; 
-                    
-                    let resetData = {};
-                    if (isRestartCommand) resetData = { autoReplyStep: 0, sequenceCompleted: false };
-
-                    let createDataFreeSeminar = { 
-                        name: name, phone: dbPhone, source: 'whatsapp', campaignType: 'FREE_SEMINAR', 
-                        lastMessage: messageText || 'Received Media', unreadCount: 1, status: 'NEW', 
-                        phase: 1, callStatus: 'pending', autoReplyStep: 0, sequenceCompleted: false 
-                    };
-                    if (parsedBatchId) createDataFreeSeminar.batch = { connect: { id: parsedBatchId } };
-
-                    try {
-                        existingLead = await prisma.lead.upsert({
-                            where: { phone: dbPhone },
-                            update: { name: name, lastMessage: messageText || 'Received Media', unreadCount: { increment: 1 }, status: existingLead?.assignedTo ? 'OPEN' : 'NEW', updatedAt: new Date(), ...resetData },
-                            create: createDataFreeSeminar
-                        });
-                    } catch(e) {
-                        console.error("🚨 Prisma Upsert Error (FREE_SEMINAR):", e.message); 
-                        try {
-                            existingLead = await prisma.lead.update({ where: { phone: dbPhone }, data: { name: name, lastMessage: messageText, unreadCount: { increment: 1 }, status: 'OPEN', updatedAt: new Date(), ...resetData } });
-                        } catch (updateErr) {
-                            console.error("🚨 Prisma Update Error (FREE_SEMINAR):", updateErr.message); 
-                        }
-                    }
-
-                    if(existingLead) {
-                        await prisma.chatMessage.create({ 
-                            data: { leadId: existingLead.id, message: messageText, mediaUrl: mediaUrl, mediaType: mediaType, direction: 'inbound', senderType: 'USER', senderName: name, metaMessageId: metaMsgId } 
-                        });
-                    }
-
-                    // Auto Reply Sender
-                    const botAllowed = (settings?.botMode === 'ON' || settings?.botMode === 'AUTO_REPLY_ONLY');
-                    if (botAllowed && existingLead && !existingLead.sequenceCompleted && !isSpamming && !isFollowUpReply) {
-                        const autoReplies = await prisma.autoReply.findMany({ where: { campaignType: 'FREE_SEMINAR', businessId: settings.businessId }, orderBy: { stepOrder: 'asc' } });
-                        
-                        if (autoReplies.length > 0) {
-                            const currentStep = existingLead.autoReplyStep || 0;
-                            const nextReply = autoReplies.find(r => r.stepOrder > currentStep);
-
-                            if (nextReply) {
-                                let formattedPhone = phone.startsWith('0') ? '94' + phone.substring(1) : phone;
-                                let metaPayload = { messaging_product: "whatsapp", recipient_type: "individual", to: formattedPhone };
-
-                                if (nextReply.attachment) {
-                                    const attachmentPath = nextReply.attachment.startsWith('/') ? nextReply.attachment : `/${nextReply.attachment}`;
-                                    const liveMediaUrl = `https://imacampus.online${attachmentPath}`; 
-                                    if (nextReply.attachmentType === 'Image') { metaPayload.type = "image"; metaPayload.image = { link: liveMediaUrl, caption: nextReply.message || "" }; } 
-                                    else if (nextReply.attachmentType === 'Video') { metaPayload.type = "video"; metaPayload.video = { link: liveMediaUrl, caption: nextReply.message || "" }; } 
-                                    else { metaPayload.type = "document"; metaPayload.document = { link: liveMediaUrl, caption: nextReply.message || "" }; }
-                                } else { 
-                                    metaPayload.type = "text"; metaPayload.text = { body: nextReply.message }; 
-                                }
-
-                                try {
-                                    const axios = require('axios');
-                                    await axios.post(`https://graph.facebook.com/v19.0/${settings.waNumId}/messages`, metaPayload, { headers: { 'Authorization': `Bearer ${settings.metaApiKey}` } });
-                                    await prisma.chatMessage.create({ data: { leadId: existingLead.id, message: nextReply.message, mediaUrl: nextReply.attachment, mediaType: nextReply.attachmentType, direction: 'outbound', senderType: 'SYSTEM', senderName: 'AutoBot' } });
-                                    const isLastStep = autoReplies[autoReplies.length - 1].id === nextReply.id;
-                                    await prisma.lead.update({ where: { id: existingLead.id }, data: { autoReplyStep: nextReply.stepOrder, sequenceCompleted: isLastStep } });
-                                } catch (sendErr) { console.error("Auto Reply Error:", sendErr.message); }
-                            }
-                        }
-                    }
-                    return res.status(200).send("EVENT_RECEIVED");
-                }
-                else {
-                    console.warn(`🚨 WARNING: Unhandled Campaign Type -> ${settings.campaignType}. Lead was NOT saved. Phone: ${phone}`);
-                    return res.status(200).send("EVENT_RECEIVED");
-                }
+                return res.status(200).send("EVENT_RECEIVED");
             }
-        } 
-        
+
+            // ========================================================
+            // 🔵 FREE SEMINAR LOGIC
+            // ========================================================
+            if (settings.campaignType === 'FREE_SEMINAR') {
+                const msgLower = (messageText || "").toLowerCase().trim();
+                const isRestartCommand = ['hi', 'hello', 'hey', 'menu', 'start'].includes(msgLower);
+                let existingLead = await prisma.lead.findFirst({
+                    where: {
+                        phone: { startsWith: `${phone}_BIZ_${settings.businessId}` },
+                        campaignType: 'FREE_SEMINAR'
+                    },
+                    orderBy: { updatedAt: 'desc' }
+                });
+                const timeSinceLastMsg = existingLead && existingLead.updatedAt ? new Date() - new Date(existingLead.updatedAt) : 10000;
+                
+                const isSpamming = timeSinceLastMsg < 10000; 
+                
+                let resetData = {};
+                if (isRestartCommand || timeSinceLastMsg > 43200000) { 
+                    resetData = { autoReplyStep: 0, sequenceCompleted: false };
+                }
+
+                let createDataFreeSeminar = { 
+                    name: name, phone: dbPhone, source: 'whatsapp', campaignType: 'FREE_SEMINAR', 
+                    lastMessage: messageText || 'Received Media', lastMessageAt: new Date(), unreadCount: 1, status: 'NEW', 
+                    phase: 1, callStatus: 'pending', autoReplyStep: 0, sequenceCompleted: false 
+                };
+
+                if (parsedBatchId) createDataFreeSeminar.batch = { connect: { id: parsedBatchId } };
+
+                let targetPhone = existingLead ? existingLead.phone : dbPhone;
+
+                existingLead = await prisma.lead.upsert({
+                    where: { phone: targetPhone },
+                    update: { name: name, lastMessage: messageText || 'Received Media', lastMessageAt: new Date(), unreadCount: { increment: 1 }, status: existingLead?.assignedTo ? 'OPEN' : 'NEW', updatedAt: new Date(), ...resetData },
+                    create: createDataFreeSeminar
+                });
+
+                await prisma.chatMessage.create({ 
+                    data: { 
+                        leadId: existingLead.id, 
+                        message: messageText, 
+                        mediaUrl: mediaUrl, 
+                        mediaType: mediaType, 
+                        direction: 'inbound', 
+                        senderType: 'USER', 
+                        senderName: name, 
+                        metaMessageId: metaMsgId 
+                    } 
+                });
+
+                const botAllowed = ['ON', 'AUTO_REPLY_ONLY', 'AUTO_FOLLOW_UP'].includes(settings?.botMode);
+                
+                if (botAllowed && !existingLead.sequenceCompleted && !isSpamming && !isFollowUpReply) {
+                    const autoReplies = await prisma.autoReply.findMany({ where: { campaignType: 'FREE_SEMINAR', businessId: settings.businessId }, orderBy: { stepOrder: 'asc' } });
+                    if (autoReplies.length > 0) {
+                        const currentStep = existingLead.autoReplyStep || 0;
+                        const nextReply = autoReplies.find(r => r.stepOrder > currentStep);
+
+                        if (nextReply) {
+                            let formattedPhone = phone.startsWith('0') ? '94' + phone.substring(1) : phone;
+                            let metaPayload = { messaging_product: "whatsapp", recipient_type: "individual", to: formattedPhone };
+
+                            if (nextReply.attachment) {
+                                const attachmentPath = nextReply.attachment.startsWith('/') ? nextReply.attachment : `/${nextReply.attachment}`;
+                                const liveMediaUrl = `https://imacampus.online${attachmentPath}`; 
+                                if (nextReply.attachmentType === 'Image') { metaPayload.type = "image"; metaPayload.image = { link: liveMediaUrl, caption: nextReply.message || "" }; } 
+                                else if (nextReply.attachmentType === 'Video') { metaPayload.type = "video"; metaPayload.video = { link: liveMediaUrl, caption: nextReply.message || "" }; } 
+                                else { metaPayload.type = "document"; metaPayload.document = { link: liveMediaUrl, caption: nextReply.message || "" }; }
+                            } else { 
+                                metaPayload.type = "text"; metaPayload.text = { body: nextReply.message }; 
+                            }
+
+                            try {
+                                const metaRes = await axios.post(`https://graph.facebook.com/v19.0/${settings.waNumId}/messages`, metaPayload, { headers: { 'Authorization': `Bearer ${settings.metaApiKey}` } });
+                                await prisma.chatMessage.create({ data: { leadId: existingLead.id, message: nextReply.message, mediaUrl: nextReply.attachment, mediaType: nextReply.attachmentType, direction: 'outbound', senderType: 'SYSTEM', senderName: 'AutoBot', metaMessageId: metaRes.data?.messages?.[0]?.id } });
+                                const isLastStep = autoReplies[autoReplies.length - 1].id === nextReply.id;
+                                await prisma.lead.update({ where: { id: existingLead.id }, data: { autoReplyStep: nextReply.stepOrder, sequenceCompleted: isLastStep } });
+                            } catch (sendErr) {}
+                        }
+                    }
+                }
+                return res.status(200).send("EVENT_RECEIVED");
+            }
+        }
         res.status(200).send("EVENT_RECEIVED");
     } catch (error) { 
-        console.error("🚨 Webhook Error CRITICAL:", error);
+        console.error("Webhook Error:", error);
         res.status(500).send("ERROR"); 
     }
 };
@@ -1169,7 +1205,7 @@ exports.getCampaignStats = async (req, res) => {
 
         const leads = await prisma.lead.findMany({ 
             where: leadWhere,
-            include: { assignedUser: { select: { firstName: true } } }
+            include: { assignedUser: { select: { firstName: true, businessType: true, role: true } } }
         });
 
         const unassignedLeads = leads.filter(l => !l.assignedTo).length;
@@ -1180,7 +1216,7 @@ exports.getCampaignStats = async (req, res) => {
         leads.forEach(l => {
             if (!l.assignedTo) return;
             const name = l.assignedUser?.firstName || "Staff";
-            if (!agentMap[name]) agentMap[name] = { agentName: name, assigned: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0 };
+            if (!agentMap[name]) agentMap[name] = { agentName: name, role: l.assignedUser?.role || "Coordinator", assigned: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0 };
             
             agentMap[name].assigned++;
             if (l.callStatus === 'answered') agentMap[name].answered++;
@@ -1425,7 +1461,8 @@ exports.getLeadDetails = async (req, res) => {
 exports.resetStudentPassword = async (req, res) => {
     try {
         const { studentId, newPassword } = req.body;
-        await prisma.user.update({ where: { id: parseInt(studentId) }, data: { password: newPassword } });
+        const hashedPassword = await bcrypt.hash(newPassword, 10);
+        await prisma.user.update({ where: { id: parseInt(studentId) }, data: { password: hashedPassword } });
         res.status(200).json({ message: "Password updated successfully!" });
     } catch (error) { res.status(500).json({ error: "Failed to reset password" }); }
 };
@@ -1626,5 +1663,148 @@ exports.getUniqueNumbersCount = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Failed to get unique numbers count" });
+    }
+};
+
+// 13. Coordinator Overview Stats for Dashboard
+exports.getCoordinatorOverviewStats = async (req, res) => {
+    try {
+        const userId = parseInt(req.user?.userId || req.user?.id || req.query.loggedUserId);
+        if (!userId || isNaN(userId)) {
+            return res.status(401).json({ error: "Unauthorized. Missing user ID." });
+        }
+
+        const user = await prisma.user.findUnique({
+            where: { id: userId },
+            select: { id: true, role: true, businessType: true }
+        });
+
+        if (!user) {
+            return res.status(404).json({ error: "User not found." });
+        }
+
+        const userRole = String(user.role).toUpperCase().replace(/ /g, '_');
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER'].includes(userRole);
+        const isManager = ['MANAGER', 'ASS_MANAGER'].includes(userRole);
+
+        // Fetch assigned businesses for Manager/Admin
+        let assignedBusinessIds = [];
+        if (isManager || isAdmin) {
+            if (isAdmin) {
+                const allBiz = await prisma.business.findMany({ select: { id: true } });
+                assignedBusinessIds = allBiz.map(b => b.id);
+            } else {
+                const allBiz = await prisma.business.findMany();
+                const matches = [];
+                allBiz.forEach(biz => {
+                    const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
+                    const matchesBizType = user.businessType && (
+                        String(biz.id) === String(user.businessType).trim() ||
+                        biz.name.toLowerCase().trim() === String(user.businessType).toLowerCase().trim() ||
+                        biz.name.toLowerCase().includes(String(user.businessType).toLowerCase().trim()) ||
+                        String(user.businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+                    );
+                    if (isManagerOf || matchesBizType) {
+                        matches.push(biz.id);
+                    }
+                });
+                assignedBusinessIds = matches;
+            }
+        }
+
+        // Determine lead query filter based on role and query parameters
+        const { businessId, batchId } = req.query;
+        let baseLeadFilter = {};
+
+        if (isAdmin || isManager) {
+            // Manager/Admin views aggregate stats
+            if (batchId && batchId !== '' && batchId !== 'undefined' && batchId !== 'null') {
+                baseLeadFilter.batchId = parseInt(batchId);
+            } else if (businessId && businessId !== '' && businessId !== 'undefined' && businessId !== 'null') {
+                baseLeadFilter.batch = { businessId: parseInt(businessId) };
+            } else if (assignedBusinessIds.length > 0) {
+                baseLeadFilter.batch = { businessId: { in: assignedBusinessIds } };
+            } else {
+                // If a manager has no assigned business, restrict them to an empty set
+                baseLeadFilter.batch = { businessId: -1 };
+            }
+        } else {
+            // Regular Coordinator views only their assigned leads
+            baseLeadFilter.assignedTo = userId;
+        }
+
+        // Helper to get stats for a specific lead segment
+        const getSegmentStats = async (segmentFilter) => {
+            const assigned = await prisma.lead.count({
+                where: {
+                    ...baseLeadFilter,
+                    ...segmentFilter
+                }
+            });
+
+            const covered = await prisma.lead.count({
+                where: {
+                    ...baseLeadFilter,
+                    callStatus: { not: 'pending' },
+                    ...segmentFilter
+                }
+            });
+
+            const pending = await prisma.lead.count({
+                where: {
+                    ...baseLeadFilter,
+                    callStatus: 'pending',
+                    ...segmentFilter
+                }
+            });
+
+            return { assigned, covered, pending };
+        };
+
+        // 1. Unread Messages counts
+        const freeSeminarUnreads = await prisma.chatMessage.count({
+            where: {
+                isRead: false,
+                lead: {
+                    ...baseLeadFilter,
+                    campaignType: 'FREE_SEMINAR'
+                }
+            }
+        });
+
+        const afterSeminarUnreads = await prisma.chatMessage.count({
+            where: {
+                isRead: false,
+                lead: {
+                    ...baseLeadFilter,
+                    campaignType: 'AFTER_SEMINAR'
+                }
+            }
+        });
+
+        // 2. Campaigns Stats Segmented
+        const freeSeminar = await getSegmentStats({ campaignType: 'FREE_SEMINAR' });
+        const openSeminar = await getSegmentStats({ campaignType: 'AFTER_SEMINAR', inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL'] } });
+        const newInquiries = await getSegmentStats({ campaignType: 'AFTER_SEMINAR', inquiryType: 'NEW_INQ' });
+        const bridgeTransfers = await getSegmentStats({ campaignType: 'AFTER_SEMINAR', source: 'bridge_transfer' });
+        const paidStudents = await getSegmentStats({ campaignType: 'AFTER_SEMINAR', inquiryType: 'PAID_CAMP', enrollmentStatus: 'ENROLLED' });
+
+        res.status(200).json({
+            unreads: {
+                freeSeminar: freeSeminarUnreads,
+                afterSeminar: afterSeminarUnreads,
+                total: freeSeminarUnreads + afterSeminarUnreads
+            },
+            campaigns: {
+                freeSeminar,
+                openSeminar,
+                newInquiries,
+                bridgeTransfers,
+                paidStudents
+            }
+        });
+    } catch (error) {
+        console.error("Error in getCoordinatorOverviewStats:", error);
+        res.status(500).json({ error: "Failed to load coordinator dashboard stats." });
     }
 };

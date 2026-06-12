@@ -5,14 +5,11 @@ const prisma = new PrismaClient();
 const studentController = require('../controllers/studentController');
 const adminController = require('../controllers/adminController'); 
 const databaseController = require('../controllers/databaseController');
+const managerDashboardController = require('../controllers/managerDashboardController');
 
 // Admin Overview
-router.get('/overview', async (req, res) => {
-  res.json({
-    grossRevenue: 0, pendingSync: 0, verifiedSales: 0, failed: 0,
-    pieData: [{ name: 'Pending', value: 100 }], barData: []
-  });
-});
+router.get('/overview', adminController.getSystemOverview);
+router.get('/logs', adminController.getLiveLogs);
 
 // Manager Overview
 router.get('/manager/overview', async (req, res) => {
@@ -24,6 +21,8 @@ router.get('/manager/overview', async (req, res) => {
       res.status(500).json({ error: "Failed to load manager overview" });
   }
 });
+
+router.get('/manager/dashboard-stats', managerDashboardController.getManagerDashboardOverview);
 
 // ==========================================
 // 🔥 STUDENT DATA CENTER ROUTES 🔥

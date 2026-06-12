@@ -100,6 +100,22 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
         });
     }, [payments, localFilters, localSubjects]);
 
+    const getAdjustedAmount = (p) => {
+        const isUpgrade = p.remark && p.remark.includes('[UPGRADE]');
+        if (isUpgrade) {
+            const previousPayments = payments.filter(op => 
+                op.studentId === p.studentId && 
+                op.batchId === p.batchId && 
+                op.id !== p.id &&
+                ['Approved', 'Discount', 'Free Card', 'Post Pay'].includes(op.status) &&
+                new Date(op.date) < new Date(p.date)
+            );
+            const prevDuesPaid = previousPayments.reduce((sum, op) => sum + parseFloat(op.amount || 0), 0);
+            return Math.max(0, parseFloat(p.amount || 0) - prevDuesPaid);
+        }
+        return parseFloat(p.amount || 0);
+    };
+
     const stats = useMemo(() => {
         let totalRev = 0;
         let discountRev = 0;
@@ -115,7 +131,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
         const subjectStats = {}; 
 
         exportDataList.forEach(p => {
-            const amt = parseFloat(p.amount || 0);
+            const amt = getAdjustedAmount(p);
             totalRev += amt;
             uniqueStudents.add(p.studentId); 
 
@@ -175,7 +191,21 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                     }
 
                     if(s.price && p.status !== 'Free Card' && p.status !== 'Post Pay') {
-                        subjectStats[sName].revenue += parseFloat(s.price); 
+                        // Apply custom overrides if they exist in remark CUSTOM_PRICES metadata
+                        let actualPrice = parseFloat(s.price);
+                        if (p.remark && p.remark.includes('[CUSTOM_PRICES:')) {
+                            try {
+                                const match = p.remark.match(/\[CUSTOM_PRICES:({.*?})\]/);
+                                if (match) {
+                                    const parsedMap = JSON.parse(match[1]);
+                                    const sIdStr = String(s.id || s.course_id);
+                                    if (parsedMap[sIdStr] !== undefined) {
+                                        actualPrice = parseFloat(parsedMap[sIdStr]);
+                                    }
+                                }
+                            } catch (e) {}
+                        }
+                        subjectStats[sName].revenue += actualPrice; 
                     }
                 }
             });
@@ -198,7 +228,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
             if (isOL) {
                 if (subjectsSet.size >= 9) {
                     averageCount++;
-                    averageRevenue += stuPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+                    averageRevenue += stuPayments.reduce((sum, p) => sum + getAdjustedAmount(p), 0);
                 }
             } else {
                 let mainSubjectCount = 0;
@@ -211,7 +241,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
 
                 if (mainSubjectCount >= 3) {
                     averageCount++;
-                    averageRevenue += stuPayments.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0);
+                    averageRevenue += stuPayments.reduce((sum, p) => sum + getAdjustedAmount(p), 0);
                 }
             }
         });
@@ -246,7 +276,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
             averageRevenue,
             subjectStats: formattedSubjectStats
         };
-    }, [exportDataList, businesses]);
+    }, [exportDataList, businesses, payments]);
 
     const bizName = localFilters.businessId === 'All' ? 'All Businesses' : businesses.find(b => b.id?.toString() === localFilters.businessId.toString())?.name || 'Unknown Business';
     const batchName = localFilters.batchId === 'All' ? 'All Batches' : fetchedBatches.find(b => b.id?.toString() === localFilters.batchId.toString())?.name || 'Unknown Batch';
@@ -287,21 +317,95 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
     };
 
     const handleExportExcel = () => {
-        const sheetData = exportDataList.map(p => ({
+        const wb = XLSX.utils.book_new();
+
+        // 1. Dashboard summary sheet
+        const summaryData = [
+            ["IMA CAMPUS - FINANCIAL REPORT DASHBOARD"],
+            ["Report Date:", new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })],
+            ["Business Unit:", bizName],
+            ["Batch:", batchName],
+            ["Timeline:", dateRange],
+            [],
+            ["KEY FINANCIAL METRICS"],
+            ["Total Verified Revenue", stats.totalRevenue, "LKR"],
+            ["Total Unique Active Students", stats.enrolled, "Students"],
+            ["Special Discount Revenue", stats.discountRevenue, "LKR"],
+            ["Discount Enrolled Students", stats.discountEnrolled, "Students"],
+            ["Free Card Enrolled Students", stats.freeCardEnrolled, "Students"],
+            ["Post Pay Enrolled Students", stats.postPayEnrolled, "Students"],
+            ["Core Average Students (A/L 3 Sub / O/L 9 Sub)", stats.averageCount, "Students"],
+            ["Est. Revenue from Core Average", stats.averageRevenue, "LKR"],
+            [],
+            ["SUBJECT PERFORMANCE BREAKDOWN"],
+            ["Subject Name", "Enrolled", "Full Pay", "Monthly", "Installment", "Free Card", "Post Pay", "Revenue (LKR)"]
+        ];
+
+        stats.subjectStats.forEach(sub => {
+            summaryData.push([
+                sub.name,
+                sub.enrolledCount,
+                sub.fullCount,
+                sub.monthlyCount,
+                sub.installCount,
+                sub.freeCardCount,
+                sub.postPayCount,
+                sub.revenue
+            ]);
+        });
+
+        const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+        XLSX.utils.book_append_sheet(wb, wsSummary, "Summary Dashboard");
+
+        // 2. Standard Payments sheet
+        const standardPaymentsList = exportDataList.filter(p => !(p.remark && p.remark.includes('[UPGRADE]')));
+        const standardData = standardPaymentsList.map(p => ({
             "Date": p.date,
+            "Student ID": p.studentNo,
             "Student Name": p.studentName,
-            "Student No": p.studentNo,
+            "Phone": p.phone,
             "Business": p.business,
             "Batch": p.batch,
             "Type": p.type,
             "Method": p.method,
             "Status": p.status, 
-            "Amount (LKR)": parseFloat(p.amount || 0)
+            "Amount (LKR)": getAdjustedAmount(p)
         }));
-        const ws = XLSX.utils.json_to_sheet(sheetData);
-        const wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, "Revenue");
-        XLSX.writeFile(wb, `IMA_Revenue_${new Date().toISOString().slice(0,10)}.xlsx`);
+        const wsStandard = XLSX.utils.json_to_sheet(standardData);
+        XLSX.utils.book_append_sheet(wb, wsStandard, "Standard Payments");
+
+        // 3. Upgrade Payments sheet
+        const upgradePaymentsList = exportDataList.filter(p => p.remark && p.remark.includes('[UPGRADE]'));
+        const upgradeData = upgradePaymentsList.map(p => {
+            const previousPayments = payments.filter(op => 
+                op.studentId === p.studentId && 
+                op.batchId === p.batchId && 
+                op.id !== p.id &&
+                ['Approved', 'Discount', 'Free Card', 'Post Pay'].includes(op.status) &&
+                new Date(op.date) < new Date(p.date)
+            );
+            const prevDuesPaid = previousPayments.reduce((sum, op) => sum + parseFloat(op.amount || 0), 0);
+            return {
+                "Date": p.date,
+                "Student ID": p.studentNo,
+                "Student Name": p.studentName,
+                "Phone": p.phone,
+                "Business": p.business,
+                "Batch": p.batch,
+                "Method": p.method,
+                "Status": p.status,
+                "Upgrade Raw Amount": parseFloat(p.amount || 0),
+                "Previous Paid": prevDuesPaid,
+                "Adjusted Net Amount (LKR)": getAdjustedAmount(p),
+                "Remark": p.remark
+            };
+        });
+        const wsUpgrade = XLSX.utils.json_to_sheet(upgradeData);
+        XLSX.utils.book_append_sheet(wb, wsUpgrade, "Upgrade Payments");
+
+        // Save file
+        XLSX.writeFile(wb, `IMA_Financial_Report_${new Date().toISOString().slice(0,10)}.xlsx`);
+        toast.success("Excel Report Exported Successfully!");
     };
 
     return createPortal(

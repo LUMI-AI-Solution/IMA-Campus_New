@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Users, Edit3, Trash2, Shield, UserPlus, X, Loader2, Search, Briefcase, Layers, Ghost } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
+import BusinessBadge from './BusinessBadge';
 
 export default function StaffManagement({ loggedInUser }) {
   const [staffList, setStaffList] = useState([]);
@@ -16,10 +17,10 @@ export default function StaffManagement({ loggedInUser }) {
   const userRole = loggedInUser?.role || '';
   const isAdmin = userRole === 'System Admin' || userRole === 'Director' || userRole === 'SYSTEM_ADMIN';
 
-  const allDepts = ['Class Coordination', 'Finance', 'Technical', 'Call Center', 'Delivery'];
-  const staffDepts = ['Finance', 'Technical', 'Call Center', 'Delivery']; 
+  const allDepts = ['Class Coordination', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical'];
+  const staffDepts = ['Finance', 'Technical', 'Call Center', 'Delivery', 'Physical']; 
   
-  const allRoles = ['System Admin', 'Director', 'Manager', 'Ass Manager', 'Coordinator', 'Staff'];
+  const allRoles = ['System Admin', 'Director', 'Manager', 'Ass Manager', 'Coordinator', 'Caller', 'Call Center Agent', 'Staff'];
   
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', phone: '', nic: '', password: '', 
@@ -79,12 +80,14 @@ export default function StaffManagement({ loggedInUser }) {
     }
   };
 
-  const handleRoleChange = (newRole) => {
+    const handleRoleChange = (newRole) => {
     let newDept = formData.department;
     if (newRole === 'System Admin' || newRole === 'Director') {
         newDept = ''; 
     } else if (newRole === 'Coordinator') {
         newDept = 'Class Coordination';
+    } else if (newRole === 'Caller' || newRole === 'Call Center Agent') {
+        newDept = 'Call Center';
     } else if (newRole === 'Staff') {
         newDept = staffDepts.includes(newDept) ? newDept : staffDepts[0];
     } else if ((newRole === 'Manager' || newRole === 'Ass Manager') && !newDept) {
@@ -93,11 +96,15 @@ export default function StaffManagement({ loggedInUser }) {
     setFormData({ ...formData, role: newRole, department: newDept });
   };
 
-  const handleDeptChange = (newDept) => {
+    const handleDeptChange = (newDept) => {
     let newRole = formData.role;
-    if (newDept === 'Class Coordination' && newRole === 'Staff') {
+    if (newDept === 'Class Coordination' && (newRole === 'Staff' || newRole === 'Caller')) {
         newRole = 'Coordinator';
+    } else if (newDept === 'Call Center' && (newRole === 'Staff' || newRole === 'Coordinator')) {
+        newRole = 'Call Center Agent';
     } else if (newDept !== 'Class Coordination' && newRole === 'Coordinator') {
+        newRole = 'Staff';
+    } else if (newDept !== 'Call Center' && (newRole === 'Caller' || newRole === 'Call Center Agent')) {
         newRole = 'Staff';
     }
     setFormData({ ...formData, department: newDept, role: newRole });
@@ -107,11 +114,16 @@ export default function StaffManagement({ loggedInUser }) {
     e.preventDefault();
     setSaving(true);
     try {
+      const payload = { ...formData };
+      if (payload.department !== 'Class Coordination') {
+          payload.businessType = '';
+      }
+      
       if(editMode) {
-          await api.put(`/admin/staff/${editId}`, formData);
+          await api.put(`/admin/staff/${editId}`, payload);
           toast.success("Staff updated successfully!");
       } else {
-          await api.post('/admin/staff', formData);
+          await api.post('/admin/staff', payload);
           toast.success("Staff created successfully!");
       }
       setShowModal(false);
@@ -308,14 +320,14 @@ export default function StaffManagement({ loggedInUser }) {
                 <div className={(formData.role === 'System Admin' || formData.role === 'Director') ? 'col-span-2' : 'col-span-1'}>
                   <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Role</label>
                   <select disabled={!isAdmin} value={formData.role} onChange={e => handleRoleChange(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
-                    {isAdmin ? allRoles.map(r => <option key={r} value={r} className="bg-slate-800 text-white">{r}</option>) : <option value={formData.role} className="bg-slate-800 text-white">{formData.role}</option>}
+                    {isAdmin ? allRoles.filter(r => (r !== 'Caller' && r !== 'Call Center Agent') || r === formData.role).map(r => <option key={r} value={r} className="bg-slate-800 text-white">{r}</option>) : <option value={formData.role} className="bg-slate-800 text-white">{formData.role}</option>}
                   </select>
                 </div>
 
                 {formData.role !== 'System Admin' && formData.role !== 'Director' && (
                   <div className="col-span-1">
                     <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Department</label>
-                    <select disabled={!isAdmin || formData.role === 'Coordinator'} value={formData.department} onChange={e => handleDeptChange(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
+                    <select disabled={!isAdmin || formData.role === 'Coordinator' || formData.role === 'Caller' || formData.role === 'Call Center Agent'} value={formData.department} onChange={e => handleDeptChange(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
                       {isAdmin 
                           ? (formData.role === 'Staff' 
                               ? staffDepts.map(d => <option key={d} value={d} className="bg-slate-800 text-white">{d}</option>) 
@@ -379,9 +391,12 @@ function MinimalStaffCard({ staff, openEditModal, handleDelete, handleGhostLogin
 
       <div className="flex justify-between items-start mb-4 relative z-10">
         <div>
-          <h3 className="text-sm font-extrabold text-white tracking-wide truncate pr-2 drop-shadow-sm" title={`${staff.firstName} ${staff.lastName}`}>
-             {staff.firstName} {staff.lastName}
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-extrabold text-white tracking-wide truncate drop-shadow-sm" title={`${staff.firstName} ${staff.lastName}`}>
+               {staff.firstName} {staff.lastName}
+            </h3>
+            <BusinessBadge businessType={staff.businessType} role={staff.role} />
+          </div>
           <p className="text-[11px] text-gray-400 font-mono mt-1 font-medium">{staff.phone}</p>
         </div>
         <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider whitespace-nowrap border ${roleBadgeColors[color]}`}>

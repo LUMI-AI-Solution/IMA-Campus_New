@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Calendar, ChevronLeft, ChevronRight, CheckCircle, X, Globe, Copy, Loader2, Download, CreditCard, Printer, BookOpen } from 'lucide-react';
+import { Search, Calendar, ChevronLeft, ChevronRight, CheckCircle, X, Globe, Copy, Loader2, Download, CreditCard, Printer, BookOpen, MessageSquare } from 'lucide-react';
 import axios from '../../../api/axios';
 import toast from 'react-hot-toast';
 
-export default function DeliveryHistory() {
+export default function DeliveryHistory({ isReadOnly }) {
     const [loading, setLoading] = useState(false);
     const [exportLoading, setExportLoading] = useState(false);
     const [historyData, setHistoryData] = useState([]);
@@ -214,7 +214,7 @@ export default function DeliveryHistory() {
                         <div class="content-wrapper">
                             <div class="details-block">
                                 <div class="text-item">${order.studentName || 'Student'}</div>
-                                <div class="text-item">${order.address || 'No Address Provided'}</div>
+                                <div class="text-item">${order.labelAddress || order.address || 'No Address Provided'}</div>
                                 <div class="text-item">${order.phone || 'No Phone'}</div>
                             </div>
                             <div class="ref-id">REF: ${order.id}</div>
@@ -303,7 +303,7 @@ export default function DeliveryHistory() {
                         <table className="w-full text-left border-collapse min-w-[950px]">
                             <thead className="bg-white/80 dark:bg-black/40 backdrop-blur-md sticky top-0 z-10 transition-colors">
                                 <tr className="text-xs uppercase tracking-widest text-gray-500 dark:text-slate-400 border-b border-gray-200 dark:border-white/10">
-                                    <th className="p-5 font-black whitespace-nowrap">Order ID</th>
+                                    <th className="p-5 font-black whitespace-nowrap">Packed Date / ID</th>
                                     <th className="p-5 font-black whitespace-nowrap">Student</th>
                                     <th className="p-5 font-black whitespace-nowrap">Subjects</th>
                                     <th className="p-5 font-black whitespace-nowrap">Plan Type</th>
@@ -320,9 +320,31 @@ export default function DeliveryHistory() {
                                 ) : (
                                     historyData.map((row) => (
                                         <tr key={row.id} className="hover:bg-white/40 dark:hover:bg-white/[0.05] transition-colors">
-                                            <td className="p-4 pl-5 font-black text-gray-900 dark:text-white text-sm whitespace-nowrap">ORD-{row.id}</td>
+                                            <td className="p-4 pl-5 font-black text-gray-900 dark:text-white text-sm whitespace-nowrap">
+                                                {row.packedAt ? (
+                                                    <div className="flex flex-col gap-1">
+                                                        <span>{new Date(row.packedAt).toLocaleDateString()}</span>
+                                                        <span className="text-[10px] text-gray-500 font-bold uppercase">ORD-{row.id}</span>
+                                                    </div>
+                                                ) : (
+                                                    <span>ORD-{row.id}</span>
+                                                )}
+                                            </td>
                                             <td className="p-4">
-                                                <p className="text-sm font-bold text-gray-800 dark:text-slate-200 truncate max-w-[150px]">{row.studentName}</p>
+                                                <div className="flex items-center gap-2 group/remark relative w-max">
+                                                    <p className="text-sm font-bold text-gray-800 dark:text-slate-200 truncate max-w-[150px]">{row.studentName}</p>
+                                                    {row.packRemark && (
+                                                        <>
+                                                            <div className="text-brand-accent cursor-help bg-brand-accent/10 p-1 rounded-md border border-brand-accent/20">
+                                                                <MessageSquare size={12} />
+                                                            </div>
+                                                            <div className="absolute top-full left-0 mt-2 w-max max-w-[250px] hidden group-hover/remark:block z-[9999] bg-white/95 dark:bg-black/90 backdrop-blur-xl border border-gray-200 dark:border-white/10 shadow-xl p-3 rounded-xl transition-colors">
+                                                                <p className="text-[10px] font-black text-gray-500 dark:text-slate-400 mb-1 uppercase tracking-widest">Internal Remark</p>
+                                                                <p className="text-xs font-bold text-gray-800 dark:text-slate-200">{row.packRemark}</p>
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </div>
                                                 <p className="text-[10px] text-gray-500 dark:text-slate-400 mt-0.5">{row.phone}</p>
                                             </td>
                                             
@@ -395,6 +417,12 @@ export default function DeliveryHistory() {
                                                 ) : (
                                                     <span className="text-gray-400 dark:text-slate-500 font-bold text-xs bg-gray-50 dark:bg-white/5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/5 transition-colors">N/A</span>
                                                 )}
+                                                {row.packRemark && (
+                                                    <div className="mt-2 text-[10px] bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 p-2 rounded-lg border border-yellow-200 dark:border-yellow-500/20 max-w-[180px] break-words">
+                                                        <span className="font-black uppercase tracking-widest block mb-0.5 text-[9px]">Remark:</span>
+                                                        {row.packRemark}
+                                                    </div>
+                                                )}
                                             </td>
 
                                             <td className="p-4 text-center">
@@ -408,12 +436,18 @@ export default function DeliveryHistory() {
                                                         <Printer size={16} />
                                                     </button>
                                                     {row.status !== 'Received' ? (
-                                                        <button 
-                                                            onClick={() => setConfirmModal(row.id)}
-                                                            className="bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-lg border border-emerald-200 dark:border-emerald-500/30 transition-all flex items-center justify-center gap-1.5 shadow-sm"
-                                                        >
-                                                            <CheckCircle size={14}/> Confirm
-                                                        </button>
+                                                        !isReadOnly ? (
+                                                            <button 
+                                                                onClick={() => setConfirmModal(row.id)}
+                                                                className="bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-600 text-emerald-600 dark:text-emerald-400 hover:text-white text-[10px] font-black uppercase tracking-widest px-3 py-2 rounded-lg border border-emerald-200 dark:border-emerald-500/30 transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                                                            >
+                                                                <CheckCircle size={14}/> Confirm
+                                                            </button>
+                                                        ) : (
+                                                            <span className="text-[10px] font-black text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-white/5 px-3 py-2 rounded-lg border border-gray-200 dark:border-white/10 uppercase tracking-widest transition-colors shadow-sm">
+                                                                Pending
+                                                            </span>
+                                                        )
                                                     ) : (
                                                         <span className="text-[10px] font-black text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-3 py-2 rounded-lg border border-emerald-200 dark:border-emerald-500/20 uppercase tracking-widest transition-colors flex items-center gap-1.5 shadow-sm">
                                                             <CheckCircle size={14}/> Done

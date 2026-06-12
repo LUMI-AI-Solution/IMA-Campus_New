@@ -34,6 +34,7 @@ router.post('/payhere-hash', verifyToken, studentController.generatePayHereHash)
 // Slips upload (Web එකෙන්)
 router.post('/enroll-with-slip', verifyToken, uploadDocument.array('slipImages', 4), studentController.enrollStudent);
 router.post('/upload-due-slip', verifyToken, uploadDocument.array('slipImages', 4), studentController.uploadDueSlip);
+router.post('/pay-due-online', verifyToken, studentController.payDueOnline);
 
 router.get('/classroom', verifyToken, studentController.getStudentClassroom);
 router.get('/module/:id', verifyToken, studentController.getCourseModules);

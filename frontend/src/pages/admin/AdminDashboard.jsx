@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Filter, Loader2, Database, AlertTriangle, Activity, CheckCircle2, TrendingUp, Users, AlertCircle } from 'lucide-react';
-import { PieChart, Pie, Cell, BarChart, Bar, XAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Loader2, Database, AlertTriangle, Activity, CheckCircle2, Terminal, HardDrive, Cpu, Server } from 'lucide-react';
+import { AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, CartesianGrid, YAxis } from 'recharts';
 import api from '../../api/axios';
 import toast from 'react-hot-toast';
 
@@ -8,70 +8,90 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [stats, setStats] = useState(null);
+  const [logs, setLogs] = useState("");
+  const terminalEndRef = useRef(null);
 
+  // Mock History Data for Charts since backend doesn't save historical CPU stats yet
+  const cpuHistory = [
+    { time: '10:00', load: 12 }, { time: '10:05', load: 18 }, { time: '10:10', load: 45 },
+    { time: '10:15', load: 30 }, { time: '10:20', load: 25 }, { time: '10:25', load: 60 },
+    { time: '10:30', load: 15 }
+  ];
+
+  const storageData = [
+    { name: 'Database Data', value: 450 },
+    { name: 'File Uploads', value: 850 },
+    { name: 'Automated Backups', value: 1200 },
+    { name: 'Free Space', value: 3500 }
+  ];
+
+  const apiTrafficData = [
+    { name: 'Students', reqs: 14500 },
+    { name: 'CRM (Team)', reqs: 8200 },
+    { name: 'Payments', reqs: 3100 },
+    { name: 'Webhooks', reqs: 1500 }
+  ];
+
+  const STORAGE_COLORS = ['#3B82F6', '#8B5CF6', '#10B981', '#1E293B'];
+
+  // Fetch Stats
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        // 🔥 Fetching Real Data from your API 🔥
         const response = await api.get('/admin/overview'); 
         setStats(response.data);
       } catch (error) {
-        console.warn("API Error, loading fallback data", error);
-        // Fallback data if DB is empty or API fails
-        setStats({
-          grossRevenue: 1250000, pendingSync: 45, verifiedSales: 850, failed: 12,
-          pieData: [{ name: 'Verified', value: 850 }, { name: 'Pending', value: 45 }, { name: 'Failed', value: 12 }], 
-          barData: [
-            { name: 'A/L Science', revenue: 450000 },
-            { name: 'A/L Maths', revenue: 380000 },
-            { name: 'O/L Fast', revenue: 220000 },
-            { name: 'Media', revenue: 200000 }
-          ],
-          services: [
-            { name: "Main CRM", status: "LIVE", totalLeads: 12450, healthScore: 98 },
-            { name: "Bridge API", status: "RESTRICTED", totalLeads: 320, healthScore: 45 },
-            { name: "Payment Sync", status: "LIVE", totalLeads: 5600, healthScore: 100 }
-          ]
-        });
+        console.warn("API Error", error);
       } finally {
         setLoading(false);
       }
     };
     fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, 10000);
+    return () => clearInterval(interval);
   }, []);
 
-  // 🔥 Database Backup Download Logic 🔥
+  // Fetch Live Logs
+  useEffect(() => {
+    const fetchLogs = async () => {
+      try {
+        const response = await api.get('/admin/logs');
+        setLogs(response.data);
+        if (terminalEndRef.current) {
+          terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      } catch (error) {
+        setLogs("Error connecting to server terminal...");
+      }
+    };
+    fetchLogs();
+    const logInterval = setInterval(fetchLogs, 3000);
+    return () => clearInterval(logInterval);
+  }, []);
+
   const handleDownloadBackup = async () => {
     setIsBackingUp(true);
-    const toastId = toast.loading("Generating 100% Database SQL Backup...");
-    
+    const toastId = toast.loading("Fetching latest Auto Backup...");
     try {
       const response = await api.get('/admin/backup', {
         responseType: 'blob',
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
-
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement('a');
       link.href = url;
-      
       const dateStr = new Date().toISOString().slice(0, 10);
-      link.setAttribute('download', `IMA_Full_System_Backup_${dateStr}.sql`);
-      
+      link.setAttribute('download', `IMA_Backup_${dateStr}.sql`);
       document.body.appendChild(link);
       link.click();
       link.parentNode.removeChild(link);
-
-      toast.success("Backup Downloaded Successfully!", { id: toastId });
+      toast.success("Backup Downloaded!", { id: toastId });
     } catch (error) {
-      console.error(error);
-      toast.error("Failed to download backup!", { id: toastId });
+      toast.error("No backup found!", { id: toastId });
     } finally {
       setIsBackingUp(false);
     }
   };
-
-  const PIE_COLORS = ['#10B981', '#F59E0B', '#EF4444'];
 
   if (loading) {
     return (
@@ -84,185 +104,177 @@ export default function AdminDashboard() {
   return (
     <div className="w-full animate-fade-in pb-10">
       
-      {/* Top Header Section */}
+      {/* Header */}
       <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-8">
         <div>
-          {/* Text colors changed to white for glassmorphism */}
-          <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white">System Overview</h2>
-          <p className="text-sm font-medium text-gray-300 mt-1">Real-time data synchronization & monitoring.</p>
+          <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white">System Monitor</h2>
+          <p className="text-sm font-medium text-emerald-400 mt-1 flex items-center gap-2">
+             <Activity size={14} className="animate-pulse" /> Live Server Synchronization Active
+          </p>
         </div>
         
         <div className="flex flex-wrap items-center gap-3">
-          <div className="relative flex-1 md:flex-none">
-            <Search size={16} className="absolute left-3 top-2.5 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Search metrics..." 
-              // Glassmorphism Input
-              className="w-full md:w-60 bg-black/20 border border-white/10 backdrop-blur-md rounded-lg pl-9 pr-4 py-2 text-sm text-white placeholder-gray-400 focus:border-brand-accent outline-none transition-all shadow-sm" 
-            />
-          </div>
-          
-          <button className="flex items-center justify-center gap-2 bg-black/20 border border-white/10 px-4 py-2 rounded-lg text-sm font-semibold text-gray-200 hover:bg-white/10 transition-all shadow-sm backdrop-blur-md">
-            <Filter size={16} /> Filter
-          </button>
-
-          {/* Backup Button */}
           <button 
             onClick={handleDownloadBackup} 
             disabled={isBackingUp}
-            className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white border border-emerald-500 px-4 py-2 rounded-lg text-sm font-bold shadow-lg hover:shadow-emerald-500/30 transition-all disabled:opacity-70 disabled:cursor-not-allowed"
+            className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400 px-5 py-2.5 rounded-lg text-sm font-bold shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all"
           >
             {isBackingUp ? <Loader2 size={16} className="animate-spin" /> : <Database size={16} />} 
-            {isBackingUp ? 'Backing up...' : 'Download Backup'}
+            {isBackingUp ? 'Fetching Backup...' : 'Download Latest DB'}
           </button>
         </div>
       </div>
 
-      {/* Primary Stat Cards */}
+      {/* Top Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-8">
         <StatCard 
-          title="Gross Revenue" 
-          value={`Rs. ${stats?.grossRevenue?.toLocaleString() || '0'}`} 
-          icon={<TrendingUp size={20} className="text-brand-accent" />} 
-          trend="+12.5%" trendColor="text-emerald-400"
-        />
-        <StatCard 
-          title="Verified Sales" 
+          title="Total Data Processed" 
           value={stats?.verifiedSales || 0} 
           icon={<CheckCircle2 size={20} className="text-emerald-400" />} 
-          trend="+8.2%" trendColor="text-emerald-400"
+          trend="Database Records" trendColor="text-emerald-400"
         />
         <StatCard 
-          title="Pending AI Sync" 
-          value={stats?.pendingSync || 0} 
-          icon={<Activity size={20} className="text-amber-400" />} 
-          trend="-2.4%" trendColor="text-rose-400"
+          title="Current CPU Load" 
+          value={`${stats?.serverHealth?.cpuUsage || 0}%`} 
+          icon={<Cpu size={20} className="text-blue-400" />} 
+          trend="All Node.js Cores" trendColor="text-blue-400"
         />
         <StatCard 
-          title="Failed / Mismatch" 
+          title="Memory (RAM)" 
+          value={`${stats?.serverHealth?.ramUsage || 0}%`} 
+          icon={<HardDrive size={20} className="text-amber-400" />} 
+          trend="Active Heap Usage" trendColor="text-amber-400"
+        />
+        <StatCard 
+          title="System Alerts" 
           value={stats?.failed || 0} 
           icon={<AlertTriangle size={20} className="text-rose-400" />} 
-          trend="Action Needed" trendColor="text-rose-400"
+          trend="Critical Errors" trendColor={stats?.failed > 0 ? "text-rose-400" : "text-emerald-400"}
         />
       </div>
 
-      {/* Revenue Target Progress */}
-      {/* Glassmorphism Card */}
-      <div className="bg-black/20 border border-white/10 backdrop-blur-xl p-5 rounded-2xl mb-8 shadow-sm transition-colors hover:bg-black/30">
-        <div className="flex justify-between items-center mb-3">
-          <span className="text-xs font-extrabold text-gray-300 tracking-wider uppercase">Monthly Revenue Target (LKR 5M)</span>
-          <span className="text-white font-black text-lg">24.8%</span>
-        </div>
-        <div className="w-full bg-black/40 border border-white/5 rounded-full h-2.5 overflow-hidden">
-          <div className="bg-brand-accent h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_10px_rgba(225,29,72,0.6)]" style={{ width: '24.8%' }}></div>
-        </div>
-      </div>
-
-      {/* Charts Section */}
+      {/* Layout Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
-        {/* Verification Status Pie Chart */}
-        <div className="bg-black/20 border border-white/10 backdrop-blur-xl p-6 rounded-2xl shadow-sm transition-colors flex flex-col items-center hover:bg-black/30">
-          <h3 className="text-xs font-extrabold text-gray-300 tracking-wider mb-6 w-full uppercase">Verification Status</h3>
-          <div className="w-full relative">
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie data={stats?.pieData || []} innerRadius={65} outerRadius={100} paddingAngle={5} dataKey="value" stroke="none">
-                  {(stats?.pieData || []).map((entry, index) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip 
-                  contentStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.7)', backdropFilter: 'blur(10px)', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '12px', fontWeight: 'bold' }} 
-                  itemStyle={{ color: '#fff' }} 
-                />
-              </PieChart>
-            </ResponsiveContainer>
+        
+        {/* Left Side: Charts */}
+        <div className="xl:col-span-2 flex flex-col gap-6">
+          
+          {/* Server Load Area Chart */}
+          <div className="bg-black/40 border border-white/5 backdrop-blur-xl p-6 rounded-2xl shadow-lg">
+            <div className="flex justify-between items-center mb-6">
+                <h3 className="text-xs font-extrabold text-gray-300 tracking-wider uppercase flex items-center gap-2">
+                    <Server size={16} className="text-blue-400" /> CPU Load History (30 Min)
+                </h3>
+                <span className="text-[10px] bg-blue-500/20 text-blue-400 px-2 py-1 rounded-md font-bold">LIVE</span>
+            </div>
+            <div className="w-full relative">
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={cpuHistory} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="colorLoad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor="#3B82F6" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" vertical={false} />
+                  <XAxis dataKey="time" stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
+                  <YAxis stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'rgba(0,0,0,0.9)', border: '1px solid #333', borderRadius: '8px' }} 
+                  />
+                  <Area type="monotone" dataKey="load" stroke="#3B82F6" strokeWidth={3} fillOpacity={1} fill="url(#colorLoad)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Storage Distribution Pie Chart */}
+              <div className="bg-black/40 border border-white/5 backdrop-blur-xl p-6 rounded-2xl shadow-lg flex flex-col items-center">
+                <h3 className="text-xs font-extrabold text-gray-300 tracking-wider mb-2 w-full uppercase flex items-center gap-2">
+                    <HardDrive size={16} className="text-emerald-400" /> Server Storage Dist. (MB)
+                </h3>
+                <div className="w-full relative mt-4">
+                  <ResponsiveContainer width="100%" height={180}>
+                    <PieChart>
+                      <Pie data={storageData} innerRadius={50} outerRadius={80} paddingAngle={5} dataKey="value" stroke="none">
+                        {storageData.map((entry, index) => <Cell key={`cell-${index}`} fill={STORAGE_COLORS[index % STORAGE_COLORS.length]} />)}
+                      </Pie>
+                      <Tooltip 
+                        contentStyle={{ backgroundColor: 'rgba(0,0,0,0.9)', border: '1px solid #333', borderRadius: '8px', color: '#fff' }} 
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* API Traffic Bar Chart */}
+              <div className="bg-black/40 border border-white/5 backdrop-blur-xl p-6 rounded-2xl shadow-lg">
+                <h3 className="text-xs font-extrabold text-gray-300 tracking-wider mb-6 uppercase flex items-center gap-2">
+                    <Activity size={16} className="text-purple-400" /> API Traffic by Module
+                </h3>
+                <div className="w-full relative">
+                  <ResponsiveContainer width="100%" height={180}>
+                    <BarChart data={apiTrafficData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                      <XAxis dataKey="name" stroke="#94A3B8" fontSize={10} tickLine={false} axisLine={false} />
+                      <Tooltip 
+                        cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }} 
+                        contentStyle={{ backgroundColor: 'rgba(0,0,0,0.9)', border: '1px solid #333', borderRadius: '8px', color: '#fff' }} 
+                      />
+                      <Bar dataKey="reqs" fill="#8B5CF6" radius={[4, 4, 0, 0]} maxBarSize={30} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
           </div>
         </div>
 
-        {/* Revenue By Course Bar Chart */}
-        <div className="xl:col-span-2 bg-black/20 border border-white/10 backdrop-blur-xl p-6 rounded-2xl shadow-sm transition-colors flex flex-col hover:bg-black/30">
-          <h3 className="text-xs font-extrabold text-gray-300 tracking-wider mb-6 uppercase">Revenue By Course (LKR)</h3>
-          <div className="w-full relative">
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={stats?.barData || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <XAxis dataKey="name" stroke="#94A3B8" fontSize={11} tickLine={false} axisLine={false} fontWeight="600" />
-                <Tooltip 
-                  cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }} 
-                  contentStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.7)', backdropFilter: 'blur(10px)', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff', fontSize: '12px', fontWeight: 'bold' }} 
-                />
-                <Bar dataKey="revenue" fill="var(--theme-color)" radius={[4, 4, 0, 0]} maxBarSize={45} />
-              </BarChart>
-            </ResponsiveContainer>
+        {/* Right Side: Hacker Terminal */}
+        <div className="xl:col-span-1 bg-black border border-white/10 rounded-2xl flex flex-col overflow-hidden shadow-[0_0_20px_rgba(0,0,0,0.5)]">
+          <div className="bg-[#1e1e1e] px-4 py-3 flex items-center gap-2 border-b border-white/5">
+            <div className="flex gap-1.5">
+              <div className="w-3 h-3 rounded-full bg-rose-500"></div>
+              <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+              <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+            </div>
+            <p className="text-[10px] text-gray-400 ml-2 font-mono flex items-center gap-2">
+              <Terminal size={12} /> root@imacampus-server: ~/live-logs
+            </p>
+          </div>
+          
+          <div className="flex-1 p-5 bg-[#0a0a0a] font-mono text-[10px] sm:text-[11px] text-emerald-400 overflow-y-auto max-h-[500px]">
+            <div className="mb-4 text-emerald-500/70 border-b border-emerald-900/30 pb-2">
+                # INITIALIZING SECURE SHELL INTERFACE...<br/>
+                # STREAMING LIVE BACKEND LOGS FROM PM2 PROCESS...<br/>
+                # ENCRYPTED CONNECTION ESTABLISHED.
+            </div>
+            <pre className="whitespace-pre-wrap break-words leading-relaxed">
+              {logs || "Waiting for server connection..."}
+            </pre>
+            <div className="inline-block w-2.5 h-4 bg-emerald-400 animate-pulse ml-1 align-middle mt-2"></div>
+            <div ref={terminalEndRef} />
           </div>
         </div>
-      </div>
 
-      {/* 🏥 CRM SERVICE HEALTH CENTER */}
-      <h3 className="text-sm font-extrabold text-white tracking-tight mb-4">Service Health Center</h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {(stats?.services || []).map((service, index) => (
-          // Glassmorphism Card for Health Center
-          <div key={index} className={`relative overflow-hidden bg-black/20 backdrop-blur-xl p-5 rounded-2xl shadow-sm transition-colors hover:bg-black/30 border ${service.status === 'RESTRICTED' ? 'border-rose-500/50' : 'border-white/10'}`}>
-            
-            <div className="flex justify-between items-start mb-3">
-              <div className="flex items-center gap-2">
-                {service.status === 'RESTRICTED' ? <AlertCircle size={16} className="text-rose-400" /> : <Activity size={16} className="text-emerald-400" />}
-                <span className="text-xs font-bold text-gray-200 uppercase tracking-widest">{service.name}</span>
-              </div>
-              {service.status === 'RESTRICTED' ? (
-                <span className="bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-black px-2.5 py-0.5 rounded-md animate-pulse">RESTRICTED</span>
-              ) : (
-                <span className="bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black px-2.5 py-0.5 rounded-md">LIVE</span>
-              )}
-            </div>
-
-            <div className="flex items-end justify-between mt-5 relative z-10">
-              <div>
-                <p className="text-2xl font-black text-white">{service.totalLeads.toLocaleString()}</p>
-                <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Leads Processed</p>
-              </div>
-              <div className="text-right">
-                <p className={`text-xl font-black ${service.status === 'RESTRICTED' ? 'text-rose-400' : 'text-emerald-400'}`}>
-                  {service.healthScore}%
-                </p>
-                <p className="text-[10px] text-gray-400 font-bold uppercase mt-1">Health Score</p>
-              </div>
-            </div>
-
-            {/* Progress bar for health score */}
-            <div className="w-full bg-black/40 border border-white/5 h-1.5 rounded-full mt-4 overflow-hidden relative z-10">
-              <div 
-                className={`h-full transition-all duration-1000 ${service.status === 'RESTRICTED' ? 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]' : 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.6)]'}`} 
-                style={{ width: `${service.healthScore}%` }}
-              ></div>
-            </div>
-
-            {/* Faint Red Overlay if restricted */}
-            {service.status === 'RESTRICTED' && (
-              <div className="absolute inset-0 bg-rose-900/10 pointer-events-none"></div>
-            )}
-          </div>
-        ))}
       </div>
 
     </div>
   );
 }
 
-// Sub-component for Top Stats (UI updated for Glassmorphism)
 function StatCard({ title, value, icon, trend, trendColor }) {
   return (
-    <div className="bg-black/20 border border-white/10 backdrop-blur-xl p-5 rounded-2xl shadow-[0_4px_15px_rgba(0,0,0,0.1)] transition-all hover:bg-black/30 flex flex-col justify-between">
+    <div className="bg-black/40 border border-white/5 backdrop-blur-xl p-5 rounded-2xl shadow-lg transition-all hover:bg-black/50 flex flex-col justify-between group">
       <div className="flex justify-between items-start mb-2">
-        <p className="text-[10px] font-extrabold text-gray-300 tracking-widest uppercase">{title}</p>
-        <div className="p-1.5 rounded-lg bg-white/10 border border-white/5 backdrop-blur-md">
+        <p className="text-[10px] font-extrabold text-gray-400 tracking-widest uppercase">{title}</p>
+        <div className="p-2 rounded-lg bg-white/5 border border-white/10 group-hover:bg-white/10 transition-colors">
           {icon}
         </div>
       </div>
       <div className="flex items-end justify-between mt-2">
         <h4 className="text-2xl md:text-3xl font-black text-white truncate">{value}</h4>
         {trend && (
-          <span className={`text-xs font-bold ${trendColor} mb-1`}>
+          <span className={`text-xs font-bold ${trendColor} mb-1 bg-white/5 px-2 py-0.5 rounded`}>
             {trend}
           </span>
         )}

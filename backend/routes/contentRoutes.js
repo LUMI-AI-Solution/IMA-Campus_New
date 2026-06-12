@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
+const verifyToken = require('../middlewares/authMiddleware');
 
 const controller = require('../controllers/contentController'); 
 
@@ -27,19 +28,19 @@ const uploadPost = multer({ storage: postStorage });
 // ================= ROUTES =================
 
 // Content Hub
-router.post('/admin/manager/content-group/add', controller.addContentGroup);
-router.delete('/admin/content-group/delete', controller.deleteContentGroup);
-router.post('/admin/manager/contents/mass-assign', uploadDoc.fields([
+router.post('/admin/manager/content-group/add', verifyToken, controller.addContentGroup);
+router.delete('/admin/content-group/delete', verifyToken, controller.deleteContentGroup);
+router.post('/admin/manager/contents/mass-assign', verifyToken, uploadDoc.fields([
     { name: 'file', maxCount: 1 }, 
     { name: 'thumbnail', maxCount: 1 }
 ]), controller.addContentMassAssign);
 
-router.put('/admin/manager/contents/update', uploadDoc.fields([
+router.put('/admin/manager/contents/update', verifyToken, uploadDoc.fields([
     { name: 'file', maxCount: 1 }, 
     { name: 'thumbnail', maxCount: 1 }
 ]), controller.updateContentMassAssign);
-router.delete('/admin/content/delete', controller.deleteContent);
-router.get('/admin/manager/get-contents', controller.getContents); 
+router.delete('/admin/content/delete', verifyToken, controller.deleteContent);
+router.get('/admin/manager/get-contents', verifyToken, controller.getContents); 
 
 // Groups
 router.post('/course-setup/group', controller.createGroup);
@@ -48,12 +49,12 @@ router.put('/course-setup/group/update', controller.updateGroup);
 router.delete('/course-setup/group', controller.deleteGroup); 
 
 // Posts 
-router.post('/admin/manager/post/create', uploadPost.single('image'), controller.createAdminPost);
-router.get('/admin/manager/posts', controller.getPosts);
-router.delete('/admin/manager/post/delete', controller.deletePost);
+router.post('/admin/manager/post/create', verifyToken, uploadPost.single('image'), controller.createAdminPost);
+router.get('/admin/manager/posts', verifyToken, controller.getPosts);
+router.delete('/admin/manager/post/delete', verifyToken, controller.deletePost);
 
 // Batches Data Load
-router.get('/admin/manager/batches-full', controller.getBatchesFull);
+router.get('/admin/manager/batches-full', verifyToken, controller.getBatchesFull);
 
 // Get Batches by Business ID
 router.get('/admin/batches/:bizId', async (req, res) => {
@@ -89,6 +90,7 @@ router.put('/admin/course/assign-lecturer', controller.assignLecturer); // 🔥 
 // Installments Setup
 router.post('/course-setup/installment', controller.createInstallment);
 router.get('/course-setup/installment/:batchId', controller.getInstallments);
+router.put('/course-setup/installment', controller.updateInstallment);
 router.delete('/course-setup/installment', controller.deleteInstallment);
 
 

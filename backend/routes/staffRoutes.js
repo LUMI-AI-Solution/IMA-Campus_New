@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const staffController = require('../controllers/staffController');
+const verifyToken = require('../middlewares/authMiddleware');
+
+router.use(verifyToken);
 
 // 🔥 IMPORTANT: /businesses eka /:id ekata udin danna ona
 router.get('/businesses', staffController.getBusinesses); 

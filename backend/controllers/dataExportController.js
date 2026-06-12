@@ -10,6 +10,35 @@ exports.getModuleOneMatrix = async (req, res) => {
         if (!batchId || batchId === 'null') {
             return res.status(400).json({ error: "Batch ID is required for Matrix view" });
         }
+        
+        const parsedBatchId = parseInt(batchId);
+        
+        const userId = req.user.userId || req.user.id;
+        const userRole = req.user.role;
+        const businessType = req.user.businessType;
+        
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
+        
+        if (!isAdmin) {
+            const allBiz = await prisma.business.findMany();
+            const myBizs = allBiz.filter(biz => {
+                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
+                const matchesBizType = businessType && (
+                    String(biz.id) === String(businessType).trim() ||
+                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
+                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
+                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+                );
+                return isManagerOf || matchesBizType;
+            });
+            const myBizIds = myBizs.map(b => b.id);
+            
+            const batchObj = await prisma.batch.findUnique({ where: { id: parsedBatchId } });
+            if (!batchObj || !myBizIds.includes(batchObj.businessId)) {
+                return res.status(403).json({ error: "Access Denied. You are not allowed to view this batch's analytics." });
+            }
+        }
 
         const rawGroups = await prisma.group.findMany({
             where: { batchId: parseInt(batchId) },
@@ -228,6 +257,32 @@ exports.getModuleTwoAnalytics = async (req, res) => {
 
         const parsedBatchId = parseInt(batchId);
         const parsedBizId = parseInt(businessId);
+        
+        const userId = req.user.userId || req.user.id;
+        const userRole = req.user.role;
+        const businessType = req.user.businessType;
+        
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
+        
+        if (!isAdmin) {
+            const allBiz = await prisma.business.findMany();
+            const myBizs = allBiz.filter(biz => {
+                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
+                const matchesBizType = businessType && (
+                    String(biz.id) === String(businessType).trim() ||
+                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
+                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
+                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+                );
+                return isManagerOf || matchesBizType;
+            });
+            const myBizIds = myBizs.map(b => b.id);
+            
+            if (!myBizIds.includes(parsedBizId)) {
+                return res.status(403).json({ error: "Access Denied. You are not allowed to view this business's analytics." });
+            }
+        }
 
         // ---------------------------------------------------------
         // 1. SUMMARY CARDS DATA (Inquiries & Real Enrolled)

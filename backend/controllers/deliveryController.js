@@ -9,7 +9,10 @@ exports.getPendingDeliveries = async (req, res) => {
     try {
         const { businessId, paymentType } = req.query;
         
-        let whereClause = { status: { in: ['Pending', 'Hold'] } };
+        let whereClause = { 
+            status: { in: ['Pending', 'Hold'] },
+            payment: { status: 1 }
+        };
         if (businessId) whereClause.businessId = parseInt(businessId);
         if (paymentType && paymentType !== 'All') whereClause.paymentType = paymentType;
 
@@ -17,7 +20,7 @@ exports.getPendingDeliveries = async (req, res) => {
             where: whereClause,
             include: {
                 items: true,
-                payment: { include: { student: true, batch: true } }
+                payment: { include: { student: true, batch: true, group: true } }
             },
             orderBy: { createdAt: 'desc' }
         });
@@ -27,31 +30,59 @@ exports.getPendingDeliveries = async (req, res) => {
             where: { id: { in: courseIds.map(id => parseInt(id)) } }
         });
 
+        const batchIds = [...new Set(deliveries.map(d => d.payment?.batchId).filter(Boolean))];
+        const allGroups = await prisma.group.findMany({
+            where: { batchId: { in: batchIds } }
+        });
+
+        const studentIds = [...new Set(deliveries.map(d => d.payment?.student?.id).filter(Boolean))];
+        const pastDeliveries = await prisma.delivery.findMany({
+            where: {
+                studentId: { in: studentIds.map(String) },
+                status: { notIn: ['Pending', 'Hold'] }
+            },
+            orderBy: { packedAt: 'desc' },
+            include: { payment: { include: { group: true } } }
+        });
+
         const formatted = deliveries.map(d => {
             const std = d.payment?.student || {};
             const addressParts = [std.addressHouseNo, std.addressStreet, std.city, std.district].filter(Boolean);
             const finalAddress = addressParts.length > 0 ? addressParts.join(', ') : 'No Address Provided';
+            const labelAddressParts = [std.addressHouseNo, std.addressStreet, std.city].filter(Boolean);
+            const finalLabelAddress = labelAddressParts.length > 0 ? labelAddressParts.join(', ') : 'No Address Provided';
             
-            // 🔥 FIX: ළමයාගේ තියෙන ඔක්කොම වෙනස් Phone Numbers එකතු කරලා Sticker එකට යවනවා
+            // 🔥 FIX: Multiple Phones
             const phoneParts = [std.phone, std.whatsapp, std.optionalPhone].filter(Boolean);
             const finalPhone = [...new Set(phoneParts)].join(' / ') || 'No Phone';
             
             const finalName = std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown Student';
+
+            const isUpgrade = d.payment?.remark ? d.payment.remark.includes('[UPGRADE]') : false;
 
             const itemsWithDetails = d.items.map(item => {
                 const course = courses.find(c => c.id === item.courseId);
                 let lecturerName = course?.lecturerName || 'Lecturer';
                 let lecturerImage = 'default.png';
                 let tuteCover = 'default-tute.png';
-                let actualTuteName = item.tuteName; // Default 
+                let actualTuteName = item.tuteName; 
 
                 if (course && course.groupPrices) {
                     try {
                         const gpArr = JSON.parse(course.groupPrices);
                         let matchedGp;
-                        if (d.payment?.groupId) {
+                        
+                        if (d.paymentType === 'Full') {
+                            const fullGrp = allGroups.find(g => g.batchId === d.payment?.batchId && g.name.toLowerCase().includes('full'));
+                            if (fullGrp) {
+                                matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(fullGrp.id));
+                            }
+                        }
+
+                        if (!matchedGp && d.payment?.groupId) {
                             matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(d.payment.groupId));
                         }
+                        
                         if (!matchedGp) matchedGp = gpArr.find(g => g.tuteName === item.tuteName) || gpArr[0];
 
                         if (matchedGp) {
@@ -72,14 +103,29 @@ exports.getPendingDeliveries = async (req, res) => {
                 };
             });
 
+            const lastDel = pastDeliveries.find(pd => pd.studentId === String(std.id));
+            let lastDeliveryInfo = null;
+            if (lastDel) {
+                lastDeliveryInfo = {
+                    packedAt: lastDel.packedAt,
+                    trackingNumber: lastDel.trackingNumber,
+                    paymentMonth: lastDel.payment?.group?.name || 'No Group',
+                    paymentType: lastDel.paymentType
+                };
+            }
+
             return {
                 ...d,
                 studentName: finalName,
                 studentNo: std.id ? `STU-${std.id}` : 'STU-000',
                 address: finalAddress,
-                phone: finalPhone, // 🔥 Updated Multiple Phones
+                labelAddress: finalLabelAddress,
+                phone: finalPhone, 
                 batchName: d.payment?.batch?.name || 'Batch Not Assigned', 
-                items: itemsWithDetails
+                groupName: d.payment?.group?.name || 'No Group',
+                isUpgrade: isUpgrade,
+                items: itemsWithDetails,
+                lastDelivery: lastDeliveryInfo
             };
         });
 
@@ -93,7 +139,7 @@ exports.getPendingDeliveries = async (req, res) => {
 // 2. Auto Stock Deduction AT PACKING
 exports.packDelivery = async (req, res) => {
     try {
-        const { deliveryId, trackingNumber } = req.body;
+        const { deliveryId, trackingNumber, packRemark } = req.body;
 
         await prisma.$transaction(async (tx) => {
             const updatedDelivery = await tx.delivery.update({
@@ -101,6 +147,7 @@ exports.packDelivery = async (req, res) => {
                 data: { 
                     status: 'Packed', 
                     trackingNumber: trackingNumber,
+                    packRemark: packRemark,
                     packedAt: new Date()
                 },
                 include: { items: true, payment: true }
@@ -110,10 +157,26 @@ exports.packDelivery = async (req, res) => {
                 const course = await tx.course.findUnique({ where: { id: item.courseId } });
                 let actualTuteName = item.tuteName;
 
-                if (course && course.groupPrices && updatedDelivery.payment?.groupId) {
+                if (course && course.groupPrices) {
                     try {
                         const gp = JSON.parse(course.groupPrices);
-                        const matchedGp = gp.find(g => parseInt(g.groupId) === parseInt(updatedDelivery.payment.groupId));
+                        let matchedGp;
+
+                        if (updatedDelivery.paymentType === 'Full') {
+                            const fullGrp = await tx.group.findFirst({
+                                where: { batchId: updatedDelivery.payment?.batchId, name: { contains: 'full' } }
+                            });
+                            if (fullGrp) {
+                                matchedGp = gp.find(g => parseInt(g.groupId) === parseInt(fullGrp.id));
+                            }
+                        }
+
+                        if (!matchedGp && updatedDelivery.payment?.groupId) {
+                            matchedGp = gp.find(g => parseInt(g.groupId) === parseInt(updatedDelivery.payment.groupId));
+                        }
+                        
+                        if (!matchedGp) matchedGp = gp.find(g => g.tuteName === item.tuteName) || gp[0];
+
                         if (matchedGp && matchedGp.tuteName) {
                             actualTuteName = matchedGp.tuteName;
                         }
@@ -516,6 +579,7 @@ exports.getDispatchDeliveries = async (req, res) => {
         const formatted = deliveries.map(d => {
             const std = d.payment?.student || {};
             const addressParts = [std.addressHouseNo, std.addressStreet, std.city, std.district].filter(Boolean);
+            const labelAddressParts = [std.addressHouseNo, std.addressStreet, std.city].filter(Boolean);
             
             // 🔥 FIX: ළමයාගේ තියෙන ඔක්කොම වෙනස් Phone Numbers එකතු කරලා Sticker එකට යවනවා
             const phoneParts = [std.phone, std.whatsapp, std.optionalPhone].filter(Boolean);
@@ -525,6 +589,7 @@ exports.getDispatchDeliveries = async (req, res) => {
                 ...d,
                 studentName: std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown Student',
                 address: addressParts.length > 0 ? addressParts.join(', ') : 'No Address Provided',
+                labelAddress: labelAddressParts.length > 0 ? labelAddressParts.join(', ') : 'No Address Provided',
                 phone: finalPhone, // 🔥 Updated Multiple Phones
                 batchName: d.payment?.batch?.name || 'Batch Not Assigned',
                 items: d.items.map(item => {
@@ -600,27 +665,74 @@ exports.getAdvancedHistory = async (req, res) => {
             take: parseInt(limit)
         });
 
+        const courses = await prisma.course.findMany();
+        
+        const batchIds = [...new Set(deliveries.map(d => d.payment?.batchId).filter(Boolean))];
+        const allGroups = await prisma.group.findMany({
+            where: { batchId: { in: batchIds } }
+        });
+
         const formatted = deliveries.map(d => {
             const bizName = businesses.find(b => b.id === d.businessId)?.name || 'Unknown';
             const std = d.payment?.student || {};
             const addressParts = [std.addressHouseNo, std.addressStreet, std.city, std.district].filter(Boolean);
             const fullAddress = addressParts.length > 0 ? addressParts.join(', ') : 'No Address Provided';
+            const labelAddressParts = [std.addressHouseNo, std.addressStreet, std.city].filter(Boolean);
+            const fullLabelAddress = labelAddressParts.length > 0 ? labelAddressParts.join(', ') : 'No Address Provided';
 
             // 🔥 FIX: ළමයාගේ තියෙන ඔක්කොම වෙනස් Phone Numbers එකතු කරලා Sticker එකට යවනවා
             const phoneParts = [std.phone, std.whatsapp, std.optionalPhone].filter(Boolean);
             const finalPhone = [...new Set(phoneParts)].join(' / ') || 'No Phone';
+
+            // 🔥 FIX: Resolve actual tute name dynamically like in getPendingDeliveries
+            const itemsWithDetails = d.items.map(item => {
+                const course = courses.find(c => c.id === item.courseId);
+                let actualTuteName = item.tuteName; // Default
+
+                if (course && course.groupPrices) {
+                    try {
+                        const gpArr = JSON.parse(course.groupPrices);
+                        let matchedGp;
+                        
+                        if (d.paymentType === 'Full') {
+                            const fullGrp = allGroups.find(g => g.batchId === d.payment?.batchId && g.name.toLowerCase().includes('full'));
+                            if (fullGrp) {
+                                matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(fullGrp.id));
+                            }
+                        }
+
+                        if (!matchedGp && d.payment?.groupId) {
+                            matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(d.payment.groupId));
+                        }
+                        
+                        if (!matchedGp) matchedGp = gpArr.find(g => g.tuteName === item.tuteName) || gpArr[0];
+
+                        if (matchedGp && matchedGp.tuteName) {
+                            actualTuteName = matchedGp.tuteName;
+                        }
+                    } catch (e) {}
+                }
+
+                return {
+                    ...item,
+                    tuteName: actualTuteName
+                };
+            });
 
             return {
                 id: d.id,
                 studentName: std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown',
                 phone: finalPhone, // 🔥 Updated Multiple Phones
                 address: fullAddress, 
+                labelAddress: fullLabelAddress,
                 businessName: bizName,
                 batchName: d.payment?.batch?.name || 'No Batch',
                 paymentType: d.paymentType,
                 status: d.status,
                 trackingNumber: d.trackingNumber,
-                items: d.items
+                packedAt: d.packedAt,
+                packRemark: d.packRemark,
+                items: itemsWithDetails
             };
         });
 
@@ -893,5 +1005,91 @@ exports.confirmDelivery = async (req, res) => {
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: "Failed to update delivery status." });
+    }
+};
+
+exports.getDeliveryPaymentDetails = async (req, res) => {
+    try {
+        const { businessId, paymentType, installmentNo } = req.query;
+        
+        let whereClause = {};
+
+        if (businessId) whereClause.businessId = parseInt(businessId);
+        
+        // Let's filter payments based on type/installment in JS since Prisma relation filters can be tricky, 
+        // or we can use relation filters.
+        if (paymentType && paymentType !== 'All' && paymentType !== 'Mixed') {
+            whereClause.paymentType = paymentType;
+        }
+
+        const deliveries = await prisma.delivery.findMany({
+            where: whereClause,
+            include: {
+                payment: {
+                    include: { student: true, batch: true }
+                }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+
+        let formatted = deliveries.map(d => {
+            const std = d.payment?.student || {};
+            const addressParts = [std.addressHouseNo, std.addressStreet, std.city, std.district].filter(Boolean);
+            const fullAddress = addressParts.length > 0 ? addressParts.join(', ') : 'No Address Provided';
+
+            const phoneParts = [std.phone, std.whatsapp, std.optionalPhone].filter(Boolean);
+            const finalPhone = [...new Set(phoneParts)].join(' / ') || 'No Phone';
+
+            let paymentTypeStr = d.paymentType;
+            let installNo = d.payment?.installment_no || 1;
+
+            return {
+                id: d.id,
+                paymentId: d.payment?.id,
+                studentName: std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown',
+                studentId: std.id ? `STU-${std.id}` : 'N/A',
+                phone: finalPhone,
+                address: fullAddress, 
+                businessId: d.businessId,
+                batchName: d.payment?.batch?.name || 'No Batch',
+                paymentType: paymentTypeStr,
+                installmentNo: installNo,
+                paymentDate: d.payment?.created_at ? new Date(d.payment.created_at).toISOString().split('T')[0] : 'N/A',
+                status: d.status
+            };
+        });
+
+        // Handle Mixed Payments logic if we want to support 'Mixed' filter (similar to PendingHolds)
+        // A mixed payment is where a student has multiple delivery records.
+        const counts = {};
+        formatted.forEach(d => {
+            const key = d.phone;
+            if(key) counts[key] = (counts[key] || 0) + 1;
+        });
+
+        formatted = formatted.map(d => ({
+            ...d,
+            isMix: counts[d.phone] > 1
+        }));
+
+        if (paymentType === 'Mixed') {
+            formatted = formatted.filter(d => d.isMix);
+        } else if (paymentType && paymentType !== 'All') {
+            formatted = formatted.filter(d => !d.isMix && d.paymentType === paymentType);
+        } else if (paymentType === 'All') {
+            formatted = formatted.filter(d => !d.isMix);
+        }
+
+        if (installmentNo) {
+            formatted = formatted.filter(d => parseInt(d.installmentNo) === parseInt(installmentNo));
+        }
+
+        const safeJson = (data) => JSON.parse(JSON.stringify(data, (k, v) => typeof v === 'bigint' ? v.toString() : v));
+
+        res.status(200).json(safeJson(formatted));
+
+    } catch (error) {
+        console.error("Payment Details fetch error:", error);
+        res.status(500).json({ error: "Failed to fetch payment details" });
     }
 };

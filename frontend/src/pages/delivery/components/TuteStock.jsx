@@ -45,7 +45,7 @@ const LiveTuteImage = ({ stock }) => {
     return <img src={imgSrc} onError={handleError} alt="Cover" className="w-full h-full object-cover" />;
 };
 
-export default function TuteStock() {
+export default function TuteStock({ searchQuery, isReadOnly }) {
     const [viewLevel, setViewLevel] = useState('businesses');
     const [loading, setLoading] = useState(true);
     const [actionLoading, setActionLoading] = useState(false);
@@ -236,9 +236,11 @@ export default function TuteStock() {
                     )}
                 </div>
 
-                <button onClick={() => setShowReportModal(true)} className="bg-brand-accent hover:bg-brand-accentHover text-white px-6 py-3 rounded-xl transition-all font-black text-sm flex items-center gap-2 w-full xl:w-auto justify-center mt-2 xl:mt-0 shrink-0 shadow-lg shadow-brand-accent/30 hover:scale-105 active:scale-95">
-                    <BarChart3 size={18}/> Delivery & Stock Report
-                </button>
+                {!isReadOnly && (
+                    <button onClick={() => setShowReportModal(true)} className="bg-brand-accent hover:bg-brand-accentHover text-white px-6 py-3 rounded-xl transition-all font-black text-sm flex items-center gap-2 w-full xl:w-auto justify-center mt-2 xl:mt-0 shrink-0 shadow-lg shadow-brand-accent/30 hover:scale-105 active:scale-95">
+                        <Download size={18}/> Stock Reports
+                    </button>
+                )}
             </div>
 
             <div className="flex-1 flex flex-col min-h-0 relative">
@@ -331,20 +333,20 @@ export default function TuteStock() {
                                                     />
                                                 </div>
                                                 
-                                                <button onClick={() => handleAddStock(stock.id)} disabled={actionLoading} className="h-10 bg-brand-accent hover:bg-brand-accentHover text-white px-5 rounded-xl font-black text-xs uppercase tracking-widest transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow-md hover:scale-105 active:scale-95 transition-transform">
-                                                    <Plus size={16}/> Add
-                                                </button>
-                                                
-                                                <div className="w-px h-8 bg-gray-200 dark:bg-white/10 mx-1 hidden md:block transition-colors"></div>
-                                                
-                                                <div className="flex items-center gap-1.5 transition-colors">
-                                                    <button onClick={() => { setEditData({ id: stock.id, qty: stock.availableQuantity, reason: '' }); setShowEditModal(true); }} className="h-10 w-10 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:text-brand-accent dark:hover:text-brand-accent hover:bg-gray-100 dark:hover:bg-white/5 rounded-xl transition-colors border border-transparent hover:border-gray-200 dark:hover:border-white/10" title="Adjust Balance">
-                                                        <Edit3 size={18}/>
-                                                    </button>
-                                                    <button onClick={() => handleDeleteStock(stock.id)} className="h-10 w-10 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors border border-transparent hover:border-red-200 dark:hover:border-red-500/20" title="Delete Material">
-                                                        <Trash2 size={18}/>
-                                                    </button>
-                                                </div>
+                                                {!isReadOnly && (
+                                                    <>
+                                                        <button onClick={() => handleAddStock(stock.id)} disabled={actionLoading} className="h-10 bg-brand-accent hover:bg-brand-accentHover text-white px-5 rounded-xl font-black text-xs uppercase tracking-widest transition-colors flex items-center gap-1.5 disabled:opacity-50 shadow-md hover:scale-105 active:scale-95 transition-transform">
+                                                            <Plus size={14} strokeWidth={3}/> Add
+                                                        </button>
+                                                        
+                                                        <button onClick={() => { setEditData({ id: stock.id, qty: stock.availableQuantity, reason: '' }); setShowEditModal(true); }} className="h-10 w-10 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:text-brand-accent dark:hover:text-brand-accent hover:bg-gray-100 dark:hover:bg-white/5 rounded-xl transition-colors border border-transparent hover:border-gray-200 dark:hover:border-white/10" title="Adjust Balance">
+                                                            <Edit2 size={16}/>
+                                                        </button>
+                                                        <button onClick={() => handleDeleteStock(stock.id)} className="h-10 w-10 flex items-center justify-center text-gray-400 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-xl transition-colors border border-transparent hover:border-red-200 dark:hover:border-red-500/20" title="Delete Material">
+                                                            <Trash2 size={16}/>
+                                                        </button>
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                     );

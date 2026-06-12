@@ -36,7 +36,11 @@ export default function GlobalReminderWidget() {
     const fetchReminders = async () => {
         try {
             const res = await axios.get(`/reminders/my-reminders?agentId=${agentId}`);
-            setReminders(res.data.map(r => ({ ...r, notifiedLocally: false })));
+            if (Array.isArray(res.data)) {
+                setReminders(res.data.map(r => ({ ...r, notifiedLocally: false })));
+            } else {
+                setReminders([]);
+            }
         } catch (error) { console.error("Failed to fetch reminders"); }
     };
 

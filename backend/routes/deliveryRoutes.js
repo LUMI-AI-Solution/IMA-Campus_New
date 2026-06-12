@@ -17,6 +17,7 @@ const upload = multer({ storage });
 router.get('/pending', deliveryController.getPendingDeliveries);
 router.post('/pack', deliveryController.packDelivery);
 router.post('/hold', deliveryController.holdDelivery);
+router.get('/payment-details', deliveryController.getDeliveryPaymentDetails);
 
 // Tute Stock Actions
 router.get('/stock', deliveryController.getTuteStocks);

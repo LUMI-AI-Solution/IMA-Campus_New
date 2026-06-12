@@ -13,9 +13,41 @@ const getSLTDate = (timeString) => {
 exports.getTasks = async (req, res) => {
     try {
         const { businessId, batchId, status, assignedTo, role } = req.query;
+        
+        const userId = req.user.userId || req.user.id;
+        const userRole = req.user.role;
+        const businessType = req.user.businessType;
+        
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
+        
+        let allowedBizIds = null;
+        if (!isAdmin) {
+            const allBiz = await prisma.business.findMany();
+            const myBizs = allBiz.filter(biz => {
+                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
+                const matchesBizType = businessType && (
+                    String(biz.id) === String(businessType).trim() ||
+                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
+                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
+                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+                );
+                return isManagerOf || matchesBizType;
+            });
+            allowedBizIds = myBizs.map(b => b.id);
+        }
+
         let whereClause = { parentId: null }; 
 
-        if (businessId) whereClause.businessId = parseInt(businessId);
+        if (businessId) {
+            const parsedBizId = parseInt(businessId);
+            if (allowedBizIds && !allowedBizIds.includes(parsedBizId)) {
+                return res.status(403).json({ error: "Access Denied. You are not allowed to view tasks for this business." });
+            }
+            whereClause.businessId = parsedBizId;
+        } else if (allowedBizIds) {
+            whereClause.businessId = { in: allowedBizIds };
+        }
         if (batchId) whereClause.batchId = parseInt(batchId);
         if (status) whereClause.status = status;
         
@@ -145,10 +177,35 @@ exports.completeTask = async (req, res) => {
         const { taskId, contentId } = req.body;
         const updatedTask = await prisma.task.update({
             where: { id: parseInt(taskId) },
-            data: { status: "COMPLETED", completedAt: new Date(), contentId: parseInt(contentId) }
+            data: { status: "COMPLETED", completedAt: new Date(), contentId: parseInt(contentId) },
+            include: { content: true }
         });
+
+        // 🔥 TECHNICAL DEPARTMENT SYNC: Update Timetable Delivery Status
+        if (updatedTask.timetableId) {
+            if (updatedTask.taskType === 'LIVE_LINK' && updatedTask.content) {
+                const linkToSync = updatedTask.content.link || updatedTask.content.meetingId || "Delivered (Check Content)";
+                await prisma.timetable.update({
+                    where: { id: updatedTask.timetableId },
+                    data: { 
+                        liveLink: linkToSync,
+                        deliveryStatus: "DELIVERED"
+                    }
+                });
+            } else if (updatedTask.taskType === 'NOTES') {
+                // If notes are delivered, we can just update status if it's still pending
+                await prisma.timetable.update({
+                    where: { id: updatedTask.timetableId, deliveryStatus: "PENDING" },
+                    data: { deliveryStatus: "DELIVERED" }
+                }).catch(() => {}); // ignore if already delivered or not found
+            }
+        }
+
         res.status(200).json({ message: "Task completed", task: updatedTask });
-    } catch (error) { res.status(500).json({ error: "Failed to complete task" }); }
+    } catch (error) { 
+        console.error("Task Complete Error:", error);
+        res.status(500).json({ error: "Failed to complete task" }); 
+    }
 };
 
 exports.rejectTask = async (req, res) => {
@@ -233,6 +290,47 @@ exports.completeCustomTask = async (req, res) => {
 
         res.status(200).json({ message: "Custom Task Completed" });
     } catch (error) { res.status(500).json({ error: "Failed to complete custom task" }); }
+};
+
+exports.completeTechnicalDeliverables = async (req, res) => {
+    try {
+        const { taskId, liveLink, notes } = req.body;
+        let attachmentUrl = null;
+
+        if (req.file) {
+            attachmentUrl = req.file.filename;
+        }
+
+        // We will store the form data in the task's customDesc or create a Content record if needed.
+        // The most straightforward way is to save it in customDesc as a JSON string so the Tech Dept can read it,
+        // OR save the proofUrl as attachmentUrl, and customDesc as a JSON of { liveLink, notes }.
+
+        const updatedTask = await prisma.task.update({
+            where: { id: parseInt(taskId) },
+            data: { 
+                status: "COMPLETED", 
+                completedAt: new Date(), 
+                proofUrl: attachmentUrl, 
+                proofType: req.file ? (req.file.mimetype.includes('pdf') ? 'pdf' : 'image') : null,
+                customDesc: JSON.stringify({ liveLink, notes })
+            }
+        });
+
+        if (updatedTask.timetableId) {
+            await prisma.timetable.update({
+                where: { id: updatedTask.timetableId },
+                data: { 
+                    liveLink: liveLink,
+                    deliveryStatus: "DELIVERED"
+                }
+            });
+        }
+
+        res.status(200).json({ message: "Technical Deliverables Completed" });
+    } catch (error) { 
+        console.error("Tech Deliverables Error:", error);
+        res.status(500).json({ error: "Failed to complete tech deliverables" }); 
+    }
 };
 
 // ================= CUSTOM TASK TEMPLATE CONTROLLERS =================

@@ -43,9 +43,9 @@ export default function PaymentFilters({
             </div>
 
             {/* Main Filters Bar */}
-            <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl space-y-5 transition-all duration-300">
-                <div className="flex flex-col md:flex-row gap-4">
-                    <div className="flex-1 relative">
+            <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-2xl space-y-4 transition-all duration-300">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div className="relative col-span-1 md:col-span-2 lg:col-span-2">
                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 transition-colors" size={18}/>
                         <input 
                             type="text" 
@@ -60,7 +60,7 @@ export default function PaymentFilters({
                         <select 
                             value={filters.businessId} 
                             onChange={e => handleChange('businessId', e.target.value)} 
-                            className="bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer min-w-[150px] transition-all duration-200 shadow-sm"
+                            className="w-full bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm truncate"
                         >
                             <option value="All" className="bg-slate-900 text-white">All Businesses</option>
                             {businesses.map(biz => <option key={biz.id} value={biz.id} className="bg-slate-900 text-white">{biz.name}</option>)}
@@ -70,18 +70,18 @@ export default function PaymentFilters({
                     <select 
                         value={filters.batchId} 
                         onChange={e => handleChange('batchId', e.target.value)} 
-                        className="bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer min-w-[140px] transition-all duration-200 shadow-sm"
+                        className={`w-full bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm truncate ${!isAdmin ? 'lg:col-span-2' : ''}`}
                     >
                         <option value="All" className="bg-slate-900 text-white">All Batches</option>
                         {batches.map(b => <option key={b.id} value={b.id} className="bg-slate-900 text-white">{b.name}</option>)}
                     </select>
                 </div>
 
-                <div className="flex flex-col md:flex-row gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <select 
                         value={filters.groupId} 
                         onChange={e => handleChange('groupId', e.target.value)} 
-                        className="flex-1 bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm"
+                        className="w-full bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm truncate"
                     >
                         <option value="All" className="bg-slate-900 text-white">All Groups</option>
                         {groups.map(g => <option key={g.id} value={g.id} className="bg-slate-900 text-white">{g.name}</option>)}
@@ -90,7 +90,7 @@ export default function PaymentFilters({
                     <select 
                         value={filters.subjectId} 
                         onChange={e => handleChange('subjectId', e.target.value)} 
-                        className="flex-1 bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm"
+                        className="w-full bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm truncate"
                     >
                         <option value="All" className="bg-slate-900 text-white">All Subjects</option>
                         {subjects.map(s => <option key={s.id} value={s.id} className="bg-slate-900 text-white">{s.name} ({s.code})</option>)}
@@ -99,9 +99,9 @@ export default function PaymentFilters({
                     <select 
                         value={filters.method} 
                         onChange={e => handleChange('method', e.target.value)} 
-                        className="flex-1 bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm"
+                        className="w-full bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm truncate"
                     >
-                        <option value="All" className="bg-slate-900 text-white">All Methods (Slip & Online)</option>
+                        <option value="All" className="bg-slate-900 text-white">All Methods (Slip / Online)</option>
                         <option value="Slip" className="bg-slate-900 text-white">Slip Payments</option>
                         <option value="Online" className="bg-slate-900 text-white">Online Payments</option>
                     </select>

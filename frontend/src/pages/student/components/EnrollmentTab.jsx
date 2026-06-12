@@ -27,6 +27,7 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
 
   const [finalPaymentType, setFinalPaymentType] = useState(null); 
   const [availableInstallmentPlan, setAvailableInstallmentPlan] = useState(null);
+
   const [paymentMethod, setPaymentMethod] = useState('slip'); 
   const [slipFiles, setSlipFiles] = useState([]); 
   const [remark, setRemark] = useState(''); 
@@ -52,6 +53,25 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                }
            })
            .catch(e => console.error("Error fetching enrolled subjects"));
+  }, []);
+
+  const [upgradeTrack, setUpgradeTrack] = useState('monthly'); // 'monthly' or 'full'
+  const [upgradeData, setUpgradeData] = useState(null);
+  const [isUpgradeEligible, setIsUpgradeEligible] = useState(false);
+  const [hasPendingUpgrade, setHasPendingUpgrade] = useState(false);
+
+  useEffect(() => {
+      axios.get('/upgrade-pricing/calculate')
+           .then(res => {
+               if (res.data && res.data.eligible) {
+                   setIsUpgradeEligible(true);
+                   setUpgradeData(res.data);
+               } else if (res.data && res.data.pendingUpgrade) {
+                   setHasPendingUpgrade(true);
+                   setUpgradeData(res.data);
+               }
+           })
+           .catch(e => console.error("Error fetching upgrade eligibility:", e));
   }, []);
 
   const parseStreams = (streamString) => streamString ? streamString.split(',').map(s => s.trim()).filter(s => s) : [];
@@ -135,6 +155,9 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
 
   const getFinalPayable = () => {
       if (selectedSubjects.length === 0) return 0; 
+      if (paymentPlan === 'monthly' && upgradeTrack === 'full' && upgradeData) {
+          return upgradeData.fullUpgrade.balanceToPay;
+      }
       const base = getBasePayable();
       const total = base - walletBalance; 
       return total > 0 ? total : 0;
@@ -270,6 +293,11 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
     let pMethodChosen = 'monthly';
     if (paymentPlan === 'full') {
         pMethodChosen = finalPaymentType === 'installment' ? 'installment' : 'full';
+    }
+    if (paymentPlan === 'monthly' && upgradeTrack === 'full' && upgradeData) {
+        pMethodChosen = 'full';
+        const upgradeNote = `[UPGRADE]: Transitioned from Monthly to FULL Card. Prev Paid: LKR ${upgradeData.totalPaidMonthly.toFixed(2)}`;
+        finalRemark = finalRemark ? `${finalRemark} | ${upgradeNote}` : upgradeNote;
     }
 
     const formData = new FormData();
@@ -436,7 +464,11 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                               <h4 className="text-xs font-bold text-white/50 mb-3 uppercase tracking-wider">Select Month</h4>
                               <div className="flex flex-wrap gap-2">
                                 {getFilteredGroups().map(group => (
-                                  <button key={group.id} onClick={() => { setSelectedGroup(group); setSelectedSubjects([]); }}
+                                  <button key={group.id} onClick={() => { 
+                                    setSelectedGroup(group); 
+                                    setSelectedSubjects([]); 
+                                    setUpgradeTrack('monthly');
+                                  }}
                                     className={`px-4 py-2 rounded-xl font-bold text-xs transition-colors ${
                                       selectedGroup?.id === group.id 
                                       ? 'bg-red-600 text-white border border-red-500' 
@@ -528,7 +560,7 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                       </div>
 
                       {/* Sticky Order Summary Desktop */}
-                      <div className="fixed bottom-0 left-0 right-0 z-50 lg:sticky lg:top-6 lg:w-[320px] shrink-0">
+                      <div className="fixed bottom-0 left-0 right-0 z-50 lg:sticky lg:top-6 lg:w-[320px] shrink-0 space-y-4">
                          <div className={`bg-slate-900 lg:bg-black/20 border-t lg:border border-white/10 lg:rounded-[2rem] p-4 lg:p-6 transition-opacity duration-200 ${calculateTotal() > 0 ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                             
                             <div className="hidden lg:block">
@@ -536,12 +568,33 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                                 <div className="space-y-2 text-xs text-white/70 mb-5 font-medium">
                                     <div className="flex justify-between items-center bg-white/5 p-2.5 rounded-xl border border-white/5">
                                         <span>Plan:</span> 
-                                        <span className="font-bold text-white bg-white/10 px-2 py-1 rounded">{paymentPlan === 'full' ? 'One-Time' : 'Monthly'}</span>
+                                        <span className="font-bold text-white bg-white/10 px-2 py-1 rounded">
+                                            {paymentPlan === 'full' ? 'One-Time' : upgradeTrack === 'full' ? 'Monthly (Upgrade)' : 'Monthly'}
+                                        </span>
                                     </div>
                                     <div className="flex justify-between items-center bg-white/5 p-2.5 rounded-xl border border-white/5">
                                         <span>Subjects Selected:</span> 
                                         <span className="font-bold text-white bg-red-600 px-2 py-1 rounded">{selectedSubjects.length}</span>
                                     </div>
+                                    {paymentPlan === 'monthly' && isUpgradeEligible && selectedSubjects.length > 0 && (
+                                        <div className="bg-white/5 p-2.5 rounded-xl border border-white/5 space-y-2">
+                                            <span className="block text-[9px] text-gray-400 font-extrabold uppercase tracking-widest text-center">Payment Track</span>
+                                            <div className="grid grid-cols-2 gap-1.5">
+                                                <button 
+                                                    onClick={() => setUpgradeTrack('monthly')}
+                                                    className={`py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors ${upgradeTrack === 'monthly' ? 'bg-red-600 text-white shadow-sm' : 'bg-black/30 text-white/50 hover:bg-black/50'}`}
+                                                >
+                                                    Monthly
+                                                </button>
+                                                <button 
+                                                    onClick={() => setUpgradeTrack('full')}
+                                                    className={`py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-colors ${upgradeTrack === 'full' ? 'bg-red-600 text-white shadow-sm' : 'bg-black/30 text-white/50 hover:bg-black/50'}`}
+                                                >
+                                                    Upgrade Full
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

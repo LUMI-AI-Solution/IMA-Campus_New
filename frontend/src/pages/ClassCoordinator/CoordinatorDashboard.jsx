@@ -1,15 +1,28 @@
 import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import ContactSidebar from '../../components/CoordinatorCRM/ContactSidebar';
 import ChatArea from '../../components/CoordinatorCRM/ChatArea';
 import RightSidePanel from '../../components/CoordinatorCRM/RightSidePanel';
 import CallCampaignModule from '../../components/CoordinatorCRM/CallCampaignModule';
+import CoordinatorOverview from '../../components/CoordinatorCRM/CoordinatorOverview';
+import DedicatedCoordinatorOverview from '../../components/CoordinatorCRM/DedicatedCoordinatorOverview';
 import { FaWhatsapp, FaHeadset, FaFilter, FaChartBar, FaRobot, FaPowerOff } from 'react-icons/fa';
 import axios from '../../api/axios';
 import toast from 'react-hot-toast';
 
 export default function CoordinatorDashboard() {
+  const location = useLocation();
   const [user, setUser] = useState(null);
-  const [activeMode, setActiveMode] = useState('CRM'); 
+  
+  const [activeMode, setActiveMode] = useState(() => {
+    return window.location.pathname.includes('/workspace/crm') ? 'CRM' : 'OVERVIEW';
+  });
+
+  useEffect(() => {
+    const isCrmPath = location.pathname.includes('/workspace/crm');
+    setActiveMode(isCrmPath ? 'CRM' : 'OVERVIEW');
+  }, [location.pathname]);
+
   const [selectedLead, setSelectedLead] = useState(null);
   
   const [businesses, setBusinesses] = useState([]);
@@ -77,6 +90,29 @@ export default function CoordinatorDashboard() {
   const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(userRole);
   const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER'].includes(userRole);
 
+  const displayBusinesses = React.useMemo(() => {
+    if (isAdmin) return businesses;
+    if (isManager) {
+      return businesses.filter(biz => {
+        const isManagerOf = biz.head_manager_id === user?.id || biz.ass_manager_id === user?.id;
+        const matchesBizType = user?.businessType && (
+          String(biz.id) === String(user.businessType).trim() ||
+          biz.name.toLowerCase().trim() === String(user.businessType).toLowerCase().trim() ||
+          biz.name.toLowerCase().includes(String(user.businessType).toLowerCase().trim()) ||
+          String(user.businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+        );
+        return isManagerOf || matchesBizType;
+      });
+    }
+    return [];
+  }, [businesses, isAdmin, isManager, user]);
+
+  useEffect(() => {
+    if (isManager && !isAdmin && displayBusinesses.length > 0 && !selectedBusiness) {
+      setSelectedBusiness(String(displayBusinesses[0].id));
+    }
+  }, [displayBusinesses, isManager, isAdmin, selectedBusiness]);
+
   const displayBatches = selectedBusiness 
     ? batches.filter(b => b.businessId === parseInt(selectedBusiness))
     : batches;
@@ -84,33 +120,41 @@ export default function CoordinatorDashboard() {
   // 🔥 FIX: Business eka select nokara data penna bari wenna constraint ekak damma 🔥
   const needsToSelectBusiness = (isAdmin || isManager) && !selectedBusiness;
 
+  const isCrm = activeMode === 'CRM';
+
   return (
     <div className="h-full flex flex-col gap-4 animate-fade-in-up text-slate-300">
       
-      <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-[#23303f] p-3 rounded-2xl shadow-md border border-white/5">
+      <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-[#23303f] p-4 rounded-2xl shadow-lg border border-white/5">
         
-        <div className="flex gap-2 p-1 bg-[#1a2430] rounded-full border border-white/5 w-full xl:w-auto overflow-x-auto custom-scrollbar">
-          <button
-            onClick={() => setActiveMode('CRM')}
-            className={`flex items-center gap-2 px-6 py-2 rounded-full font-semibold transition-all duration-300 whitespace-nowrap ${
-              activeMode === 'CRM' ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-400 hover:bg-white/5'
-            }`}
-          >
-            <FaWhatsapp /> Free Seminar CRM
-          </button>
-          
-          <button
-            onClick={() => setActiveMode('CALL_CAMPAIGN')}
-            className={`flex items-center gap-2 px-6 py-2 rounded-full font-semibold transition-all duration-300 whitespace-nowrap ${
-              activeMode === 'CALL_CAMPAIGN' ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-400 hover:bg-white/5'
-            }`}
-          >
-            {(isAdmin || isManager) ? <><FaChartBar /> Campaign Progress</> : <><FaHeadset /> Call Campaign</>}
-          </button>
+        <div className="flex items-center gap-3 w-full xl:w-auto">
+          <div className={`p-2.5 rounded-xl ${isCrm ? 'bg-emerald-500/10 text-emerald-400' : activeMode === 'STATS' ? 'bg-blue-500/10 text-blue-400' : 'bg-rose-500/10 text-rose-400'} border border-white/5`}>
+            {isCrm ? <FaWhatsapp className="text-2xl" /> : <FaChartBar className="text-2xl" />}
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-white tracking-wide">
+              {isCrm ? 'Free Seminar CRM Workspace' : activeMode === 'STATS' ? 'Free Seminar Campaign Stats' : 'Class Coordinator Dashboard'}
+            </h1>
+            <p className="text-xs text-slate-400">
+              {isCrm ? 'Manage and follow up with free seminar student leads' : activeMode === 'STATS' ? 'Real-time campaign statistics and performance' : 'Your personal operational stats and follow-up campaigns'}
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3 w-full xl:w-auto overflow-x-auto">
+        <div className="flex items-center gap-3 w-full xl:w-auto overflow-x-auto justify-end">
           
+          <button 
+             onClick={() => setActiveMode(activeMode === 'STATS' ? (location.pathname.includes('/workspace/crm') ? 'CRM' : 'OVERVIEW') : 'STATS')}
+             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs transition-all shadow-md border whitespace-nowrap ${
+                 activeMode === 'STATS' 
+                 ? 'bg-blue-500/20 text-blue-400 border-blue-500/50 hover:bg-blue-500/30'
+                 : 'bg-slate-800/50 text-slate-400 border-slate-700/50 hover:bg-slate-700/50'
+             }`}
+          >
+             <FaChartBar />
+             {activeMode === 'STATS' ? 'HIDE STATS' : 'VIEW STATS'}
+          </button>
+
           {(isAdmin || isManager) && (
             <button 
               onClick={handleToggleFollowUp}
@@ -130,14 +174,14 @@ export default function CoordinatorDashboard() {
           {(isAdmin || isManager) && (
             <div className="flex items-center gap-3">
               <FaFilter className="text-slate-500 shrink-0" />
-              {isAdmin && (
+              {(isAdmin || (isManager && displayBusinesses.length > 1)) && (
                 <select 
                   value={selectedBusiness}
                   onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }}
                   className="bg-[#1a2430] border border-white/10 text-slate-300 text-sm rounded-lg px-3 py-2 outline-none focus:border-emerald-600"
                 >
                   <option value="">Select Business</option>
-                  {businesses.map(biz => <option key={biz.id} value={biz.id}>{biz.name}</option>)}
+                  {displayBusinesses.map(biz => <option key={biz.id} value={biz.id}>{biz.name}</option>)}
                 </select>
               )}
               <select 
@@ -159,6 +203,19 @@ export default function CoordinatorDashboard() {
           <FaFilter className="text-6xl text-slate-600 mb-4 opacity-50" />
           <h2 className="text-xl font-semibold text-slate-300">Select a Business to Start</h2>
           <p className="text-sm mt-1">Please select a business from the top dropdown filter to load the data.</p>
+        </div>
+      ) : activeMode === 'OVERVIEW' ? (
+        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
+            {!isAdmin && !isManager ? (
+               <DedicatedCoordinatorOverview selectedBusiness={selectedBusiness} selectedBatch={selectedBatch} />
+            ) : (
+               <CoordinatorOverview 
+                 loggedInUser={user} 
+                 setActiveMode={setActiveMode} 
+                 selectedBusiness={selectedBusiness} 
+                 selectedBatch={selectedBatch} 
+               />
+            )}
         </div>
       ) : activeMode === 'CRM' ? (
         <div className="flex-1 flex gap-4 h-[calc(100%-6rem)] overflow-hidden">
@@ -189,6 +246,7 @@ export default function CoordinatorDashboard() {
                 filters={{ selectedBusiness, selectedBatch }} 
                 setActiveMode={setActiveMode}
                 setSelectedLead={setSelectedLead}
+                forceStatsView={activeMode === 'STATS'}
             />
         </div>
       )}

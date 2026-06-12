@@ -4,8 +4,8 @@ import {
   LayoutDashboard, Users, MonitorPlay, LogOut, HeadphonesIcon, 
   Wallet, MessageCircle, Database, Truck, Package, Clock, CheckCircle, 
   Archive, HardDrive, CalendarDays, CalendarCheck, CheckSquare, History, 
-  Music, Palette, ChevronLeft, ChevronRight, Megaphone, X, BarChart, 
-  PhoneCall, UserPlus, Repeat, GraduationCap, TrendingUp // <-- Meka add karanna
+  Music, Palette, ChevronLeft, ChevronRight, Megaphone, X, BarChart, PieChart, Calendar,  
+  PhoneCall, UserPlus, Repeat, GraduationCap, TrendingUp, Box, Activity, ShieldCheck // <-- Meka add karanna
 } from 'lucide-react';
 
 export default function Sidebar({ userRole, loggedInUser, handleLogout, isSidebarOpen, setIsSidebarOpen, currentBg, setBgImage, isSpotifyOpen, setIsSpotifyOpen }) {
@@ -22,18 +22,24 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
 
   const getTabLinkClass = (tabName) => {
     const queryParams = new URLSearchParams(location.search);
-    const activeTab = queryParams.get('tab') || 'overview';
+    const activeTab = queryParams.get('tab') || 'pending';
     return activeTab === tabName && location.pathname.includes('/delivery/dashboard')
       ? "w-full flex items-center space-x-3 px-3 py-2 rounded-lg bg-white/20 border border-white/20 backdrop-blur-md text-white font-medium transition-all shadow-[0_4px_15px_rgba(0,0,0,0.1)]"
       : "w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-gray-300 hover:bg-white/10 transition-all font-medium border border-transparent";
   };
 
-  const isSystemAdmin = roleName === 'SYSTEM_ADMIN' || roleName === 'System Admin' || roleName === 'Director';
+  const isSystemAdmin = roleName === 'SYSTEM_ADMIN' || roleName === 'System Admin' || roleName === 'Director' || roleName === 'SUPER' || roleName === 'ADMIN';
   const isDeliveryDept = loggedInUser?.department === 'Delivery';
   const isFinanceDept = loggedInUser?.department === 'Finance';
-  const isManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER') && !isDeliveryDept && !isFinanceDept;
+  const isPhysicalDept = loggedInUser?.department === 'Physical';
+  const isManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'ASS_MANAGER') && !isDeliveryDept && !isFinanceDept && !isPhysicalDept;
+  const isCallCenterDept = loggedInUser?.department === 'Call Center';
+  const isCallCenterManager = isManager && isCallCenterDept;
+  const isGeneralManager = isManager && !isCallCenterDept;
+  const isPhysicalManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'ASS_MANAGER') && isPhysicalDept;
   const isCaller = roleName === 'CALLER' || roleName === 'Caller';
-  const isStaff = !isSystemAdmin && !isManager && !isDeliveryDept && !isFinanceDept && !isCaller && roleName !== 'STUDENT' && roleName !== 'user';
+  const isCallCenterAgent = roleName === 'CALL_CENTER_AGENT' || roleName === 'Call Center Agent';
+  const isStaff = !isSystemAdmin && !isManager && !isPhysicalManager && !isDeliveryDept && !isFinanceDept && !isCaller && !isCallCenterAgent && roleName !== 'STUDENT' && roleName !== 'user';
   const isStudent = roleName === 'STUDENT' || roleName === 'user';
 
   return (
@@ -64,62 +70,108 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
         {isSystemAdmin && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Administration</p>}
-            <NavLink to="/admin/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
-            <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
-            <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} /> {isSidebarOpen && <span className="truncate text-sm">Announcements & Events</span>}</NavLink>
-            <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
-            <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
-            <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
-            <NavLink to="/admin/student-center" className={getNavLinkClass}><Database size={18} /> {isSidebarOpen && <span className="truncate text-sm">Student Data Center</span>}</NavLink>
-            <NavLink to="/admin/crm-setup" className={getNavLinkClass}><HeadphonesIcon size={18} /> {isSidebarOpen && <span className="truncate text-sm">CRM Setup</span>}</NavLink>
-            <NavLink to="/admin/database" className={getNavLinkClass}><HardDrive size={18} /> {isSidebarOpen && <span className="truncate text-sm">Database Manager</span>}</NavLink>
-            
-          <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
+            <NavLink to="/admin/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
+            <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
+            <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} className="text-yellow-400" /> {isSidebarOpen && <span className="truncate text-sm">Announcements & Events</span>}</NavLink>
+            <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
+            <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
+            <NavLink to="/admin/ai-verification" className={getNavLinkClass}><ShieldCheck size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">AI Slip Verification</span>}</NavLink>
+            <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
+            <NavLink to="/admin/student-center" className={getNavLinkClass}><Database size={18} className="text-teal-400" /> {isSidebarOpen && <span className="truncate text-sm">Student Data Center</span>}</NavLink>
+            <NavLink to="/admin/crm-setup" className={getNavLinkClass}><HeadphonesIcon size={18} className="text-pink-400" /> {isSidebarOpen && <span className="truncate text-sm">CRM Setup</span>}</NavLink>
+            <NavLink to="/admin/database" className={getNavLinkClass}><HardDrive size={18} className="text-slate-400" /> {isSidebarOpen && <span className="truncate text-sm">Database Manager</span>}</NavLink>
+            <NavLink to="/admin/system-tasks" className={getNavLinkClass}><CheckSquare size={18} className="text-red-400" /> {isSidebarOpen && <span className="truncate text-sm">System Tasks & Issues</span>}</NavLink>
+            <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Logistics</p>}
-            <NavLink to="/delivery/dashboard?tab=overview" className={getNavLinkClass}><Truck size={18} /> {isSidebarOpen && <span className="truncate text-sm">Delivery Hub</span>}</NavLink>
+            <NavLink to="/delivery/dashboard?tab=overview" className={getNavLinkClass}><Truck size={18} className="text-blue-300" /> {isSidebarOpen && <span className="truncate text-sm">Delivery Hub</span>}</NavLink>
           </>
         )}
 
         {isFinanceDept && !isSystemAdmin && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Finance Department</p>}
-            <NavLink to="/finance/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} /> {isSidebarOpen && <span className="truncate text-sm">Finance Overview</span>}</NavLink>
-            <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
-            <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
+            <NavLink to="/finance/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Overview</span>}</NavLink>
+            <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
+            <NavLink to="/admin/ai-verification" className={getNavLinkClass}><ShieldCheck size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">AI Slip Verification</span>}</NavLink>
+            <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
           </>
-
         )}
+
+
 
         {isDeliveryDept && !isSystemAdmin && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Delivery</p>}
-            <NavLink to="/delivery/dashboard?tab=overview" className={() => getTabLinkClass('overview')}><Package size={18} /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
-            <NavLink to="/delivery/dashboard?tab=pending" className={() => getTabLinkClass('pending')}><Clock size={18} /> {isSidebarOpen && <span className="truncate text-sm">Pending & Holds</span>}</NavLink>
-            <NavLink to="/delivery/dashboard?tab=delivered" className={() => getTabLinkClass('delivered')}><CheckCircle size={18} /> {isSidebarOpen && <span className="truncate text-sm">Delivered</span>}</NavLink>
-            <NavLink to="/delivery/dashboard?tab=history" className={() => getTabLinkClass('history')}><History size={18} /> {isSidebarOpen && <span className="truncate text-sm">History</span>}</NavLink>
-            <NavLink to="/delivery/dashboard?tab=stock" className={() => getTabLinkClass('stock')}><Archive size={18} /> {isSidebarOpen && <span className="truncate text-sm">Tute Stock</span>}</NavLink>
+            <NavLink to="/delivery/dashboard?tab=overview" className={() => getTabLinkClass('overview')}><Package size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
+            <NavLink to="/delivery/dashboard?tab=pending" className={() => getTabLinkClass('pending')}><Clock size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Pending & Holds</span>}</NavLink>
+            <NavLink to="/delivery/dashboard?tab=delivered" className={() => getTabLinkClass('delivered')}><CheckCircle size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Delivered</span>}</NavLink>
+            <NavLink to="/delivery/dashboard?tab=history" className={() => getTabLinkClass('history')}><History size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">History</span>}</NavLink>
+            <NavLink to="/delivery/dashboard?tab=payment_details" className={() => getTabLinkClass('payment_details')}><Wallet size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Payment Details</span>}</NavLink>
+            <NavLink to="/delivery/dashboard?tab=stock" className={() => getTabLinkClass('stock')}><Archive size={18} className="text-slate-400" /> {isSidebarOpen && <span className="truncate text-sm">Tute Stock</span>}</NavLink>
           </>
         )}
 
-        {isManager && (
+        {isGeneralManager && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Management</p>}
-            <NavLink to="/manager/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} /> {isSidebarOpen && <span className="truncate text-sm">Branch Overview</span>}</NavLink>
-            <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} /> {isSidebarOpen && <span className="truncate text-sm">Announcements</span>}</NavLink>
-            <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
-            <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
-            <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
-            <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
-            <NavLink to="/admin/student-center" className={getNavLinkClass}><Database size={18} /> {isSidebarOpen && <span className="truncate text-sm">Student Data Center</span>}</NavLink>
+            <NavLink to="/manager/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Branch Overview</span>}</NavLink>
+            <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} className="text-yellow-400" /> {isSidebarOpen && <span className="truncate text-sm">Announcements</span>}</NavLink>
+            <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
+            <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
+            <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
+            <NavLink to="/admin/ai-verification" className={getNavLinkClass}><ShieldCheck size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">AI Slip Verification</span>}</NavLink>
+            <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
+            <NavLink to="/admin/student-center" className={getNavLinkClass}><Database size={18} className="text-teal-400" /> {isSidebarOpen && <span className="truncate text-sm">Student Data Center</span>}</NavLink>
+            <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
+            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Logistics</p>}
+            <NavLink to="/delivery/dashboard?tab=pending" className={() => getTabLinkClass('pending')}><Clock size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Pending & Holds</span>}</NavLink>
+            <NavLink to="/delivery/dashboard?tab=delivered" className={() => getTabLinkClass('delivered')}><CheckCircle size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Delivered</span>}</NavLink>
+            <NavLink to="/delivery/dashboard?tab=history" className={() => getTabLinkClass('history')}><Activity size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Delivery History</span>}</NavLink>
+            <NavLink to="/delivery/dashboard?tab=payment_details" className={() => getTabLinkClass('payment_details')}><Wallet size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Payment Details</span>}</NavLink>
           </>
         )}
 
-        {(isSystemAdmin || isManager || isStaff || isCaller) && (
+        
+        {isCallCenterManager && (
+          <>
+            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Call Center Hub</p>}
+            <NavLink to="/call-center/dashboard/overview" className={getNavLinkClass}><LayoutDashboard size={18} className="text-red-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
+            <NavLink to="/call-center/dashboard/free-sem" className={getNavLinkClass}><PhoneCall size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Free Sem Stats</span>}</NavLink>
+            <NavLink to="/call-center/dashboard/after-sem" className={getNavLinkClass}><BarChart size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">After Sem Stats</span>}</NavLink>
+            <NavLink to="/call-center/dashboard/bridge-handovers" className={getNavLinkClass}><Repeat size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Bridge Hand Overs</span>}</NavLink>
+            
+            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Team & Performance</p>}
+            <NavLink to="/call-center/dashboard/staff" className={getNavLinkClass}><Users size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Manage</span>}</NavLink>
+            <NavLink to="/call-center/dashboard/progress" className={getNavLinkClass}><Activity size={18} className="text-pink-400" /> {isSidebarOpen && <span className="truncate text-sm">Callers Progress</span>}</NavLink>
+          </>
+        )}
+
+        {isPhysicalManager && (
+          <>
+            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Physical Hub</p>}
+            <NavLink to="/physical/dashboard/overview" className={getNavLinkClass}><LayoutDashboard size={18} className="text-red-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
+            <NavLink to="/physical/dashboard/staff" className={getNavLinkClass}><Users size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
+          </>
+        )}
+
+        {isCallCenterAgent && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Workspace</p>}
+            <NavLink to="/call-center/agent/overview" className={getNavLinkClass}><PieChart size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
+            <NavLink to="/call-center/agent/free-sem" className={getNavLinkClass}><Megaphone size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Free Seminar</span>}</NavLink>
+            <NavLink to="/call-center/agent/after-sem" className={getNavLinkClass}><Calendar size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">After Seminar</span>}</NavLink>
+            <NavLink to="/call-center/agent/bridge" className={getNavLinkClass}><Repeat size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Bridge Campaign</span>}</NavLink>
+          </>
+        )}
+
+        {(isSystemAdmin || isGeneralManager || isStaff || isCaller) && (
+          <>
+            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Workspace</p>}
+            <NavLink to="/coordinator/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">My Dashboard</span>}</NavLink>
             <NavLink to="/workspace/timetable" className={getNavLinkClass}><CalendarDays size={18} /> {isSidebarOpen && <span className="truncate text-sm">Class Timetable</span>}</NavLink>
             <NavLink to="/workspace/tasks" className={getNavLinkClass}><CheckSquare size={18} /> {isSidebarOpen && <span className="truncate text-sm">Task Center</span>}</NavLink>
             <NavLink to="/workspace/roster" className={getNavLinkClass}><CalendarCheck size={18} className="text-pink-400" />{isSidebarOpen && <span className="truncate text-sm">My Roster</span>}</NavLink>
+            
             <NavLink to="/workspace/crm" className={getNavLinkClass}><MessageCircle size={18} /> {isSidebarOpen && <span className="truncate text-sm">Free Seminar CRM</span>}</NavLink>
             <NavLink to="/workspace/after-seminar-crm" className={getNavLinkClass}><HeadphonesIcon size={18} /> {isSidebarOpen && <span className="truncate text-sm">After Seminar CRM</span>}</NavLink>
             
@@ -127,12 +179,15 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-emerald-400/80 uppercase tracking-wider mb-2 mt-4">Call Campaigns</p>}
            
             {(isSystemAdmin || isManager) && (
-                <NavLink to="/workspace/campaign/overview" className={getNavLinkClass}><LayoutDashboard size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Campaign Overview</span>}</NavLink>
+                <NavLink to="/workspace/campaign/overview" className={getNavLinkClass}><LayoutDashboard size={18} className="text-red-400" /> {isSidebarOpen && <span className="truncate text-sm">Campaign Overview</span>}</NavLink>
             )}
             <NavLink to="/workspace/campaign/open-seminar" className={getNavLinkClass}><PhoneCall size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Open Seminar Leads</span>}</NavLink>
             <NavLink to="/workspace/campaign/new-inquiries" className={getNavLinkClass}><UserPlus size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">New Inquiries</span>}</NavLink>
             <NavLink to="/workspace/campaign/bridge-transfers" className={getNavLinkClass}><Repeat size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Bridge Transfers</span>}</NavLink>
             <NavLink to="/workspace/campaign/paid-students" className={getNavLinkClass}><GraduationCap size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Enrolled (Paid)</span>}</NavLink>
+            {(isSystemAdmin || isManager) && (
+                <NavLink to="/workspace/campaign/coordinator-progress" className={getNavLinkClass}><Activity size={18} className="text-pink-400" /> {isSidebarOpen && <span className="truncate text-sm">Coordinator Progress</span>}</NavLink>
+            )}
 
             {!isSystemAdmin && !isManager && !isCaller && (
                 <NavLink to="/admin/student-center" className={getNavLinkClass}><Database size={18} /> {isSidebarOpen && <span className="truncate text-sm">Student Data Center</span>}</NavLink>

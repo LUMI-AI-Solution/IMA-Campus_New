@@ -161,7 +161,9 @@ exports.getMobileClassroom = async (req, res) => {
             businessLogo: sub.group?.batch?.business?.logo || "default.png",
             batchName: sub.group?.batch?.name || "",
             batchLogo: sub.group?.batch?.logo || "default.png", 
-            description: sub.lecturerName || sub.description
+            description: sub.lecturerName || sub.description,
+            groupType: sub.group?.type || 1, // 1 for Monthly, 2 for Full/Upgrade
+            groupName: sub.group?.name || ""
         }));
 
         res.status(200).json(safeJson(formattedClassroom));
