@@ -433,7 +433,7 @@ exports.getRetentionCampaignData = async (req, res) => {
         const leadsWithGroupData = [];
         
         // Pre-calculate active group index
-        let activeGroupIndex = distinctMonthlyGroups.findIndex(g => g.name === activeGroupName);
+        let activeGroupIndex = distinctMonthlyGroups.findIndex(g => g.name.toUpperCase() === activeGroupName.toUpperCase());
         if (activeGroupIndex === -1) activeGroupIndex = distinctMonthlyGroups.length - 1;
 
         activeLeads.forEach(l => {
@@ -545,11 +545,45 @@ exports.getRetentionCampaignData = async (req, res) => {
             let isEnrolled = false;
             let isProcessing = false;
 
-            if (baseSubjects.size > 0 && activeGroupIndex >= 0 && activeGroupIndex < distinctMonthlyGroups.length) {
+            // Build activeMonthSubjects: only subjects from payments up to the active group
+            let activeMonthSubjects = new Set();
+            studentPayments.forEach(p => {
+                let pGroupIndex = -1;
+                if (p.groupId) {
+                    pGroupIndex = distinctMonthlyGroups.findIndex(g => g.ids.includes(p.groupId));
+                } else if (p.payment_type === 3) {
+                    pGroupIndex = 0;
+                }
+
+                if (pGroupIndex !== -1 && pGroupIndex <= activeGroupIndex) {
+                    if (p.subjects) {
+                        try {
+                            const subs = JSON.parse(p.subjects);
+                            subs.forEach(item => {
+                                let subName = null;
+                                if (typeof item === 'object' && item.id && courseMap[parseInt(item.id)]) subName = courseMap[parseInt(item.id)];
+                                else if (typeof item === 'string' && isNaN(parseInt(item))) subName = item.trim().toUpperCase();
+                                else if (!isNaN(parseInt(item)) && courseMap[parseInt(item)]) subName = courseMap[parseInt(item)];
+                                else if (typeof item === 'number' && courseMap[item]) subName = courseMap[item];
+                                
+                                if (subName) activeMonthSubjects.add(subName);
+                            });
+                        } catch(e) {}
+                    } else {
+                        // If payment has no subjects, assume it covers all assigned subjects
+                        if (l.assignedSubjects) l.assignedSubjects.forEach(s => activeMonthSubjects.add(s));
+                    }
+                }
+            });
+
+            // Fallback to baseSubjects if no subjects found up to this month
+            let subjectsToEvaluate = activeMonthSubjects.size > 0 ? activeMonthSubjects : baseSubjects;
+
+            if (subjectsToEvaluate.size > 0 && activeGroupIndex >= 0 && activeGroupIndex < distinctMonthlyGroups.length) {
                 const activeGroup = distinctMonthlyGroups[activeGroupIndex];
                 let allPaid = true;
                 let anyProcessing = false;
-                baseSubjects.forEach(subjectName => {
+                subjectsToEvaluate.forEach(subjectName => {
                     const status = paymentHistory[subjectName]?.[activeGroup.name];
                     if (status !== 'PAID') allPaid = false;
                     if (status === 'PROCESSING') anyProcessing = true;
