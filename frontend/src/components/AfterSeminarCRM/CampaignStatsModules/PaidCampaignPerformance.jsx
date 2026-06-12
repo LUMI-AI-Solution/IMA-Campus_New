@@ -1,27 +1,30 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from "../../../api/axios";
-import { FaUserTie, FaPhoneVolume, FaChartBar, FaMoneyCheckAlt, FaExclamationCircle, FaSearch, FaCalendarAlt, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
+import { FaUserTie, FaCalendarAlt, FaFileExport, FaCheckSquare, FaRegSquare, FaFilter, FaArrowDown, FaArrowUp } from 'react-icons/fa';
+import toast from 'react-hot-toast';
+import BusinessBadge from '../../common/BusinessBadge';
 
 export default function PaidCampaignPerformance({ filters }) {
     const [loading, setLoading] = useState(true);
     const [rawLeads, setRawLeads] = useState([]);
-    const [monthStats, setMonthStats] = useState({ prevMonthEnrolled: 0, thisMonthRenewed: 0, thisMonthDropped: 0 });
     
     // UI Filters
-    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
+    const [targetMonthName, setTargetMonthName] = useState('');
+    const [monthlyGroups, setMonthlyGroups] = useState([]);
+    const [overallEnrolledStats, setOverallEnrolledStats] = useState({ inCrmCount: 0, notInCrmCount: 0, notInCrmStudents: [] });
     const [searchQuery, setSearchQuery] = useState('');
 
-    // 🔥 NEW: Date Range States 🔥
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
 
+    // Global Filters for the Table
+    const [activePhaseFilter, setActivePhaseFilter] = useState('ALL');
+
     useEffect(() => {
         fetchRetentionData();
-    }, [filters?.selectedBusiness, filters?.selectedBatch, selectedMonth, startDate, endDate]);
+    }, [filters?.selectedBusiness, filters?.selectedBatch, targetMonthName, startDate, endDate]);
 
     const fetchRetentionData = async () => {
-        // 🔥 FIX: Prevent blank loading screen if no business is selected
         if (!filters?.selectedBusiness) {
             setLoading(false);
             setRawLeads([]);
@@ -36,18 +39,18 @@ export default function PaidCampaignPerformance({ filters }) {
                 params: { 
                     businessId: filters.selectedBusiness, 
                     batchId: filters.selectedBatch || 'ALL',
-                    month: selectedMonth,
+                    targetMonthName: targetMonthName,
                     startDate: startDate || undefined,
                     endDate: endDate || undefined
                 }
             });
             if (res.data) {
                 setRawLeads(res.data.leads || []);
-                setMonthStats({
-                    prevMonthEnrolled: res.data.stats?.prevMonthEnrolled || 0,
-                    thisMonthRenewed: res.data.stats?.thisMonthRenewed || 0,
-                    thisMonthDropped: res.data.stats?.thisMonthDropped || 0
-                });
+                setMonthlyGroups(res.data.monthlyGroups || []);
+                setOverallEnrolledStats(res.data.overallEnrolledStats || { inCrmCount: 0, notInCrmCount: 0, notInCrmStudents: [] });
+                if (!targetMonthName && res.data.defaultActiveGroupName) {
+                    setTargetMonthName(res.data.defaultActiveGroupName);
+                }
             }
         } catch (error) {
             console.error("Failed to fetch Retention Campaign Stats");
@@ -55,7 +58,6 @@ export default function PaidCampaignPerformance({ filters }) {
         setLoading(false);
     };
 
-    // 🔥 DATE FILTER HANDLERS 🔥
     const handleDailyClick = () => {
         const today = new Date().toISOString().split('T')[0];
         setStartDate(today);
@@ -67,58 +69,138 @@ export default function PaidCampaignPerformance({ filters }) {
         setEndDate('');
     };
 
-    // 🔥 CALCULATE ALL AGGREGATES BASED ON FILTERS 🔥
-    const metrics = useMemo(() => {
-        const filtered = rawLeads.filter(l => 
-            l.phone.includes(searchQuery) || 
-            (l.name && l.name.toLowerCase().includes(searchQuery.toLowerCase()))
-        );
+    const exportNotInCrmLeads = () => {
+        if (!overallEnrolledStats.notInCrmStudents || overallEnrolledStats.notInCrmStudents.length === 0) {
+            return toast.error("No missing leads to export!");
+        }
+        const headers = ['Student ID', 'Name', 'Phone', 'WhatsApp'];
+        const rows = overallEnrolledStats.notInCrmStudents.map(s => [
+            s.id,
+            (s.name || 'Unknown').replace(/,/g, ' '),
+            s.phone || '',
+            s.whatsapp || ''
+        ]);
+        const csvContent = "data:text/csv;charset=utf-8," + headers.join(',') + "\n" + rows.map(e => e.join(",")).join("\n");
+        const encodedUri = encodeURI(csvContent);
+        const link = document.createElement("a");
+        link.setAttribute("href", encodedUri);
+        link.setAttribute("download", `Not_In_CRM_Paid_Students.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        toast.success(`Exported ${overallEnrolledStats.notInCrmStudents.length} missing leads successfully!`);
+    };
 
-        let enrolledFull = 0, enrolledMonthly = 0, enrolledInstall = 0;
-        let nonEnrolledMonthly = 0, nonEnrolledInstall = 0;
-        let totalContacted = 0, totalPending = 0;
-        
+    // Calculate all metrics dynamically
+    const metrics = useMemo(() => {
+        const targetIdx = monthlyGroups.findIndex(g => g.name === targetMonthName);
+        const m0 = targetIdx >= 0 ? monthlyGroups[targetIdx] : null;
+        const m1 = targetIdx >= 1 ? monthlyGroups[targetIdx - 1] : null;
+        const m2 = targetIdx >= 2 ? monthlyGroups[targetIdx - 2] : null;
+
+        const monthStats = {
+            m0: { name: m0?.name || 'Selected Month', total: 0, full: 0, monthly: 0, drops: 0, expected: 0, newJoins: 0 },
+            m1: { name: m1?.name || 'Previous Month 1', total: 0, full: 0, monthly: 0, drops: 0, expected: 0, newJoins: 0 },
+            m2: { name: m2?.name || 'Previous Month 2', total: 0, full: 0, monthly: 0, drops: 0, expected: 0, newJoins: 0 }
+        };
+
         let staffMap = {};
 
-        filtered.forEach(l => {
-            const isEnrolled = l.enrollmentStatus === 'ENROLLED';
+        rawLeads.forEach(l => {
+            const matchesSearch = (l.phone || '').includes(searchQuery) || (l.name && l.name.toLowerCase().includes(searchQuery.toLowerCase()));
+            if (!matchesSearch) return;
+
             const intention = l.paymentIntention || 'NOT_DECIDED';
             const isPending = l.callStatus === 'pending' || !l.callStatus;
+            const round = l.coordinationRound || 1;
+            const phase = l.phase || 1;
+            const enrolledGroupIds = l.enrolledGroupIds || [];
 
-            // Enrollment Breakdowns
-            if (isEnrolled) {
-                if (intention === 'FULL') enrolledFull++;
-                else if (intention === 'MONTHLY') enrolledMonthly++;
-                else if (intention === 'INSTALLMENT') enrolledInstall++;
-            } else {
-                if (intention === 'MONTHLY') nonEnrolledMonthly++;
-                else if (intention === 'INSTALLMENT') nonEnrolledInstall++;
+            // Month Stats
+            [
+                { key: 'm0', group: m0, prevGroup: m1 },
+                { key: 'm1', group: m1, prevGroup: m2 },
+                { key: 'm2', group: m2, prevGroup: targetIdx >= 3 ? monthlyGroups[targetIdx - 3] : null }
+            ].forEach(({ key, group, prevGroup }) => {
+                if (!group) return;
+                if (intention === 'FULL' && l.enrollmentStatus === 'ENROLLED') {
+                    monthStats[key].full++;
+                    monthStats[key].total++;
+                } else if (intention === 'MONTHLY' || intention === 'INSTALLMENT') {
+                    const paidThisMonth = enrolledGroupIds.some(id => group.ids.includes(id));
+                    const paidPrevMonth = prevGroup ? enrolledGroupIds.some(id => prevGroup.ids.includes(id)) : false;
+
+                    if (paidThisMonth) {
+                        monthStats[key].monthly++;
+                        monthStats[key].total++;
+                        if (prevGroup && !paidPrevMonth) {
+                            monthStats[key].newJoins++;
+                        }
+                    }
+
+                    if (paidPrevMonth) {
+                        monthStats[key].expected++;
+                        if (!paidThisMonth) {
+                            monthStats[key].drops++;
+                        }
+                    }
+                }
+            });
+
+            if (activePhaseFilter !== 'ALL' && phase !== activePhaseFilter) {
+                return; // Skip for Agent table
             }
 
-            // Call Stats
-            if (isPending) totalPending++; else totalContacted++;
-
-            // Staff Stats
             if (l.assignedTo) {
-                const sName = l.assignedUser ? `${l.assignedUser.firstName}` : 'Unknown';
-                if (!staffMap[sName]) staffMap[sName] = { name: sName, assigned: 0, contacted: 0, pending: 0, enrolled: 0 };
+                const sName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName || ''}`.trim() : 'Unknown';
+                if (!staffMap[sName]) {
+                    staffMap[sName] = { 
+                        name: sName, businessType: l.assignedUser?.businessType, role: l.assignedUser?.role, assigned: 0,
+                        categories: {
+                            full: { pending: 0, covered: 0 },
+                            monthly: { pending: 0, covered: 0 },
+                            installment: { pending: 0, covered: 0 },
+                            nonEnrolled: { pending: 0, covered: 0 },
+                            twoMonthDrop: { pending: 0, covered: 0 }
+                        }
+                    };
+                }
+                const s = staffMap[sName];
+                s.assigned++;
+
+                const isEnrolled = l.enrollmentStatus === 'ENROLLED';
+                let unpaidCount = 0;
+                if (targetIdx >= 0 && intention !== 'FULL') {
+                    for (let i = 0; i <= targetIdx; i++) {
+                        const pm = monthlyGroups[i];
+                        const hasPaid = pm.ids.some(id => enrolledGroupIds.includes(id));
+                        if (!hasPaid) unpaidCount++;
+                    }
+                }
+
+                let catKey = '';
+                if (isEnrolled && intention === 'FULL') catKey = 'full';
+                else if (isEnrolled && intention === 'MONTHLY') catKey = 'monthly';
+                else if (isEnrolled && intention === 'INSTALLMENT') catKey = 'installment';
+                else if (!isEnrolled && unpaidCount > 2) catKey = 'twoMonthDrop';
+                else if (!isEnrolled) catKey = 'nonEnrolled';
                 
-                staffMap[sName].assigned++;
-                if (isPending) staffMap[sName].pending++; else staffMap[sName].contacted++;
-                if (isEnrolled) staffMap[sName].enrolled++;
+                if (catKey) {
+                    if (isPending) s.categories[catKey].pending++;
+                    else s.categories[catKey].covered++;
+                }
             }
         });
 
-        const totalEnrolled = enrolledFull + enrolledMonthly + enrolledInstall;
-        const totalNonEnrolled = nonEnrolledMonthly + nonEnrolledInstall;
+        Object.values(monthStats).forEach(ms => {
+            ms.dropPercent = ms.expected > 0 ? Math.round((ms.drops / ms.expected) * 100) : 0;
+        });
 
         return {
-            totalEnrolled, enrolledFull, enrolledMonthly, enrolledInstall,
-            totalNonEnrolled, nonEnrolledMonthly, nonEnrolledInstall,
-            totalContacted, totalPending, totalAssigned: filtered.length,
-            staffBreakdown: Object.values(staffMap)
+            monthStats,
+            staffBreakdown: Object.values(staffMap).sort((a, b) => b.assigned - a.assigned)
         };
-    }, [rawLeads, searchQuery]);
+    }, [rawLeads, searchQuery, monthlyGroups, targetMonthName, activePhaseFilter]);
 
     if (!filters?.selectedBusiness) {
         return <div className="flex justify-center items-center h-[200px] text-slate-500 font-medium">Please select a Campaign/Business to view Paid Campaign metrics.</div>;
@@ -126,246 +208,215 @@ export default function PaidCampaignPerformance({ filters }) {
 
     if (loading && rawLeads.length === 0) return <div className="flex justify-center items-center h-[400px] text-indigo-400 animate-pulse font-sans font-bold tracking-wide">Calculating Retention Analytics...</div>;
 
-    const PIE_COLORS = ['#10b981', '#ef4444'];
-    const pieData = [
-        { name: 'Enrolled', value: metrics.totalEnrolled },
-        { name: 'Dropped (Non-Enrolled)', value: metrics.totalNonEnrolled }
-    ];
-
-    return (
-        <div className="flex flex-col gap-6 font-sans text-slate-200 animate-fade-in-up pb-6">
+    const MonthBlock = ({ title, stats, isCurrent }) => (
+        <div className={`p-6 rounded-3xl border flex flex-col relative overflow-hidden transition-all duration-500 ${isCurrent ? 'bg-indigo-500/10 border-indigo-500/30 shadow-[0_8px_30px_rgba(99,102,241,0.15)]' : 'bg-white/5 border-white/10 shadow-xl'}`}>
+            <h3 className={`text-xs font-black uppercase tracking-widest mb-4 flex items-center gap-2 ${isCurrent ? 'text-indigo-400' : 'text-slate-400'}`}>
+                <FaCalendarAlt /> {title} ({stats.name})
+            </h3>
             
-            {/* 🔥 TOP FILTERS & SEARCH 🔥 */}
-            <div className="flex flex-col md:flex-row justify-between items-center bg-[#1e293b] p-4 rounded-2xl border border-slate-700 shadow-md gap-4">
-                <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-indigo-500/20 text-indigo-400 rounded-lg"><FaCalendarAlt size={18}/></div>
-                    <div>
-                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">Campaign Stats Filter</h3>
-                        <p className="text-[10px] text-slate-400">Filter by specific dates or view today's performance</p>
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-3 flex-wrap">
-                    {/* DAILY BUTTON */}
-                    <button 
-                        onClick={handleDailyClick}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all"
-                    >
-                        Today (Daily)
-                    </button>
-
-                    {/* DATE RANGE PICKER */}
-                    <div className="flex items-center gap-2 bg-[#0f172a] border border-slate-600 p-1.5 rounded-lg">
-                        <input 
-                            type="date" 
-                            value={startDate} 
-                            onChange={(e) => setStartDate(e.target.value)} 
-                            className="bg-transparent text-slate-300 text-xs font-semibold outline-none px-2 cursor-pointer"
-                            style={{colorScheme: 'dark'}}
-                        />
-                        <span className="text-slate-500 text-xs">to</span>
-                        <input 
-                            type="date" 
-                            value={endDate} 
-                            onChange={(e) => setEndDate(e.target.value)} 
-                            className="bg-transparent text-slate-300 text-xs font-semibold outline-none px-2 cursor-pointer"
-                            style={{colorScheme: 'dark'}}
-                        />
-                    </div>
-
-                    {/* CLEAR FILTER */}
-                    {(startDate || endDate) && (
-                        <button 
-                            onClick={handleClearDates}
-                            className="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 text-xs font-bold uppercase tracking-wider rounded-lg transition-all"
-                        >
-                            Clear
-                        </button>
-                    )}
+            <div className="flex justify-between items-end mb-6">
+                <div>
+                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-1">Total Enrolled</p>
+                    <h2 className="text-4xl font-black text-white">{stats.total}</h2>
                 </div>
             </div>
 
-            {/* 🔥 MONTH SELECTION & SEARCH 🔥 */}
-            <div className="flex flex-col md:flex-row justify-between items-center bg-[#1e293b] p-4 rounded-2xl border border-slate-700 shadow-md gap-4">
-                <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-indigo-500/20 text-indigo-400 rounded-lg"><FaCalendarAlt size={18}/></div>
-                    <div>
-                        <h3 className="text-sm font-bold text-white uppercase tracking-wider">Target Month Filter</h3>
-                        <div className="mt-1">
+            <div className="grid grid-cols-2 gap-3 mb-6">
+                <div className="bg-black/40 p-3 rounded-2xl border border-white/5 text-center">
+                    <p className="text-[9px] text-emerald-400 font-black uppercase tracking-widest mb-1">Full Pay</p>
+                    <h4 className="text-xl font-bold text-white">{stats.full}</h4>
+                </div>
+                <div className="bg-black/40 p-3 rounded-2xl border border-white/5 text-center">
+                    <p className="text-[9px] text-blue-400 font-black uppercase tracking-widest mb-1">Monthly</p>
+                    <h4 className="text-xl font-bold text-white">{stats.monthly}</h4>
+                </div>
+            </div>
+
+            <div className="flex gap-3 mt-auto">
+                <div className="flex-1 bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-2xl flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                        <div className="p-2 bg-emerald-500/20 rounded-lg text-emerald-400"><FaArrowUp size={12}/></div>
+                        <div>
+                            <p className="text-[9px] text-emerald-400 font-black uppercase tracking-widest">New Enrolls</p>
+                            <h4 className="text-lg font-bold text-white">{stats.newJoins}</h4>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex-1 bg-red-500/10 border border-red-500/20 p-3 rounded-2xl flex justify-between items-center">
+                    <div className="flex items-center gap-2">
+                        <div className="p-2 bg-red-500/20 rounded-lg text-red-400"><FaArrowDown size={12}/></div>
+                        <div>
+                            <p className="text-[9px] text-red-400 font-black uppercase tracking-widest">Drops</p>
+                            <h4 className="text-lg font-bold text-white">{stats.drops} <span className="text-[10px] text-red-400/70 ml-1">({stats.dropPercent}%)</span></h4>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const CellStat = ({ pending, covered }) => (
+        <div className="flex justify-center items-center gap-2">
+            <div className="flex flex-col items-center bg-slate-800/80 border border-slate-700/50 rounded-lg p-1.5 min-w-[40px] shadow-inner">
+               <span className="text-[8px] text-slate-400 font-black uppercase leading-none mb-1">Pend</span>
+               <span className="text-slate-200 font-bold text-sm leading-none">{pending}</span>
+            </div>
+            <div className="flex flex-col items-center bg-blue-500/10 border border-blue-500/20 rounded-lg p-1.5 min-w-[40px] shadow-inner">
+               <span className="text-[8px] text-blue-400/80 font-black uppercase leading-none mb-1">Cov</span>
+               <span className="text-blue-400 font-bold text-sm leading-none">{covered}</span>
+            </div>
+        </div>
+    );
+
+    return (
+        <div className="flex flex-col gap-6 font-sans text-slate-200 animate-fade-in p-2 rounded-lg bg-transparent relative">
+            
+            {/* 1. TOP FILTERS ROW */}
+            <div className="flex flex-col md:flex-row justify-between items-center bg-white/5 backdrop-blur-xl p-5 rounded-2xl border border-white/10 shadow-xl gap-4">
+                <div className="flex items-center gap-4 flex-wrap w-full md:w-auto">
+                    {/* Month Filter */}
+                    <div className="flex flex-col">
+                        <label className="text-[10px] text-fuchsia-400 font-black uppercase tracking-widest mb-1 ml-1">Target Month</label>
+                        <select 
+                            value={targetMonthName} 
+                            onChange={(e) => setTargetMonthName(e.target.value)}
+                            className="bg-black/40 text-white font-bold text-xs px-4 py-2.5 rounded-xl border border-white/10 outline-none focus:border-fuchsia-500 cursor-pointer shadow-inner min-w-[200px]"
+                        >
+                            <option value="">-- All Active Months --</option>
+                            {monthlyGroups.map((g, i) => (
+                                <option key={i} value={g.name}>{g.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Date Range Filter */}
+                    <div className="flex flex-col">
+                        <label className="text-[10px] text-blue-400 font-black uppercase tracking-widest mb-1 ml-1">Date Range</label>
+                        <div className="flex items-center gap-2 bg-black/40 border border-white/10 p-1 rounded-xl shadow-inner">
+                            <button onClick={handleDailyClick} className="px-3 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all">Today</button>
+                            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="bg-transparent text-slate-300 text-xs font-semibold outline-none px-2 cursor-pointer" style={{ colorScheme: 'dark' }} />
+                            <span className="text-slate-500 text-xs">-</span>
+                            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="bg-transparent text-slate-300 text-xs font-semibold outline-none px-2 cursor-pointer" style={{ colorScheme: 'dark' }} />
+                            {(startDate || endDate) && <button onClick={handleClearDates} className="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 text-[10px] font-bold uppercase tracking-wider rounded-lg transition-all mr-1">Clear</button>}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* 2. OVERALL STATS */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-emerald-500/5 backdrop-blur-md p-5 rounded-2xl border border-emerald-500/20 shadow-xl flex flex-col justify-center relative overflow-hidden transition-all">
+                    <div className="absolute -right-6 -top-6 w-20 h-20 bg-emerald-500/10 rounded-full blur-2xl"></div>
+                    <div className="flex items-center gap-3 mb-2 relative z-10">
+                        <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg"><FaCheckSquare size={16}/></div>
+                        <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Total Enrolled (In CRM)</h3>
+                    </div>
+                    <h2 className="text-3xl font-black text-emerald-400 relative z-10 ml-11">{overallEnrolledStats.inCrmCount} <span className="text-[10px] font-semibold text-emerald-500/50 uppercase tracking-widest">Matching Students</span></h2>
+                </div>
+                <div className="bg-amber-500/5 backdrop-blur-md p-5 rounded-2xl border border-amber-500/20 shadow-xl flex flex-col justify-center relative overflow-hidden transition-all">
+                    <div className="absolute -right-6 -top-6 w-20 h-20 bg-amber-500/10 rounded-full blur-2xl"></div>
+                    <div className="flex justify-between items-start relative z-10">
+                        <div className="flex items-center gap-3 mb-2">
+                            <div className="p-2 bg-amber-500/20 text-amber-400 rounded-lg"><FaRegSquare size={16}/></div>
+                            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider">Paid But Not In CRM</h3>
+                        </div>
+                        <button onClick={exportNotInCrmLeads} className="bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 px-3 py-1.5 rounded-lg text-[10px] font-bold transition-colors flex items-center gap-2 border border-amber-500/20 uppercase tracking-widest shadow-sm">
+                            <FaFileExport /> Export List
+                        </button>
+                    </div>
+                    <h2 className="text-3xl font-black text-amber-400 relative z-10 ml-11">{overallEnrolledStats.notInCrmCount} <span className="text-[10px] font-semibold text-amber-500/50 uppercase tracking-widest">Missing Students</span></h2>
+                </div>
+            </div>
+
+            {/* 3. THREE MONTH BREAKDOWN */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <MonthBlock title="Selected Month" stats={metrics.monthStats.m0} isCurrent={true} />
+                <MonthBlock title="Previous Month 1" stats={metrics.monthStats.m1} isCurrent={false} />
+                <MonthBlock title="Previous Month 2" stats={metrics.monthStats.m2} isCurrent={false} />
+            </div>
+
+            {/* 4. AGENT WISE TABLE */}
+            <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-xl flex flex-col relative overflow-hidden mt-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 relative z-10">
+                    <h3 className="text-sm font-bold text-slate-200 uppercase tracking-widest flex items-center gap-3">
+                        <div className="p-2 bg-indigo-500/20 rounded-lg border border-indigo-500/20"><FaUserTie className="text-indigo-400"/></div>
+                        Coordinator Breakdown
+                    </h3>
+                    
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 bg-black/40 border border-white/10 p-1.5 rounded-xl">
+                            <FaFilter className="text-emerald-500 ml-2" size={12}/>
                             <select 
-                                value={selectedMonth} 
-                                onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                                className="bg-[#0f172a] text-indigo-400 font-bold text-xs px-3 py-1.5 rounded-lg border border-indigo-500/30 outline-none focus:border-indigo-500 cursor-pointer"
+                                value={activePhaseFilter} 
+                                onChange={(e) => setActivePhaseFilter(e.target.value === 'ALL' ? 'ALL' : Number(e.target.value))}
+                                className="bg-transparent text-emerald-400 font-bold text-xs px-2 py-1 outline-none cursor-pointer"
                             >
-                                {[...Array(12)].map((_, i) => (
-                                    <option key={i+1} value={i+1}>Billing Month {i+1}</option>
-                                ))}
+                                <option value="ALL">Overall (All Phases)</option>
+                                <option value={1}>Phase 1</option>
+                                <option value={2}>Phase 2</option>
                             </select>
                         </div>
                     </div>
                 </div>
-                
-                <div className="relative w-full md:w-80">
-                    <FaSearch className="absolute left-4 top-3.5 text-slate-500 text-sm" />
-                    <input 
-                        type="text" 
-                        placeholder="Search student number or name..." 
-                        value={searchQuery} 
-                        onChange={(e) => setSearchQuery(e.target.value)} 
-                        className="w-full bg-[#0f172a] border border-slate-600 rounded-xl py-3 pl-10 pr-4 text-xs font-semibold text-white outline-none focus:border-indigo-500 transition-all shadow-inner" 
-                    />
-                </div>
-            </div>
 
-            {/* 🔥 MONTH COMPARISON CARDS (M-1 vs M) 🔥 */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-slate-800/50 p-5 rounded-2xl border border-slate-700 shadow-sm flex flex-col justify-center">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-1">Previous Month (M-{selectedMonth - 1})</p>
-                    <h2 className="text-3xl font-black text-white">{monthStats.prevMonthEnrolled} <span className="text-sm font-semibold text-slate-500">Students</span></h2>
-                </div>
-                <div className="bg-emerald-500/10 p-5 rounded-2xl border border-emerald-500/20 shadow-sm flex flex-col justify-center relative overflow-hidden">
-                    <div className="absolute -right-4 -top-4 w-20 h-20 bg-emerald-500/20 rounded-full blur-xl"></div>
-                    <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest mb-1 relative z-10">Target Month (M-{selectedMonth}) Renewed</p>
-                    <h2 className="text-3xl font-black text-emerald-400 relative z-10">{monthStats.thisMonthRenewed} <span className="text-sm font-semibold text-emerald-500/70">Students</span></h2>
-                </div>
-                <div className="bg-red-500/10 p-5 rounded-2xl border border-red-500/20 shadow-sm flex flex-col justify-center relative overflow-hidden">
-                    <div className="absolute -right-4 -top-4 w-20 h-20 bg-red-500/20 rounded-full blur-xl animate-pulse"></div>
-                    <p className="text-[10px] text-red-400 font-bold uppercase tracking-widest mb-1 relative z-10">Target Month (M-{selectedMonth}) Dropped</p>
-                    <h2 className="text-3xl font-black text-red-500 relative z-10">{monthStats.thisMonthDropped} <span className="text-sm font-semibold text-red-500/70">Students</span></h2>
-                </div>
-            </div>
-
-            {/* 🔥 DEEP BREAKDOWN CARDS (ENROLLED VS NON-ENROLLED) 🔥 */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                
-                {/* ENROLLED BREAKDOWN */}
-                <div className="bg-[#1e293b] p-5 rounded-2xl border border-emerald-500/30 shadow-lg">
-                    <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
-                        <div className="flex items-center gap-2">
-                            <FaCheckCircle className="text-emerald-500 text-xl"/>
-                            <h3 className="text-emerald-400 font-black text-lg uppercase tracking-wider">Enrolled</h3>
-                        </div>
-                        <h2 className="text-3xl font-black text-emerald-400">{metrics.totalEnrolled}</h2>
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
-                        <div className="bg-[#0f172a] p-3 rounded-xl border border-slate-700 text-center">
-                            <p className="text-[10px] text-indigo-400 font-bold uppercase tracking-widest mb-1">Full Pay</p>
-                            <h4 className="text-xl font-bold text-white">{metrics.enrolledFull}</h4>
-                        </div>
-                        <div className="bg-[#0f172a] p-3 rounded-xl border border-slate-700 text-center">
-                            <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mb-1">Monthly</p>
-                            <h4 className="text-xl font-bold text-white">{metrics.enrolledMonthly}</h4>
-                        </div>
-                        <div className="bg-[#0f172a] p-3 rounded-xl border border-slate-700 text-center">
-                            <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest mb-1">Installment</p>
-                            <h4 className="text-xl font-bold text-white">{metrics.enrolledInstall}</h4>
-                        </div>
-                    </div>
-                </div>
-
-                {/* NON-ENROLLED BREAKDOWN */}
-                <div className="bg-[#1e293b] p-5 rounded-2xl border border-red-500/30 shadow-lg">
-                    <div className="flex justify-between items-center mb-4 border-b border-slate-700 pb-3">
-                        <div className="flex items-center gap-2">
-                            <FaTimesCircle className="text-red-500 text-xl"/>
-                            <h3 className="text-red-400 font-black text-lg uppercase tracking-wider">Non-Enrolled</h3>
-                        </div>
-                        <h2 className="text-3xl font-black text-red-500">{metrics.totalNonEnrolled}</h2>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                        <div className="bg-[#0f172a] p-3 rounded-xl border border-slate-700 text-center">
-                            <p className="text-[10px] text-blue-400 font-bold uppercase tracking-widest mb-1">Dropped Monthly</p>
-                            <h4 className="text-xl font-bold text-white">{metrics.nonEnrolledMonthly}</h4>
-                        </div>
-                        <div className="bg-[#0f172a] p-3 rounded-xl border border-slate-700 text-center">
-                            <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest mb-1">Dropped Installment</p>
-                            <h4 className="text-xl font-bold text-white">{metrics.nonEnrolledInstall}</h4>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* 🔥 CHARTS ROW 🔥 */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                <div className="bg-[#1e293b] p-5 rounded-2xl border border-slate-700 shadow-xl">
-                    <h3 className="text-xs font-semibold text-slate-300 mb-2 uppercase tracking-widest flex items-center gap-2"><FaChartBar className="text-indigo-400"/> Conversion Ratio</h3>
-                    <div className="w-full h-[250px] min-h-[250px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                                <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={4} dataKey="value" stroke="none">
-                                    {pieData.map((entry, index) => <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />)}
-                                </Pie>
-                                <RechartsTooltip contentStyle={{backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', fontSize:'12px'}} />
-                                <Legend verticalAlign="bottom" wrapperStyle={{fontSize: '11px', paddingTop: '20px', color: '#94a3b8'}} />
-                            </PieChart>
-                        </ResponsiveContainer>
-                    </div>
-                </div>
-
-                <div className="bg-[#1e293b] p-5 rounded-2xl border border-slate-700 shadow-xl lg:col-span-2">
-                    <h3 className="text-xs font-semibold text-slate-300 mb-6 uppercase tracking-widest flex items-center gap-2"><FaUserTie className="text-emerald-400"/> Staff Follow-up Progress</h3>
-                    <div className="w-full h-[250px] min-h-[250px]">
-                        {metrics.staffBreakdown.length === 0 ? <div className="flex h-full items-center justify-center text-slate-500 text-sm">No data available.</div> : (
-                            <ResponsiveContainer width="100%" height="100%">
-                                <BarChart data={metrics.staffBreakdown} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
-                                    <XAxis dataKey="name" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
-                                    <YAxis stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
-                                    <RechartsTooltip cursor={{fill: '#ffffff05'}} contentStyle={{backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', fontSize:'12px'}} />
-                                    <Legend verticalAlign="bottom" wrapperStyle={{fontSize: '11px', paddingTop: '10px'}} />
-                                    <Bar dataKey="contacted" name="Contacted" fill="#3b82f6" radius={[4, 4, 0, 0]} barSize={20} />
-                                    <Bar dataKey="pending" name="Pending Calls" fill="#ef4444" radius={[4, 4, 0, 0]} barSize={20} />
-                                    <Bar dataKey="enrolled" name="Enrolled (Won)" fill="#10b981" radius={[4, 4, 0, 0]} barSize={20} />
-                                </BarChart>
-                            </ResponsiveContainer>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            {/* 🔥 INDIVIDUAL STAFF BREAKDOWN TABLE 🔥 */}
-            <div className="bg-[#1e293b] p-5 rounded-2xl border border-slate-700 shadow-xl flex flex-col">
-                <h3 className="text-xs font-semibold text-slate-300 mb-4 uppercase tracking-widest flex items-center gap-2"><FaMoneyCheckAlt className="text-blue-400"/> Coordinator Conversion (Month {selectedMonth})</h3>
-                
                 <div className="flex-1 overflow-x-auto custom-scrollbar">
-                    {metrics.staffBreakdown.length === 0 ? <div className="text-center py-10 text-slate-500 text-sm">No coordinator data available for this month.</div> : (
-                        <table className="w-full text-left text-sm whitespace-nowrap">
-                            <thead className="bg-[#0f172a] text-slate-400 text-[10px] uppercase tracking-wider border-b border-slate-600">
+                    {metrics.staffBreakdown.length === 0 ? <div className="text-center py-10 text-slate-500 text-sm">No coordinator data available.</div> : (
+                        <table className="w-full text-left text-sm whitespace-nowrap border-collapse">
+                            <thead className="text-slate-400 text-[10px] uppercase tracking-wider bg-black/40">
                                 <tr>
-                                    <th className="py-4 px-4 font-semibold rounded-tl-lg">Coordinator Name</th>
-                                    <th className="py-4 px-4 text-center font-semibold">Total Assigned</th>
-                                    <th className="py-4 px-4 text-center font-semibold text-blue-400">Contacted</th>
-                                    <th className="py-4 px-4 text-center font-semibold text-red-400">Pending</th>
-                                    <th className="py-4 px-4 text-center font-bold text-emerald-400 bg-emerald-500/10">Enrolled (Won)</th>
-                                    <th className="py-4 px-4 text-right font-semibold rounded-tr-lg">Conversion %</th>
+                                    <th className="py-4 px-4 font-semibold rounded-tl-lg">Coordinator</th>
+                                    <th className="py-4 px-2 text-center font-semibold text-emerald-400 border-l border-white/5">FULL</th>
+                                    <th className="py-4 px-2 text-center font-semibold text-blue-400 border-l border-white/5">MONTHLY</th>
+                                    <th className="py-4 px-2 text-center font-semibold text-amber-400 border-l border-white/5">INSTALLMENT</th>
+                                    <th className="py-4 px-2 text-center font-semibold text-red-400 border-l border-white/5">NON-ENROLLED</th>
+                                    <th className="py-4 px-2 text-center font-semibold text-fuchsia-400 border-l border-white/5">2 MONTH DROP</th>
+                                    <th className="py-4 px-4 text-right font-semibold rounded-tr-lg border-l border-white/5">Total</th>
+                                </tr>
+                                <tr className="bg-black/60 border-b border-white/10">
+                                    <th className="py-2 px-4 text-[9px] text-slate-500 font-bold">NAME / ROLE</th>
+                                    <th className="py-2 px-2 text-center text-[9px] text-slate-500 font-bold border-l border-white/5">STATS</th>
+                                    <th className="py-2 px-2 text-center text-[9px] text-slate-500 font-bold border-l border-white/5">STATS</th>
+                                    <th className="py-2 px-2 text-center text-[9px] text-slate-500 font-bold border-l border-white/5">STATS</th>
+                                    <th className="py-2 px-2 text-center text-[9px] text-slate-500 font-bold border-l border-white/5">STATS</th>
+                                    <th className="py-2 px-2 text-center text-[9px] text-slate-500 font-bold border-l border-white/5">STATS</th>
+                                    <th className="py-2 px-4 text-right text-[9px] text-slate-500 font-bold border-l border-white/5">TOTAL ASSIGNED</th>
                                 </tr>
                             </thead>
-                            <tbody className="divide-y divide-slate-700/50">
-                                {metrics.staffBreakdown.map((staff, idx) => {
-                                    const contactRate = staff.assigned > 0 ? Math.round((staff.contacted / staff.assigned) * 100) : 0;
-                                    const wonRate = staff.contacted > 0 ? Math.round((staff.enrolled / staff.contacted) * 100) : 0;
-                                    return (
-                                        <tr key={idx} className="hover:bg-white/[0.03] transition-colors">
-                                            <td className="py-4 px-4 font-bold text-slate-200">{staff.name}</td>
-                                            <td className="py-4 px-4 text-center text-slate-300 font-medium">{staff.assigned}</td>
-                                            <td className="py-4 px-4 text-center font-semibold text-blue-400">{staff.contacted}</td>
-                                            <td className="py-4 px-4 text-center font-semibold text-red-400">{staff.pending}</td>
-                                            <td className="py-4 px-4 text-center font-black text-emerald-400 bg-emerald-500/5 border-l border-r border-emerald-500/20">{staff.enrolled}</td>
-                                            <td className="py-4 px-4 text-right font-bold text-slate-300">
-                                                <span className={`px-2.5 py-1.5 rounded-lg text-[10px] ${wonRate > 75 ? 'bg-emerald-500/20 text-emerald-400' : wonRate > 40 ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>
-                                                    {wonRate}%
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
+                            <tbody>
+                                {metrics.staffBreakdown.map((staff, idx) => (
+                                    <tr key={idx} className="border-b border-white/5 hover:bg-white/5 transition-colors group">
+                                        <td className="py-3 px-4 font-medium text-slate-200">
+                                            <div className="flex items-center gap-2">
+                                                {staff.name} <BusinessBadge businessType={staff.businessType} role={staff.role} />
+                                            </div>
+                                        </td>
+                                        <td className="py-3 px-2 border-l border-white/5 bg-emerald-500/5 group-hover:bg-emerald-500/10 transition-colors">
+                                            <CellStat pending={staff.categories.full.pending} covered={staff.categories.full.covered} />
+                                        </td>
+                                        <td className="py-3 px-2 border-l border-white/5 bg-blue-500/5 group-hover:bg-blue-500/10 transition-colors">
+                                            <CellStat pending={staff.categories.monthly.pending} covered={staff.categories.monthly.covered} />
+                                        </td>
+                                        <td className="py-3 px-2 border-l border-white/5 bg-amber-500/5 group-hover:bg-amber-500/10 transition-colors">
+                                            <CellStat pending={staff.categories.installment.pending} covered={staff.categories.installment.covered} />
+                                        </td>
+                                        <td className="py-3 px-2 border-l border-white/5 bg-red-500/5 group-hover:bg-red-500/10 transition-colors">
+                                            <CellStat pending={staff.categories.nonEnrolled.pending} covered={staff.categories.nonEnrolled.covered} />
+                                        </td>
+                                        <td className="py-3 px-2 border-l border-white/5 bg-fuchsia-500/5 group-hover:bg-fuchsia-500/10 transition-colors">
+                                            <CellStat pending={staff.categories.twoMonthDrop.pending} covered={staff.categories.twoMonthDrop.covered} />
+                                        </td>
+                                        <td className="py-3 px-4 text-right font-black text-white border-l border-white/5 bg-black/20">
+                                            {staff.assigned}
+                                        </td>
+                                    </tr>
+                                ))}
                             </tbody>
                         </table>
                     )}
                 </div>
             </div>
-
+            
         </div>
     );
 }

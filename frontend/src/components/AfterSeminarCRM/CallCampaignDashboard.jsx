@@ -83,7 +83,7 @@ export default function CallCampaignDashboard({ campaignType }) {
         activeBusinessId = String(displayBatches[0].businessId);
     }
 
-    const needsToSelectBusiness = isAdmin && !selectedBusiness;
+    const needsToSelectBusiness = isAdmin && !selectedBusiness && campaignType !== 'COORD_PROGRESS';
 
     const getCampaignTitle = () => {
         if (campaignType === 'OVERALL') return 'Campaign Master Analytics';
@@ -91,6 +91,7 @@ export default function CallCampaignDashboard({ campaignType }) {
         if (campaignType === 'NEW_INQ') return 'New Inquiries Campaign';
         if (campaignType === 'BRIDGE') return 'Bridge Transfers Campaign';
         if (campaignType === 'PAID') return 'Enrolled Students Campaign';
+        if (campaignType === 'COORD_PROGRESS') return 'Coordinator Progress Sheet';
         return 'Call Campaign';
     };
 
@@ -117,6 +118,7 @@ export default function CallCampaignDashboard({ campaignType }) {
 
                         <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)} className="bg-black/40 border border-white/10 text-slate-300 text-sm font-bold rounded-lg px-4 py-2.5 outline-none focus:border-brand-accent transition-all cursor-pointer">
                             <option value="">Select Batch (All)</option>
+                            <option value="UNASSIGNED" className="bg-slate-900 text-yellow-400 font-bold">⚠️ Unassigned (No Batch)</option>
                             {displayBatches.map(b => <option key={b.id} value={b.id} className="bg-slate-900">{b.name}</option>)}
                         </select>
                     </div>
@@ -175,7 +177,7 @@ export default function CallCampaignDashboard({ campaignType }) {
 
                         <div className="flex-1 flex gap-4 p-6 h-[calc(100%-75px)] bg-transparent overflow-hidden">
                             <AfterSeminarChatArea selectedLead={selectedLead} businessId={activeBusinessId} />
-                            <AfterSeminarRightPanel selectedLead={selectedLead} activeMode={'CALL_CAMPAIGN'} />
+                            <AfterSeminarRightPanel selectedLead={selectedLead} activeMode={'CALL_CAMPAIGN'} activeBusinessId={activeBusinessId} />
                         </div>
                     </div>
                 </div>
