@@ -48,13 +48,13 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         }
     }, [filters]);
 
-    const fetchPaidCampaignData = async () => {
+    const fetchPaidCampaignData = async (targetMonth = null) => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
             const res = await axios.get('/after-seminar-crm/retention/campaign-data', {
                 headers: { Authorization: `Bearer ${token}` },
-                params: { businessId: filters.selectedBusiness, batchId: filters.selectedBatch }
+                params: { businessId: filters.selectedBusiness, batchId: filters.selectedBatch, targetMonthName: targetMonth || selectedGroupName }
             });
             
             const myLeads = (res.data.leads || []).filter(l => l.assignedTo === currentUserId);
@@ -371,7 +371,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                             <span className="text-xs font-bold text-slate-400 whitespace-nowrap">Group Period:</span>
                             <select 
                                 value={selectedGroupName || ''} 
-                                onChange={(e) => { setSelectedGroupName(e.target.value); setCurrentPage(1); }}
+                                onChange={(e) => { setSelectedGroupName(e.target.value); setCurrentPage(1); fetchPaidCampaignData(e.target.value); }}
                                 className="bg-transparent border-none text-amber-400 text-sm font-black outline-none cursor-pointer w-full md:w-auto appearance-none pr-4"
                             >
                                 {monthlyGroups.map((group, idx) => (
