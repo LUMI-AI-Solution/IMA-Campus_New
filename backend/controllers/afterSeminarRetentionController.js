@@ -498,11 +498,20 @@ exports.getRetentionCampaignData = async (req, res) => {
                 earliestGroupIndex = 0; 
             }
 
+            // FILTER: If the student's first payment is AFTER the active campaign month, they shouldn't be evaluated in this month
+            if (earliestGroupIndex > activeGroupIndex) {
+                return; 
+            }
+
             // Build payment history from first enrolled month to active month
             let paymentHistory = {};
+            
+            // Generate paymentHistory for the last 3 months (Active month + 2 previous months)
+            let startHistoryIndex = Math.max(0, activeGroupIndex - 2);
+            
             baseSubjects.forEach(subjectName => {
                 paymentHistory[subjectName] = {};
-                for (let i = earliestGroupIndex; i <= activeGroupIndex; i++) {
+                for (let i = startHistoryIndex; i <= activeGroupIndex; i++) {
                     const group = distinctMonthlyGroups[i];
                     if (!group) continue;
                     let status = 'NOT PAID';
