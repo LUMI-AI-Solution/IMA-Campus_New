@@ -97,7 +97,15 @@ export default function AnnouncementsManager({ loggedInUser }) {
         }
     };
 
-    const getPostImageUrl = (imageName) => (!imageName || imageName === 'default.png') ? null : `${api.defaults.baseURL.replace('/api','')}/storage/posts/${imageName}`;
+    const getBaseUrl = () => {
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            let url = api.defaults.baseURL || 'http://localhost:5000/api';
+            return url.replace('/api', '');
+        }
+        return 'https://imacampus.online';
+    };
+
+    const getPostImageUrl = (imageName) => (!imageName || imageName === 'default.png') ? null : `${getBaseUrl()}/storage/posts/${imageName}`;
 
     return (
         <div className="w-full animate-fade-in pb-4 flex flex-col font-sans h-full">

@@ -18,7 +18,7 @@ export default function ContentHub() {
   const canManageBusiness = isSystemAdmin;
   const canManageBatches = isSystemAdmin || isManager;
   const canManageGroupsAndSubjects = isSystemAdmin || isManager;
-  const canManageContent = isSystemAdmin || isManager || isStaff;
+  const canManageContent = isSystemAdmin || isManager;
 
   const [viewLevel, setViewLevel] = useState(isSystemAdmin ? 'businesses' : 'batches'); 
   const [activeBusiness, setActiveBusiness] = useState(null);
@@ -180,6 +180,13 @@ export default function ContentHub() {
                   subs.push({...c, groupPrices: [priceObj] }); 
               } else { 
                   existing.groupPrices.push(priceObj); 
+                  if (c.price > existing.price) {
+                      existing.id = c.id;
+                      existing.price = c.price;
+                      existing.code = c.code;
+                      existing.description = c.description;
+                      existing.groupId = c.groupId;
+                  }
               }
           });
       });
@@ -216,8 +223,16 @@ export default function ContentHub() {
   const openBatchDetails = (batch) => { setActiveBatch(batch); extractUniqueSubjects(batch); setViewLevel('batch_details'); setBatchTab('subjects'); };
   const openContentsView = async (subject) => { setActiveSubject(subject); setViewLevel('contents'); setLoading(true); await fetchContents(subject, activeBatch); setLoading(false); };
 
-  const getImageUrl = (imageName) => (!imageName || imageName === 'default.png' || imageName === 'null') ? '/logo.png' : `${api.defaults.baseURL.replace('/api','')}/storage/icons/${imageName}`;
-  const getPostImageUrl = (imageName) => (!imageName || imageName === 'default.png' || imageName === 'null') ? null : `${api.defaults.baseURL.replace('/api','')}/storage/posts/${imageName}`;
+  const getBaseUrl = () => {
+      if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+          let url = api.defaults.baseURL || 'http://localhost:5000/api';
+          return url.replace('/api', '');
+      }
+      return 'https://imacampus.online';
+  };
+
+  const getImageUrl = (imageName) => (!imageName || imageName === 'default.png' || imageName === 'null') ? '/logo.png' : `${getBaseUrl()}/storage/icons/${imageName}`;
+  const getPostImageUrl = (imageName) => (!imageName || imageName === 'default.png' || imageName === 'null') ? null : `${getBaseUrl()}/storage/posts/${imageName}`;
   
   const getManagerName = (id) => { const m = managersList.find(m => m.id.toString() === id?.toString()); return m ? `${m.firstName} ${m.lastName}` : 'Not Assigned'; };
   const getBatchStreams = () => { try { return activeBusiness?.streams ? activeBusiness.streams.split(',').map(s=>s.trim()) : []; } catch(e) { return []; } };

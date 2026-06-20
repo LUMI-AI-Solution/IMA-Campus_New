@@ -483,14 +483,14 @@ exports.getRetentionCampaignData = async (req, res) => {
             // Find the EARLIEST group (month) this student first enrolled in
             let earliestGroupIndex = distinctMonthlyGroups.length;
             studentPayments.forEach(p => {
-                if (p.groupId) {
+                if (p.payment_type === 3 || p.payment_type === 2) {
+                    // Full payment & Installment covers from the beginning
+                    earliestGroupIndex = 0;
+                } else if (p.groupId) {
                     let gIndex = distinctMonthlyGroups.findIndex(g => g.ids.includes(p.groupId));
                     if (gIndex !== -1 && gIndex < earliestGroupIndex) {
                         earliestGroupIndex = gIndex;
                     }
-                } else if (p.payment_type === 3) {
-                    // Full payment covers from the beginning
-                    earliestGroupIndex = 0; 
                 }
             });
 
@@ -534,7 +534,7 @@ exports.getRetentionCampaignData = async (req, res) => {
                             // If payment has no subjects, assume it covers all their base subjects
                             hasSub = true;
                         }
-                        if (hasSub && (p.payment_type === 3 || group.ids.includes(p.groupId))) {
+                        if (hasSub && (p.payment_type === 3 || p.payment_type === 2 || group.ids.includes(p.groupId))) {
                             return true;
                         }
                         return false;
@@ -558,10 +558,10 @@ exports.getRetentionCampaignData = async (req, res) => {
             let activeMonthSubjects = new Set();
             studentPayments.forEach(p => {
                 let pGroupIndex = -1;
-                if (p.groupId) {
-                    pGroupIndex = distinctMonthlyGroups.findIndex(g => g.ids.includes(p.groupId));
-                } else if (p.payment_type === 3) {
+                if (p.payment_type === 3 || p.payment_type === 2) {
                     pGroupIndex = 0;
+                } else if (p.groupId) {
+                    pGroupIndex = distinctMonthlyGroups.findIndex(g => g.ids.includes(p.groupId));
                 }
 
                 if (pGroupIndex !== -1 && pGroupIndex <= activeGroupIndex) {

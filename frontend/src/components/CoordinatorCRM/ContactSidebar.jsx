@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from '../../api/axios'; 
-import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaClock, FaLock, FaUserCheck } from 'react-icons/fa';
+import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaClock, FaLock, FaUserCheck, FaHeadset } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import CustomSelect from '../common/CustomSelect';
 import BusinessBadge from '../common/BusinessBadge';
@@ -32,6 +32,10 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
   const [csvFile, setCsvFile] = useState(null);
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [assigneeGroup, setAssigneeGroup] = useState('COORDINATOR');
+  const [ccStatus, setCcStatus] = useState('PENDING');
+  const [ccStaff, setCcStaff] = useState([]);
+  const [ccCounts, setCcCounts] = useState({ PENDING: 0, APPROVED: 0 });
   
   // 🔥 LOAD MORE STATE 🔥
   const [visibleCount, setVisibleCount] = useState(50);
@@ -73,7 +77,9 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                 loggedUserRole: rawRole,
                 businessId: isManager ? (filters?.selectedBusiness || '') : '', 
                 batchId: isManager ? (filters?.selectedBatch || '') : '',
-                searchQuery: searchQuery
+                searchQuery: searchQuery,
+                assigneeGroup,
+                ccStatus
             }
         });
 
@@ -81,12 +87,22 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
       if (activeTab === 'NEW') {
           if (!isManager) fetchedLeads = fetchedLeads.filter(l => l.assignedTo === parseInt(currentUserId));
           else fetchedLeads = fetchedLeads.filter(l => l.assignedTo === null);
+      } else if (activeTab === 'ASSIGNED') {
+          if (assigneeGroup === 'COORDINATOR') {
+              fetchedLeads = fetchedLeads.filter(l => l.assignedTo !== null);
+          } else if (assigneeGroup === 'CALL_CENTER') {
+              fetchedLeads = fetchedLeads.filter(l => l.isCallCenter === true);
+          }
       }
       
       setLeads(fetchedLeads);
       setTabCounts(response.data.counts || {});
       setUnreadCounts(response.data.unreadCounts || { NEW: 0, IMPORTED: 0, ASSIGNED: 0, ALL: 0 });
       setTotalUnread(response.data.totalUnread || 0);
+      setCcCounts({
+          PENDING: response.data.ccPendingCount || 0,
+          APPROVED: response.data.ccApprovedCount || 0
+      });
     } catch (error) {
         if(showLoading) toast.error("Failed to load leads"); 
     }
@@ -102,11 +118,14 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
 
     try {
       const token = localStorage.getItem('token');
-      const [staffRes, quotaRes, bizRes] = await Promise.all([ 
+      const [staffRes, quotaRes, bizRes, ccStaffRes] = await Promise.all([ 
           axios.get('/admin/staff', { headers: { Authorization: `Bearer ${token}` } }), 
           axios.get('/coordinator-crm/leads/auto-assign-quotas', { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get('/admin/businesses', { headers: { Authorization: `Bearer ${token}` } })
+          axios.get('/admin/businesses', { headers: { Authorization: `Bearer ${token}` } }),
+          axios.get('/call-center/manager/staff', { headers: { Authorization: `Bearer ${token}` } })
       ]);
+      
+      setCcStaff(ccStaffRes.data || []);
       
       let coords = staffRes.data.filter(s => 
           s.role && ['COORDINATOR', 'CALLER', 'STAFF', 'MANAGER'].includes(s.role.toUpperCase())
@@ -152,7 +171,7 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
       setCheckedLeads([]); 
       const interval = setInterval(() => { fetchLeads(false); }, 10000);
       return () => clearInterval(interval);
-  }, [activeTab, staffFilter, phaseFilter, statusFilter, filters?.selectedBusiness, filters?.selectedBatch]);
+  }, [activeTab, staffFilter, phaseFilter, statusFilter, filters?.selectedBusiness, filters?.selectedBatch, assigneeGroup, ccStatus]);
 
   const handleSelectAll = () => {
     if (checkedLeads.length === leads.length) setCheckedLeads([]); else setCheckedLeads(leads.map(l => l.id));
@@ -169,6 +188,19 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
       if (!specificLeads) setCheckedLeads([]); 
       fetchLeads(true);
     } catch (e) { toast.error("Action failed"); }
+  };
+
+  const handleHandOverToCallCenter = async () => {
+    if (checkedLeads.length === 0) return toast.error("Please select leads to hand over");
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post('/call-center/request-transfer', { leadIds: checkedLeads }, { headers: { Authorization: `Bearer ${token}` } });
+      toast.success("Successfully requested handover to call center!");
+      setCheckedLeads([]);
+      fetchLeads(true);
+    } catch (e) {
+      toast.error("Failed to hand over leads");
+    }
   };
 
   
@@ -270,36 +302,58 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
 
   return (
     <div className="w-[380px] xl:w-[440px] bg-[#1a2430] rounded-2xl flex flex-col overflow-hidden shrink-0 border border-white/10 shadow-xl relative">
-      {checkedLeads.length > 0 ? (
-        <div className="p-4 bg-emerald-900/90 border-b border-emerald-500/50 flex flex-col gap-3">
-          <div className="flex justify-between items-center text-white">
-            <span className="font-bold">{checkedLeads.length} Selected</span>
-            <button onClick={() => setCheckedLeads([])} className="text-white/60 hover:text-white"><FaTimes/></button>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-             <button onClick={handleSelectAll} title="Select All" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaCheckSquare/></button>
-             <button onClick={() => handleBulkAction('MARK_READ')} title="Mark Read" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaEnvelopeOpenText/></button>
-             <button onClick={() => handleBulkAction('MARK_UNREAD')} title="Mark Unread" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaEnvelope/></button>
-             <button onClick={() => handleBulkAction('ASSIGN', currentUserId)} title="Assign To Me" className="p-2 bg-emerald-500/30 hover:bg-emerald-500 rounded-lg text-emerald-200 hover:text-white transition-all"><FaUserCheck/></button>
+      {checkedLeads.length > 0 ? (() => {
+        const selectedAreCallCenter = checkedLeads.some(id => {
+            const l = leads.find(lead => lead.id === id);
+            return l && (l.callCenterRequestStatus === 'REQUESTED' || l.callCenterRequestStatus === 'APPROVED');
+        });
 
-             {isManager && <button onClick={() => handleBulkAction('UNASSIGN')} title="Unassign Leads" className="p-2 bg-red-500/20 hover:bg-red-500 rounded-lg text-red-300 hover:text-white transition-all"><FaUserMinus/></button>}
-             {isManager && (
-                <CustomSelect 
-                  value=""
-                  onChange={(e) => handleBulkAction('ASSIGN', e.target.value)} 
-                  className="flex-1 min-w-[120px]"
-                  placeholder="Assign To..."
-                  options={[
-                      ...coordinators.map(c => ({
-                          value: c.id, 
-                          label: <div className="flex items-center gap-1.5">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'}) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
-                      }))
-                  ]}
-                />
-             )}
+        return (
+          <div className="p-4 bg-emerald-900/90 border-b border-emerald-500/50 flex flex-col gap-3">
+            <div className="flex justify-between items-center text-white">
+              <span className="font-bold">{checkedLeads.length} Selected</span>
+              <button onClick={() => setCheckedLeads([])} className="text-white/60 hover:text-white"><FaTimes/></button>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+               <button onClick={handleSelectAll} title="Select All" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaCheckSquare/></button>
+               <button onClick={() => handleBulkAction('MARK_READ')} title="Mark Read" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaEnvelopeOpenText/></button>
+               <button onClick={() => handleBulkAction('MARK_UNREAD')} title="Mark Unread" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaEnvelope/></button>
+               
+               {!selectedAreCallCenter && (
+                 <>
+                   <button onClick={() => handleBulkAction('ASSIGN', currentUserId)} title="Assign To Me" className="p-2 bg-emerald-500/30 hover:bg-emerald-500 rounded-lg text-emerald-200 hover:text-white transition-all"><FaUserCheck/></button>
+                   
+                   <button onClick={handleHandOverToCallCenter} title="Hand Over to Call Center" className="p-2 bg-purple-500/30 hover:bg-purple-500 rounded-lg text-purple-200 hover:text-white transition-all flex items-center gap-1 shadow-md shadow-purple-500/20 border border-purple-500/30">
+                     <FaHeadset/> <span className="text-[10px] font-bold uppercase tracking-wider hidden xl:block">Call Center</span>
+                   </button>
+
+                   {isManager && <button onClick={() => handleBulkAction('UNASSIGN')} title="Unassign Leads" className="p-2 bg-red-500/20 hover:bg-red-500 rounded-lg text-red-300 hover:text-white transition-all"><FaUserMinus/></button>}
+                   {isManager && (
+                      <CustomSelect 
+                        value=""
+                        onChange={(e) => handleBulkAction('ASSIGN', e.target.value)} 
+                        className="flex-1 min-w-[120px]"
+                        placeholder="Assign To..."
+                        options={[
+                            ...coordinators.map(c => ({
+                                value: c.id, 
+                                label: <div className="flex items-center gap-1.5">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'}) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                            }))
+                        ]}
+                      />
+                   )}
+                 </>
+               )}
+               
+               {isManager && selectedAreCallCenter && assigneeGroup === 'CALL_CENTER' && ccStatus === 'APPROVED' && (
+                  <button onClick={() => handleBulkAction('RETURN_FROM_CALL_CENTER')} title="Return from Call Center" className="p-2 bg-orange-500/30 hover:bg-orange-500 rounded-lg text-orange-200 hover:text-white transition-all flex items-center gap-1 shadow-md shadow-orange-500/20 border border-orange-500/30">
+                    <FaTimes/> <span className="text-[10px] font-bold uppercase tracking-wider hidden xl:block">Return</span>
+                  </button>
+               )}
+            </div>
           </div>
-        </div>
-      ) : (
+        );
+      })() : (
         <div className="p-5 bg-[#121a24] border-b border-white/5">
           <div className="flex justify-between items-center mb-5">
             <h3 className="text-lg font-black text-slate-200 tracking-wider uppercase flex items-center gap-2">
@@ -333,32 +387,51 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
           </div>
 
           {activeTab === 'ASSIGNED' && (
-            <div className="flex gap-2 mt-4">
-              <CustomSelect 
-                  value={staffFilter}
-                  onChange={e=>setStaffFilter(e.target.value)} 
-                  className="flex-[1.5]"
-                  placeholder="All Staff"
-                  options={[
-                      { value: '', label: 'All Staff' },
-                      ...coordinators.map(c => ({
-                          value: c.id, 
-                          label: <div className="flex items-center gap-1.5">{c.firstName} <BusinessBadge businessType={c.businessType} role={c.role} /></div>
-                      }))
-                  ]}
-              />
-              <select onChange={e=>setPhaseFilter(e.target.value)} className="flex-1 bg-[#0f172a] text-slate-300 text-[10px] font-bold uppercase rounded-lg px-2 py-2 border border-slate-700 outline-none">
-                <option value="">Phases</option>
-                <option value="1">Phase 1</option>
-                <option value="2">Phase 2</option>
-                <option value="3">Phase 3</option>
-              </select>
-              <select onChange={e=>setStatusFilter(e.target.value)} className="flex-1 bg-[#0f172a] text-slate-300 text-[10px] font-bold uppercase rounded-lg px-2 py-2 border border-slate-700 outline-none">
-                <option value="">Status</option>
-                <option value="pending">Pending</option>
-                <option value="answered">Answered</option>
-                <option value="no_answer">No Answer</option>
-              </select>
+            <div className="mt-4 flex flex-col gap-3">
+              <div className="flex bg-[#0f172a] p-1 rounded-xl border border-slate-800 gap-1">
+                <button onClick={() => setAssigneeGroup('COORDINATOR')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${assigneeGroup === 'COORDINATOR' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Coordinators</button>
+                <button onClick={() => setAssigneeGroup('CALL_CENTER')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${assigneeGroup === 'CALL_CENTER' ? 'bg-purple-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Call Center</button>
+              </div>
+              
+              {assigneeGroup === 'CALL_CENTER' && (
+                <div className="flex bg-[#0f172a] p-1 rounded-xl border border-slate-800 gap-1">
+                  <button onClick={() => setCcStatus('PENDING')} className={`flex-1 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all ${ccStatus === 'PENDING' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Pending Approval ({ccCounts.PENDING})</button>
+                  <button onClick={() => setCcStatus('APPROVED')} className={`flex-1 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all ${ccStatus === 'APPROVED' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Assigned / Approved ({ccCounts.APPROVED})</button>
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                <CustomSelect 
+                    value={staffFilter}
+                    onChange={e=>setStaffFilter(e.target.value)} 
+                    className="flex-[1.5]"
+                    placeholder="All Staff"
+                    options={[
+                        { value: '', label: 'All Staff' },
+                        ...(assigneeGroup === 'CALL_CENTER' ? ccStaff : coordinators)
+                           .map(c => ({
+                            value: c.id, 
+                            label: <div className="flex items-center gap-1.5">{c.firstName} {c.lastName} <BusinessBadge businessType={c.businessType} role={assigneeGroup === 'CALL_CENTER' ? 'CALL CENTER' : c.role} /></div>
+                        }))
+                    ]}
+                />
+                {assigneeGroup === 'COORDINATOR' && (
+                  <>
+                    <select onChange={e=>setPhaseFilter(e.target.value)} className="flex-1 bg-[#0f172a] text-slate-300 text-[10px] font-bold uppercase rounded-lg px-2 py-2 border border-slate-700 outline-none">
+                      <option value="">Phases</option>
+                      <option value="1">Phase 1</option>
+                      <option value="2">Phase 2</option>
+                      <option value="3">Phase 3</option>
+                    </select>
+                    <select onChange={e=>setStatusFilter(e.target.value)} className="flex-1 bg-[#0f172a] text-slate-300 text-[10px] font-bold uppercase rounded-lg px-2 py-2 border border-slate-700 outline-none">
+                      <option value="">Status</option>
+                      <option value="pending">Pending</option>
+                      <option value="answered">Answered</option>
+                      <option value="no_answer">No Answer</option>
+                    </select>
+                  </>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -415,13 +488,19 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                           </div>
                           
                           {lead.assignedUser ? (
-                              <span className="text-[10px] text-blue-400 font-semibold mt-0.5 flex items-center gap-1">👤 {lead.assignedUser.firstName} {lead.assignedUser.lastName} <BusinessBadge businessType={lead.assignedUser.businessType} role={lead.assignedUser.role} /></span>
+                              <div className="flex flex-col gap-0.5 mt-0.5">
+                                  <span className="text-[10px] text-blue-400 font-semibold flex items-center gap-1">👤 {lead.assignedUser.firstName} {lead.assignedUser.lastName} <BusinessBadge businessType={lead.assignedUser.businessType} role={lead.assignedUser.role} /></span>
+                                  {lead.isCallCenter && <span className="text-[9px] w-max bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Call Center</span>}
+                              </div>
                           ) : (
-                              (!lead.assignedTo && (
-                                  <button onClick={(e) => { e.stopPropagation(); handleBulkAction('ASSIGN', currentUserId, [lead.id]); }} className="text-[9px] w-max bg-emerald-600/80 hover:bg-emerald-500 text-white px-2 py-1 rounded shadow-md flex items-center gap-1 transition-all mt-1">
-                                     <FaUserCheck size={10}/> Assign to me
-                                  </button>
-                              ))
+                              <div className="flex flex-col gap-1 mt-1">
+                                  {lead.isCallCenter && <span className="text-[9px] w-max bg-orange-500/20 text-orange-400 border border-orange-500/30 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">Call Center</span>}
+                                  {!lead.assignedTo && (
+                                      <button onClick={(e) => { e.stopPropagation(); handleBulkAction('ASSIGN', currentUserId, [lead.id]); }} className="text-[9px] w-max bg-emerald-600/80 hover:bg-emerald-500 text-white px-2 py-1 rounded shadow-md flex items-center gap-1 transition-all">
+                                         <FaUserCheck size={10}/> Assign to me
+                                      </button>
+                                  )}
+                              </div>
                           )}
                       </div>
                       

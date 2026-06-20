@@ -7,6 +7,7 @@ import CallCampaignModule from '../../components/CoordinatorCRM/CallCampaignModu
 import CoordinatorOverview from '../../components/CoordinatorCRM/CoordinatorOverview';
 import DedicatedCoordinatorOverview from '../../components/CoordinatorCRM/DedicatedCoordinatorOverview';
 import { FaWhatsapp, FaHeadset, FaFilter, FaChartBar, FaRobot, FaPowerOff } from 'react-icons/fa';
+import { LayoutDashboard } from 'lucide-react';
 import axios from '../../api/axios';
 import toast from 'react-hot-toast';
 
@@ -15,13 +16,25 @@ export default function CoordinatorDashboard() {
   const [user, setUser] = useState(null);
   
   const [activeMode, setActiveMode] = useState(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const modeParam = searchParams.get('mode');
+    if (modeParam === 'CALL_CAMPAIGN') return 'CALL_CAMPAIGN';
+    if (modeParam === 'STATS') return 'STATS';
     return window.location.pathname.includes('/workspace/crm') ? 'CRM' : 'OVERVIEW';
   });
 
   useEffect(() => {
-    const isCrmPath = location.pathname.includes('/workspace/crm');
-    setActiveMode(isCrmPath ? 'CRM' : 'OVERVIEW');
-  }, [location.pathname]);
+    const searchParams = new URLSearchParams(location.search);
+    const modeParam = searchParams.get('mode');
+    if (modeParam === 'CALL_CAMPAIGN') {
+       setActiveMode('CALL_CAMPAIGN');
+    } else if (modeParam === 'STATS') {
+       setActiveMode('STATS');
+    } else {
+       const isCrmPath = location.pathname.includes('/workspace/crm');
+       setActiveMode(isCrmPath ? 'CRM' : 'OVERVIEW');
+    }
+  }, [location.pathname, location.search]);
 
   const [selectedLead, setSelectedLead] = useState(null);
   
@@ -125,7 +138,8 @@ export default function CoordinatorDashboard() {
   return (
     <div className="h-full flex flex-col gap-4 animate-fade-in-up text-slate-300">
       
-      <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-[#23303f] p-4 rounded-2xl shadow-lg border border-white/5">
+      {!(activeMode === 'CALL_CAMPAIGN' && !isAdmin && !isManager) && (
+        <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-[#23303f] p-4 rounded-2xl shadow-lg border border-white/5">
         
         <div className="flex items-center gap-3 w-full xl:w-auto">
           <div className={`p-2.5 rounded-xl ${isCrm ? 'bg-emerald-500/10 text-emerald-400' : activeMode === 'STATS' ? 'bg-blue-500/10 text-blue-400' : 'bg-rose-500/10 text-rose-400'} border border-white/5`}>
@@ -143,19 +157,14 @@ export default function CoordinatorDashboard() {
 
         <div className="flex items-center gap-3 w-full xl:w-auto overflow-x-auto justify-end">
           
-          <button 
-             onClick={() => setActiveMode(activeMode === 'STATS' ? (location.pathname.includes('/workspace/crm') ? 'CRM' : 'OVERVIEW') : 'STATS')}
-             className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs transition-all shadow-md border whitespace-nowrap ${
-                 activeMode === 'STATS' 
-                 ? 'bg-blue-500/20 text-blue-400 border-blue-500/50 hover:bg-blue-500/30'
-                 : 'bg-slate-800/50 text-slate-400 border-slate-700/50 hover:bg-slate-700/50'
-             }`}
-          >
-             <FaChartBar />
-             {activeMode === 'STATS' ? 'HIDE STATS' : 'VIEW STATS'}
-          </button>
-
-          {(isAdmin || isManager) && (
+          {(isAdmin || isManager) && activeMode === 'CRM' && (
+            <button 
+              onClick={() => setActiveMode('OVERVIEW')}
+              className="px-4 py-2 bg-[#0f172a] hover:bg-[#1e293b] text-white rounded-xl text-xs font-bold transition-all border border-white/5 flex items-center gap-2"
+            >
+              <LayoutDashboard size={16} className="text-blue-400" /> ADMIN DASHBOARD
+            </button>
+          )} {(isAdmin || isManager) && (
             <button 
               onClick={handleToggleFollowUp}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs transition-all shadow-md border whitespace-nowrap ${
@@ -174,7 +183,7 @@ export default function CoordinatorDashboard() {
           {(isAdmin || isManager) && (
             <div className="flex items-center gap-3">
               <FaFilter className="text-slate-500 shrink-0" />
-              {(isAdmin || (isManager && displayBusinesses.length > 1)) && (
+              {(isAdmin || (isManager && activeMode !== 'STATS' && displayBusinesses.length > 1)) && (
                 <select 
                   value={selectedBusiness}
                   onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }}
@@ -196,6 +205,7 @@ export default function CoordinatorDashboard() {
           )}
         </div>
       </div>
+      )}
 
       {/* Main Content Area */}
       {needsToSelectBusiness ? (

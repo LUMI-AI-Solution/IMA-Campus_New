@@ -139,7 +139,7 @@ exports.getLeads = async (req, res) => {
         const userRoleRaw = req.user?.role || req.query.loggedUserRole || 'STAFF'; 
         const userRole = String(userRoleRaw).toUpperCase().replace(/ /g, '_');
 
-        let { campaignType, tab, staffPhase, status, staffId, batchId, businessId, searchQuery, limit } = req.query; 
+        let { campaignType, tab, staffPhase, status, staffId, batchId, businessId, searchQuery, limit, assigneeGroup, ccStatus } = req.query; 
         const limitNum = limit ? parseInt(limit) : 100;
 
         const scopedBizId = await getScopedBusinessId(req.user);
@@ -151,11 +151,7 @@ exports.getLeads = async (req, res) => {
 
         let whereClause = {};
 
-        if (tab === 'ALL' || tab === 'ASSIGNED') {
-            whereClause.campaignType = { in: ['FREE_SEMINAR', 'AFTER_SEMINAR'] };
-        } else {
-            whereClause.campaignType = campaignType || 'FREE_SEMINAR';
-        }
+        whereClause.campaignType = campaignType || 'FREE_SEMINAR';
 
         // 🔥 FIX: Replaced Phone String Mapping with strict Batch ID lookup
         if (batchId && batchId !== '') {
@@ -180,6 +176,10 @@ exports.getLeads = async (req, res) => {
             whereClause.status = 'NEW';
             if (isManager) whereClause.assignedTo = null; 
             else whereClause.assignedTo = parseInt(userId);
+            whereClause.OR = [
+                { callCenterRequestStatus: null },
+                { callCenterRequestStatus: 'REJECTED' }
+            ];
         } 
         else if (tab === 'IMPORTED') {
             whereClause.source = { in: ['import', 'bulk_import'] };
@@ -187,14 +187,29 @@ exports.getLeads = async (req, res) => {
             else if (!isManager) whereClause.assignedTo = parseInt(userId);
         } 
         else if (tab === 'ASSIGNED') {
-            whereClause.assignedTo = { not: null }; 
-            if (staffId && staffId !== '') {
-                whereClause.assignedTo = parseInt(staffId);
-            } else if (!isManager) {
-                whereClause.assignedTo = parseInt(userId);
+            if (assigneeGroup === 'CALL_CENTER') {
+                if (ccStatus === 'PENDING') {
+                    whereClause.callCenterRequestStatus = 'REQUESTED';
+                } else if (ccStatus === 'APPROVED') {
+                    whereClause.callCenterRequestStatus = 'APPROVED';
+                    if (staffId && staffId !== '') {
+                        whereClause.assignedTo = parseInt(staffId);
+                    }
+                }
+            } else {
+                whereClause.assignedTo = { not: null }; 
+                whereClause.OR = [
+                    { callCenterRequestStatus: null },
+                    { callCenterRequestStatus: 'REJECTED' }
+                ];
+                if (staffId && staffId !== '') {
+                    whereClause.assignedTo = parseInt(staffId);
+                } else if (!isManager) {
+                    whereClause.assignedTo = parseInt(userId);
+                }
+                if (staffPhase && staffPhase !== '') whereClause.phase = parseInt(staffPhase);
+                if (status && status !== '') whereClause.callStatus = status;
             }
-            if (staffPhase && staffPhase !== '') whereClause.phase = parseInt(staffPhase);
-            if (status && status !== '') whereClause.callStatus = status;
         }
         else if (tab === 'ALL') {
             if (staffId && staffId !== '') whereClause.assignedTo = parseInt(staffId);
@@ -230,11 +245,7 @@ exports.getLeads = async (req, res) => {
         }));
 
         let countWhere = {};
-        if (tab === 'ALL' || tab === 'ASSIGNED') {
-            countWhere.campaignType = { in: ['FREE_SEMINAR', 'AFTER_SEMINAR'] };
-        } else {
-            countWhere.campaignType = campaignType || 'FREE_SEMINAR';
-        }
+        countWhere.campaignType = campaignType || 'FREE_SEMINAR';
         
         if (batchId && batchId !== '') {
             countWhere.batchId = parseInt(batchId);
@@ -245,7 +256,7 @@ exports.getLeads = async (req, res) => {
 
         const allLeadsForCounts = await prisma.lead.findMany({ 
             where: {
-                 campaignType: { in: ['FREE_SEMINAR', 'AFTER_SEMINAR'] },
+                 campaignType: countWhere.campaignType,
                  batchId: countWhere.batchId
             } 
         });
@@ -253,13 +264,18 @@ exports.getLeads = async (req, res) => {
         let counts = { NEW: 0, IMPORTED: 0, ASSIGNED: 0, ALL: 0 };
         let unreadCounts = { NEW: 0, IMPORTED: 0, ASSIGNED: 0, ALL: 0 };
         let totalUnread = 0;
+        let ccPendingCount = 0;
+        let ccApprovedCount = 0;
 
         allLeadsForCounts.forEach(l => {
             if (!isManager) {
-                if (l.assignedTo !== parseInt(userId)) return;
+                if (l.assignedTo !== parseInt(userId) && l.callCenterRequestedBy !== parseInt(userId)) return;
             } else {
                 if (staffId && staffId !== '' && l.assignedTo !== parseInt(staffId)) return;
             }
+            
+            if (l.callCenterRequestStatus === 'REQUESTED') ccPendingCount++;
+            if (l.callCenterRequestStatus === 'APPROVED') ccApprovedCount++;
 
             counts.ALL++;
             if (l.unreadCount > 0) {
@@ -273,7 +289,7 @@ exports.getLeads = async (req, res) => {
             }
 
             if (l.campaignType === (campaignType || 'FREE_SEMINAR')) {
-                if (l.status === 'NEW' && !l.assignedTo) {
+                if (l.status === 'NEW' && !l.assignedTo && (!l.callCenterRequestStatus || l.callCenterRequestStatus === 'REJECTED')) {
                     counts.NEW++;
                     if (l.unreadCount > 0) unreadCounts.NEW++;
                 }
@@ -285,7 +301,7 @@ exports.getLeads = async (req, res) => {
         });
 
         if (!res.headersSent) {
-            return res.status(200).json({ leads: cleanedLeads, counts, unreadCounts, totalUnread });
+            return res.status(200).json({ leads: cleanedLeads, counts, unreadCounts, totalUnread, ccPendingCount, ccApprovedCount });
         }
         
     } catch (error) { 
@@ -359,6 +375,12 @@ exports.bulkActions = async (req, res) => {
         } 
         else if (action === 'UNASSIGN') {
             await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { assignedTo: null, status: 'NEW', phase: 1, callStatus: 'pending' } });
+        }
+        else if (action === 'RETURN_FROM_CALL_CENTER') {
+            await prisma.lead.updateMany({ 
+                where: { id: { in: leadIds } }, 
+                data: { callCenterRequestStatus: null, isCallCenter: false, assignedTo: null, callCenterStatus: null } 
+            });
         }
         res.status(200).json({ message: "Action successful" });
     } catch (error) { res.status(500).json({ error: "Bulk action failed" }); }
@@ -677,14 +699,18 @@ exports.receiveMessage = async (req, res) => {
             if (settings.campaignType === 'FREE_SEMINAR') {
                 const msgLower = (messageText || "").toLowerCase().trim();
                 const isRestartCommand = ['hi', 'hello', 'hey', 'menu', 'start'].includes(msgLower);
-                let existingLead = await prisma.lead.findFirst({
-                    where: {
+                
+                // Find all matching leads for this phone+business (catches _BATCH_, _AS, etc.)
+                const allMatchingLeads = await prisma.lead.findMany({
+                    where: { 
                         phone: { startsWith: `${phone}_BIZ_${settings.businessId}` },
                         campaignType: 'FREE_SEMINAR'
                     },
                     orderBy: { updatedAt: 'desc' }
                 });
-                const timeSinceLastMsg = existingLead && existingLead.updatedAt ? new Date() - new Date(existingLead.updatedAt) : 10000;
+
+                let existingLeadCheck = allMatchingLeads.length > 0 ? allMatchingLeads[0] : null;
+                const timeSinceLastMsg = existingLeadCheck && existingLeadCheck.updatedAt ? new Date() - new Date(existingLeadCheck.updatedAt) : 10000;
                 
                 const isSpamming = timeSinceLastMsg < 10000; 
                 
@@ -701,11 +727,11 @@ exports.receiveMessage = async (req, res) => {
 
                 if (parsedBatchId) createDataFreeSeminar.batch = { connect: { id: parsedBatchId } };
 
-                let targetPhone = existingLead ? existingLead.phone : dbPhone;
-
-                existingLead = await prisma.lead.upsert({
+                let targetPhone = existingLeadCheck ? existingLeadCheck.phone : dbPhone;
+                
+                let existingLead = await prisma.lead.upsert({
                     where: { phone: targetPhone },
-                    update: { name: name, lastMessage: messageText || 'Received Media', lastMessageAt: new Date(), unreadCount: { increment: 1 }, status: existingLead?.assignedTo ? 'OPEN' : 'NEW', updatedAt: new Date(), ...resetData },
+                    update: { name: name, lastMessage: messageText || 'Received Media', lastMessageAt: new Date(), unreadCount: { increment: 1 }, status: existingLeadCheck?.assignedTo ? 'OPEN' : 'NEW', updatedAt: new Date(), ...resetData },
                     create: createDataFreeSeminar
                 });
 
@@ -1205,11 +1231,25 @@ exports.getCampaignStats = async (req, res) => {
 
         const leads = await prisma.lead.findMany({ 
             where: leadWhere,
-            include: { assignedUser: { select: { firstName: true, businessType: true, role: true } } }
+            include: { 
+                assignedUser: { select: { firstName: true, businessType: true, role: true } },
+                roundProgress: true
+            }
         });
 
+        const getEffectiveStatus = (l) => {
+            let status = l.callStatus?.toLowerCase() || 'pending';
+            if (l.isCallCenter && l.roundProgress && l.roundProgress.length > 0) {
+                 const r2 = l.roundProgress.find(r => r.roundNum === 2);
+                 if (r2 && r2.callStatus) {
+                     status = r2.callStatus.toLowerCase();
+                 }
+            }
+            return status;
+        };
+
         const unassignedLeads = leads.filter(l => !l.assignedTo).length;
-        const coveredLeads = leads.filter(l => l.callStatus && l.callStatus !== 'pending').length;
+        const coveredLeads = leads.filter(l => getEffectiveStatus(l) !== 'pending').length;
         const rate = leads.length > 0 ? Math.round((coveredLeads / leads.length) * 100) : 0;
 
         const agentMap = {};
@@ -1219,9 +1259,11 @@ exports.getCampaignStats = async (req, res) => {
             if (!agentMap[name]) agentMap[name] = { agentName: name, role: l.assignedUser?.role || "Coordinator", assigned: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0 };
             
             agentMap[name].assigned++;
-            if (l.callStatus === 'answered') agentMap[name].answered++;
-            else if (l.callStatus === 'no_answer') agentMap[name].noAnswer++;
-            else if (l.callStatus === 'reject') agentMap[name].reject++;
+            const status = getEffectiveStatus(l);
+            
+            if (status === 'answered' || status === 'completed') agentMap[name].answered++;
+            else if (status === 'no_answer') agentMap[name].noAnswer++;
+            else if (status === 'reject') agentMap[name].reject++;
             else agentMap[name].pending++;
         });
 

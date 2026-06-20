@@ -36,15 +36,24 @@ export default function PaymentHistory() {
             const historyList = [];
 
             all.forEach(p => {
-                const isVerifying = p.status === -1 || (p.status === 0 && p.method === 'Slip');
-                
-                if (p.status === 1 || p.status === 2 || p.status === 4 || isVerifying) {
-                    p.displayStatus = (p.status === 1 || p.status === 4) ? 'Approved' 
-                                    : p.status === 2 ? 'Rejected' 
-                                    : 'Verifying';
-                    historyList.push(p);
-                } else {
+                const isRejectedOrTrashedDue = (p.status === 2 || p.status === 5) && (p.dueDate || p.method === 'Upcoming');
+
+                if (isRejectedOrTrashedDue) {
                     upcomingList.push(p);
+                } else if (p.status === 5) {
+                    return; // Ignore general trashed payments
+                } else {
+                    const isVerifying = p.status === -1 || (p.status === 0 && p.method === 'Slip');
+                    
+                    if (p.status === 1 || p.status === 2 || p.status === 3 || p.status === 4 || isVerifying) {
+                        p.displayStatus = (p.status === 1 || p.status === 4) ? 'Approved' 
+                                         : p.status === 3 ? 'Expired'
+                                         : p.status === 2 ? 'Rejected' 
+                                         : 'Verifying';
+                        historyList.push(p);
+                    } else {
+                        upcomingList.push(p);
+                    }
                 }
             });
 
@@ -82,6 +91,69 @@ export default function PaymentHistory() {
         const fileInput = document.getElementById('slip-upload-due');
         if (fileInput) fileInput.click();
         setShowSlipInstructions(false); 
+    };
+
+    const openSlipsInNewTab = (slips) => {
+        if (!slips || slips.length === 0) return toast.error("No slips to view.");
+
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const baseUrl = isLocalhost ? 'http://localhost:5000' : 'https://imacampus.online';
+
+        const slipsHtml = slips.map((imgStr, index) => {
+            const fileUrl = `${baseUrl}/api/storage/documents/${imgStr}`;
+            const isPdf = imgStr.toLowerCase().endsWith('.pdf');
+            if (isPdf) {
+                return `
+                <div class="slip-card">
+                    <div class="title">Document ${index + 1} (PDF)</div>
+                    <embed src="${fileUrl}" type="application/pdf" width="100%" height="600px" />
+                    <a href="${fileUrl}" target="_blank" class="download-btn">Open PDF in New Tab</a>
+                </div>`;
+            } else {
+                return `
+                <div class="slip-card">
+                    <div class="title">Image ${index + 1}</div>
+                    <img src="${fileUrl}" alt="Slip ${index + 1}"/>
+                    <a href="${fileUrl}" target="_blank" class="download-btn">View Full Image</a>
+                </div>`;
+            }
+        }).join('');
+
+        const htmlContent = `
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>My Uploaded Slips</title>
+            <style>
+                body { background-color: #0f172a; color: white; font-family: system-ui, -apple-system, sans-serif; padding: 2rem; display: flex; flex-direction: column; align-items: center; gap: 2rem; margin: 0; }
+                .header { text-align: center; margin-bottom: 1rem; }
+                .header h2 { color: #10b981; margin: 0; font-size: 2rem; }
+                .slip-card { background: #1e293b; border: 1px solid #334155; border-radius: 1rem; padding: 1.5rem; width: 100%; max-width: 800px; display: flex; flex-direction: column; align-items: center; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); }
+                img { max-width: 100%; height: auto; border-radius: 0.5rem; border: 1px solid #334155; }
+                embed { border-radius: 0.5rem; border: 1px solid #334155; background-color: white; }
+                .title { width: 100%; text-align: left; margin-bottom: 1rem; font-size: 1rem; font-weight: bold; color: #cbd5e1; border-bottom: 1px solid #334155; padding-bottom: 0.5rem; }
+                .download-btn { margin-top: 1rem; padding: 0.5rem 1rem; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 0.5rem; font-size: 0.875rem; font-weight: bold; }
+                .download-btn:hover { background-color: #2563eb; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h2>My Uploaded Slips</h2>
+            </div>
+            ${slipsHtml}
+        </body>
+        </html>
+        `;
+
+        const newWindow = window.open('', '_blank');
+        if (newWindow) {
+            newWindow.document.write(htmlContent);
+            newWindow.document.close();
+        } else {
+            toast.error("Popup blocked! Please allow popups for this site.");
+        }
     };
 
     const handlePayDue = async (e) => {
@@ -234,11 +306,18 @@ export default function PaymentHistory() {
                                     <div className="pl-3">
                                         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
                                             <h4 className="text-base md:text-lg font-bold text-white">{p.courseName}</h4>
-                                            {p.isInstallment && p.installmentNo && (
-                                                <span className="text-[10px] uppercase font-bold bg-orange-500/20 text-orange-400 px-2.5 py-1 rounded-lg border border-orange-500/30 w-max shrink-0">
-                                                    Phase {p.installmentNo}
-                                                </span>
-                                            )}
+                                            <div className="flex gap-2 flex-wrap shrink-0">
+                                                {p.isInstallment && p.installmentNo && (
+                                                    <span className="text-[10px] uppercase font-bold bg-orange-500/20 text-orange-400 px-2.5 py-1 rounded-lg border border-orange-500/30 w-max">
+                                                        Phase {p.installmentNo}
+                                                    </span>
+                                                )}
+                                                {(p.status === 2 || p.status === 5) && (
+                                                    <span className="text-[10px] uppercase font-bold bg-red-500/20 text-red-400 px-2.5 py-1 rounded-lg border border-red-500/30 w-max animate-pulse">
+                                                        Payment Rejected
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                         
                                         <p className={`text-xs mt-2 flex items-center gap-1.5 font-bold ${isLate ? 'text-red-400' : 'text-white/50'}`}>
@@ -287,13 +366,21 @@ export default function PaymentHistory() {
                                     </div>
                                     <div className="text-right shrink-0">
                                         <span className="text-lg font-black text-white/90 block mb-1">LKR {parseFloat(p.amount).toFixed(2)}</span>
-                                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider inline-block border ${
-                                            p.displayStatus === 'Approved' ? 'text-emerald-400 border-emerald-400/30 bg-emerald-500/10' :
-                                            p.displayStatus === 'Rejected' ? 'text-red-400 border-red-400/30 bg-red-500/10' :
-                                            'text-yellow-400 border-yellow-400/30 bg-yellow-500/10'
-                                        }`}>
-                                            {p.displayStatus}
-                                        </span>
+                                        <div className="flex flex-col items-end gap-2 mt-2">
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider inline-block border ${
+                                                p.displayStatus === 'Approved' ? 'text-emerald-400 border-emerald-400/30 bg-emerald-500/10' :
+                                                p.displayStatus === 'Expired' ? 'text-orange-400 border-orange-400/30 bg-orange-500/10' :
+                                                p.displayStatus === 'Rejected' ? 'text-red-400 border-red-400/30 bg-red-500/10' :
+                                                'text-yellow-400 border-yellow-400/30 bg-yellow-500/10'
+                                            }`}>
+                                                {p.displayStatus}
+                                            </span>
+                                            {p.slips && p.slips.length > 0 && (
+                                                <button onClick={() => openSlipsInNewTab(p.slips)} className="text-[10px] font-extrabold text-blue-400 hover:text-white bg-blue-500/10 hover:bg-blue-600 border border-blue-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors">
+                                                    View Slip
+                                                </button>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
 

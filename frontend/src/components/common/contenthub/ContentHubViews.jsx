@@ -1,5 +1,6 @@
 import React from 'react';
-import { FolderOpen, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp } from 'lucide-react';
+import { FolderOpen, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp, Copy } from 'lucide-react';
+import toast from 'react-hot-toast';
 import api from '../../../api/axios'; 
 import UpgradePricingConfig from '../../admin/UpgradePricingConfig'; 
 
@@ -18,8 +19,38 @@ export default function ContentHubViews({ state, actions }) {
     } = actions;
 
     const getBaseUrl = () => {
-        let url = api.defaults.baseURL || 'https://imacampus.online/api';
-        return url.endsWith('/') ? url.slice(0, -1) : url;
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            let url = api.defaults.baseURL || 'http://localhost:5000/api';
+            return url.endsWith('/') ? url.slice(0, -1) : url;
+        }
+        return 'https://imacampus.online/api';
+    };
+
+    const copyToClipboard = (text) => {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(() => {
+                toast.success("Link copied!");
+            }).catch(() => {
+                fallbackCopy(text);
+            });
+        } else {
+            fallbackCopy(text);
+        }
+    };
+
+    const fallbackCopy = (text) => {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            document.execCommand('copy');
+            toast.success("Link copied!");
+        } catch (err) {
+            toast.error("Failed to copy link");
+        }
+        document.body.removeChild(textArea);
     };
 
     return (
@@ -339,12 +370,18 @@ export default function ContentHubViews({ state, actions }) {
                                                                 </h4>
                                                                 
                                                                 {/* Action Buttons */}
-                                                                <div className="pt-4 border-t border-white/10 flex items-center justify-between gap-2 mt-auto">
+                                                                <div className="pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 mt-auto">
                                                                     <button onClick={() => {
                                                                         let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
                                                                         setPreviewData({ ...content, link: fileUrl });
-                                                                    }} className="flex-1 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none">
+                                                                    }} className="flex-1 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white py-2.5 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none">
                                                                         PREVIEW
+                                                                    </button>
+                                                                    <button onClick={() => {
+                                                                        let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
+                                                                        copyToClipboard(fileUrl);
+                                                                    }} className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white py-2.5 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none flex items-center justify-center gap-1">
+                                                                        <Copy size={14}/> COPY LINK
                                                                     </button>
                                                                     
                                                                     {canManageContent && (

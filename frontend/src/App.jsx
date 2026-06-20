@@ -23,7 +23,7 @@ import AdminDashboard from './pages/admin/AdminDashboard';
 import ContentHub from './components/common/contenthub/ContentHub';
 import StaffManagement from './components/common/StaffManagement';
 import PaymentManagement from './components/common/PaymentManagement';
-import AISlipVerification from './components/admin/AISlipVerification';
+
 import StudentDataCenter from './components/common/StudentDataCenter';
 import ClassTimetable from './components/common/ClassTimetable';
 import TaskCenter from './components/common/TaskCenter';
@@ -198,7 +198,7 @@ export default function App() {
             <Route path="/admin/content-hub" element={<ContentHub loggedInUser={loggedInUser} />} />
             <Route path="/admin/staff" element={<StaffManagement loggedInUser={loggedInUser} />} />
             <Route path="/admin/payments" element={<PaymentManagement loggedInUser={loggedInUser} />} />
-            <Route path="/admin/ai-verification" element={<AISlipVerification loggedInUser={loggedInUser} />} />
+
             <Route path="/admin/student-center" element={<StudentDataCenter loggedInUser={loggedInUser} />} />
             <Route path="/workspace/timetable" element={<ClassTimetable />} />
             <Route path="/workspace/tasks" element={<TaskCenter loggedInUser={loggedInUser} />} />

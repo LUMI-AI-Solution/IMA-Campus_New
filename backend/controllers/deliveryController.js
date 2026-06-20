@@ -618,7 +618,7 @@ exports.getAdvancedHistory = async (req, res) => {
         let whereClause = {};
 
         if (status) {
-            if (status === 'Dispatched') whereClause.status = { in: ['Packed', 'On the way'] };
+            if (status === 'Dispatched') whereClause.status = { in: ['Packed', 'On the way', 'Not Received'] };
             else if (status === 'Delivered') whereClause.status = 'Received';
             else whereClause.status = status; 
         } else {

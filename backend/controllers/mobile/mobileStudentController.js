@@ -80,7 +80,7 @@ exports.getMobilePayments = async (req, res) => {
 
         const payments = await prisma.payment.findMany({
             where: { studentId: parseInt(studentId) },
-            include: { business: true, batch: true },
+            include: { business: true, batch: true, group: true },
             orderBy: { created_at: 'desc' }
         });
 
@@ -94,7 +94,9 @@ exports.getMobilePayments = async (req, res) => {
     id: p.id,
     businessId: p.businessId, // 🔥 අලුතින් මේ පේළිය දාන්න
     batchId: p.batchId,       // 🔥 අලුතින් මේ පේළිය දාන්න
-    courseName: `${p.business?.name || ''} - ${p.batch?.name || ''}`,
+    courseName: `${p.business?.name || ''} - ${p.batch?.name || ''} - ${p.group?.name || 'Unknown'}`,
+    groupName: p.group?.name,
+    slips: p.slip_image ? p.slip_image.split(',') : [],
     amount: p.amount,
     status: p.status,
     method: p.method,

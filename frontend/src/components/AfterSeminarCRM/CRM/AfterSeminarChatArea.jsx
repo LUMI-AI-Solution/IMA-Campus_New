@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from '../../../api/axios';
-import { FaPaperPlane, FaPaperclip, FaSun, FaMoon, FaMicrophone, FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic, FaSmile, FaStop } from 'react-icons/fa';
+import { FaPaperPlane, FaPaperclip, FaSun, FaMoon, FaMicrophone, FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic, FaSmile, FaStop, FaRegSmile } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 
 const BACKEND_URL = axios.defaults.baseURL ? axios.defaults.baseURL.replace('/api', '') : 'https://imacampus.online'; 
@@ -429,15 +429,27 @@ export default function AfterSeminarChatArea({ selectedLead, businessId }) {
       {/* Messages Area - Added onScroll handler */}
       <div className={`flex-1 overflow-y-auto p-4 custom-scrollbar relative ${isDark ? "bg-[#0b141a]" : "bg-[#efeae2]"}`} ref={scrollRef} onScroll={handleScroll}>
         <div className="relative z-10 flex flex-col">
-          {Object.keys(groupedMessages).map(dateLabel => (
-             <React.Fragment key={dateLabel}>
-                <div className="flex justify-center my-6">
-                    <span className={`text-[10px] font-bold px-4 py-1.5 rounded-xl uppercase tracking-widest shadow-sm ${isDark ? 'bg-[#1e293b] text-slate-400 border border-slate-700' : 'bg-white text-slate-500 border border-slate-200'}`}>
-                        {dateLabel}
-                    </span>
-                </div>
+          
+          {messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full mt-20 opacity-70">
+                  <div className={`p-6 rounded-full mb-4 ${isDark ? 'bg-slate-800 text-slate-400' : 'bg-slate-200 text-slate-500'}`}>
+                      <FaRegSmile size={48} />
+                  </div>
+                  <h3 className={`text-lg font-bold ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>No chat history yet</h3>
+                  <p className={`text-sm max-w-xs text-center mt-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                      Send a message or select a template to start the conversation with this contact.
+                  </p>
+              </div>
+          ) : (
+              Object.keys(groupedMessages).map(dateLabel => (
+                 <React.Fragment key={dateLabel}>
+                    <div className="flex justify-center my-6">
+                        <span className={`text-[10px] font-bold px-4 py-1.5 rounded-xl uppercase tracking-widest shadow-sm ${isDark ? 'bg-[#1e293b] text-slate-400 border border-slate-700' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                            {dateLabel}
+                        </span>
+                    </div>
 
-                {groupedMessages[dateLabel].map((msg, idx) => {
+                    {groupedMessages[dateLabel].map((msg, idx) => {
                     const isOutbound = msg.direction === 'outbound';
                     const isSticker = (msg.mediaUrl && msg.mediaUrl.endsWith('.webp')) || msg.mediaType?.includes('webp');
                     const currentReaction = localReactions[msg.id]; 
@@ -509,7 +521,8 @@ export default function AfterSeminarChatArea({ selectedLead, businessId }) {
                     );
                 })}
              </React.Fragment>
-          ))}
+          ))
+          )}
         </div>
       </div>
 

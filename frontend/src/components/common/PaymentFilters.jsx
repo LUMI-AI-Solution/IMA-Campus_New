@@ -34,12 +34,14 @@ export default function PaymentFilters({
                 </div>
                 
                 {/* Export Button (Dynamic Themed) */}
-                <div className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 p-5 rounded-2xl flex flex-col justify-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] cursor-pointer hover:bg-emerald-500/20 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] hover:border-emerald-500/40 hover:-translate-y-1 transition-all duration-300 group" onClick={onOpenExport}>
-                    <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-2 group-hover:text-emerald-300 transition-colors">
-                        <Download size={14} className="text-emerald-400 group-hover:text-emerald-300 transition-colors"/> Export
-                    </p>
-                    <h3 className="text-sm font-extrabold text-emerald-400 mt-1 uppercase tracking-widest group-hover:text-emerald-300 transition-colors">Generate Report</h3>
-                </div>
+                {isAdmin && (
+                    <div className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 p-5 rounded-2xl flex flex-col justify-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] cursor-pointer hover:bg-emerald-500/20 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] hover:border-emerald-500/40 hover:-translate-y-1 transition-all duration-300 group" onClick={onOpenExport}>
+                        <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-2 group-hover:text-emerald-300 transition-colors">
+                            <Download size={14} className="text-emerald-400 group-hover:text-emerald-300 transition-colors"/> Export
+                        </p>
+                        <h3 className="text-sm font-extrabold text-emerald-400 mt-1 uppercase tracking-widest group-hover:text-emerald-300 transition-colors">Generate Report</h3>
+                    </div>
+                )}
             </div>
 
             {/* Main Filters Bar */}

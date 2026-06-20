@@ -24,6 +24,14 @@ export default function ManagerTaskCenter({ loggedInUser }) {
     const [showOverviewModal, setShowOverviewModal] = useState(false);
     const [selectedTask, setSelectedTask] = useState(null);
 
+    const getBaseUrl = () => {
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            let url = api.defaults.baseURL || 'http://localhost:5000/api';
+            return url.replace('/api', '');
+        }
+        return 'https://imacampus.online';
+    };
+
     useEffect(() => { fetchInitialData(); }, []);
     useEffect(() => { 
         if (selectedBiz) fetchTasks(); 
@@ -389,7 +397,7 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                                     {selectedTask.content.fileName && (
                                         <div className="pt-2">
                                             <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-1 transition-colors">Attached File</p>
-                                            <a href={`${api.defaults.baseURL.replace('/api','')}/storage/documents/${selectedTask.content.fileName}`} target="_blank" rel="noreferrer" className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:underline flex items-center gap-1.5 w-max font-medium transition-colors">
+                                            <a href={`${getBaseUrl()}/storage/documents/${selectedTask.content.fileName}`} target="_blank" rel="noreferrer" className="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 hover:underline flex items-center gap-1.5 w-max font-medium transition-colors">
                                                 View Document <ExternalLink size={14}/>
                                             </a>
                                         </div>
@@ -400,9 +408,9 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                             {selectedTask.taskType === 'CUSTOM' && selectedTask.proofUrl && (
                                 <div className="bg-gray-50 dark:bg-transparent rounded-2xl p-4 border border-gray-200 dark:border-slate-700/30 h-64 flex items-center justify-center transition-colors shadow-sm">
                                     {selectedTask.proofType === 'pdf' ? (
-                                        <a href={`${api.defaults.baseURL.replace('/api', '')}/storage/documents/${selectedTask.proofUrl}`} target="_blank" rel="noreferrer" className="bg-gray-800 dark:bg-slate-700 hover:bg-gray-900 dark:hover:bg-slate-600 text-white font-bold px-6 py-3 rounded-xl transition-colors flex items-center gap-2 shadow-md outline-none"><FileText size={18}/> Open PDF Proof</a>
+                                        <a href={`${getBaseUrl()}/storage/documents/${selectedTask.proofUrl}`} target="_blank" rel="noreferrer" className="bg-gray-800 dark:bg-slate-700 hover:bg-gray-900 dark:hover:bg-slate-600 text-white font-bold px-6 py-3 rounded-xl transition-colors flex items-center gap-2 shadow-md outline-none"><FileText size={18}/> Open PDF Proof</a>
                                     ) : (
-                                        <img src={`${api.defaults.baseURL.replace('/api', '')}/storage/documents/${selectedTask.proofUrl}`} alt="Proof" className="max-h-full max-w-full object-contain rounded-xl border border-gray-200 dark:border-slate-700/30 transition-colors shadow-sm" />
+                                        <img src={`${getBaseUrl()}/storage/documents/${selectedTask.proofUrl}`} alt="Proof" className="max-h-full max-w-full object-contain rounded-xl border border-gray-200 dark:border-slate-700/30 transition-colors shadow-sm" />
                                     )}
                                 </div>
                             )}

@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import PaymentFilters from './PaymentFilters';
 import StaffPerformanceModal from './StaffPerformanceModal';
 import ExportReportModal from './ExportReportModal';
-
+import AISlipVerification from '../admin/AISlipVerification';
 export default function PaymentManagement({ loggedInUser }) {
     const isSystemAdmin = loggedInUser?.role?.toUpperCase() === 'SYSTEM_ADMIN' || loggedInUser?.role?.toUpperCase() === 'DIRECTOR';
     const isFinance = loggedInUser?.department === 'Finance';
@@ -59,6 +59,17 @@ export default function PaymentManagement({ loggedInUser }) {
     
     const [subjectSearchQuery, setSubjectSearchQuery] = useState('');
     const [isSubjectDropdownOpen, setIsSubjectDropdownOpen] = useState(false);
+    
+    // State to track selected payment ID for actioning
+    const [selectedPaymentId, setSelectedPaymentId] = useState(null);
+
+    const [sendToDeliveryModal, setSendToDeliveryModal] = useState(null);
+    const [deliverySelectedSubjects, setDeliverySelectedSubjects] = useState([]);
+
+    // AI Verification Mode
+    const [verificationMode, setVerificationMode] = useState('manual');
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
+    const [verificationPassword, setVerificationPassword] = useState('');
 
     const fetchData = async () => {
         setLoading(true);
@@ -81,6 +92,10 @@ export default function PaymentManagement({ loggedInUser }) {
     };
 
     useEffect(() => { fetchData(); }, [isAdmin]);
+
+    useEffect(() => {
+        setSelectedPaymentId(null);
+    }, [studentActionModal]);
 
     useEffect(() => {
         if (filters.businessId !== 'All') {
@@ -433,6 +448,29 @@ export default function PaymentManagement({ loggedInUser }) {
         }
     };
 
+    const submitSendToDelivery = async () => {
+        if (!sendToDeliveryModal) return;
+        if (deliverySelectedSubjects.length === 0) {
+            return toast.error("Please select at least one subject to send to delivery.");
+        }
+
+        try {
+            setActioningPaymentId(sendToDeliveryModal.id);
+            await axios.post('/admin/payments/action', {
+                paymentId: sendToDeliveryModal.id,
+                action: 'SendToDelivery',
+                selectedSubjectIds: deliverySelectedSubjects.map(id => parseInt(id))
+            });
+            toast.success("Sent to Delivery Hub successfully!");
+            setSendToDeliveryModal(null);
+            refreshAfterAction(sendToDeliveryModal.studentId);
+        } catch (error) {
+            toast.error(error.response?.data?.error || "Failed to send to Delivery Hub.");
+        } finally {
+            setActioningPaymentId(null);
+        }
+    };
+
     // 👇 MEKEN PALLAHATA THIYENA TIKA THAMAI ALUTHIN DANGATH THE ONA 👇
 
     const submitAdvancedAction = async () => {
@@ -484,6 +522,7 @@ export default function PaymentManagement({ loggedInUser }) {
         setApproveModal(null);
         setInstitutePaymentModal(null);
         setInstallmentModal(null);
+        setSendToDeliveryModal(null);
 
         setActiveTab(targetTab);
     };
@@ -664,7 +703,7 @@ export default function PaymentManagement({ loggedInUser }) {
                         <Unlock size={14} /> {getCountdown(pay.validUntil)}
                     </div>
                 )}
-                {pay.status !== 'Trash' && (
+                {pay.status !== 'Trash' && isAdmin && (
                     <>
                         <button onClick={() => handleOpenEditModal(pay)} className="bg-gray-50 dark:bg-black/40 hover:bg-indigo-50 dark:hover:bg-indigo-500/20 text-gray-400 hover:text-indigo-500 dark:text-slate-400 dark:hover:text-indigo-400 border border-gray-200 dark:border-white/5 hover:border-indigo-200 dark:hover:border-indigo-500/30 p-2.5 rounded-xl transition-all shadow-sm outline-none" title="Edit Subjects / Amount">
                             <Edit3 size={16} />
@@ -679,12 +718,20 @@ export default function PaymentManagement({ loggedInUser }) {
             <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6 pl-2 pr-12">
                 <div className="flex-1 min-w-0">
                     <p className="text-[11px] text-gray-500 dark:text-slate-400 font-extrabold uppercase tracking-widest mb-1.5">{pay.date}</p>
-                    <h5 className="text-xl font-extrabold text-gray-900 dark:text-white tracking-tight truncate max-w-full">
-                        <span className="text-red-500 text-sm bg-red-100 px-2 py-1 rounded mr-2">
-                            [ID: {pay.id}]
+                    <h5 className="text-xl font-extrabold text-gray-900 dark:text-white tracking-tight truncate max-w-full flex flex-wrap items-center gap-2">
+                        <span className="text-red-500 text-xs font-mono font-semibold bg-red-100 dark:bg-red-500/10 border border-red-500/20 px-2.5 py-1 rounded-lg">
+                            ID: {pay.id}
                         </span>
-                        {pay.business} <span className="text-gray-500 dark:text-slate-500 text-sm font-bold ml-2">{pay.batch}</span>
+                        <span>{pay.business}</span>
                     </h5>
+                    <p className="text-xs font-bold text-slate-400 mt-2 flex flex-wrap items-center gap-2">
+                        <span className="text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-white/5 border border-gray-200/50 dark:border-white/5 px-2.5 py-1 rounded-lg">Batch: {pay.batch}</span>
+                        {pay.groupName && (
+                            <span className="text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-500/10 px-2.5 py-1 rounded-lg border border-purple-200 dark:border-purple-500/20 font-black uppercase tracking-widest shadow-sm">
+                                Group: {pay.groupName}
+                            </span>
+                        )}
+                    </p>
                     <div className="flex items-center gap-2 mt-3">
                         <span className="bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-slate-300 text-[10px] px-3 py-1.5 rounded-lg font-extrabold uppercase tracking-widest border border-gray-200 dark:border-white/10">{pay.type}</span>
                         {pay.type === 'Installment' && (
@@ -806,7 +853,7 @@ export default function PaymentManagement({ loggedInUser }) {
             </div>
 
             {/* PROCESS PAYMENT ACTIONS */}
-            {['Pending', 'Upcoming', 'Rejected', 'Post Pay', 'Upgrade Slips'].includes(activeTab) && pay.status !== 'Approved' && (
+            {['Pending', 'Upcoming', 'Rejected', 'Post Pay', 'Upgrade Slips'].includes(activeTab) && pay.status !== 'Approved' && isAdmin && (
                 <div className="bg-gray-100 dark:bg-slate-900/60 rounded-[2rem] border border-gray-200 dark:border-white/5 p-6 mt-6 shadow-inner ml-2">
                     <p className="text-[10px] font-extrabold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-5 flex items-center justify-center gap-2">
                         <ShieldCheck size={16} /> Action Panel
@@ -847,11 +894,15 @@ export default function PaymentManagement({ loggedInUser }) {
             )}
 
             {/* Delivery Hub Button */}
-            {['Free Card', 'Discount', 'Approved'].includes(pay.status) && (
+            {['Free Card', 'Discount', 'Approved'].includes(pay.status) && isAdmin && (
                 <div className="mt-6 ml-2">
                     <button
                         disabled={actioningPaymentId === pay.id || !!pay.hasDelivery}
-                        onClick={() => handleAction(pay, 'SendToDelivery')}
+                        onClick={() => {
+                            setSendToDeliveryModal(pay);
+                            const subs = pay.subjectsList || pay.subjects || pay.courses || [];
+                            setDeliverySelectedSubjects(subs.map(s => String(s.id || s.course_id)));
+                        }}
                         className={`w-full py-4 rounded-2xl transition-all text-sm font-extrabold uppercase tracking-widest flex justify-center items-center gap-3 shadow-sm outline-none ${pay.hasDelivery
                             ? 'bg-gray-100 dark:bg-black/30 text-gray-400 dark:text-slate-600 border border-gray-200 dark:border-white/5 cursor-not-allowed shadow-none'
                             : 'bg-purple-50 dark:bg-purple-600/10 hover:bg-purple-600 text-purple-600 dark:text-purple-400 hover:text-white dark:hover:text-white border border-purple-200 dark:border-purple-500/30 hover:border-transparent dark:hover:bg-purple-600 shadow-purple-500/20 hover:shadow-lg'
@@ -864,26 +915,49 @@ export default function PaymentManagement({ loggedInUser }) {
         </div>
     );
 
+    const handlePasswordSubmit = (e) => {
+        e.preventDefault();
+        if (verificationPassword === 'admin123') {
+            setVerificationMode('ai');
+            setShowPasswordModal(false);
+            setVerificationPassword('');
+            toast.success("AI Verification Mode Unlocked");
+        } else {
+            toast.error("Incorrect Password!");
+        }
+    };
+
     return (
         <div className="w-full animate-fade-in text-gray-900 dark:text-slate-200 pb-10 font-sans relative">
 
-            {/* Header Section */}
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-8 bg-white/70 dark:bg-brand-darkCard/80 p-6 md:p-8 rounded-[2rem] border border-gray-200 dark:border-brand-darkBorder shadow-sm backdrop-blur-xl relative overflow-hidden transition-colors">
-
-                {/* Glow Effects - Adjusted for Light/Dark */}
-                <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-500/5 dark:bg-emerald-500/10 rounded-full blur-[60px] pointer-events-none"></div>
-                <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-500/5 dark:bg-blue-500/10 rounded-full blur-[60px] pointer-events-none"></div>
-
-                <div className="flex items-center gap-5 relative z-10">
-                    <div className="p-4 bg-emerald-50 dark:bg-emerald-500/10 rounded-2xl border border-emerald-200 dark:border-emerald-500/20 text-emerald-600 dark:text-emerald-400 shadow-sm transition-colors">
-                        <Wallet size={32} strokeWidth={1.5} />
-                    </div>
-                    <div>
-                        <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900 dark:text-white tracking-tight">Payment Hub</h2>
-                        <p className="text-gray-500 dark:text-slate-400 font-bold text-sm mt-1">Review, approve, and manage transactions seamlessly.</p>
-                    </div>
+            {/* Mode Switcher */}
+            <div className="flex justify-center mb-8">
+                <div className="bg-white/50 dark:bg-black/30 p-1.5 rounded-2xl backdrop-blur-md border border-gray-200/50 dark:border-white/10 flex shadow-sm inline-flex">
+                    <button
+                        onClick={() => setVerificationMode('manual')}
+                        className={`px-8 py-3 rounded-xl text-sm font-extrabold transition-all outline-none flex items-center gap-2 ${verificationMode === 'manual' ? 'bg-white dark:bg-white/10 text-gray-900 dark:text-white shadow-sm border border-gray-200 dark:border-white/5' : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300'}`}
+                    >
+                        <Wallet size={18} /> Manual Verification
+                    </button>
+                    <button
+                        onClick={() => {
+                            if (verificationMode !== 'ai') setShowPasswordModal(true);
+                        }}
+                        className={`px-8 py-3 rounded-xl text-sm font-extrabold transition-all outline-none flex items-center gap-2 ${verificationMode === 'ai' ? 'bg-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)] border border-emerald-400' : 'text-gray-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400'}`}
+                    >
+                        <ShieldCheck size={18} /> AI Verification
+                    </button>
                 </div>
             </div>
+
+            {verificationMode === 'ai' ? (
+                <div className="bg-white/50 dark:bg-brand-darkCard/50 rounded-[2rem] border border-gray-200 dark:border-brand-darkBorder shadow-sm overflow-hidden">
+                    <AISlipVerification loggedInUser={loggedInUser} />
+                </div>
+            ) : (
+                <>
+
+
 
             {/* Filters */}
             <PaymentFilters
@@ -1060,10 +1134,15 @@ export default function PaymentManagement({ loggedInUser }) {
                                                 </h4>
                                                 {latestPayment && (
                                                     <>
-                                                        <p className="text-sm font-bold text-slate-400 mt-3 flex items-center gap-3">
+                                                        <p className="text-sm font-bold text-slate-400 mt-3 flex flex-wrap items-center gap-3">
                                                             <span className="text-emerald-400 font-extrabold bg-emerald-500/15 px-3 py-1 rounded-lg border border-emerald-500/20 shadow-sm">{latestPayment.date}</span>
                                                             <span className="truncate max-w-[150px] sm:max-w-[300px] text-slate-300 font-semibold">{latestPayment.business}</span>
                                                             <span className="truncate max-w-[100px] sm:max-w-[200px] text-slate-400 font-medium">({latestPayment.batch})</span>
+                                                            {latestPayment.groupName && (
+                                                                <span className="text-purple-400 font-extrabold bg-purple-500/10 px-2.5 py-1 rounded-lg border border-purple-500/20 text-xs tracking-wide shadow-sm">
+                                                                    Group: {latestPayment.groupName}
+                                                                </span>
+                                                            )}
                                                         </p>
                                                         <div className="flex flex-wrap gap-2 mt-4 items-center">
                                                             <span className="text-[10px] font-black bg-blue-500/15 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/20 uppercase tracking-widest shadow-sm">Type: {latestPayment.type}</span>
@@ -1123,12 +1202,17 @@ export default function PaymentManagement({ loggedInUser }) {
 
                                 {(() => {
                                     const allStudentPays = studentActionModal.allPayments || [];
-                                    let leftSidePayment = allStudentPays.find(p => {
-                                        if (activeTab === 'Trash') return p.status === 'Trash';
-                                        if (activeTab === 'Approved') return p.status === 'Approved';
-                                        return p.status === activeTab && p.status !== 'Trash';
-                                    });
-
+                                    let leftSidePayment = null;
+                                    if (selectedPaymentId) {
+                                        leftSidePayment = allStudentPays.find(p => p.id === selectedPaymentId);
+                                    }
+                                    if (!leftSidePayment) {
+                                        leftSidePayment = allStudentPays.find(p => {
+                                            if (activeTab === 'Trash') return p.status === 'Trash';
+                                            if (activeTab === 'Approved') return p.status === 'Approved';
+                                            return p.status === activeTab && p.status !== 'Trash';
+                                        });
+                                    }
                                     if (!leftSidePayment && allStudentPays.length > 0) leftSidePayment = allStudentPays[0];
 
                                     if (!leftSidePayment) {
@@ -1146,11 +1230,17 @@ export default function PaymentManagement({ loggedInUser }) {
                                 <div className="space-y-5 flex-1 overflow-y-auto pr-2 pb-10 custom-scrollbar">
                                     {(() => {
                                         const allStudentPays = studentActionModal.allPayments || [];
-                                        let leftSidePayment = allStudentPays.find(p => {
-                                            if (activeTab === 'Trash') return p.status === 'Trash';
-                                            if (activeTab === 'Approved') return p.status === 'Approved';
-                                            return p.status === activeTab && p.status !== 'Trash';
-                                        });
+                                        let leftSidePayment = null;
+                                        if (selectedPaymentId) {
+                                            leftSidePayment = allStudentPays.find(p => p.id === selectedPaymentId);
+                                        }
+                                        if (!leftSidePayment) {
+                                            leftSidePayment = allStudentPays.find(p => {
+                                                if (activeTab === 'Trash') return p.status === 'Trash';
+                                                if (activeTab === 'Approved') return p.status === 'Approved';
+                                                return p.status === activeTab && p.status !== 'Trash';
+                                            });
+                                        }
                                         if (!leftSidePayment && allStudentPays.length > 0) leftSidePayment = allStudentPays[0];
 
                                         const rightSidePayments = allStudentPays.filter(p => p.id !== leftSidePayment?.id);
@@ -1164,19 +1254,38 @@ export default function PaymentManagement({ loggedInUser }) {
                                         }
 
                                         return rightSidePayments.map(hist => (
-                                            <div key={hist.id} className={`bg-white dark:bg-white/5 rounded-3xl p-6 md:p-8 border transition-all shadow-sm hover:shadow-md ${hist.status === 'Trash' ? 'border-red-200 dark:border-red-500/30 opacity-70' : 'border-gray-200 dark:border-white/5 hover:border-gray-300 dark:hover:border-white/10'}`}>
-                                                <div className="flex flex-wrap justify-between items-start gap-4 mb-5">
+                                            <div key={hist.id} className={`bg-white dark:bg-white/5 rounded-3xl p-6 md:p-8 border transition-all shadow-sm hover:shadow-md relative group/hist ${hist.status === 'Trash' ? 'border-red-200 dark:border-red-500/30 opacity-70' : 'border-gray-200 dark:border-white/5 hover:border-gray-300 dark:hover:border-white/10'}`}>
+                                                
+                                                {/* Edit/Delete absolute positioned buttons */}
+                                                {hist.status !== 'Trash' && hist.status !== 'Approved' && isAdmin && (
+                                                    <div className="absolute top-4 right-4 flex gap-2 opacity-100 sm:opacity-80 group-hover/hist:opacity-100 transition-opacity z-10">
+                                                        <button onClick={() => handleOpenEditModal(hist)} className="bg-gray-50 dark:bg-black/40 hover:bg-indigo-50 dark:hover:bg-indigo-500/20 text-gray-400 hover:text-indigo-500 dark:text-slate-400 dark:hover:text-indigo-400 border border-gray-200 dark:border-white/5 hover:border-indigo-200 dark:hover:border-indigo-500/30 p-2 rounded-lg transition-all shadow-sm outline-none" title="Edit Subjects / Amount">
+                                                            <Edit3 size={14} />
+                                                        </button>
+                                                        <button onClick={() => handleAction(hist, 'Trash')} className="bg-gray-50 dark:bg-black/40 hover:bg-red-50 dark:hover:bg-red-500/20 text-gray-400 hover:text-red-500 dark:text-slate-400 dark:hover:text-red-400 border border-gray-200 dark:border-white/5 hover:border-red-200 dark:hover:border-red-500/30 p-2 rounded-lg transition-all shadow-sm outline-none" title="Move to Trash">
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </div>
+                                                )}
+
+                                                <div className="flex flex-wrap justify-between items-start gap-4 mb-5 pr-16">
                                                     <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border shadow-sm ${['Approved', 'Free Card', 'Discount'].includes(hist.status) ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20' : hist.status === 'Trash' ? 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20' : hist.status === 'Pending' ? 'bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-500/20' : 'bg-gray-100 dark:bg-slate-500/10 text-gray-700 dark:text-slate-400 border-gray-200 dark:border-slate-500/20'}`}>{hist.status}</span>
                                                     <span className="text-[10px] text-gray-600 dark:text-slate-300 font-black uppercase tracking-widest bg-gray-50 dark:bg-black/40 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/5 shadow-sm">{hist.date}</span>
                                                 </div>
-                                                <p className="text-xl font-extrabold text-gray-900 dark:text-white leading-tight mb-2 truncate" title={hist.business}>{hist.business}</p>
-                                                <p className="text-sm text-gray-500 dark:text-slate-400 mb-6 font-bold truncate">{hist.batch}</p>
+                                                <p className="text-xl font-extrabold text-gray-900 dark:text-white leading-tight mb-2 truncate pr-16" title={hist.business}>{hist.business}</p>
+                                                <p className="text-sm text-gray-500 dark:text-slate-400 mb-6 font-bold truncate pr-16">{hist.batch} - {hist.groupName}</p>
                                                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 text-sm border-t border-gray-100 dark:border-white/5 pt-5">
                                                     <span className="text-gray-600 dark:text-slate-400 font-extrabold uppercase tracking-widest text-[10px] bg-gray-100 dark:bg-white/5 px-3 py-1.5 rounded-lg shadow-sm w-max">{hist.type}</span>
                                                     <div className="flex flex-wrap items-center gap-4">
                                                         {hist.slips && hist.slips.length > 0 && (
                                                             <button onClick={() => openSlipsInNewTab(hist.slips, studentActionModal.studentName, studentActionModal.studentNo, studentActionModal.phone)} className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 hover:text-white dark:hover:text-white hover:bg-blue-600 dark:hover:bg-blue-500 uppercase tracking-widest cursor-pointer bg-blue-50 dark:bg-blue-500/10 px-4 py-2 rounded-xl border border-blue-200 dark:border-blue-500/20 flex items-center gap-2 transition-colors shadow-sm outline-none">
                                                                 <FileImage size={14} /> View Slips
+                                                            </button>
+                                                        )}
+                                                        {/* Swap to active action payment */}
+                                                        {hist.status !== 'Approved' && hist.status !== 'Trash' && (
+                                                            <button onClick={() => setSelectedPaymentId(hist.id)} className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 hover:text-white dark:hover:text-white hover:bg-emerald-600 dark:hover:bg-emerald-500 uppercase tracking-widest cursor-pointer bg-emerald-50 dark:bg-emerald-500/10 px-4 py-2 rounded-xl border border-emerald-200 dark:border-emerald-500/20 flex items-center gap-2 transition-colors shadow-sm outline-none">
+                                                                Review Payment
                                                             </button>
                                                         )}
                                                         <span className="font-black text-gray-900 dark:text-white text-2xl whitespace-nowrap shrink-0">LKR {parseFloat(hist.amount).toLocaleString()}</span>
@@ -1374,6 +1483,74 @@ export default function PaymentManagement({ loggedInUser }) {
                 document.body
             )}
 
+            {/* 🔥 MANUAL DISPATCH SUBJECT SELECTION MODAL 🔥 */}
+            {sendToDeliveryModal && createPortal(
+                <div className="fixed inset-0 z-[99999] bg-slate-900/60 dark:bg-slate-900/80 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-[2rem] p-6 md:p-8 w-full max-w-md shadow-2xl transition-colors">
+                        <div className="flex justify-between items-center mb-6 border-b border-gray-200 dark:border-white/10 pb-4">
+                            <h3 className="text-xl font-extrabold text-gray-900 dark:text-white flex items-center gap-3"><Truck className="text-purple-600 dark:text-purple-400" size={24} /> Dispatch to Delivery</h3>
+                            <button type="button" onClick={() => setSendToDeliveryModal(null)} className="text-gray-400 hover:text-red-500 dark:text-slate-400 dark:hover:text-red-400 bg-gray-50 dark:bg-white/5 hover:bg-red-50 dark:hover:bg-white/10 p-2.5 rounded-xl transition-all border border-gray-200 dark:border-transparent outline-none"><CloseIcon size={20} /></button>
+                        </div>
+
+                        <div className="mb-6 bg-purple-50 dark:bg-purple-600/10 border border-purple-200 dark:border-purple-500/20 rounded-2xl p-4 text-center">
+                            <p className="text-[10px] text-purple-700 dark:text-purple-400 font-extrabold uppercase tracking-widest mb-1.5">Student</p>
+                            <p className="text-lg font-black text-gray-900 dark:text-white tracking-tight">
+                                {sendToDeliveryModal.studentName || 
+                                 (sendToDeliveryModal.student?.firstName ? `${sendToDeliveryModal.student.firstName} ${sendToDeliveryModal.student.lastName || ''}` : `STU-${sendToDeliveryModal.studentId}`)}
+                            </p>
+                            <span className="bg-purple-100 dark:bg-purple-500/25 text-purple-700 dark:text-purple-300 text-[10px] font-black px-2 py-0.5 rounded-md mt-2 inline-block border border-purple-200 dark:border-purple-500/30 uppercase tracking-widest">STU-{sendToDeliveryModal.studentId}</span>
+                        </div>
+
+                        <div className="mb-6">
+                            <label className="text-xs text-gray-600 dark:text-slate-400 font-extrabold uppercase tracking-widest mb-3 block">Select Subjects to Dispatch</label>
+                            <div className="space-y-2.5 max-h-[200px] overflow-y-auto pr-1 custom-scrollbar">
+                                {(sendToDeliveryModal.subjectsList || sendToDeliveryModal.subjects || sendToDeliveryModal.courses || []).map((sub) => {
+                                    const subIdStr = String(sub.id || sub.course_id);
+                                    const isChecked = deliverySelectedSubjects.includes(subIdStr);
+                                    return (
+                                        <label
+                                            key={subIdStr}
+                                            className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                                                isChecked
+                                                    ? 'bg-purple-50/50 dark:bg-purple-500/10 border-purple-300 dark:border-purple-500/40 text-gray-900 dark:text-white'
+                                                    : 'bg-transparent border-gray-200 dark:border-white/5 text-gray-500 dark:text-slate-400 hover:border-gray-300 dark:hover:border-white/10'
+                                            }`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={() => {
+                                                    setDeliverySelectedSubjects(prev =>
+                                                        isChecked
+                                                            ? prev.filter(id => id !== subIdStr)
+                                                            : [...prev, subIdStr]
+                                                    );
+                                                }}
+                                                className="rounded border-gray-300 dark:border-white/10 text-purple-600 focus:ring-purple-500 h-4 w-4 bg-transparent cursor-pointer"
+                                            />
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-bold truncate">{sub.name}</p>
+                                                <p className="text-[10px] font-black text-gray-400 dark:text-slate-500 uppercase tracking-widest">{sub.code}</p>
+                                            </div>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <button
+                            disabled={actioningPaymentId !== null}
+                            onClick={submitSendToDelivery}
+                            className="w-full bg-purple-600 hover:bg-purple-500 text-white rounded-xl py-4 text-sm tracking-widest uppercase font-extrabold transition-all shadow-lg shadow-purple-500/30 dark:shadow-none border border-transparent dark:border-purple-500/50 flex justify-center items-center gap-3 outline-none"
+                        >
+                            {actioningPaymentId !== null ? <Loader2 className="animate-spin" size={20} /> : <Truck size={20} />}
+                            Dispatch to Delivery Hub
+                        </button>
+                    </div>
+                </div>,
+                document.body
+            )}
+
             {/* 🔥 EDIT PAYMENT DETAILS MODAL (PREMIUM LANDSCAPE LAYOUT) 🔥 */}
             {editModal && createPortal(
                 <div className="fixed inset-0 z-[99999] bg-slate-900/60 dark:bg-slate-900/90 flex items-center justify-center p-4 backdrop-blur-md animate-fade-in">
@@ -1402,6 +1579,12 @@ export default function PaymentManagement({ loggedInUser }) {
                                     <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 rounded-xl border border-amber-500/20">
                                         <span className="text-[10px] font-black text-amber-500 uppercase tracking-wider">Business</span>
                                         <span className="text-xs font-bold text-gray-700 dark:text-slate-200">{editModal.business}</span>
+                                    </div>
+                                )}
+                                {editModal.groupName && (
+                                    <div className="flex items-center gap-2 px-3 py-1.5 bg-purple-500/10 rounded-xl border border-purple-500/20">
+                                        <span className="text-[10px] font-black text-purple-500 uppercase tracking-wider">Group</span>
+                                        <span className="text-xs font-bold text-gray-700 dark:text-slate-200">{editModal.groupName}</span>
                                     </div>
                                 )}
                             </div>
@@ -1726,6 +1909,39 @@ export default function PaymentManagement({ loggedInUser }) {
                     batches={batches}
                     subjects={subjects}
                 />
+            )}
+                </>
+            )}
+
+            {/* Password Modal for AI Verification */}
+            {showPasswordModal && createPortal(
+                <div className="fixed inset-0 z-[99999] bg-slate-900/60 dark:bg-slate-900/80 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-[2rem] p-6 md:p-8 w-full max-w-sm shadow-2xl transition-colors">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-extrabold text-gray-900 dark:text-white flex items-center gap-3">
+                                <ShieldCheck className="text-emerald-500" size={24} /> Security Check
+                            </h3>
+                            <button onClick={() => { setShowPasswordModal(false); setVerificationPassword(''); }} className="text-gray-400 hover:text-red-500 bg-gray-50 dark:bg-white/5 p-2 rounded-xl transition-all outline-none"><CloseIcon size={20} /></button>
+                        </div>
+                        <form onSubmit={handlePasswordSubmit}>
+                            <div className="mb-6">
+                                <label className="text-xs text-gray-600 dark:text-slate-400 font-extrabold uppercase tracking-widest mb-2 block">Enter Password</label>
+                                <input
+                                    type="password"
+                                    value={verificationPassword}
+                                    onChange={e => setVerificationPassword(e.target.value)}
+                                    placeholder="Password..."
+                                    className="w-full bg-gray-50 dark:bg-black/40 border border-gray-300 dark:border-white/10 rounded-xl p-4 text-gray-900 dark:text-white font-extrabold outline-none focus:border-emerald-500 text-center shadow-sm"
+                                    autoFocus
+                                />
+                            </div>
+                            <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl py-4 text-sm tracking-widest uppercase font-extrabold transition-transform hover:scale-[1.02] shadow-lg outline-none">
+                                Unlock AI Mode
+                            </button>
+                        </form>
+                    </div>
+                </div>,
+                document.body
             )}
         </div>
     );

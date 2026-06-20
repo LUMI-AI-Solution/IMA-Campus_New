@@ -75,7 +75,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} className="text-yellow-400" /> {isSidebarOpen && <span className="truncate text-sm">Announcements & Events</span>}</NavLink>
             <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
             <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
-            <NavLink to="/admin/ai-verification" className={getNavLinkClass}><ShieldCheck size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">AI Slip Verification</span>}</NavLink>
+
             <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
             <NavLink to="/admin/student-center" className={getNavLinkClass}><Database size={18} className="text-teal-400" /> {isSidebarOpen && <span className="truncate text-sm">Student Data Center</span>}</NavLink>
             <NavLink to="/admin/crm-setup" className={getNavLinkClass}><HeadphonesIcon size={18} className="text-pink-400" /> {isSidebarOpen && <span className="truncate text-sm">CRM Setup</span>}</NavLink>
@@ -92,7 +92,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Finance Department</p>}
             <NavLink to="/finance/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Overview</span>}</NavLink>
             <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
-            <NavLink to="/admin/ai-verification" className={getNavLinkClass}><ShieldCheck size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">AI Slip Verification</span>}</NavLink>
+
             <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
           </>
         )}
@@ -119,7 +119,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
             <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
             <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
-            <NavLink to="/admin/ai-verification" className={getNavLinkClass}><ShieldCheck size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">AI Slip Verification</span>}</NavLink>
+
             <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
             <NavLink to="/admin/student-center" className={getNavLinkClass}><Database size={18} className="text-teal-400" /> {isSidebarOpen && <span className="truncate text-sm">Student Data Center</span>}</NavLink>
             <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
@@ -167,13 +167,25 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
         {(isSystemAdmin || isGeneralManager || isStaff || isCaller) && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Workspace</p>}
-            <NavLink to="/coordinator/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">My Dashboard</span>}</NavLink>
             <NavLink to="/workspace/timetable" className={getNavLinkClass}><CalendarDays size={18} /> {isSidebarOpen && <span className="truncate text-sm">Class Timetable</span>}</NavLink>
             <NavLink to="/workspace/tasks" className={getNavLinkClass}><CheckSquare size={18} /> {isSidebarOpen && <span className="truncate text-sm">Task Center</span>}</NavLink>
             <NavLink to="/workspace/roster" className={getNavLinkClass}><CalendarCheck size={18} className="text-pink-400" />{isSidebarOpen && <span className="truncate text-sm">My Roster</span>}</NavLink>
             
+            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-emerald-400/80 uppercase tracking-wider mb-2 mt-4">Free Seminar</p>}
             <NavLink to="/workspace/crm" className={getNavLinkClass}><MessageCircle size={18} /> {isSidebarOpen && <span className="truncate text-sm">Free Seminar CRM</span>}</NavLink>
+            
+            {(!isSystemAdmin && !isManager) && (
+                <NavLink to="/coordinator/dashboard?mode=CALL_CAMPAIGN" className={getNavLinkClass}><LayoutDashboard size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Call Campaign</span>}</NavLink>
+            )}
+            
+            {(isSystemAdmin || isManager) && (
+                <NavLink to="/coordinator/dashboard?mode=STATS" className={getNavLinkClass}><BarChart size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Free Sem Stats</span>}</NavLink>
+            )}
+            
+            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Other Services</p>}
             <NavLink to="/workspace/after-seminar-crm" className={getNavLinkClass}><HeadphonesIcon size={18} /> {isSidebarOpen && <span className="truncate text-sm">After Seminar CRM</span>}</NavLink>
+            <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
+            <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Payment Management</span>}</NavLink>
             
             {/* 🔥 ALUTH CAMPAIGNS TABS 4 🔥 */}
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-emerald-400/80 uppercase tracking-wider mb-2 mt-4">Call Campaigns</p>}
@@ -205,10 +217,19 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
       </nav>
 
       {/* Theme Popup & Profile Section remains same... */}
-      <div className="px-3 py-3 border-t border-white/20 flex flex-col gap-2 shrink-0 bg-transparent relative">
-        <button onClick={() => setIsThemeOpen(!isThemeOpen)} className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-all font-medium outline-none border ${isThemeOpen ? 'bg-white/20 text-white border-white/30 shadow-[0_4px_15px_rgba(0,0,0,0.2)]' : 'text-gray-300 border-transparent hover:bg-white/10'}`}>
-          <Palette size={18} className={isThemeOpen ? 'text-brand-accent' : ''} />
-          {isSidebarOpen && <span className="truncate text-sm">Themes</span>}
+      <div className={`px-3 py-3 border-t border-white/20 flex ${isSidebarOpen ? 'flex-row items-center justify-between' : 'flex-col items-center'} gap-2 shrink-0 bg-transparent relative`}>
+        <div className={`flex ${isSidebarOpen ? 'flex-row' : 'flex-col'} items-center gap-2`}>
+            <button onClick={() => setIsThemeOpen(!isThemeOpen)} className={`p-2.5 rounded-full transition-all flex items-center justify-center outline-none border ${isThemeOpen ? 'bg-white/20 text-white border-white/30 shadow-[0_4px_15px_rgba(0,0,0,0.2)]' : 'text-gray-300 border-transparent hover:bg-white/10'}`} title="Themes">
+              <Palette size={16} className={isThemeOpen ? 'text-brand-accent' : ''} />
+            </button>
+            <button onClick={() => setIsSpotifyOpen(!isSpotifyOpen)} className={`p-2.5 rounded-full transition-all flex items-center justify-center outline-none border ${isSpotifyOpen ? 'bg-white/20 text-white border-white/30 shadow-[0_4px_15px_rgba(0,0,0,0.2)]' : 'text-gray-300 border-transparent hover:bg-white/10'}`} title="Music Player">
+              <Music size={16} className={isSpotifyOpen ? 'animate-pulse text-[#1DB954]' : ''} />
+            </button>
+        </div>
+
+        <button onClick={handleLogout} className={`flex items-center justify-center gap-2 rounded-lg text-red-400 hover:bg-red-500/20 hover:text-red-300 transition-all font-medium border border-transparent ${isSidebarOpen ? 'px-3 py-2 flex-1 ml-1' : 'p-2 w-full'}`} title="Logout">
+          <LogOut size={16} />
+          {isSidebarOpen && <span className="truncate text-sm">Logout</span>}
         </button>
 
         {isThemeOpen && (
@@ -251,16 +272,6 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
                 </div>
             </div>
         )}
-
-        <button onClick={() => setIsSpotifyOpen(!isSpotifyOpen)} className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg transition-all font-medium outline-none border ${isSpotifyOpen ? 'bg-white/20 text-white border-white/30 shadow-[0_4px_15px_rgba(0,0,0,0.2)]' : 'text-gray-300 border-transparent hover:bg-white/10'}`}>
-          <Music size={18} className={isSpotifyOpen ? 'animate-pulse text-[#1DB954]' : ''} />
-          {isSidebarOpen && <span className="truncate text-sm">Music Player</span>}
-        </button>
-
-        <button onClick={handleLogout} className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-red-400 hover:bg-red-500/20 hover:text-red-300 border border-transparent transition-all font-medium">
-          <LogOut size={18} />
-          {isSidebarOpen && <span className="truncate text-sm">Logout</span>}
-        </button>
       </div>
       
       <div className="p-3 border-t border-white/20 shrink-0 bg-transparent">

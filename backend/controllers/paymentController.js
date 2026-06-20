@@ -383,7 +383,11 @@ exports.getPayments = async (req, res) => {
 exports.paymentAction = async (req, res) => {
     try {
         const { paymentId, action, customAmount, remark, isSelfPicked, actualAmountPaid } = req.body;
+        const adminId = req.user?.userId || req.user?.id;
         let updateData = {};
+        if (adminId) {
+            updateData.actionedById = parseInt(adminId);
+        }
 
         const payRecord = await prisma.payment.findUnique({ where: { id: parseInt(paymentId) } });
         if (!payRecord) return res.status(404).json({ error: "Payment not found" });
@@ -393,7 +397,18 @@ exports.paymentAction = async (req, res) => {
             const existingDelivery = await prisma.delivery.findUnique({ where: { paymentId: parseInt(paymentId) } });
             if (!existingDelivery && payRecord.subjects) {
                 try {
-                    const subIds = JSON.parse(payRecord.subjects).map(id => parseInt(id));
+                    let subIds = JSON.parse(payRecord.subjects).map(id => parseInt(id));
+                    
+                    // Filter by selectedSubjectIds if provided from frontend modal
+                    if (req.body.selectedSubjectIds && Array.isArray(req.body.selectedSubjectIds)) {
+                        const selectedIds = req.body.selectedSubjectIds.map(id => parseInt(id));
+                        subIds = subIds.filter(id => selectedIds.includes(id));
+                    }
+
+                    if (subIds.length === 0) {
+                        return res.status(400).json({ error: "Please select at least one subject to send to delivery" });
+                    }
+
                     const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
                     if (courses.length > 0) {
                         const paymentTypeStr = parseInt(payRecord.payment_type) === 1 ? 'Monthly' : (parseInt(payRecord.payment_type) === 2 ? 'Installment' : 'Full');
@@ -489,8 +504,24 @@ exports.paymentAction = async (req, res) => {
 
         // 🔥 Auto Delivery ONLY for normal Approve (Not Free Card/Discount)
         if (action === 'Approve') {
-            const existingDelivery = await prisma.delivery.findUnique({ where: { paymentId: parseInt(paymentId) } });
-            if (!existingDelivery && updatedPayment.subjects) {
+            let shouldCreateDelivery = true;
+            if (updatedPayment.payment_type === 1) {
+                if (updatedPayment.groupId) {
+                    const ext = await prisma.delivery.findFirst({
+                        where: { studentId: updatedPayment.studentId.toString(), paymentType: 'Monthly', payment: { groupId: updatedPayment.groupId } }
+                    });
+                    if (ext) shouldCreateDelivery = false;
+                }
+            } else if (updatedPayment.payment_type === 2 || updatedPayment.payment_type === 3) {
+                if (updatedPayment.batchId) {
+                    const ext = await prisma.delivery.findFirst({
+                        where: { studentId: updatedPayment.studentId.toString(), paymentType: { in: ['Installment', 'Full'] }, payment: { batchId: updatedPayment.batchId } }
+                    });
+                    if (ext) shouldCreateDelivery = false;
+                }
+            }
+
+            if (shouldCreateDelivery && updatedPayment.subjects) {
                 try {
                     const subIds = JSON.parse(updatedPayment.subjects).map(id => parseInt(id));
                     const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
@@ -571,8 +602,15 @@ exports.approveInstallment = async (req, res) => {
 
 
         // 🔥 Auto Delivery Logic
-        const existingDelivery = await prisma.delivery.findUnique({ where: { paymentId: parseInt(paymentId) } });
-        if (!existingDelivery && updatedPayment.subjects) {
+        let shouldCreateDelivery = true;
+        if (updatedPayment.batchId) {
+            const ext = await prisma.delivery.findFirst({
+                where: { studentId: updatedPayment.studentId.toString(), paymentType: { in: ['Installment', 'Full'] }, payment: { batchId: updatedPayment.batchId } }
+            });
+            if (ext) shouldCreateDelivery = false;
+        }
+
+        if (shouldCreateDelivery && updatedPayment.subjects) {
             try {
                 const subIds = JSON.parse(updatedPayment.subjects).map(id => parseInt(id));
                 const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });

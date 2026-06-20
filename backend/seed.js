@@ -4,7 +4,7 @@ const bcrypt = require('bcrypt');
 const prisma = new PrismaClient();
 
 async function main() {
-  const phone = '0777909030';
+  const phone = '0000000000';
   const password = '123456';
 
   const hashedPassword = await bcrypt.hash(password, 10);
@@ -17,10 +17,10 @@ async function main() {
       role: 'SYSTEM_ADMIN',
     },
     create: {
-      firstName: 'Super',
-      lastName: 'Admin',
+      firstName: 'Chamindu',
+      lastName: 'Dilshan',
       phone: phone,
-      nic: '000000000V',
+      nic: '000000050V',
       password: hashedPassword,
       // මෙතනත් ඒ නමම දෙන්න
       role: 'SYSTEM_ADMIN',

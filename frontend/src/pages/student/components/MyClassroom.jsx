@@ -121,7 +121,7 @@ export default function MyClassroom() {
 
         let hasAnyCourse = false;
 
-        const content = selectedBatch.groups.map((group, gIdx) => {
+        const content = selectedBatch.groups.flatMap((group, gIdx) => {
             let coursesForGroup = group.courses || [];
 
             // 🔥 FIX: If it's a Monthly Group, remove subjects that exist in Full Payment groups
@@ -134,40 +134,64 @@ export default function MyClassroom() {
                 coursesForGroup = coursesForGroup.filter(c => (c.stream === activeStream) || (!c.stream && activeStream === "Common Subjects"));
             }
 
-            if (coursesForGroup.length === 0) return null;
+            if (coursesForGroup.length === 0) return [];
             hasAnyCourse = true;
 
-            const isMonthly = group.type === 1;
-            const groupTitle = isMonthly ? `Monthly Payment - ${group.name}` : `Full Payment`;
-            const badgeColorClass = isMonthly ? "text-orange-400 bg-orange-500/10 border-orange-500/20" : "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+            // Group courses by their individual payment type
+            const coursesByPaymentType = {
+                1: coursesForGroup.filter(c => c.studentPaymentType === 1 || c.studentPaymentType === undefined),
+                2: coursesForGroup.filter(c => c.studentPaymentType === 2),
+                3: coursesForGroup.filter(c => c.studentPaymentType === 3)
+            };
 
-            return (
-                <div key={gIdx} className="mb-10 last:mb-0">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
-                        <div className="flex items-center gap-3">
-                            <BookOpen className="text-blue-400" size={18} />
-                            <h4 className="text-lg font-bold text-white tracking-wide">Your Subjects</h4>
-                        </div>
-                        <div className={`px-4 py-1.5 rounded-lg border ${badgeColorClass} text-xs font-bold uppercase tracking-widest w-max`}>
-                            {groupTitle}
-                        </div>
-                    </div>
+            const groupBlocks = [];
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {coursesForGroup.map((course) => (
-                            <div key={course.id} onClick={() => setOpenedCourseId(course.id)} className="bg-black/30 hover:bg-black/50 border border-white/5 hover:border-red-500/40 p-5 md:p-6 rounded-2xl cursor-pointer transition-colors flex flex-row justify-between items-center gap-4 group">
-                                <div className="text-left flex flex-col gap-2 min-w-0 flex-1">
-                                    <h3 className="text-lg md:text-xl font-bold text-white group-hover:text-red-400 transition-colors truncate">{course.name}</h3>
-                                    {course.code && <span className="text-[10px] font-bold text-red-400 bg-red-500/10 px-2.5 py-1 rounded border border-red-500/20 uppercase w-max tracking-widest">{course.code}</span>}
-                                </div>
-                                <div className="w-12 h-12 rounded-xl bg-white/5 group-hover:bg-red-500 flex items-center justify-center text-white/50 group-hover:text-white shrink-0 border border-white/10 group-hover:border-transparent transition-colors">
-                                    <PlayCircle size={24} />
-                                </div>
+            Object.entries(coursesByPaymentType).forEach(([type, courses]) => {
+                if (courses.length === 0) return;
+
+                const isMonthly = parseInt(type) === 1;
+                const isInstallment = parseInt(type) === 2;
+                const groupTitle = isMonthly 
+                    ? `Monthly Payment - ${group.name}` 
+                    : isInstallment 
+                        ? `Installment Payment` 
+                        : `Full Payment`;
+                const badgeColorClass = isMonthly 
+                    ? "text-orange-400 bg-orange-500/10 border-orange-500/20" 
+                    : isInstallment 
+                        ? "text-yellow-400 bg-yellow-500/10 border-yellow-500/20"
+                        : "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+
+                groupBlocks.push(
+                    <div key={`${gIdx}-${type}`} className="mb-10 last:mb-0">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
+                            <div className="flex items-center gap-3">
+                                <BookOpen className="text-blue-400" size={18} />
+                                <h4 className="text-lg font-bold text-white tracking-wide">Your Subjects</h4>
                             </div>
-                        ))}
+                            <div className={`px-4 py-1.5 rounded-lg border ${badgeColorClass} text-xs font-bold uppercase tracking-widest w-max`}>
+                                {groupTitle}
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {courses.map((course) => (
+                                <div key={course.id} onClick={() => setOpenedCourseId(course.id)} className="bg-black/30 hover:bg-black/50 border border-white/5 hover:border-red-500/40 p-5 md:p-6 rounded-2xl cursor-pointer transition-colors flex flex-row justify-between items-center gap-4 group">
+                                    <div className="text-left flex flex-col gap-2 min-w-0 flex-1">
+                                        <h3 className="text-lg md:text-xl font-bold text-white group-hover:text-red-400 transition-colors truncate">{course.name}</h3>
+                                        {course.code && <span className="text-[10px] font-bold text-red-400 bg-red-500/10 px-2.5 py-1 rounded border border-red-500/20 uppercase w-max tracking-widest">{course.code}</span>}
+                                    </div>
+                                    <div className="w-12 h-12 rounded-xl bg-white/5 group-hover:bg-red-500 flex items-center justify-center text-white/50 group-hover:text-white shrink-0 border border-white/10 group-hover:border-transparent transition-colors">
+                                        <PlayCircle size={24} />
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
-                </div>
-            );
+                );
+            });
+
+            return groupBlocks;
         });
 
         if (!hasAnyCourse) {

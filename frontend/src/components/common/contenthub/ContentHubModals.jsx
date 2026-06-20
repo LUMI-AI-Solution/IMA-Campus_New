@@ -21,8 +21,11 @@ export default function ContentHubModals({ state, actions }) {
     } = actions;
 
     const getBaseUrl = () => {
-        let url = api.defaults.baseURL || 'https://imacampus.online/api';
-        return url.endsWith('/') ? url.slice(0, -1) : url;
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            let url = api.defaults.baseURL || 'http://localhost:5000/api';
+            return url.endsWith('/') ? url.slice(0, -1) : url;
+        }
+        return 'https://imacampus.online/api';
     };
 
     return (

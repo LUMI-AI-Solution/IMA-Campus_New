@@ -1,0 +1,213 @@
+import React, { useState, useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Image, StatusBar } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context'; 
+import { useFocusEffect } from '@react-navigation/native';
+import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
+import COLORS from '../constants/colors';
+import api, { IMAGE_URL } from '../services/api';
+
+const MyCoursesScreen = ({ navigation }) => {
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [mySubjects, setMySubjects] = useState([]); 
+  
+  const [step, setStep] = useState(1);
+  const [selectedBusiness, setSelectedBusiness] = useState(null);
+  const [selectedBatch, setSelectedBatch] = useState(null);
+  
+  const insets = useSafeAreaInsets(); 
+
+  useFocusEffect(useCallback(() => { fetchClassroomData(); }, []));
+
+  const fetchClassroomData = async () => {
+    try {
+      const res = await api.get('mobile/classroom');
+      setMySubjects(res.data || []);
+    } catch (e) {
+      console.log("Classroom Fetch Error:", e);
+    } finally {
+      setLoading(false); setRefreshing(false);
+    }
+  };
+
+  const onRefresh = () => { setRefreshing(true); fetchClassroomData(); };
+
+  const handleBack = () => {
+      if (step === 3) { setStep(2); setSelectedBatch(null); }
+      else if (step === 2) { setStep(1); setSelectedBusiness(null); }
+      else { navigation.goBack(); }
+  };
+
+  const businesses = useMemo(() => {
+      const map = new Map();
+      mySubjects.forEach(s => {
+          if (!map.has(s.businessName)) map.set(s.businessName, { name: s.businessName, logo: s.businessLogo });
+      });
+      return Array.from(map.values());
+  }, [mySubjects]);
+
+  const batches = useMemo(() => {
+      if (!selectedBusiness) return [];
+      const filtered = mySubjects.filter(s => s.businessName === selectedBusiness.name);
+      const map = new Map();
+      filtered.forEach(s => {
+          if (!map.has(s.batchName)) {
+              let bLogo = s.batchLogo;
+              if (!bLogo || bLogo === 'default.png') bLogo = s.businessLogo;
+              map.set(s.batchName, { name: s.batchName, logo: bLogo });
+          }
+      });
+      return Array.from(map.values());
+  }, [mySubjects, selectedBusiness]);
+
+  const subjectsWithHeaders = useMemo(() => {
+      if (!selectedBusiness || !selectedBatch) return [];
+      const batchSubjects = mySubjects.filter(s => s.businessName === selectedBusiness.name && s.batchName === selectedBatch.name);
+
+      const upgradeSubjects = batchSubjects.filter(s => s.groupType === 2);
+      let monthlySubjects = batchSubjects.filter(s => s.groupType === 1);
+
+      // Remove duplicates from monthly if they exist in upgrade
+      const upgradeNames = new Set(upgradeSubjects.map(s => s.name));
+      monthlySubjects = monthlySubjects.filter(s => !upgradeNames.has(s.name));
+
+      const finalList = [];
+      
+      if (upgradeSubjects.length > 0) {
+          finalList.push({ isHeader: true, id: 'header-upgrade', title: 'Upgraded Courses' });
+          finalList.push(...upgradeSubjects);
+      }
+      
+      if (monthlySubjects.length > 0) {
+          finalList.push({ isHeader: true, id: 'header-monthly', title: 'Monthly Courses' });
+          finalList.push(...monthlySubjects);
+      }
+      
+      return finalList;
+  }, [mySubjects, selectedBusiness, selectedBatch]);
+
+
+  const renderBusinessCard = ({ item }) => (
+      <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => { setSelectedBusiness(item); setStep(2); }}>
+          <View style={styles.logoContainer}>
+             <Image source={{ uri: `${IMAGE_URL}icons/${item.logo || 'default.png'}` }} style={styles.logo} resizeMode="contain" />
+          </View>
+          <View style={styles.cardInfo}>
+              <Text style={styles.cardTitle} numberOfLines={2}>{item.name}</Text>
+              <Text style={styles.cardSubText}>Tap to view batches</Text>
+          </View>
+          <Icon name="chevron-right" size={24} color="#CCC" />
+      </TouchableOpacity>
+  );
+
+  const renderBatchCard = ({ item }) => (
+      <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => { setSelectedBatch(item); setStep(3); }}>
+          <View style={styles.logoContainer}>
+              <Image source={{ uri: `${IMAGE_URL}icons/${item.logo || 'default.png'}` }} style={styles.logo} resizeMode="contain" />
+          </View>
+          <View style={styles.cardInfo}>
+              <Text style={styles.cardTitle} numberOfLines={2}>{item.name}</Text>
+              <Text style={styles.cardSubText}>Tap to view subjects</Text>
+          </View>
+          <Icon name="chevron-right" size={24} color="#CCC" />
+      </TouchableOpacity>
+  );
+
+  // 🔥 FIX: `hasAccess: true` යවනවා, එතකොට අනිවාර්යයෙන්ම Lock එක ඇරෙනවා
+  const renderSubjectCard = ({ item }) => {
+    if (item.isHeader) {
+        return (
+            <View style={styles.sectionHeader}>
+                <Text style={styles.sectionHeaderText}>{item.title}</Text>
+            </View>
+        );
+    }
+    return (
+      <TouchableOpacity style={styles.courseCard} activeOpacity={0.8} onPress={() => navigation.navigate('CourseContent', { courseId: item.id, courseTitle: item.name, hasAccess: true })}>
+        <View style={styles.iconBox}>
+            <Icon name="book-open-variant" size={26} color={COLORS.primary} />
+        </View>
+        <View style={styles.cardInfo}>
+            <Text style={styles.courseName} numberOfLines={2}>{item.name}</Text>
+            {item.code ? <Text style={styles.courseCode}>{item.code}</Text> : null}
+            <View style={styles.metaRow}>
+                <Icon name="account-tie" size={14} color="#666" style={{marginRight: 6}} />
+                <Text style={styles.lecturer} numberOfLines={1}>{item.description}</Text>
+            </View>
+        </View>
+        <Icon name="play-circle" size={32} color={COLORS.primary} />
+      </TouchableOpacity>
+    );
+  };
+
+  let headerText = "My Classroom";
+  let subText = "Select your institute";
+  if (step === 2) { headerText = selectedBusiness?.name; subText = "Select your batch"; }
+  if (step === 3) { headerText = selectedBatch?.name; subText = "Select a subject to learn"; }
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
+      
+      <View style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
+        <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
+            <Icon name="arrow-left" size={24} color="white" />
+        </TouchableOpacity>
+        <View style={{flex: 1}}>
+            <Text style={styles.headerTitle} numberOfLines={1}>{headerText}</Text>
+            <Text style={styles.subHeaderText}>{subText}</Text>
+        </View>
+      </View>
+
+      <View style={styles.content}>
+        {loading && !refreshing ? <ActivityIndicator size="large" color={COLORS.primary} style={{marginTop: 50}} /> : (
+            <FlatList 
+                data={step === 1 ? businesses : step === 2 ? batches : subjectsWithHeaders} 
+                keyExtractor={(item, index) => item.id ? item.id.toString() : index.toString()} 
+                renderItem={step === 1 ? renderBusinessCard : step === 2 ? renderBatchCard : renderSubjectCard} 
+                contentContainerStyle={styles.listContainer} 
+                showsVerticalScrollIndicator={false} 
+                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[COLORS.primary]} />}
+                ListEmptyComponent={
+                    <View style={styles.emptyContainer}>
+                        <View style={styles.emptyIconBox}><Icon name="school-outline" size={60} color="#D1D5DB" /></View>
+                        <Text style={styles.emptyTitle}>No Enrollments Found</Text>
+                        <Text style={styles.emptyText}>You haven't enrolled in any courses yet or your payment is pending approval.</Text>
+                    </View>
+                }
+            />
+        )}
+      </View>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F5F7FA' }, 
+  redHeader: { backgroundColor: COLORS.primary, paddingHorizontal: 20, paddingBottom: 25, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 8, shadowColor: COLORS.primary, shadowOffset: {width: 0, height: 4}, shadowOpacity: 0.3, shadowRadius: 10, zIndex: 10, flexDirection: 'row', alignItems: 'center' },
+  backBtn: { marginRight: 15, padding: 8, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 12 }, 
+  headerTitle: { fontSize: 20, fontWeight: '900', color: 'white', letterSpacing: 0.5 }, 
+  subHeaderText: { fontSize: 12, color: 'rgba(255,255,255,0.8)', fontWeight: '600', marginTop: 2 },
+  content: { flex: 1 },
+  listContainer: { padding: 20, paddingBottom: 100 },
+  card: { flexDirection: 'row', backgroundColor: 'white', padding: 16, borderRadius: 20, marginBottom: 15, alignItems: 'center', elevation: 2, borderWidth: 1, borderColor: '#F3F4F6' },
+  logoContainer: { width: 60, height: 60, borderRadius: 15, backgroundColor: '#F8FAFC', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#F0F0F0', overflow: 'hidden' }, 
+  logo: { width: 45, height: 45 },
+  cardInfo: { flex: 1, marginLeft: 15 },
+  cardTitle: { fontSize: 16, fontWeight: '900', color: '#1A1A1A', marginBottom: 4 },
+  cardSubText: { fontSize: 12, color: '#6B7280', fontWeight: '700' },
+  courseCard: { flexDirection: 'row', backgroundColor: 'white', padding: 16, borderRadius: 20, marginBottom: 15, alignItems: 'center', elevation: 3, borderWidth: 1, borderColor: '#F3F4F6' },
+  iconBox: { width: 55, height: 55, borderRadius: 15, backgroundColor: '#FEF2F2', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#FECACA' },
+  courseName: { fontSize: 15, fontWeight: '900', color: '#1A1A1A', marginBottom: 4, lineHeight: 20 },
+  courseCode: { fontSize: 10, fontWeight: '900', color: COLORS.primary, backgroundColor: '#FEF2F2', alignSelf: 'flex-start', paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, marginBottom: 8, letterSpacing: 0.5 },
+  metaRow: { flexDirection: 'row', alignItems: 'center' },
+  lecturer: { fontSize: 12, color: '#4B5563', fontWeight: '700', flex: 1 },
+  emptyContainer: { alignItems: 'center', marginTop: 60, paddingHorizontal: 20 }, 
+  emptyIconBox: { width: 100, height: 100, borderRadius: 50, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center', marginBottom: 20, elevation: 2 },
+  emptyTitle: { fontSize: 20, fontWeight: '900', color: '#1A1A1A', marginBottom: 10 }, 
+  emptyText: { fontSize: 13, color: '#6B7280', textAlign: 'center', lineHeight: 22, fontWeight: '700' },
+  sectionHeader: { paddingVertical: 10, paddingHorizontal: 5, marginTop: 10, marginBottom: 10 },
+  sectionHeaderText: { fontSize: 18, fontWeight: '900', color: COLORS.primary, letterSpacing: 0.5 }
+});
+
+export default MyCoursesScreen;

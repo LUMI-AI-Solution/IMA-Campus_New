@@ -242,7 +242,15 @@ exports.getFinanceMatrix = async (req, res) => {
                         });
                     }
                 } else if (payType === 3) { // FULL PAYMENT
-                    const startIdx = (isUpgrade && alreadyPaidMonthlyCount > 0) ? Math.min(alreadyPaidMonthlyCount, activeMonthCount - 1) : 0;
+                    let lastPaidMonthlyIndex = -1;
+                    studentMonthlyPayments.forEach(pm => {
+                        const idx = activeGroupIds.indexOf(pm.groupId);
+                        if (idx > lastPaidMonthlyIndex) {
+                            lastPaidMonthlyIndex = idx;
+                        }
+                    });
+                    
+                    const startIdx = (isUpgrade && lastPaidMonthlyIndex >= 0) ? Math.min(lastPaidMonthlyIndex + 1, activeMonthCount - 1) : 0;
                     const divisor = activeMonthCount - startIdx;
                     const amountPerMonth = subjectAllocatedFund / (divisor || 1);
 

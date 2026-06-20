@@ -424,8 +424,13 @@ if (bcastFile) formData.append('media', bcastFile);
         });
     }, [data?.msgReport, teamMembers]);
 
-    const coordReport = useMemo(() => (data?.report || []).filter(r => r.role !== 'CALLER'), [data?.report]);
-    const ccReport = useMemo(() => (data?.report || []).filter(r => r.role === 'CALLER'), [data?.report]);
+    const isCallCenterRole = (role) => {
+        const r = String(role).toUpperCase().replace(/ /g, '_');
+        return ['CALLER', 'CALL_CENTER_AGENT', 'CALL_CENTER'].includes(r);
+    };
+
+    const coordReport = useMemo(() => (data?.report || []).filter(r => !isCallCenterRole(r.role)), [data?.report]);
+    const ccReport = useMemo(() => (data?.report || []).filter(r => isCallCenterRole(r.role)), [data?.report]);
 
     const coordStats = useMemo(() => {
         const covered = coordReport.reduce((acc, curr) => acc + curr.answered + curr.noAnswer + curr.reject, 0);
@@ -491,7 +496,18 @@ if (bcastFile) formData.append('media', bcastFile);
                                     <div className="bg-gradient-to-br from-slate-800 to-slate-900 p-5 rounded-2xl border border-white/5 shadow-lg relative overflow-hidden">
                                         <p className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">Total Leads</p>
                                         <h3 className="text-2xl font-bold text-white">{data?.summary?.totalLeads || 0}</h3>
-                                        <div className="absolute bottom-0 right-0 bg-red-500/20 text-red-400 px-4 py-1.5 rounded-tl-xl text-xs font-black border-t border-l border-red-500/30">{data?.summary?.unassignedLeads || 0} UNASSIGNED</div>
+                                        <div className="absolute bottom-0 right-0 flex">
+                                            {data?.summary?.unassignedLeads > 0 && (
+                                                <div className="bg-red-500/20 text-red-400 px-3 py-1 text-[10px] font-black border-t border-l border-red-500/30">
+                                                    {data.summary.unassignedLeads} UNASSIGNED
+                                                </div>
+                                            )}
+                                            {ccStats?.assigned > 0 && (
+                                                <div className="bg-orange-500/20 text-orange-400 px-3 py-1 text-[10px] font-black border-t border-l border-orange-500/30">
+                                                    {ccStats.assigned} CALL CENTER
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="bg-slate-800 p-5 rounded-2xl border border-white/5 shadow-lg">
                                         <p className="text-slate-400 text-[11px] font-bold uppercase tracking-wider mb-2">Total Assigned</p>
@@ -649,7 +665,7 @@ if (bcastFile) formData.append('media', bcastFile);
                             </div>
                             <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl p-6 backdrop-blur-xl shadow-xl">
                                 <h3 className="text-sm font-bold text-white mb-4">Unique User Interaction Trends</h3>
-                                <div style={{ width: '100%', height: '100%', minHeight: '300px' }}>
+                                <div style={{ width: '100%', height: 300 }}>
                                     <ResponsiveContainer width="100%" height="100%">
                                         <LineChart data={displayMsgReport}> 
                                             <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />

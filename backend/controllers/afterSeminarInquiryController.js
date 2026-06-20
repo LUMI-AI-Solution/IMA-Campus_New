@@ -1013,8 +1013,18 @@ exports.receiveMessage = async (req, res) => {
             if (settings.campaignType === 'FREE_SEMINAR') {
                 const msgLower = (messageText || "").toLowerCase().trim();
                 const isRestartCommand = ['hi', 'hello', 'hey', 'menu', 'start'].includes(msgLower);
-                let existingLead = await prisma.lead.findUnique({ where: { phone: dbPhone } });
-                const timeSinceLastMsg = existingLead && existingLead.updatedAt ? new Date() - new Date(existingLead.updatedAt) : 10000;
+                
+                // Find all matching leads for this phone+business (catches _BATCH_, _AS, etc.)
+                const allMatchingLeads = await prisma.lead.findMany({
+                    where: { 
+                        phone: { startsWith: `${phone}_BIZ_${settings.businessId}` },
+                        campaignType: 'FREE_SEMINAR'
+                    },
+                    orderBy: { updatedAt: 'desc' }
+                });
+
+                let existingLeadCheck = allMatchingLeads.length > 0 ? allMatchingLeads[0] : null;
+                const timeSinceLastMsg = existingLeadCheck && existingLeadCheck.updatedAt ? new Date() - new Date(existingLeadCheck.updatedAt) : 10000;
                 
                 const isSpamming = timeSinceLastMsg < 10000; 
                 
@@ -1031,9 +1041,11 @@ exports.receiveMessage = async (req, res) => {
 
                 if (parsedBatchId) createDataFreeSeminar.batch = { connect: { id: parsedBatchId } };
 
-                existingLead = await prisma.lead.upsert({
-                    where: { phone: dbPhone },
-                    update: { name: name, lastMessage: messageText || 'Received Media', lastMessageAt: new Date(), unreadCount: { increment: 1 }, status: existingLead?.assignedTo ? 'OPEN' : 'NEW', updatedAt: new Date(), ...resetData },
+                let targetPhone = existingLeadCheck ? existingLeadCheck.phone : dbPhone;
+
+                let existingLead = await prisma.lead.upsert({
+                    where: { phone: targetPhone },
+                    update: { name: name, lastMessage: messageText || 'Received Media', lastMessageAt: new Date(), unreadCount: { increment: 1 }, status: existingLeadCheck?.assignedTo ? 'OPEN' : 'NEW', updatedAt: new Date(), ...resetData },
                     create: createDataFreeSeminar
                 });
 
