@@ -759,9 +759,9 @@ First, carefully analyze the slip and identify the bank and the SINGLE matching 
 Then, extract:
 - matched_bank: The identified bank name exactly as listed.
 - matched_slip_type: A SINGLE slip template name from the list (e.g. "CDM"). Do not output the whole list.
-- transaction_id: (CRITICAL: For BOC: Look for 'DEPOSITOR RELATED REFERENCE' at the bottom of the slip and extract that exact number. Do NOT extract the TO account number. If 'DEPOSITOR RELATED REFERENCE' is not found, extract the RECORD NO. For other banks, look for REF, Reference, Seq No. IMPORTANT: The extracted ID MUST be at least 4 digits long. DO NOT extract short 2-digit numbers like "07". Return null if unreadable)
+- transaction_id: (CRITICAL: For BOC: Look for 'DEPOSITOR RELATED REFERENCE' at the bottom of the slip and extract that exact number. Do NOT extract the TO account number. If 'DEPOSITOR RELATED REFERENCE' is not found, extract the RECORD NO. For BOC Online Transfer: Look for 'Online Banking reference Number' or 'Transaction ID'. For People's Bank: Look for 'Trace No' or 'Reference'. For other banks, look for REF, Reference, Seq No. IMPORTANT: The extracted ID MUST be at least 4 digits long. DO NOT extract short 2-digit numbers like "07". Return null if unreadable)
 - atm_id: (For Sampath Bank: Look for the ATM ID which usually starts with 'A00' e.g. 'A0001931' at the top of the slip. Return null if unreadable)
-- remark: (For Sampath Bank: Look for the 'REMARK' field. Extract exactly what is written. If it says 'NA', extract 'NA'. Return null if unreadable)
+- remark: (For Sampath Bank: Look for the 'REMARK' field. Extract exactly what is written. If it says 'NA', extract 'NA'. For People's Bank and BOC Online: Look for 'Remarks' or 'Description' and extract it. Return null if unreadable)
 - terminal_id: (For Commercial Bank: Look for the CRM branch name at the top of the slip, e.g., 'ANAMADUW-CRM1 BR' or 'KADAWATH-CRM'. Do NOT extract the alphanumeric TERMINAL ID like 'RANAMAD1HT'. Return null if unreadable)
 - narration: (For Commercial Bank: Look for NARRATION field. Extract exactly what is written. Return null if unreadable)
 - amount: (The transfer amount as a decimal number, e.g. 5000.00, without commas)
@@ -787,9 +787,9 @@ Format:
 You are an expert AI bank slip reader for the bank "${effectiveBank}".
 Analyze the slip carefully.
 Extract:
-- transaction_id: (CRITICAL: For BOC: Look for 'DEPOSITOR RELATED REFERENCE' at the bottom of the slip and extract that exact number. Do NOT extract the TO account number. If 'DEPOSITOR RELATED REFERENCE' is not found, extract the RECORD NO. For other banks, look for REF, Reference, Seq No. IMPORTANT: The extracted ID MUST be at least 4 digits long. DO NOT extract short 2-digit numbers like "07". Return null if unreadable)
+- transaction_id: (CRITICAL: For BOC: Look for 'DEPOSITOR RELATED REFERENCE' at the bottom of the slip and extract that exact number. Do NOT extract the TO account number. If 'DEPOSITOR RELATED REFERENCE' is not found, extract the RECORD NO. For BOC Online Transfer: Look for 'Online Banking reference Number' or 'Transaction ID'. For People's Bank: Look for 'Trace No' or 'Reference'. For other banks, look for REF, Reference, Seq No. IMPORTANT: The extracted ID MUST be at least 4 digits long. DO NOT extract short 2-digit numbers like "07". Return null if unreadable)
 - atm_id: (For Sampath Bank: Look for the ATM ID which usually starts with 'A00' e.g. 'A0001931' at the top of the slip. Return null if unreadable)
-- remark: (For Sampath Bank: Look for the 'REMARK' field. Extract exactly what is written. If it says 'NA', extract 'NA'. Return null if unreadable)
+- remark: (For Sampath Bank: Look for the 'REMARK' field. Extract exactly what is written. If it says 'NA', extract 'NA'. For People's Bank and BOC Online: Look for 'Remarks' or 'Description' and extract it. Return null if unreadable)
 - terminal_id: (For Commercial Bank: Look for the CRM branch name at the top of the slip, e.g., 'ANAMADUW-CRM1 BR' or 'KADAWATH-CRM'. Do NOT extract the alphanumeric TERMINAL ID like 'RANAMAD1HT'. Return null if unreadable)
 - narration: (For Commercial Bank: Look for NARRATION field. Extract exactly what is written. Return null if unreadable)
 - phone_number: (Look for any phone number printed or handwritten on the slip, usually 9 or 10 digits starting with 07. Return null if not found)
