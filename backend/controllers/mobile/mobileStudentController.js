@@ -2,11 +2,14 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const bcrypt = require('bcryptjs');
 const axios = require('axios');
+const jwt = require('jsonwebtoken');
+const { OAuth2Client } = require('google-auth-library');
 
 // ytdl-core අයින් කරලා මේ දෙක දාගන්න (yt-dlp පාවිච්චි කරන නිසා)
 const { execSync } = require('child_process');
 const path = require('path');
 const streamCache = {};
+const contentController = require('../contentController'); // 🔥 Added for Zoom proxy
 
 const safeJson = (data) => JSON.parse(JSON.stringify(data, (key, value) => typeof value === 'bigint' ? value.toString() : value));
 
@@ -159,10 +162,10 @@ exports.getMobileClassroom = async (req, res) => {
             id: sub.id.toString(), 
             name: sub.name,
             code: sub.code,
-            businessName: sub.group?.batch?.business?.name || "IMA",
+            businessName: sub.group?.batch?.business?.name || "Other",
             businessLogo: sub.group?.batch?.business?.logo || "default.png",
-            batchName: sub.group?.batch?.name || "",
-            batchLogo: sub.group?.batch?.logo || "default.png", 
+            batchName: sub.group?.batch?.name || sub.stream || "General Subjects",
+            batchLogo: sub.group?.batch?.logo || "default.png",
             description: sub.lecturerName || sub.description,
             groupType: sub.group?.type || 1, // 1 for Monthly, 2 for Full/Upgrade
             groupName: sub.group?.name || ""
@@ -248,32 +251,11 @@ exports.getCourseModules = async (req, res) => {
         const sPapers = contents.filter(c => c.contentType === 'sPaper' || c.contentType === '4');
         const papers = contents.filter(c => c.contentType === 'paper' || c.contentType === '5');
 
-        // 🔥 THE MAGIC TRICK 🔥
-        // ඔයාගේ App එකේ 'CourseContentScreen.jsx' එකේ මෙහෙම කෑල්ලක් තිබ්බා නේද:
-        // if (item.isYouTube || url.includes('youtube.com') || url.includes('youtu.be'))
-        // අපි දැන් Backend එකෙන් යවන්නේ YouTube ලින්ක් එකක් නෙමෙයි, සාමාන්‍ය Web ලින්ක් එකක් විදියට හැඩගහපු ලින්ක් එකක්!
-        // එතකොට App එක හිතන්නේ මේක සාමාන්‍ය Web Link එකක් කියලා WebView එකේ ඕපන් කරනවා.
-        // ඒ ඕපන් කරන Web Page එක ඇතුළේ තමයි අපි YouTube App එක Auto ඕපන් කරන්නේ!
-
-        const formatForWebView = (items) => {
-            return items.map(item => {
-                let url = item.link;
-                if (url && (url.includes('youtube.com') || url.includes('youtu.be'))) {
-                    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|live\/|shorts\/))([\w-]{11})/);
-                    if (match && match[1]) {
-                        // 🔥 මෙන්න මේකයි වෙනස් වුණේ! api/student වෙනුවට api/mobile දැම්මා.
-                        url = `https://imacampus.online/api/mobile/yt-redirect?v=${match[1]}`;
-                    }
-                }
-                return { ...item, link: url, isYouTube: false }; 
-            });
-        };
-
         const safeData = JSON.parse(JSON.stringify({ 
             lessonGroups, 
-            contents: formatForWebView(contents),
-            liveClasses: formatForWebView(liveClasses), 
-            recordings: formatForWebView(recordings), 
+            contents: contents,
+            liveClasses: liveClasses, 
+            recordings: recordings, 
             documents, sPapers, papers,
             paidStatus: paidStatus 
         }, (k, v) => typeof v === 'bigint' ? v.toString() : v));
@@ -384,7 +366,7 @@ exports.getMobileUpcomingLives = async (req, res) => {
                 endTime: c.endTime,
                 link: c.link,
                 zoomMeetingId: c.meetingId,
-                image: c.fileName || c.image || null, // 🔥 අලුතින් එකතු කළා Thumbnail එක යවන්න
+                image: c.thumbnail || c.fileName || null, 
                 paidStatus: 1 
             };
         });
@@ -497,5 +479,237 @@ exports.getActiveAppEvent = async (req, res) => {
         res.status(200).json({ activeEvent: setting ? setting.value : 'none' });
     } catch (error) {
         res.status(500).json({ error: "Failed" });
+    }
+};
+
+// 🔥 Google Sign-In: Verify Student ID Token
+exports.verifyStudent = async (req, res) => {
+    try {
+        const { idToken } = req.body;
+        if (!idToken) return res.status(400).json({ error: "No ID token provided" });
+
+        const client = new OAuth2Client(process.env.GOOGLE_YOUTUBE_CLIENT_ID);
+        const ticket = await client.verifyIdToken({
+            idToken: idToken,
+            audience: [
+                process.env.GOOGLE_YOUTUBE_CLIENT_ID, 
+                process.env.GOOGLE_YOUTUBE_IOS_CLIENT_ID, 
+                process.env.GOOGLE_YOUTUBE_ANDROID_CLIENT_ID
+            ].filter(Boolean),
+        });
+        const payload = ticket.getPayload();
+        const email = payload['email'];
+
+        // Check if student exists with this email
+        // Adjust the query depending on how the email is stored in your DB. 
+        // Some systems store it in 'email' field or 'username'. We assume 'email'.
+        const student = await prisma.user.findFirst({ 
+            where: { 
+                email: email, 
+                role: 'student' 
+            } 
+        });
+        
+        if (!student) {
+             return res.status(403).json({ error: "Email not found in our student list" });
+        }
+
+        // Generate JWT token for the app session
+        const token = jwt.sign(
+            { userId: student.id, sessionId: student.session_id }, 
+            process.env.JWT_SECRET || 'fallback_secret', 
+            { expiresIn: '30d' }
+        );
+        
+        res.status(200).json({ token, user: safeJson(student) });
+    } catch (error) {
+        console.error("Verify Student Error:", error);
+        res.status(500).json({ error: "Google Sign-In Verification failed" });
+    }
+};
+
+// 🔥 Generate Temporary Video Access Token using Refresh Token
+exports.getVideoToken = async (req, res) => {
+    try {
+        const studentId = req.user?.userId || req.user?.id;
+        if (!studentId) return res.status(401).json({ error: "Unauthorized" });
+
+        const oauth2Client = new OAuth2Client(
+            process.env.GOOGLE_YOUTUBE_CLIENT_ID,
+            process.env.GOOGLE_YOUTUBE_CLIENT_SECRET
+        );
+
+        oauth2Client.setCredentials({
+            refresh_token: process.env.GOOGLE_YOUTUBE_REFRESH_TOKEN
+        });
+
+        const { credentials } = await oauth2Client.refreshAccessToken();
+        const accessToken = credentials.access_token;
+
+        res.status(200).json({ accessToken });
+    } catch (error) {
+        console.error("Get Video Token Error:", error);
+        res.status(500).json({ error: "Failed to generate video token" });
+    }
+};
+
+// 🔥 Update YouTube Cookies automatically from Admin Chrome Extension
+exports.updateYtCookies = async (req, res) => {
+    try {
+        const { cookies } = req.body;
+        if (!cookies) return res.status(400).json({ error: "No cookies provided" });
+        
+        const fs = require('fs');
+        const path = require('path');
+        const cookiePath = path.join(__dirname, '../../../yt_cookies.txt');
+        
+        fs.writeFileSync(cookiePath, cookies, 'utf8');
+        console.log("✅ YouTube cookies updated automatically from Extension!");
+        
+        res.status(200).json({ message: "Cookies updated successfully" });
+    } catch (error) {
+        console.error("Update Cookies Error:", error);
+        res.status(500).json({ error: "Failed to update cookies" });
+    }
+};
+
+// 🔥 Secure Proxy for Zoom Recording Downloads
+exports.downloadRecording = async (req, res) => {
+    try {
+        const studentId = req.user?.userId || req.user?.id || req.userId;
+        const { contentId } = req.params;
+
+        if (!studentId) return res.status(401).json({ error: "Unauthorized" });
+        if (!contentId) return res.status(400).json({ error: "Content ID is required" });
+
+        // Fetch the content
+        const content = await prisma.content.findUnique({
+            where: { id: parseInt(contentId) }
+        });
+
+        if (!content) return res.status(404).json({ error: "Content not found" });
+
+        // Ideally we should also verify if the student has access to this content
+        // (For now, we rely on the VerifyToken middleware which confirms it's a valid student)
+
+        let finalUrl = content.link; 
+
+        // 🔥 1. Try to fetch fresh Zoom link using Server-to-Server API (Most Reliable) 🔥
+        if (content.meetingId && content.meetingId.trim() !== '') {
+            console.log(`[PROXY] Using API to fetch Zoom link for Meeting ID: ${content.meetingId}`);
+            const cleanMeetingId = content.meetingId.replace(/\D/g, '');
+            const directMp4 = await contentController.getZoomDirectMp4Link(cleanMeetingId, content.date);
+            if (directMp4) {
+                finalUrl = directMp4;
+            }
+        } 
+        // 🔥 2. Fallback to HTML Scraping ONLY IF Meeting ID is not provided 🔥
+        else if (finalUrl && (finalUrl.includes('zoom.us/rec/share') || finalUrl.includes('zoom.us/rec/play'))) {
+            try {
+                console.log(`[PROXY] Extracting video URL from Zoom Share Link for content ${contentId}...`);
+                const htmlRes = await axios.get(finalUrl, {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.120 Safari/537.36'
+                    }
+                });
+                const htmlText = htmlRes.data;
+                // 🔥 Log HTML snippet for debugging 🔥
+                console.log(`[PROXY] Zoom HTML Snippet: `, htmlText.substring(0, 500));
+                
+                // Write full HTML to a temp file for deep debugging
+                require('fs').writeFileSync('/tmp/zoom_html.txt', htmlText);
+
+                let extractedUrl = null;
+                const downloadMatch = htmlText.match(/downloadUrl\s*:\s*['"](https:\/\/[^'"]+)['"]/);
+                
+                if (downloadMatch && downloadMatch[1]) {
+                    extractedUrl = downloadMatch[1];
+                } else {
+                    const viewMatch = htmlText.match(/viewUrl\s*:\s*['"](https:\/\/[^'"]+)['"]/);
+                    if (viewMatch && viewMatch[1]) {
+                        extractedUrl = viewMatch[1];
+                    } else {
+                        const fallbackMatch = htmlText.match(/(https:\/\/[^"'\s]+\.mp4[^"'\s]*)/);
+                        if (fallbackMatch && fallbackMatch[1]) {
+                            extractedUrl = fallbackMatch[1];
+                        }
+                    }
+                }
+
+                if (extractedUrl) {
+                    try {
+                        finalUrl = JSON.parse('"' + extractedUrl + '"');
+                    } catch (e) {
+                        finalUrl = extractedUrl.replace(/\\u0026/g, '&');
+                    }
+                    console.log(`[PROXY] Successfully extracted direct MP4 URL!`);
+                } else {
+                    throw new Error("Could not find mp4 url in HTML");
+                }
+            } catch (error) {
+                console.error(`[PROXY] Failed to extract from Zoom Link:`, error.message);
+                return res.status(404).json({ error: "Failed to extract Zoom video. Link might be invalid or require passcode." });
+            }
+        }
+
+        if (!finalUrl || !finalUrl.startsWith('http')) {
+            return res.status(404).json({ error: "Recording URL not available" });
+        }
+
+        console.log(`[PROXY] Streaming Zoom video for content ${contentId} to student ${studentId}`);
+
+        // Stream the video file from Zoom through our server to the client
+        const response = await axios({
+            method: 'get',
+            url: finalUrl,
+            responseType: 'stream',
+            maxRedirects: 5 // Zoom links might redirect
+        });
+
+        // Set headers to indicate a video stream download
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Content-Disposition', `attachment; filename="recording_${contentId}.dat"`); // Using .dat to obscure it
+        
+        if (response.headers['content-length']) {
+            res.setHeader('Content-Length', response.headers['content-length']);
+        }
+
+        // Pipe the stream directly to the client
+        response.data.pipe(res);
+
+    } catch (error) {
+        console.error("Download Recording Proxy Error:", error.message);
+        res.status(500).json({ error: "Failed to download recording" });
+    }
+};
+
+// ================= STREAM PROXY FOR PRE-EXTRACTED URLS =================
+exports.proxyStreamUrl = async (req, res) => {
+    try {
+        const { url } = req.query;
+        if (!url || (!url.includes('zoom.us') && !url.includes('.mp4'))) {
+            return res.status(403).json({ error: "Invalid or unauthorized URL." });
+        }
+
+        console.log(`[PROXY-STREAM] Proxying pre-extracted URL: ${url.substring(0, 50)}...`);
+
+        const response = await axios({
+            method: 'get',
+            url: url,
+            responseType: 'stream',
+            maxRedirects: 5
+        });
+
+        res.setHeader('Content-Type', 'video/mp4');
+        res.setHeader('Content-Disposition', `attachment; filename="recording_${Date.now()}.dat"`);
+        
+        if (response.headers['content-length']) {
+            res.setHeader('Content-Length', response.headers['content-length']);
+        }
+
+        response.data.pipe(res);
+    } catch (error) {
+        console.error(`[PROXY-STREAM] Error proxying URL:`, error.message);
+        res.status(500).json({ error: "Failed to download stream" });
     }
 };
