@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Psychedelic & Deep Space Coding Art</title>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        /* 👨‍🚀 Astronaut Floating Animation CSS (PRESERVED) */
+        @keyframes floatAstro {
+            0% {
+                transform: translate(-50%, -50%) translateY(0px) rotate(0deg) scale(1);
+            }
+
+            33% {
+                transform: translate(-50%, -50%) translateY(-40px) rotate(8deg) scale(1.05);
+            }
+
+            66% {
+                transform: translate(-50%, -50%) translateY(30px) rotate(-6deg) scale(0.95);
+            }
+
+            100% {
+                transform: translate(-50%, -50%) translateY(0px) rotate(0deg) scale(1);
+            }
+        }
+
+        #astronaut {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            font-size: 160px;
+            pointer-events: none;
+            filter: drop-shadow(0px 0px 25px rgba(0, 255, 255, 0.9)) drop-shadow(0px 0px 50px rgba(255, 0, 255, 0.6));
+            animation: floatAstro 14s infinite ease-in-out;
+            display: none;
+            z-index: 10;
+        }
+
+        /* UI Wrapper for easy hiding */
+        #ui-layer {
+            transition: opacity 0.4s ease;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            z-index: 20;
+            pointer-events: none;
+            /* Let clicks pass through except on buttons */
+        }
+
+        /* UI Control Panel */
+        .controls {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(10, 10, 15, 0.5);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 10px;
+            border-radius: 20px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+            pointer-events: auto;
+            width: 90%;
+            max-width: 500px;
+        }
+
+        button {
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.5);
+            padding: 8px 12px;
+            font-size: 11px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 50px;
+            transition: all 0.4s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        button.active {
+            background: #ffffff;
+            color: #000000;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.6);
+            transform: scale(1.05);
+        }
+
+        /* Title Text */
+        .info-text {
+            position: absolute;
+            top: 40px;
+            left: 30px;
+            pointer-events: none;
+        }
+
+        .info-text h1 {
+            color: #ffffff;
+            font-size: 24px;
+            font-weight: 900;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            text-shadow: 0 0 15px rgba(255, 255, 255, 0.5);
+            margin: 0;
+        }
+
+        .info-text p {
+            color: #aaaaaa;
+            font-size: 12px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="ui-layer">
+        <div class="info-text">
+            <h1 id="title-text">Psychedelic Loop</h1>
+            <p>Tap anywhere to hide UI.</p>
+        </div>
+
+        <div class="controls">
+            <button id="btn1" class="active" onclick="switchMode(1)">1. Fractal</button>
+            <button id="btn2" onclick="switchMode(2)">2. Emoji</button>
+            <button id="btn3" onclick="switchMode(3)">3. Void (Slow)</button>
+            <button id="btn4" onclick="switchMode(4)">4. Wormhole (Fast)</button>
+            <button id="btn5" onclick="switchMode(5)">5. Liquid (Fast)</button>
+        </div>
+    </div>
+
+    <!-- The 3D Floating Astronaut Element -->
+    <div id="astronaut">👨‍🚀</div>
+
+    <canvas id="glcanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById("glcanvas");
+        const gl = canvas.getContext("webgl");
+        let currentProgram;
+        let mode = 1;
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        let uiVisible = true;
+        canvas.addEventListener('click', () => {
+            uiVisible = !uiVisible;
+            document.getElementById('ui-layer').style.opacity = uiVisible ? '1' : '0';
+            // Enable/Disable pointer events so we can click buttons when visible
+            document.getElementById('ui-layer').style.pointerEvents = uiVisible ? 'auto' : 'none';
+        });
+
+        // --- VERTEX SHADER ---
+        const vsSource = `
+            attribute vec4 aVertexPosition;
+            void main() { gl_Position = aVertexPosition; }
+        `;
+
+        // --- 1. Original Psychedelic Logic (PRESERVED) ---
+        const fsPsychedelic = `
+            precision highp float; uniform vec2 u_resolution; uniform float u_time;
+            void main() {
+                vec2 uv = (gl_FragCoord.xy * 2.0 - u_resolution.xy) / min(u_resolution.x, u_resolution.y);
+                vec2 uv0 = uv; vec3 finalColor = vec3(0.0);
+                for (float i = 0.0; i < 4.0; i++) {
+                    uv = fract(uv * 1.5) - 0.5;
+                    float d = length(uv) * exp(-length(uv0));
+                    vec3 col = 0.5 + 0.5 * cos(u_time * 0.5 + uv0.xyx + vec3(0, 2, 4));
+                    d = sin(d * 8.0 + u_time) / 8.0; d = abs(d); d = pow(0.01 / d, 1.2);
+                    finalColor += col * d;
+                }
+                gl_FragColor = vec4(finalColor, 1.0);
+            }
+        `;
+
+        // --- 2. Emoji Space Nebula Logic (PRESERVED) ---
+        const fsSpace = `
+            precision highp float; uniform vec2 u_resolution; uniform float u_time;
+            void main() {
+                vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.x, u_resolution.y);
+                float t = u_time * 0.3; vec3 color = vec3(0.0);
+                for(float i = 1.0; i < 6.0; i++) {
+                    vec2 p = uv;
+                    p.x += 0.5 / i * cos(i * 2.5 * uv.y + t); p.y += 0.5 / i * cos(i * 2.5 * uv.x + t);
+                    float d = length(p);
+                    color += vec3(0.06 / d) * vec3(sin(t + i)*0.5+0.5, 0.4, cos(t + i*0.5)*0.5+0.8);
+                }
+                float stars = fract(sin(dot(uv, vec2(12.9898, 78.233))) * 43758.5453);
+                if(stars > 0.993) { color += vec3(1.0) * (sin(u_time * 4.0 + stars * 10.0) * 0.5 + 0.5); }
+                color *= smoothstep(1.5, 0.0, length(uv) * 0.8);
+                gl_FragColor = vec4(color, 1.0);
+            }
+        `;
+
+        // --- 3. POV Infinite Space Drift (PRESERVED - Slow on Mobile) ---
+        const fsPOVSpace = `
+            precision highp float; uniform vec2 u_resolution; uniform float u_time;
+            void main() {
+                vec2 uv = gl_FragCoord.xy / u_resolution.xy - 0.5; uv.y *= u_resolution.y / u_resolution.x;
+                vec3 dir = vec3(uv * 0.8, 1.0); float time = u_time * 0.010 + 0.25;
+                float a1 = u_time * 0.05; float a2 = u_time * 0.02;
+                mat2 rot1 = mat2(cos(a1), sin(a1), -sin(a1), cos(a1)); mat2 rot2 = mat2(cos(a2), sin(a2), -sin(a2), cos(a2));
+                dir.xz *= rot1; dir.xy *= rot2;
+                vec3 from = vec3(1.0, 0.5, 0.5); from += vec3(time * 2.0, time, -2.0); 
+                from.xz *= rot1; from.xy *= rot2;
+                float s = 0.1, fade = 1.0; vec3 v = vec3(0.0);
+                for (int r = 0; r < 18; r++) {
+                    vec3 p = from + s * dir * 0.5; p = abs(vec3(0.85) - mod(p, vec3(1.7)));
+                    float pa, a = pa = 0.0;
+                    for (int i = 0; i < 15; i++) {
+                        p = abs(p) / dot(p, p) - 0.53; a += abs(length(p) - pa); pa = length(p);
+                    }
+                    float dm = max(0.0, 0.3 - a * a * 0.001); a *= a * a;
+                    if (r > 6) fade *= 1.0 - dm;
+                    v += vec3(dm, dm * 0.5, 0.0); v += vec3(s, s * s, s * s * s * s) * a * 0.0015 * fade;
+                    fade *= 0.73; s += 0.1;
+                }
+                v = mix(vec3(length(v)), v, 0.85); gl_FragColor = vec4(v * 0.015, 1.0);
+            }
+        `;
+
+        // --- 4. NEW: Fast Neon Wormhole ---
+        const fsWormhole = `
+            precision highp float; uniform vec2 u_resolution; uniform float u_time;
+            void main() {
+                vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.x, u_resolution.y);
+                float a = atan(uv.y, uv.x);
+                float r = length(uv);
+                // Math for infinite tunnel effect (optimized)
+                vec2 p = vec2(0.3 / r + u_time * 2.0, a * 3.0 / 3.14159);
+                // Dynamic colors based on time and position
+                float v = sin(p.x) * cos(p.y) + sin(p.x * 2.1 + u_time) * cos(p.y * 1.5 - u_time);
+                v = smoothstep(0.0, 1.0, abs(v));
+                vec3 col = vec3(0.1, 0.8, 1.0) * v + vec3(1.0, 0.1, 0.8) * (1.0 - v);
+                // Fade out to black in the center
+                gl_FragColor = vec4(col * smoothstep(0.0, 0.5, r), 1.0);
+            }
+        `;
+
+        // --- 5. NEW: Fast Liquid Galaxy ---
+        const fsLiquid = `
+            precision highp float; uniform vec2 u_resolution; uniform float u_time;
+            void main() {
+                vec2 uv = (gl_FragCoord.xy - 0.5 * u_resolution.xy) / min(u_resolution.x, u_resolution.y);
+                vec2 p = uv * 3.0;
+                float t = u_time * 0.5;
+                // Domain warping (fast liquid effect)
+                for(int i = 1; i < 6; i++) {
+                    vec2 newp = p;
+                    newp.x += 0.6 / float(i) * sin(float(i) * p.y + t + 0.3);
+                    newp.y += 0.6 / float(i) * cos(float(i) * p.x + t + 0.3);
+                    p = newp;
+                }
+                // Beautiful mystic colors
+                vec3 col = vec3(0.5 * sin(3.0 * p.x) + 0.5, 0.5 * sin(3.0 * p.y) + 0.5, sin(p.x + p.y));
+                gl_FragColor = vec4(col * (1.0 - length(uv) * 0.8), 1.0);
+            }
+        `;
+
+        function compileShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            return shader;
+        }
+
+        const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vsSource);
+
+        function createProgram(fsSource) {
+            const fs = compileShader(gl, gl.FRAGMENT_SHADER, fsSource);
+            const prog = gl.createProgram();
+            gl.attachShader(prog, vertexShader);
+            gl.attachShader(prog, fs);
+            gl.linkProgram(prog);
+            return prog;
+        }
+
+        const programPsychedelic = createProgram(fsPsychedelic);
+        const programSpace = createProgram(fsSpace);
+        const programPOVSpace = createProgram(fsPOVSpace);
+        const programWormhole = createProgram(fsWormhole);
+        const programLiquid = createProgram(fsLiquid);
+
+        const vertices = new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
+        const vertexBuffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+
+        currentProgram = programPsychedelic;
+
+        function render(time) {
+            time *= 0.001;
+            gl.useProgram(currentProgram);
+
+            const positionLocation = gl.getAttribLocation(currentProgram, "aVertexPosition");
+            gl.enableVertexAttribArray(positionLocation);
+            gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+
+            const resolutionLocation = gl.getUniformLocation(currentProgram, "u_resolution");
+            const timeLocation = gl.getUniformLocation(currentProgram, "u_time");
+
+            gl.uniform2f(resolutionLocation, canvas.width, canvas.height);
+            gl.uniform1f(timeLocation, time);
+
+            gl.clearColor(0.0, 0.0, 0.0, 1.0);
+            gl.clear(gl.COLOR_BUFFER_BIT);
+            gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+            requestAnimationFrame(render);
+        }
+
+        requestAnimationFrame(render);
+
+        function switchMode(newMode) {
+            mode = newMode;
+            document.querySelectorAll('button').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`btn${mode}`).classList.add('active');
+
+            const title = document.getElementById('title-text');
+            const astronaut = document.getElementById('astronaut');
+            astronaut.style.display = "none";
+
+            if (mode === 1) {
+                currentProgram = programPsychedelic;
+                title.innerText = "Psychedelic Loop";
+            } else if (mode === 2) {
+                currentProgram = programSpace;
+                title.innerText = "Emoji Nebula";
+                astronaut.style.display = "block";
+            } else if (mode === 3) {
+                currentProgram = programPOVSpace;
+                title.innerText = "Endless Space Drift";
+            } else if (mode === 4) {
+                currentProgram = programWormhole;
+                title.innerText = "Neon Wormhole";
+            } else if (mode === 5) {
+                currentProgram = programLiquid;
+                title.innerText = "Liquid Galaxy";
+            }
+        }
+    </script>
+</body>
+
+</html>
