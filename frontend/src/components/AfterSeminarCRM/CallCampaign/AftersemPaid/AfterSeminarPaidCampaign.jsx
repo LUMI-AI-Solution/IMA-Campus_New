@@ -426,6 +426,12 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
 
         if (statusFilter === 'PENDING') {
             filtered = filtered.filter(isLeadPending);
+        } else if (statusFilter === 'ANSWERED') {
+            filtered = filtered.filter(l => l.callStatus === 'answered');
+        } else if (statusFilter === 'REJECT') {
+            filtered = filtered.filter(l => l.callStatus === 'reject');
+        } else if (statusFilter === 'NO_ANSWER') {
+            filtered = filtered.filter(l => ['no_answer', 'busy', 'switch_off', 'not_connected'].includes(l.callStatus));
         }
 
         filtered.sort((a, b) => {
@@ -549,7 +555,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                             <div className="w-px h-8 bg-white/10 mx-1 hidden md:block"></div>
                             <div className="flex flex-col items-center"><span className="text-[9px] text-rose-500 font-bold uppercase tracking-wider mb-1">Reject</span><span className="text-xl font-black text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]">{stats.rejected}</span></div>
                             <div className="w-px h-8 bg-white/10 mx-1 hidden md:block"></div>
-                            <div className="flex flex-col items-center"><span className="text-[9px] text-orange-500 font-bold uppercase tracking-wider mb-1">No Ans/Busy</span><span className="text-xl font-black text-orange-400 drop-shadow-[0_0_8px_rgba(249,115,22,0.4)]">{stats.noAnswer}</span></div>
+                            <div className="flex flex-col items-center"><span className="text-[9px] text-orange-500 font-bold uppercase tracking-wider mb-1">No Answer</span><span className="text-xl font-black text-orange-400 drop-shadow-[0_0_8px_rgba(249,115,22,0.4)]">{stats.noAnswer}</span></div>
                             <div className="w-px h-8 bg-white/10 mx-1 hidden md:block"></div>
                             <div className="flex flex-col items-center"><span className="text-[9px] text-blue-500 font-bold uppercase tracking-wider mb-1">Covered</span><span className="text-xl font-black text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]">{stats.responseRate}%</span></div>
                         </div>
@@ -569,6 +575,24 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                                     className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${statusFilter === 'PENDING' ? 'bg-amber-500 text-black shadow-[0_0_10px_rgba(245,158,11,0.5)]' : 'bg-[#0F172A] border border-white/10 text-amber-400 hover:bg-white/5'}`}
                                 >
                                     ⏳ PENDING
+                                </button>
+                                <button
+                                    onClick={() => { setStatusFilter(statusFilter === 'ANSWERED' ? 'ALL' : 'ANSWERED'); setCurrentPage(1); }}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${statusFilter === 'ANSWERED' ? 'bg-emerald-500 text-black shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-[#0F172A] border border-white/10 text-emerald-400 hover:bg-white/5'}`}
+                                >
+                                    ✅ ANSWERED
+                                </button>
+                                <button
+                                    onClick={() => { setStatusFilter(statusFilter === 'REJECT' ? 'ALL' : 'REJECT'); setCurrentPage(1); }}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${statusFilter === 'REJECT' ? 'bg-rose-500 text-white shadow-[0_0_10px_rgba(244,63,94,0.5)]' : 'bg-[#0F172A] border border-white/10 text-rose-400 hover:bg-white/5'}`}
+                                >
+                                    ❌ REJECT
+                                </button>
+                                <button
+                                    onClick={() => { setStatusFilter(statusFilter === 'NO_ANSWER' ? 'ALL' : 'NO_ANSWER'); setCurrentPage(1); }}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${statusFilter === 'NO_ANSWER' ? 'bg-orange-500 text-black shadow-[0_0_10px_rgba(249,115,22,0.5)]' : 'bg-[#0F172A] border border-white/10 text-orange-400 hover:bg-white/5'}`}
+                                >
+                                    📵 NO ANSWER
                                 </button>
                                 {statusFilter !== 'ALL' && (
                                     <button
