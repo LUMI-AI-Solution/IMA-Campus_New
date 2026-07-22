@@ -58,6 +58,7 @@ export default function LeadCard({
                     <div className="flex flex-col overflow-hidden">
                         <h4 className="font-black text-[15px] text-white flex items-center gap-1.5 truncate tracking-wide">
                             {lead.phone} {isLocked && <FaLock size={10} className="text-rose-500"/>}
+                            {lead.isUpgraded && <span className="text-[9px] bg-teal-500/20 text-teal-400 px-1.5 py-0.5 rounded border border-teal-500/30 uppercase tracking-widest ml-1 shadow-sm">Upgrade</span>}
                         </h4>
                         <p className="text-xs font-medium text-slate-400 truncate w-full mt-0.5">{lead.name || 'No Name Provided'}</p>
                     </div>

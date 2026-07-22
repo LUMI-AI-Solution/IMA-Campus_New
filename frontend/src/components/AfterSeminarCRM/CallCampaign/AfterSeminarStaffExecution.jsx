@@ -8,7 +8,7 @@ import AfterSeminarNewInq from './AfterSemNew/AfterSeminarNewInq';
 import AfterSeminarPaidCampaign from './AftersemPaid/AfterSeminarPaidCampaign';
 import BridgeStaffExecution from "./BridgeStaffExecution";
 
-export default function AfterSeminarStaffExecution({ filters, allBatches, setSelectedLead, externalTab, campaignSearchPhone }) {
+export default function AfterSeminarStaffExecution({ filters, allBatches, setSelectedLead, externalTab, campaignSearchPhone, onLeadsLoaded }) {
     const [activeTab, setActiveTab] = useState('OPEN_SEM'); 
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -27,7 +27,7 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
         if (activeTab === 'OPEN_SEM' || activeTab === 'NEW_INQ') {
             fetchRegularLeads();
         }
-    }, [filters, activeTab]);
+    }, [filters?.selectedBusiness, filters?.selectedBatch, activeTab]);
 
     const fetchRegularLeads = async () => {
         const currentRequestTab = activeTab;
@@ -39,11 +39,11 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
                 headers: { Authorization: `Bearer ${token}` },
                 params: {
                     tab: 'ASSIGNED',
-                    loggedUserId: currentUser?.id,
+                    staffId: currentUser?.id,
                     loggedUserRole: currentUser?.role,
                     businessId: filters?.selectedBusiness || '', 
                     batchId: filters?.selectedBatch || '',
-                    inquiryType: currentRequestTab === 'OPEN_SEM' ? 'OPEN_SEMINAR' : 'NEW_INQ',
+                    inquiryType: currentRequestTab === 'OPEN_SEM' ? 'OPEN_SEMINAR,NORMAL' : 'NEW_INQ',
                     limit: 1000
                 }
             });
@@ -55,6 +55,7 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
             
             const regularLeads = (res.data.leads || []).filter(l => l.source !== 'bridge_transfer');
             setLeads(regularLeads);
+            if (onLeadsLoaded) onLeadsLoaded(regularLeads.length);
 
             const loadedDrafts = {};
             regularLeads.forEach(l => {
@@ -87,7 +88,7 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
 
         try {
             const token = localStorage.getItem('token');
-            await axios.post('/after-seminar-crm/leads/update-call', {
+            const res = await axios.post('/after-seminar-crm/leads/update-call', {
                 leadId, 
                 method: lead.callMethod || 'direct', 
                 status: finalStatus, 
@@ -105,8 +106,10 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
             setDrafts(newDrafts);
             localStorage.removeItem(`draft_remark_as_${leadId}`);
 
-            // 🔥 අලුතෙන් මුළු ලිස්ට් එකම අරගන්නවා. එතකොට Backend එකේ හැදිච්ච අලුත් Phase, අලුත් UpdatedAt සේරම හරියට එනවා!
-            fetchRegularLeads();
+            // 🔥 අලුතෙන් මුළු ලිස්ට් එකම ගන්නෙ නැතුව Local Update කරනවා! (ගොඩක් වෙලා යන එක නවත්තන්න)
+            if (res.data && res.data.lead) {
+                setLeads(prev => prev.map(l => l.id === leadId ? { ...l, ...res.data.lead } : l));
+            }
             
         } catch (error) { 
             toast.error("Failed to save data.", { id: loadToast }); 

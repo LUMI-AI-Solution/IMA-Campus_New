@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { FaLock, FaUnlock, FaSave, FaCommentDots, FaArrowRight, FaChevronDown, FaChevronUp, FaExclamationTriangle, FaBell, FaTimes, FaCheckCircle, FaTrash } from 'react-icons/fa';
+import { FaLock, FaUnlock, FaSave, FaCommentDots, FaArrowRight, FaChevronDown, FaChevronUp, FaExclamationTriangle, FaBell, FaTimes, FaCheckCircle, FaTrash, FaInfoCircle } from 'react-icons/fa';
 import { Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from '../../../../api/axios';
@@ -145,6 +145,11 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
                     <div className="flex flex-col overflow-hidden">
                         <h4 className="font-black text-[15px] text-white flex items-center gap-1.5 truncate tracking-wide">
                             {lead?.phone} {isLocked && <FaLock size={10} className="text-rose-500"/>}
+                            {lead?.roundProgress && lead.roundProgress.length > 0 && (
+                                <div className="group relative flex items-center ml-1">
+                                    <FaInfoCircle size={12} className="text-indigo-400 cursor-help" title={`Round History:\n${lead.roundProgress.map(rp => `Round ${rp.roundNum} (${rp.campaignCategory}): ${rp.callStatus?.toUpperCase() || 'N/A'}, Attempt ${rp.callAttempt || 1}, Remark: ${rp.feedback || 'None'}`).join('\n')}`} />
+                                </div>
+                            )}
                         </h4>
                         <p className="text-xs font-medium text-slate-400 truncate w-full mt-0.5">{lead?.name || 'No Name Provided'}</p>
                     </div>

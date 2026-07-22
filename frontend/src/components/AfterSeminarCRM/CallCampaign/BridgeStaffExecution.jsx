@@ -43,7 +43,7 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
                 headers: { Authorization: `Bearer ${token}` }, 
                 params: {
                     tab: 'ASSIGNED',
-                    loggedUserId: currentUserId,
+                    staffId: currentUserId,
                     loggedUserRole: rawRole,
                     businessId: filters?.selectedBusiness || '', 
                     batchId: filters?.selectedBatch || ''        
@@ -139,19 +139,19 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
             
             {/* 🔥 Collapsible Stats Section (Premium UI) 🔥 */}
             <div className="flex flex-col gap-4 shrink-0 mb-2">
-                <div className="flex justify-between items-center bg-[#111827] px-6 py-4 rounded-2xl border border-slate-800 shadow-sm">
+                <div className="flex justify-between items-center bg-white/5 backdrop-blur-md px-6 py-4 rounded-2xl border border-white/10 shadow-sm">
                     <div className="flex items-center gap-3">
                         <div className="bg-indigo-500/10 p-2 rounded-lg"><FaChartPie className="text-indigo-500 text-xl" /></div>
                         <h2 className="text-lg font-bold text-white tracking-wide">Bridge Execution Matrix</h2>
                     </div>
-                    <button onClick={() => setIsStatsCollapsed(!isStatsCollapsed)} className="flex items-center gap-2 text-sm font-semibold text-slate-400 hover:text-white bg-slate-900/50 px-4 py-2 rounded-xl transition-colors border border-slate-700">
+                    <button onClick={() => setIsStatsCollapsed(!isStatsCollapsed)} className="flex items-center gap-2 text-sm font-semibold text-slate-400 hover:text-white bg-black/20 px-4 py-2 rounded-xl transition-colors border border-white/10">
                         {isStatsCollapsed ? <><ChevronDown size={14} /> Show Stats</> : <><ChevronUp size={14} /> Hide Stats</>}
                     </button>
                 </div>
 
                 {!isStatsCollapsed && (
-                    <div className="bg-slate-800/60 border border-slate-700 rounded-2xl p-5 flex flex-wrap lg:flex-nowrap gap-6 shadow-md animate-fade-in-up">
-                        <div className="flex gap-8 border-r border-slate-700 pr-8">
+                    <div className="bg-black/20 backdrop-blur-md border border-white/10 rounded-2xl p-5 flex flex-wrap lg:flex-nowrap gap-6 shadow-md animate-fade-in-up">
+                        <div className="flex gap-8 border-r border-white/10 pr-8">
                             <div>
                                 <p className="text-xs text-slate-400 font-semibold uppercase tracking-wider mb-1 flex items-center gap-1.5"><PhoneCall size={12}/> Assigned</p>
                                 <p className="text-2xl font-black text-white">{totalAssigned}</p>
@@ -220,7 +220,7 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
             {/* Leads List */}
             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-3 pb-10 pr-2">
                 {paginatedLeads.length === 0 ? (
-                    <div className="flex flex-col justify-center items-center py-20 text-slate-500 bg-[#111827] rounded-[2rem] border border-slate-800 shadow-sm transition-colors mt-4">
+                    <div className="flex flex-col justify-center items-center py-20 text-slate-500 bg-white/5 backdrop-blur-md rounded-[2rem] border border-white/10 shadow-sm transition-colors mt-4">
                         <CheckCircle2 size={48} className="mb-4 opacity-30 text-emerald-500" />
                         <h3 className="text-lg font-bold text-slate-400 transition-colors">No leads found in Phase {activePhase}</h3>
                     </div>
@@ -249,20 +249,20 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
                                 {showDateHeader && (
                                     <div className="sticky top-0 z-10 bg-[#0f151c]/95 backdrop-blur-sm py-2 my-2 first:mt-0">
                                         <div className="flex items-center gap-3">
-                                            <h3 className="text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded bg-[#111827] border border-slate-800 text-slate-300 flex items-center gap-2">
+                                            <h3 className="text-[10px] font-bold uppercase tracking-widest px-3 py-1.5 rounded bg-white/5 border border-white/10 text-slate-300 flex items-center gap-2">
                                                 {getDateHeader(currentLeadDate)}
                                             </h3>
-                                            <div className="h-px flex-1 bg-slate-800"></div>
+                                            <div className="h-px flex-1 bg-white/10"></div>
                                         </div>
                                     </div>
                                 )}
 
                                 {/* 🔥 Premium Inner Lead Card UI 🔥 */}
-                                <div className={`bg-[#111827] rounded-xl transition-all duration-200 overflow-hidden border ${isPending ? 'border-rose-500/30 shadow-[0_0_10px_rgba(244,63,94,0.05)]' : 'border-slate-800 hover:border-slate-700'} mb-3 p-5 flex flex-col xl:flex-row gap-6`}>
+                                <div className={`bg-white/5 backdrop-blur-md rounded-xl transition-all duration-200 overflow-hidden border ${isPending ? 'border-rose-500/30 shadow-[0_0_10px_rgba(244,63,94,0.05)]' : 'border-white/10 hover:border-white/20'} mb-3 p-5 flex flex-col xl:flex-row gap-6 shadow-sm`}>
                                     
                                     {/* Info Column */}
-                                    <div className="flex items-start gap-4 w-full xl:w-[260px] shrink-0 xl:border-r border-slate-800 pr-4">
-                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shrink-0 shadow-inner ${isPending ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-slate-800 text-slate-300'}`}>
+                                    <div className="flex items-start gap-4 w-full xl:w-[260px] shrink-0 xl:border-r border-white/10 pr-4">
+                                        <div className={`w-10 h-10 rounded-full flex items-center justify-center text-sm font-black shrink-0 shadow-inner ${isPending ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-black/20 border border-white/10 text-slate-300'}`}>
                                             {realIndex}
                                         </div>
                                         <div className="flex flex-col gap-1">
@@ -278,7 +278,7 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
                                     <div className="w-full xl:w-[200px] flex flex-col gap-2.5 shrink-0">
                                         <div>
                                             <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1 block">Enrollment</label>
-                                            <select value={lead.enrollmentStatus || 'NON_ENROLLED'} onChange={(e) => handleUpdateLocalLead(lead.id, 'enrollmentStatus', e.target.value)} className="w-full bg-slate-900 border border-slate-700 text-slate-300 text-[11px] font-semibold rounded-lg px-2 py-1.5 outline-none focus:border-indigo-500 cursor-pointer transition-colors">
+                                            <select disabled value={lead.enrollmentStatus || 'NON_ENROLLED'} onChange={(e) => handleUpdateLocalLead(lead.id, 'enrollmentStatus', e.target.value)} className="w-full bg-slate-900 border border-slate-700 text-slate-300 text-[11px] font-semibold rounded-lg px-2 py-1.5 outline-none opacity-80 cursor-not-allowed">
                                                 <option value="NON_ENROLLED">Non-Enrolled</option>
                                                 <option value="ENROLLED">🔥 Enrolled (Paid)</option>
                                             </select>
@@ -361,9 +361,9 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
             </div>
 
             {totalPages > 1 && (
-                <div className="flex justify-center items-center gap-4 py-6 border-t border-slate-800 mt-auto shrink-0 transition-colors">
-                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-5 py-2.5 rounded-lg bg-[#111827] border border-slate-800 text-slate-300 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-slate-800 transition-colors outline-none">Previous</button>
-                    <span className="text-xs font-bold text-slate-400 bg-[#111827] px-4 py-2 rounded-lg border border-slate-800">Page <span className="text-white">{currentPage}</span> of {totalPages}</span>
+                <div className="flex justify-center items-center gap-4 py-6 border-t border-white/10 mt-auto shrink-0 transition-colors">
+                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-5 py-2.5 rounded-lg bg-white/5 border border-white/10 text-slate-300 text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-white/10 transition-colors outline-none">Previous</button>
+                    <span className="text-xs font-bold text-slate-400 bg-white/5 px-4 py-2 rounded-lg border border-white/10">Page <span className="text-white">{currentPage}</span> of {totalPages}</span>
                     <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-5 py-2.5 rounded-lg bg-indigo-600 text-white text-xs font-bold disabled:opacity-30 disabled:cursor-not-allowed hover:bg-indigo-500 transition-colors shadow-md outline-none">Next Page</button>
                 </div>
             )}

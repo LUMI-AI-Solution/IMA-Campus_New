@@ -218,7 +218,7 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
                     </div>
 
                     <div className="flex flex-col gap-2 mt-auto">
-                        <select onChange={(e) => setLocalData({...localData, callStatus: e.target.value})} value={localData.callStatus} className={`w-full text-xs font-black uppercase tracking-wider rounded-lg px-2 py-2 outline-none border text-center transition-colors shadow-sm bg-white/10 text-white border-white/20 focus:border-indigo-500 cursor-pointer`}>
+                        <select disabled={isLocked} onChange={(e) => setLocalData({...localData, callStatus: e.target.value})} value={localData.callStatus} className={`w-full text-xs font-black uppercase tracking-wider rounded-lg px-2 py-2 outline-none border text-center transition-colors shadow-sm bg-white/10 text-white border-white/20 focus:border-indigo-500 ${isLocked ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
                             <option value="pending" className="bg-slate-800 text-slate-300">⏳ PENDING</option>
                             <option value="answered" className="bg-slate-800 text-emerald-400">✅ ANSWERED</option>
                             <option value="no_answer" className="bg-slate-800 text-amber-400">📵 NO ANSWER</option>

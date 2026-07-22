@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import axios from '../../../../api/axios';
-import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash, FaCheckCircle } from 'react-icons/fa';
+import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash, FaCheckCircle, FaUser, FaMapMarkerAlt, FaGraduationCap } from 'react-icons/fa';
 import { Target, PhoneCall, Check, Loader, BookOpen, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -26,12 +26,40 @@ const getShiftData = (dateString) => {
 export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts, setDrafts, handleUpdateLocalLead, handleSaveCallData, setChatModalLead, isManager, handleTempUnlock, externalSearch }) {
 
     const [activeRound, setActiveRound] = useState('r1');
-    const [activePhase, setActivePhase] = useState(1);
+    const [activePhase, setActivePhase] = useState('ALL');
     const [searchQuery, setSearchQuery] = useState(externalSearch || '');
     const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, PENDING, DELAYED
     const [currentPage, setCurrentPage] = useState(1);
     const [isGuidanceModalOpen, setIsGuidanceModalOpen] = useState(false);
     const [guidanceLang, setGuidanceLang] = useState('SI');
+
+    const [viewMode, setViewMode] = useState('TILE');
+    const [draftStatus, setDraftStatus] = useState({});
+    const [draftAttempt, setDraftAttempt] = useState({});
+    const [draftMethod, setDraftMethod] = useState({});
+
+    const [studentDetailsLead, setStudentDetailsLead] = useState(null);
+    const [studentDetailsData, setStudentDetailsData] = useState(null);
+    const [isStudentDetailsLoading, setIsStudentDetailsLoading] = useState(false);
+
+    useEffect(() => {
+        if (studentDetailsLead?.phone) {
+            setIsStudentDetailsLoading(true);
+            const phone = studentDetailsLead.phone.split('_')[0].replace(/[^0-9]/g, '');
+            axios.get(`/coordinator-crm/lead-details/${phone}`)
+                .then(res => {
+                    setStudentDetailsData(res.data);
+                    setIsStudentDetailsLoading(false);
+                })
+                .catch(err => {
+                    console.error("Error fetching student details", err);
+                    toast.error("Failed to fetch student details.");
+                    setIsStudentDetailsLoading(false);
+                });
+        } else {
+            setStudentDetailsData(null);
+        }
+    }, [studentDetailsLead]);
 
     const [showReminder, setShowReminder] = useState(false);
     const [reminderLead, setReminderLead] = useState(null);
@@ -45,28 +73,38 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
 
     const openSemLeads = Array.isArray(leads) ? leads.filter(l => l?.inquiryType === 'NEW_INQ') : [];
 
-    const isLeadDelayed = (l) => {
-        if (l.enrollmentStatus === 'ENROLLED') return false;
+    const isLeadDelayed = useCallback((l) => {
+        if (l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID') return false;
         if (!isLeadPending(l)) return false; 
-        const startTime = l.updatedAt ? new Date(l.updatedAt).getTime() : new Date(l.assignedAt || l.createdAt).getTime();
+        
+        const startTime = new Date(l.assignedAt || l.createdAt).getTime();
         const now = new Date().getTime();
-        const diffHours = (now - startTime) / (1000 * 60 * 60);
-        return diffHours >= 24; 
-    };
+        
+        const diffMs = now - startTime;
+        const diffHours = diffMs / (1000 * 60 * 60);
+        const diffDays = diffMs / (1000 * 60 * 60 * 24);
+        
+        const round = l.coordinationRound || 1;
+        
+        if (round === 1 && diffHours >= 24) return true;
+        if (round === 2 && diffDays >= 7) return true;
+        
+        return false;
+    }, []);
 
     const isLeadPending = (l) => {
-        return !['answered', 'reject'].includes(l.callStatus);
+        return !l.callStatus || l.callStatus === 'pending' || l.callStatus === '';
     };
 
     const filteredLeads = useMemo(() => {
         let filtered = openSemLeads;
 
         if (activeRound === 'enrolled') {
-            filtered = filtered.filter(l => l?.enrollmentStatus === 'ENROLLED');
+            filtered = filtered.filter(l => l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID');
         } else if (activeRound === 'non_enrolled') {
-            filtered = filtered.filter(l => l?.enrollmentStatus !== 'ENROLLED' && l?.inquiryType === 'NORMAL');
+            filtered = filtered.filter(l => l?.enrollmentStatus !== 'ENROLLED' && l?.enrollmentStatus !== 'PAID' && l?.coordinationRound === 3);
         } else {
-            filtered = filtered.filter(l => l?.enrollmentStatus !== 'ENROLLED' && l?.inquiryType === 'NEW_INQ');
+            filtered = filtered.filter(l => l?.enrollmentStatus !== 'ENROLLED' && l?.enrollmentStatus !== 'PAID' && l?.inquiryType === 'NEW_INQ');
             if (activeRound === 'r1') filtered = filtered.filter(l => (l?.coordinationRound || 1) === 1);
             if (activeRound === 'r2') filtered = filtered.filter(l => l?.coordinationRound === 2);
         }
@@ -94,31 +132,79 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
     }, [openSemLeads, activeRound, activePhase, statusFilter, searchQuery]);
 
     const stats = useMemo(() => {
+        let totalAssigned = 0;
+        let currentlyInRound = 0;
+        let pending = 0;
+        let noAnswer = 0;
+        let reject = 0;
+        let delayed = 0;
+        let movedToR2 = 0;
+        let movedToNonEnrolled = 0;
+        let movedToPaid = 0;
+        let responseRate = 0;
+        
         let baseLeads = openSemLeads;
-        if (activeRound === 'enrolled') {
-            baseLeads = baseLeads.filter(l => l?.enrollmentStatus === 'ENROLLED');
-        } else if (activeRound === 'non_enrolled') {
-            baseLeads = baseLeads.filter(l => l?.enrollmentStatus !== 'ENROLLED' && l?.inquiryType === 'NORMAL');
-        } else {
-            baseLeads = baseLeads.filter(l => l?.enrollmentStatus !== 'ENROLLED' && l?.inquiryType === 'NEW_INQ');
-            if (activeRound === 'r1') baseLeads = baseLeads.filter(l => (l?.coordinationRound || 1) === 1);
-            if (activeRound === 'r2') baseLeads = baseLeads.filter(l => l?.coordinationRound === 2);
-        }
-
         if (activePhase !== 'ALL') baseLeads = baseLeads.filter(l => l?.phase === activePhase);
 
-        let totalAssigned = baseLeads.length;
-        let pending = baseLeads.filter(isLeadPending).length;
-        let covered = totalAssigned - pending;
-        let responseRate = totalAssigned > 0 ? ((covered / totalAssigned) * 100).toFixed(1) : 0;
-        let delayed = baseLeads.filter(isLeadDelayed).length;
+        if (activeRound === 'r1') {
+            totalAssigned = baseLeads.length;
+            
+            const r1CurrentLeads = baseLeads.filter(l => (l?.coordinationRound || 1) === 1 && l?.enrollmentStatus !== 'ENROLLED' && l?.enrollmentStatus !== 'PAID');
+            currentlyInRound = r1CurrentLeads.length;
+            
+            pending = r1CurrentLeads.filter(l => l.callStatus === 'pending' || !l.callStatus).length;
+            noAnswer = r1CurrentLeads.filter(l => l.callStatus === 'no_answer').length;
+            reject = r1CurrentLeads.filter(l => l.callStatus === 'reject').length;
+            delayed = r1CurrentLeads.filter(l => isLeadDelayed(l)).length;
+            
+            movedToR2 = baseLeads.filter(l => (l?.coordinationRound || 1) > 1 && l?.enrollmentStatus !== 'ENROLLED' && l?.enrollmentStatus !== 'PAID').length;
+            
+            const enrolledCount = baseLeads.filter(l => l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID').length;
+            responseRate = totalAssigned > 0 ? ((enrolledCount / totalAssigned) * 100).toFixed(1) : 0;
+            
+        } else if (activeRound === 'r2') {
+            const r2ArrivedLeads = baseLeads.filter(l => (l?.coordinationRound || 1) >= 2);
+            totalAssigned = r2ArrivedLeads.length;
+            
+            const r2CurrentLeads = r2ArrivedLeads.filter(l => (l?.coordinationRound || 1) === 2 && l?.enrollmentStatus !== 'ENROLLED' && l?.enrollmentStatus !== 'PAID');
+            currentlyInRound = r2CurrentLeads.length;
+            
+            pending = r2CurrentLeads.filter(l => l.callStatus === 'pending' || !l.callStatus).length;
+            noAnswer = r2CurrentLeads.filter(l => l.callStatus === 'no_answer').length;
+            reject = r2CurrentLeads.filter(l => l.callStatus === 'reject').length;
+            delayed = r2CurrentLeads.filter(l => isLeadDelayed(l)).length;
+            
+            movedToNonEnrolled = r2ArrivedLeads.filter(l => l?.coordinationRound === 3 && l?.enrollmentStatus !== 'ENROLLED' && l?.enrollmentStatus !== 'PAID').length;
+            movedToPaid = r2ArrivedLeads.filter(l => l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID').length;
+            
+            const r2EnrolledCount = r2ArrivedLeads.filter(l => l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID').length;
+            responseRate = totalAssigned > 0 ? ((r2EnrolledCount / totalAssigned) * 100).toFixed(1) : 0;
+            
+        } else if (activeRound === 'non_enrolled') {
+            const nonEnrolledLeads = baseLeads.filter(l => l?.enrollmentStatus !== 'ENROLLED' && l?.enrollmentStatus !== 'PAID' && l?.coordinationRound === 3);
+            totalAssigned = nonEnrolledLeads.length;
+            currentlyInRound = totalAssigned;
+            pending = nonEnrolledLeads.filter(l => l.callStatus === 'pending' || !l.callStatus).length;
+            reject = nonEnrolledLeads.filter(l => l.callStatus === 'reject').length;
+            delayed = nonEnrolledLeads.filter(l => isLeadDelayed(l)).length;
+        } else if (activeRound === 'enrolled') {
+            const enrolledLeads = baseLeads.filter(l => l?.enrollmentStatus === 'ENROLLED');
+            totalAssigned = enrolledLeads.length;
+            currentlyInRound = totalAssigned;
+        }
 
-        return { totalAssigned, covered, pending, responseRate, delayed };
+        return { totalAssigned, currentlyInRound, pending, noAnswer, reject, delayed, movedToR2, movedToNonEnrolled, movedToPaid, responseRate };
     }, [openSemLeads, activeRound, activePhase]);
 
-    const totalPages = Math.ceil(filteredLeads.length / ITEMS_PER_PAGE);
-
     const groupedLeads = useMemo(() => {
+        if (activeRound === 'r2') {
+            return [{ label: 'ROUND 2 LEADS', timestamp: 0, leads: filteredLeads, total: filteredLeads.length }];
+        }
+        
+        if (activeRound !== 'r1') {
+            return [{ label: activeRound === 'enrolled' ? 'Paid Leads' : activeRound === 'non_enrolled' ? 'Non-Enrolled Leads' : 'Leads', timestamp: 0, leads: filteredLeads }];
+        }
+
         const groups = {};
         filteredLeads.forEach(lead => {
             if (!lead) return;
@@ -132,9 +218,11 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
             groups[label].leads.push(lead);
         });
         return Object.values(groups).sort((a, b) => b.timestamp - a.timestamp);
-    }, [filteredLeads]);
+    }, [filteredLeads, activeRound]);
 
+    const totalPages = Math.ceil(filteredLeads.length / ITEMS_PER_PAGE);
     const paginatedLeads = filteredLeads.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+
 
     const handleRemarkChange = (leadId, value) => {
         setDrafts(prev => ({ ...prev, [leadId]: value }));
@@ -144,16 +232,22 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
     const handleEnrollmentChange = (leadId, val) => {
         if (val === 'NON_ENROLLED') {
             handleUpdateLocalLead(leadId, 'paymentIntention', 'NOT_DECIDED');
+            handleUpdateLocalLead(leadId, 'enrollmentStatus', 'NON_ENROLLED');
         } else {
             const plan = val.split('_')[1]; // FULL, MONTHLY, INSTALLMENT
             handleUpdateLocalLead(leadId, 'paymentIntention', plan);
+            handleUpdateLocalLead(leadId, 'enrollmentStatus', 'ENROLLED');
         }
     };
 
     const handleLocalSaveCallData = async (leadId) => {
         const lead = leads.find(l => l.id === leadId);
         const feedback = drafts[leadId] || lead.feedback || '';
-        const finalStatus = lead.callStatus || 'pending';
+        
+        // If in TABLE mode, draftStatus has the latest state, else lead.callStatus
+        const finalStatus = draftStatus[leadId] || lead.callStatus || 'pending';
+        const finalMethod = draftMethod[leadId] || lead.callMethod || 'direct';
+        const finalAttempt = draftAttempt[leadId] || lead.callAttempt || 1;
 
         if (finalStatus === 'pending') {
             toast.error('Please select an Outcome before saving.');
@@ -165,10 +259,11 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
             const token = localStorage.getItem('token');
             await axios.post('/after-seminar-crm/leads/update-call', {
                 leadId,
-                method: lead.callMethod || 'direct',
+                method: finalMethod,
                 status: finalStatus,
                 feedback,
                 coordinationRound: lead.coordinationRound || 1,
+                campaignContext: 'NEW_INQ',
                 paymentIntention: lead.paymentIntention || 'NOT_DECIDED',
                 enrollmentStatus: lead.enrollmentStatus || 'NON_ENROLLED'
             }, { headers: { Authorization: `Bearer ${token}` } });
@@ -179,10 +274,21 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
             delete newDrafts[leadId];
             setDrafts(newDrafts);
             localStorage.removeItem(`draft_remark_as_${leadId}`);
+            
+            if (draftStatus[leadId]) {
+                const newDS = {...draftStatus}; delete newDS[leadId]; setDraftStatus(newDS);
+                const newDM = {...draftMethod}; delete newDM[leadId]; setDraftMethod(newDM);
+                const newDA = {...draftAttempt}; delete newDA[leadId]; setDraftAttempt(newDA);
+            }
 
             handleUpdateLocalLead(leadId, 'feedback', feedback);
-            if (lead.phase === 1 && finalStatus === 'no_answer') {
-                handleUpdateLocalLead(leadId, 'phase', 2);
+            handleUpdateLocalLead(leadId, 'callStatus', finalStatus);
+            handleUpdateLocalLead(leadId, 'callMethod', finalMethod);
+            handleUpdateLocalLead(leadId, 'callAttempt', finalAttempt);
+            
+            // Move to round 2 in real-time if answered in round 1
+            if ((lead.coordinationRound || 1) === 1 && finalStatus === 'answered') {
+                handleUpdateLocalLead(leadId, 'coordinationRound', 2);
             }
         } catch (error) {
             toast.error("Failed to save progress.", { id: loadToast });
@@ -273,39 +379,33 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
     };
 
     const getTimerDataText = (lead) => {
-        if (!lead) return null;
-        if (lead.enrollmentStatus === 'ENROLLED') return null;
-
-        const startTime = lead.updatedAt ? new Date(lead.updatedAt).getTime() : new Date(lead.assignedAt || lead.createdAt).getTime();
+        if (!lead || !lead.assignedAt) return null;
+        if (lead.enrollmentStatus === 'ENROLLED' || lead.enrollmentStatus === 'PAID') return null;
+        const startTime = new Date(lead.assignedAt).getTime();
         const now = new Date().getTime();
-        const diffHours = (now - startTime) / (1000 * 60 * 60);
-        
-        const isPending = isLeadPending(lead);
-        const currentRound = lead.coordinationRound || 1;
+        const diffMs = now - startTime;
+        const diffDays = diffMs / (1000 * 60 * 60 * 24);
+        const diffHours = diffMs / (1000 * 60 * 60);
 
-        if (isPending) {
-            const timeLeft = 24 - diffHours;
-            if (timeLeft > 0) {
-                const hrs = Math.floor(timeLeft);
-                const mins = Math.floor((timeLeft - hrs) * 60);
-                return { text: `⏳ ${hrs}h ${mins}m LEFT`, isLate: false };
+        if ((lead.coordinationRound || 1) === 1) {
+            if (diffHours >= 24) return { text: `DELAYED BY ${Math.floor(diffHours - 24)}H`, type: 'delayed' };
+            const remaining = 24 - diffHours;
+            return { text: `${Math.floor(remaining)}H REMAINING`, type: 'active' };
+        } else if ((lead.coordinationRound || 1) === 2) {
+            if (diffDays < 6) {
+                const remainingDays = 6 - diffDays;
+                return { text: `FROZEN: ${Math.ceil(remainingDays)}D LEFT`, type: 'frozen' };
+            } else if (diffDays < 7) { 
+                const remainingHours = (7 - diffDays) * 24;
+                return { text: `${Math.floor(remainingHours)}H REMAINING`, type: 'active' };
             } else {
-                const lateHours = Math.abs(timeLeft);
-                const hrs = Math.floor(lateHours);
-                const mins = Math.floor((lateHours - hrs) * 60);
-                return { text: `⚠️ -${hrs}h ${mins}m LATE`, isLate: true };
+                return { text: `DELAYED BY ${Math.floor(diffDays - 7)}D`, type: 'delayed' };
             }
-        } else {
-            const maxWaitHours = currentRound === 1 ? 120 : 168;
-            const timeLeft = maxWaitHours - diffHours;
-            if (timeLeft <= 0) return { text: `✅ READY FOR NEXT`, isLate: false };
-            const days = Math.floor(timeLeft / 24);
-            const hrs = Math.floor(timeLeft % 24);
-            return { text: `NEXT IN ${days}d ${hrs}h`, isLate: false };
         }
+        return null;
     };
 
-    return (
+    return (<>
         <div className="w-full h-full flex flex-col bg-transparent overflow-y-auto custom-scrollbar font-sans text-slate-100">
             <div className="fade-in">
 
@@ -331,14 +431,14 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                 {/* Top Round Buttons (Moved Outside) */}
                 <div className="flex gap-2 bg-[#0F172A]/80 p-2 rounded-2xl flex-wrap shadow-inner mb-6 w-max border border-white/5">
                     <button
-                        onClick={() => { setActiveRound('r1'); setActivePhase(1); setCurrentPage(1); setStatusFilter('ALL'); }}
-                        className={`px-6 py-2.5 rounded-xl font-black uppercase tracking-wider transition-all text-sm ${activeRound === 'r1' ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                        onClick={() => { setActiveRound('r1'); setActivePhase('ALL'); setCurrentPage(1); setStatusFilter('ALL'); }}
+                        className={`px-4 py-2.5 rounded-lg flex-1 md:flex-none text-xs font-black tracking-widest uppercase transition-all duration-300 shadow-sm ${activeRound === 'r1' ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                     >
                         Round 01
                     </button>
                     <button
-                        onClick={() => { setActiveRound('r2'); setActivePhase(1); setCurrentPage(1); setStatusFilter('ALL'); }}
-                        className={`px-6 py-2.5 rounded-xl font-black uppercase tracking-wider transition-all text-sm ${activeRound === 'r2' ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                        onClick={() => { setActiveRound('r2'); setActivePhase('ALL'); setCurrentPage(1); setStatusFilter('ALL'); }}
+                        className={`px-4 py-2.5 rounded-lg flex-1 md:flex-none text-xs font-black tracking-widest uppercase transition-all duration-300 shadow-sm ${activeRound === 'r2' ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                     >
                         Round 02
                     </button>
@@ -350,7 +450,7 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                     </button>
                     <button
                         onClick={() => { setActiveRound('enrolled'); setActivePhase('ALL'); setCurrentPage(1); setStatusFilter('ALL'); }}
-                        className={`px-6 py-2.5 rounded-xl font-black uppercase tracking-wider transition-all text-sm ${activeRound === 'enrolled' ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                        className={`px-4 py-2.5 rounded-lg flex-1 md:flex-none text-xs font-black tracking-widest uppercase transition-all duration-300 shadow-sm ${activeRound === 'enrolled' ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white shadow-lg shadow-emerald-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                     >
                         Paid
                     </button>
@@ -361,17 +461,40 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                     <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
 
                         {/* Stats Section */}
-                        <div className="flex gap-6 items-center bg-[#0F172A]/50 p-4 px-8 rounded-3xl border border-white/5 shadow-inner flex-wrap w-full xl:w-auto">
-                            <div className="text-slate-500 font-black uppercase tracking-[0.2em] text-xs mr-4 hidden md:block">Stats</div>
-                            <div className="flex flex-col items-center"><span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Assigned</span><span className="text-2xl font-black text-white">{stats.totalAssigned}</span></div>
-                            <div className="w-px h-10 bg-white/10 mx-2 hidden md:block"></div>
-                            <div className="flex flex-col items-center"><span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mb-1">Pending</span><span className="text-2xl font-black text-amber-400 drop-shadow-[0_0_8px_rgba(245,158,11,0.4)]">{stats.pending}</span></div>
-                            <div className="w-px h-10 bg-white/10 mx-2 hidden md:block"></div>
-                            <div className="flex flex-col items-center"><span className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mb-1">Covered</span><span className="text-2xl font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.4)]">{stats.covered}</span></div>
-                            <div className="w-px h-10 bg-white/10 mx-2 hidden md:block"></div>
-                            <div className="flex flex-col items-center"><span className="text-[10px] text-blue-500 font-bold uppercase tracking-wider mb-1">Response</span><span className="text-2xl font-black text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]">{stats.responseRate}%</span></div>
-                            <div className="w-px h-10 bg-white/10 mx-2 hidden md:block"></div>
-                            <div className="flex flex-col items-center"><span className="text-[10px] text-rose-500 font-bold uppercase tracking-wider mb-1">Delayed</span><span className="text-2xl font-black text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]">{stats.delayed}</span></div>
+                        <div className="flex gap-4 items-center bg-[#0F172A]/50 p-4 px-6 rounded-3xl border border-white/5 shadow-inner flex-wrap w-full xl:w-auto overflow-x-auto custom-scrollbar">
+                            <div className="flex flex-col items-center"><span className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1" title="Leads currently sitting in this Round">In Round</span><span className="text-xl font-black text-indigo-300 drop-shadow-[0_0_8px_rgba(99,102,241,0.4)]">{stats.currentlyInRound}</span></div>
+                            <div className="w-px h-8 bg-white/10 mx-1"></div>
+
+                            <div className="flex flex-col items-center"><span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mb-1">Pending</span><span className="text-xl font-black text-amber-400">{stats.pending}</span></div>
+                            <div className="w-px h-8 bg-white/10 mx-1"></div>
+
+                            <div className="flex flex-col items-center"><span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider mb-1">No Answer</span><span className="text-xl font-black text-slate-200">{stats.noAnswer}</span></div>
+                            <div className="w-px h-8 bg-white/10 mx-1"></div>
+
+                            <div className="flex flex-col items-center"><span className="text-[10px] text-red-500 font-bold uppercase tracking-wider mb-1">Reject</span><span className="text-xl font-black text-red-400">{stats.reject}</span></div>
+                            <div className="w-px h-8 bg-white/10 mx-1"></div>
+                            
+                            {(activeRound === 'r1') && (
+                                <>
+                                    <div className="flex flex-col items-center"><span className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mb-1">Moved to R2</span><span className="text-xl font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.4)]">{stats.movedToR2}</span></div>
+                                    <div className="w-px h-8 bg-white/10 mx-1"></div>
+                                </>
+                            )}
+                            
+                            {(activeRound === 'r2') && (
+                                <>
+                                    <div className="flex flex-col items-center"><span className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mb-1">Paid</span><span className="text-xl font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.4)]">{stats.movedToPaid}</span></div>
+                                    <div className="w-px h-8 bg-white/10 mx-1"></div>
+                                    
+                                    <div className="flex flex-col items-center"><span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Non Enrolled</span><span className="text-xl font-black text-slate-400">{stats.movedToNonEnrolled}</span></div>
+                                    <div className="w-px h-8 bg-white/10 mx-1"></div>
+                                </>
+                            )}
+
+                            <div className="flex flex-col items-center"><span className="text-[10px] text-blue-500 font-bold uppercase tracking-wider mb-1" title="Conversion Rate">Rate</span><span className="text-xl font-black text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]">{stats.responseRate}%</span></div>
+                            <div className="w-px h-8 bg-white/10 mx-1"></div>
+
+                            <div className="flex flex-col items-center"><span className="text-[10px] text-rose-500 font-bold uppercase tracking-wider mb-1">Delayed</span><span className="text-xl font-black text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]">{stats.delayed}</span></div>
                         </div>
 
                         {/* Filters & Search */}
@@ -390,6 +513,18 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                 >
                                     ⚠️ DELAYED
                                 </button>
+                                <button
+                                    onClick={() => { setStatusFilter(statusFilter === 'NO_ANSWER' ? 'ALL' : 'NO_ANSWER'); setCurrentPage(1); }}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${statusFilter === 'NO_ANSWER' ? 'bg-slate-500 text-white shadow-[0_0_10px_rgba(100,116,139,0.5)]' : 'bg-[#0F172A] border border-white/10 text-slate-400 hover:bg-white/5'}`}
+                                >
+                                    🔇 NO ANSWER
+                                </button>
+                                <button
+                                    onClick={() => { setStatusFilter(statusFilter === 'REJECT' ? 'ALL' : 'REJECT'); setCurrentPage(1); }}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${statusFilter === 'REJECT' ? 'bg-red-500 text-white shadow-[0_0_10px_rgba(239,68,68,0.5)]' : 'bg-[#0F172A] border border-white/10 text-red-400 hover:bg-white/5'}`}
+                                >
+                                    ❌ REJECT
+                                </button>
                                 {statusFilter !== 'ALL' && (
                                     <button
                                         onClick={() => { setStatusFilter('ALL'); setCurrentPage(1); }}
@@ -400,53 +535,35 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                 )}
                             </div>
 
-                            <div className="relative">
-                                <FaSearch className="absolute left-3.5 top-3.5 text-slate-400 text-sm" />
-                                <input type="text" placeholder="Search leads by phone or name..." value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }} className="w-full bg-[#0F172A] border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-indigo-500 shadow-inner" />
+                            <div className="relative flex gap-2">
+                                <div className="relative flex-1">
+                                    <FaSearch className="absolute left-3.5 top-3.5 text-slate-400 text-sm" />
+                                    <input type="text" placeholder="Search leads by phone or name..." value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }} className="w-full bg-[#0F172A] border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-indigo-500 shadow-inner" />
+                                </div>
+                                <div className="flex bg-[#0F172A] border border-white/10 rounded-xl overflow-hidden p-1">
+                                    <button
+                                        onClick={() => setViewMode('TILE')}
+                                        className={`px-4 py-2 text-xs font-black rounded-lg transition-all ${viewMode === 'TILE' ? 'bg-indigo-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                                    >
+                                        TILES
+                                    </button>
+                                    <button
+                                        onClick={() => setViewMode('TABLE')}
+                                        className={`px-4 py-2 text-xs font-black rounded-lg transition-all ${viewMode === 'TABLE' ? 'bg-indigo-500 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                                    >
+                                        TABLE
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
                     </div>
                 </div>
 
+
+                </div>
+
                 <div className="flex flex-col lg:flex-row gap-6">
-                    {/* Left Sidebar for Phases */}
-                    <div className="w-full lg:w-24 shrink-0 flex flex-row lg:flex-col gap-3 overflow-x-auto custom-scrollbar pb-2 lg:pb-0">
-                        {[1, 2].map(ph => {
-                            let phLeads = openSemLeads;
-                            if (activeRound === 'r1') phLeads = phLeads.filter(l => (l?.coordinationRound || 1) === 1);
-                            if (activeRound === 'r2') phLeads = phLeads.filter(l => l?.coordinationRound === 2);
-                            const phCount = phLeads.filter(l => l.phase === ph).length;
-
-                            return (
-                                <button
-                                    key={ph}
-                                    onClick={() => { setActivePhase(ph); setCurrentPage(1); }}
-                                    className={`flex flex-col items-center justify-center py-4 px-6 lg:px-0 rounded-2xl transition-all relative overflow-hidden min-w-[100px] lg:min-w-0 ${activePhase === ph
-                                        ? 'bg-gradient-to-b from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/20'
-                                        : 'bg-white/5 border border-white/10 text-slate-400 hover:bg-white/10'
-                                        }`}
-                                >
-                                    <span className="text-[10px] font-black uppercase tracking-widest mb-1 opacity-70">Phase</span>
-                                    <span className="text-2xl font-black">0{ph}</span>
-                                    {phCount > 0 && (
-                                        <span className="mt-2 bg-black/30 px-2 py-0.5 rounded-full text-[10px] font-bold shadow-inner">{phCount} leads</span>
-                                    )}
-                                </button>
-                            );
-                        })}
-                        <button
-                            onClick={() => { setActivePhase('ALL'); setCurrentPage(1); }}
-                            className={`flex flex-col items-center justify-center py-4 px-6 lg:px-0 rounded-2xl transition-all relative overflow-hidden min-w-[100px] lg:min-w-0 ${activePhase === 'ALL'
-                                ? 'bg-gradient-to-b from-slate-600 to-slate-700 text-white shadow-lg shadow-slate-500/20'
-                                : 'bg-white/5 border border-white/10 text-slate-400 hover:bg-white/10'
-                                }`}
-                        >
-                            <span className="text-[10px] font-black uppercase tracking-widest mb-1 opacity-70">View</span>
-                            <span className="text-lg font-black uppercase">All</span>
-                        </button>
-                    </div>
-
                     {/* Main Leads Grid */}
                     <div className="flex-1">
                         {paginatedLeads.length === 0 ? (
@@ -456,6 +573,7 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                 <p className="text-slate-500 mt-2">There are no leads matching your current filters.</p>
                             </div>
                         ) : (
+                            viewMode === 'TILE' ? (
                             <div className="space-y-8 pb-10">
                                 {groupedLeads.map((group, gIdx) => (
                                     <div key={gIdx} className="space-y-4">
@@ -493,9 +611,26 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                     else enrollmentValue = 'NON_ENROLLED';
 
                                     const timerData = getTimerDataText(lead);
+                                    
+                                    let isFrozen = lead.isLocked || false;
+                                    if (activeRound === 'enrolled' || activeRound === 'non_enrolled') {
+                                        isFrozen = false;
+                                    } else if ((lead.coordinationRound || 1) === 1) {
+                                        isFrozen = false;
+                                    } else if ((lead.coordinationRound || 1) === 2) {
+                                        isFrozen = timerData?.type === 'frozen';
+                                    }
+                                    const isDisabled = lead.isPast || isFrozen;
 
                                     return (
-                                        <div key={lead.id} className="bg-[#1e1b4b]/80 backdrop-blur-md rounded-2xl border border-indigo-500/20 p-5 shadow-xl hover:border-indigo-400/50 transition-all group flex flex-col">
+                                        <div key={lead.id} className={`bg-[#1e1b4b]/80 backdrop-blur-md rounded-2xl border ${isDisabled ? 'border-slate-500/50 opacity-80' : 'border-indigo-500/20 hover:border-indigo-400/50'} p-5 shadow-xl transition-all group flex flex-col relative`}>
+                                            {isFrozen && !lead.isPast && (
+                                                <div className="absolute inset-0 bg-slate-900/60 rounded-2xl backdrop-blur-[2px] flex items-center justify-center z-10 pointer-events-none">
+                                                    <span className="bg-[#0f172a] text-indigo-300 font-black px-5 py-2.5 rounded-xl text-[13px] tracking-widest border border-indigo-500/30 shadow-[0_0_20px_rgba(79,70,229,0.2)] uppercase">
+                                                        {timerData?.text ? `FROZEN (${timerData.text.replace(/[^a-zA-Z0-9:\-\s]/g, '').trim()})` : 'FROZEN'}
+                                                    </span>
+                                                </div>
+                                            )}
                                             {/* Top Section */}
                                             <div className="flex justify-between items-start mb-4 pb-4 border-b border-indigo-500/20">
                                                 <div className="flex items-center gap-3">
@@ -503,13 +638,31 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                                         {realIndex}
                                                     </div>
                                                     <div>
-                                                        <h3 className="text-lg font-black text-white leading-tight tracking-wide">{lead.phone?.split('_')[0]}</h3>
-                                                        <div className="flex items-center gap-2 mt-1">
-                                                            <p className="text-slate-400 text-[10px] font-bold uppercase truncate max-w-[120px]">~ {lead.name || 'Unknown'}</p>
+                                                        <h3 className="text-lg font-black text-white leading-tight tracking-wide flex items-center gap-1.5 flex-wrap">
+                                                            {lead.phone?.split('_')[0]}
                                                             {timerData && (
-                                                                <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-sm border ${timerData.isLate ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
+                                                                <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded shadow-sm border ${timerData.type === 'delayed' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : timerData.type === 'frozen' ? 'bg-slate-700/60 text-slate-300 border-slate-600/50' : 'bg-blue-500/20 text-blue-400 border-blue-500/30'}`}>
                                                                     {timerData.text}
                                                                 </span>
+                                                            )}
+                                                        </h3>
+                                                        <div className="flex flex-col gap-0.5 mt-1">
+                                                            <p className="text-slate-400 text-[10px] font-bold uppercase truncate max-w-[150px]">WA: {lead.name || 'Unknown'}</p>
+                                                            {lead.registeredUser && (
+                                                                <p 
+                                                                    onMouseEnter={() => setStudentDetailsLead(lead)}
+                                                                    onMouseLeave={() => setStudentDetailsLead(null)}
+                                                                    className="text-emerald-400 text-[10px] font-bold uppercase leading-tight w-full break-words hover:underline cursor-pointer" 
+                                                                    title="View Details"
+                                                                >
+                                                                    WEB: {lead.registeredUser.firstName} {lead.registeredUser.lastName}
+                                                                </p>
+                                                            )}
+                                                            {lead.registeredUser?.optionalPhone && (
+                                                                <p className="text-amber-400 text-[10px] font-bold uppercase truncate w-full">OP: {lead.registeredUser.optionalPhone}</p>
+                                                            )}
+                                                            {(enrollmentValue === 'ENROLLED' || enrollmentValue === 'ENROLLED_INSTALLMENT') && lead.enrolledSubjects && lead.enrolledSubjects.length > 0 && (
+                                                                <p className="text-purple-400 text-[10px] font-bold uppercase truncate w-full" title={lead.enrolledSubjects.join(', ')}>SUB: {lead.enrolledSubjects[0]} {lead.enrolledSubjects.length > 1 ? `+${lead.enrolledSubjects.length - 1}` : ''}</p>
                                                             )}
                                                         </div>
                                                     </div>
@@ -521,12 +674,13 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                                 <div className="col-span-8">
                                                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ml-1">Outcome</label>
                                                     <select
-                                                        value={callOutcome}
-                                                        onChange={(e) => handleUpdateLocalLead(lead.id, 'callStatus', e.target.value)}
+                                                        disabled={isDisabled}
+                                                        value={draftStatus[lead.id] || lead.callStatus || 'pending'}
+                                                        onChange={(e) => setDraftStatus(prev => ({ ...prev, [lead.id]: e.target.value }))}
                                                         className={`w-full bg-[#312e81]/30 border rounded-xl px-2 py-2 text-xs font-bold outline-none appearance-none transition-colors
-                                                            ${callOutcome === 'pending' ? 'border-amber-500/30 text-amber-400' :
-                                                                callOutcome === 'answered' ? 'border-emerald-500/30 text-emerald-400' :
-                                                                    callOutcome === 'no_answer' ? 'border-blue-500/30 text-blue-400' :
+                                                            ${(draftStatus[lead.id] || lead.callStatus || 'pending') === 'pending' ? 'border-amber-500/30 text-amber-400' :
+                                                                (draftStatus[lead.id] || lead.callStatus || 'pending') === 'answered' ? 'border-emerald-500/30 text-emerald-400' :
+                                                                    (draftStatus[lead.id] || lead.callStatus || 'pending') === 'no_answer' ? 'border-blue-500/30 text-blue-400' :
                                                                         'border-rose-500/30 text-rose-400'}`}
                                                     >
                                                         <option value="pending" className="bg-[#0f172a] text-amber-400">⌛ PENDING</option>
@@ -538,8 +692,9 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                                 <div className="col-span-4">
                                                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ml-1">Att.</label>
                                                     <select
-                                                        value={lead.callAttempt || 1}
-                                                        onChange={(e) => handleUpdateLocalLead(lead.id, 'callAttempt', parseInt(e.target.value))}
+                                                        disabled={isDisabled}
+                                                        value={draftAttempt[lead.id] || lead.callAttempt || 1}
+                                                        onChange={(e) => setDraftAttempt(prev => ({ ...prev, [lead.id]: parseInt(e.target.value) }))}
                                                         className="w-full bg-rose-500/10 border border-rose-500/30 rounded-xl px-2 py-2 text-xs font-black text-rose-400 outline-none focus:border-rose-500 appearance-none text-center"
                                                     >
                                                         {[1, 2, 3, 4, 5].map(n => <option key={n} value={n} className="bg-[#0f172a] text-rose-400">{n}</option>)}
@@ -549,8 +704,9 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                                 <div className="col-span-6">
                                                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ml-1">Method</label>
                                                     <select
-                                                        value={lead.callMethod || 'direct'}
-                                                        onChange={(e) => handleUpdateLocalLead(lead.id, 'callMethod', e.target.value)}
+                                                        disabled={isDisabled}
+                                                        value={draftMethod[lead.id] || lead.callMethod || 'direct'}
+                                                        onChange={(e) => setDraftMethod(prev => ({ ...prev, [lead.id]: e.target.value }))}
                                                         className="w-full bg-[#312e81]/30 border border-indigo-500/20 rounded-xl px-2 py-2 text-xs font-bold text-indigo-200 outline-none appearance-none"
                                                     >
                                                         <option value="direct" className="bg-[#0f172a]">Direct Call</option>
@@ -562,8 +718,8 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ml-1">Enrollment</label>
                                                     <select
                                                         value={enrollmentValue}
-                                                        onChange={(e) => handleEnrollmentChange(lead.id, e.target.value)}
-                                                        className={`w-full bg-[#312e81]/30 border border-indigo-500/20 rounded-xl px-2 py-2 text-xs font-bold outline-none appearance-none ${lead.enrollmentStatus === 'ENROLLED' ? 'text-emerald-400 border-emerald-500/30' : 'text-indigo-200'}`}
+                                                        disabled={true}
+                                                        className={`w-full bg-[#312e81]/30 border border-indigo-500/20 rounded-xl px-2 py-2 text-xs font-bold outline-none appearance-none cursor-not-allowed ${lead.enrollmentStatus === 'ENROLLED' ? 'text-emerald-400 border-emerald-500/30' : 'text-indigo-200'}`}
                                                     >
                                                         <option value="NON_ENROLLED" className="bg-[#0f172a]">Non-Enrolled</option>
                                                         <option value="ENROLLED_FULL" className="bg-[#0f172a]">Enrolled - Full</option>
@@ -576,6 +732,7 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                             <div className="mb-4 relative flex-1 flex flex-col">
                                                 <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 ml-1">Remarks</label>
                                                 <textarea
+                                                    disabled={isDisabled}
                                                     rows="2"
                                                     value={currentRemark}
                                                     onChange={(e) => handleRemarkChange(lead.id, e.target.value)}
@@ -588,10 +745,20 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                             {/* Action Buttons */}
                                             <div className="flex gap-2">
                                                 <button
+                                                    disabled={isDisabled}
                                                     onClick={() => handleLocalSaveCallData(lead.id)}
                                                     className="flex-1 bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white font-black text-xs uppercase tracking-widest rounded-xl py-2.5 flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(225,29,72,0.3)] hover:shadow-[0_0_25px_rgba(225,29,72,0.5)] transform hover:-translate-y-0.5 disabled:opacity-50 disabled:transform-none"
                                                 >
-                                                    <Check size={16} strokeWidth={3} /> SAVE PROGRESS
+                                                    <Check size={16} strokeWidth={3} /> SAVE
+                                                </button>
+
+                                                <button
+                                                    onMouseEnter={() => setStudentDetailsLead(lead)}
+                                                    onMouseLeave={() => setStudentDetailsLead(null)}
+                                                    className="flex-1 bg-sky-600/30 hover:bg-sky-500/50 border border-sky-400/50 text-sky-200 p-2.5 rounded-xl flex items-center justify-center transition-all transform hover:-translate-y-0.5"
+                                                    title="Student Details"
+                                                >
+                                                    <FaUser size={14} />
                                                 </button>
 
                                                 <button
@@ -605,6 +772,7 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                                 </button>
 
                                                 <button
+                                                    disabled={isDisabled}
                                                     onClick={(e) => handleOpenReminderModal(lead, e)}
                                                     title="Set a Reminder"
                                                     className="bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 p-2.5 rounded-xl flex items-center justify-center transition-all shadow-md transform hover:-translate-y-0.5"
@@ -619,6 +787,202 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                     </div>
                                 ))}
                             </div>
+                        ) : (
+                            <div className="w-full overflow-x-auto bg-[#1e1b4b]/80 backdrop-blur-md rounded-2xl border border-indigo-500/20 shadow-xl">
+                                                                <table className="w-full text-left border-collapse min-w-[1200px]">
+                                                                    <thead>
+                                                                        <tr className="bg-indigo-900/40 text-indigo-300 text-[10px] uppercase tracking-widest border-b border-indigo-500/20">
+                                                                            <th className="p-4 font-black w-16 text-center">#</th>
+                                                                            <th className="p-4 font-black w-64">Lead Details</th>
+                                                                            <th className="p-4 font-black w-48 text-center">Outcome & Att.</th>
+                                                                            <th className="p-4 font-black w-48 text-center">Method & Enroll</th>
+                                                                            <th className="p-4 font-black min-w-[200px]">Remarks</th>
+                                                                            <th className="p-4 font-black w-32 text-center">Action</th>
+                                                                        </tr>
+                                                                    </thead>
+                                                                    <tbody className="divide-y divide-indigo-500/10">
+                                                                        {paginatedLeads.map((lead, index) => {
+                                                                            const realIndex = (currentPage - 1) * ITEMS_PER_PAGE + index + 1;
+                                                                            const currentRemark = drafts[lead.id] !== undefined ? drafts[lead.id] : (lead.feedback || '');
+                                                                            const isDraft = drafts[lead.id] !== undefined && drafts[lead.id] !== lead.feedback;
+                                                                            
+                                                                            let enrollmentValue = 'NON_ENROLLED';
+                                                                            if (lead.paymentIntention === 'FULL') enrollmentValue = 'ENROLLED_FULL';
+                                                                            else if (lead.paymentIntention === 'MONTHLY') enrollmentValue = 'ENROLLED_MONTHLY';
+                                                                            else if (lead.paymentIntention === 'INSTALLMENT') enrollmentValue = 'ENROLLED_INSTALLMENT';
+                            
+                                                                            const timerData = getTimerDataText(lead);
+                                                                            let isFrozen = lead.isLocked || false;
+                                                                            if (activeRound === 'enrolled' || activeRound === 'non_enrolled') {
+                                                                                isFrozen = false;
+                                                                            } else if ((lead.coordinationRound || 1) === 1) {
+                                                                                isFrozen = false;
+                                                                            } else if ((lead.coordinationRound || 1) === 2) {
+                                                                                isFrozen = timerData?.type === 'frozen';
+                                                                            }
+                                                                            
+                                                                            const isDisabled = lead.isPast || isFrozen;
+                                                                            const hasUnsavedChanges = isDraft || 
+                                                                                (draftStatus[lead.id] !== undefined && draftStatus[lead.id] !== (lead.callStatus || 'pending')) ||
+                                                                                (draftAttempt[lead.id] !== undefined && draftAttempt[lead.id] !== (lead.callAttempt || 1)) ||
+                                                                                (draftMethod[lead.id] !== undefined && draftMethod[lead.id] !== (lead.callMethod || 'direct'));
+                            
+                                                                            return (
+                                                                                <tr key={lead.id} className={`group hover:bg-white/5 transition-colors ${isDisabled ? 'opacity-70' : ''}`}>
+                                                                                    <td className="p-4 align-top text-center">
+                                                                                        <div className="w-8 h-8 mx-auto rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 font-black text-xs">
+                                                                                            {realIndex}
+                                                                                        </div>
+                                                                                    </td>
+                                                                                    <td className="p-4 align-top">
+                                                                                        <h3 className="text-sm font-black text-white flex items-center gap-1.5">
+                                                                                            {lead.phone?.split('_')[0]}
+                                                                                        </h3>
+                                                                                        <div className="flex flex-col gap-0.5 mt-1">
+                                                                                            <p className="text-slate-400 text-[10px] font-bold uppercase truncate max-w-[150px]" title="WhatsApp Name">WA: {lead.name || 'Unknown'}</p>
+                                                                                            {lead.registeredUser && (
+                                                                                                <p 
+                                                                                                    onMouseEnter={() => setStudentDetailsLead(lead)}
+                                                                                                    onMouseLeave={() => setStudentDetailsLead(null)}
+                                                                                                    className="text-emerald-400 text-[10px] font-bold uppercase leading-tight w-full break-words cursor-pointer hover:underline" 
+                                                                                                    title="View Details"
+                                                                                                >
+                                                                                                    WEB: {lead.registeredUser.firstName} {lead.registeredUser.lastName}
+                                                                                                </p>
+                                                                                            )}
+                                                                                            {lead.registeredUser?.optionalPhone && (
+                                                                                                <p className="text-indigo-300 text-[10px] font-bold truncate mt-0.5">Sec: {lead.registeredUser.optionalPhone}</p>
+                                                                                            )}
+                                                                                            {timerData && (
+                                                                                                <span className="mt-1 inline-block w-max px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-slate-800 text-slate-300">
+                                                                                                    {timerData.text}
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    </td>
+                                                                                    <td className="p-4 align-top">
+                                                                                        <div className="flex flex-col gap-2">
+                                                                                            <select
+                                                                                                disabled={isDisabled}
+                                                                                                value={draftStatus[lead.id] || lead.callStatus || 'pending'}
+                                                                                                onChange={(e) => setDraftStatus(prev => ({ ...prev, [lead.id]: e.target.value }))}
+                                                                                                className={`w-full bg-[#312e81]/30 border rounded-lg px-2 py-1.5 text-xs font-bold outline-none disabled:opacity-50 ${(draftStatus[lead.id] || lead.callStatus || 'pending') === 'pending' ? 'border-amber-500/30 text-amber-400' : (draftStatus[lead.id] || lead.callStatus || 'pending') === 'answered' ? 'border-emerald-500/30 text-emerald-400' : (draftStatus[lead.id] || lead.callStatus || 'pending') === 'no_answer' ? 'border-blue-500/30 text-blue-400' : 'border-rose-500/30 text-rose-400'}`}
+                                                                                            >
+                                                                                                <option value="pending" className="bg-[#0f172a]">⌛ PENDING</option>
+                                                                                                <option value="answered" className="bg-[#0f172a]">✅ ANSWERED</option>
+                                                                                                <option value="no_answer" className="bg-[#0f172a]">🔇 NO ANSWER</option>
+                                                                                                <option value="reject" className="bg-[#0f172a]">❌ REJECT</option>
+                                                                                            </select>
+                                                                                            <div className="flex items-center justify-between text-[10px] font-bold text-slate-400">
+                                                                                                <span>ATTEMPT</span>
+                                                                                                <select
+                                                                                                    disabled={isDisabled}
+                                                                                                    value={draftAttempt[lead.id] || lead.callAttempt || 1}
+                                                                                                    onChange={(e) => setDraftAttempt(prev => ({ ...prev, [lead.id]: parseInt(e.target.value) }))}
+                                                                                                    className="bg-rose-500/10 border border-rose-500/30 rounded px-1.5 py-0.5 text-rose-400 outline-none disabled:opacity-50"
+                                                                                                >
+                                                                                                    {[1, 2, 3, 4, 5].map(n => <option key={n} value={n} className="bg-[#0f172a] text-rose-400">{n}</option>)}
+                                                                                                </select>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                    <td className="p-4 align-top">
+                                                                                        <div className="flex flex-col gap-2">
+                                                                                            <select
+                                                                                                disabled={isDisabled}
+                                                                                                value={draftMethod[lead.id] || lead.callMethod || 'direct'}
+                                                                                                onChange={(e) => setDraftMethod(prev => ({ ...prev, [lead.id]: e.target.value }))}
+                                                                                                className="w-full bg-[#312e81]/30 border border-indigo-500/20 rounded-lg px-2 py-1.5 text-xs font-bold text-indigo-200 outline-none disabled:opacity-50"
+                                                                                            >
+                                                                                                <option value="direct" className="bg-[#0f172a]">Direct</option>
+                                                                                                <option value="whatsapp" className="bg-[#0f172a]">WhatsApp</option>
+                                                                                                <option value="3cx" className="bg-[#0f172a]">3CX</option>
+                                                                                            </select>
+                                                                                            <select
+                                                                                                disabled={true}
+                                                                                                value={enrollmentValue}
+                                                                                                className={`w-full bg-[#0F172A] border border-white/10 rounded-xl py-1.5 px-2 text-[10px] font-bold appearance-none outline-none cursor-not-allowed ${lead.enrollmentStatus === 'ENROLLED' ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/5' : 'text-slate-200'}`}
+                                                                                            >
+                                                                                                <option value="NON_ENROLLED" className="bg-[#0f172a]">Non-Enrolled</option>
+                                                                                                <option value="ENROLLED_FULL" className="bg-[#0f172a]">Full</option>
+                                                                                                <option value="ENROLLED_MONTHLY" className="bg-[#0f172a]">Monthly</option>
+                                                                                                <option value="ENROLLED_INSTALLMENT" className="bg-[#0f172a]">Installment</option>
+                                                                                            </select>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                    <td className="p-4 align-top">
+                                                                                        <div className="flex flex-col gap-2 relative">
+                                                                                            {((lead.coordinationRound || 1) >= 2 || activeRound === 'non_enrolled') && lead.roundProgress?.find(r => r.roundNum === 1)?.feedback && (
+                                                                                                <div>
+                                                                                                    <span className="text-[9px] font-bold text-amber-400/70 uppercase">R1:</span>
+                                                                                                    <div className="bg-[#312e81]/20 border border-amber-500/20 rounded p-1.5 text-[10px] text-amber-100/70 italic max-h-12 overflow-y-auto custom-scrollbar">
+                                                                                                        {lead.roundProgress.find(r => r.roundNum === 1).feedback}
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            )}
+                                                                                            {(activeRound === 'non_enrolled') && lead.roundProgress?.find(r => r.roundNum === 2)?.feedback && (
+                                                                                                <div>
+                                                                                                    <span className="text-[9px] font-bold text-emerald-400/70 uppercase">R2:</span>
+                                                                                                    <div className="bg-[#312e81]/20 border border-emerald-500/20 rounded p-1.5 text-[10px] text-emerald-100/70 italic max-h-12 overflow-y-auto custom-scrollbar">
+                                                                                                        {lead.roundProgress.find(r => r.roundNum === 2).feedback}
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            )}
+                                                                                            <textarea
+                                                                                                disabled={isDisabled}
+                                                                                                rows="2"
+                                                                                                value={currentRemark}
+                                                                                                onChange={(e) => handleRemarkChange(lead.id, e.target.value)}
+                                                                                                placeholder={activeRound === 'non_enrolled' ? 'Non-Enrolled Notes...' : lead.coordinationRound === 2 ? 'Round 2 Notes...' : 'Round 1 Notes...'}
+                                                                                                className="w-full bg-[#312e81]/30 border border-indigo-500/20 rounded-lg p-2 text-[11px] text-slate-300 outline-none focus:border-indigo-500 resize-none disabled:opacity-50 custom-scrollbar"
+                                                                                            />
+                                                                                            {isDraft && <span className="absolute bottom-2 right-2 bg-yellow-500 text-black text-[8px] font-black px-1 rounded shadow-sm pointer-events-none">D</span>}
+                                                                                        </div>
+                                                                                    </td>
+                                                                                    <td className="p-4 align-top">
+                                                                                        <div className="flex flex-col gap-2">
+                                                                                            <button
+                                                                                                disabled={isDisabled}
+                                                                                                onClick={() => handleLocalSaveCallData(lead.id)}
+                                                                                                className={`w-full font-black text-[10px] uppercase tracking-widest rounded-lg py-2 flex items-center justify-center gap-1 transition-all disabled:opacity-50 ${hasUnsavedChanges ? "bg-gradient-to-r from-amber-500 to-orange-600 text-white animate-pulse" : "bg-indigo-600/50 hover:bg-indigo-500/50 text-indigo-200 border border-indigo-500/30"}`}
+                                                                                            >
+                                                                                                <Check size={12} strokeWidth={3} /> {hasUnsavedChanges ? "SAVE NOW!" : "SAVE"}
+                                                                                            </button>
+                                                                                            <div className="flex gap-2">
+                                                                                                <button
+                                                                                                    onMouseEnter={() => setStudentDetailsLead(lead)}
+                                                                                                    onMouseLeave={() => setStudentDetailsLead(null)}
+                                                                                                    className="flex-1 bg-sky-600/30 hover:bg-sky-500/50 border border-sky-400/50 text-sky-200 p-1.5 rounded-lg flex justify-center transition-colors"
+                                                                                                    title="Student Details"
+                                                                                                >
+                                                                                                    <FaUser size={12} />
+                                                                                                </button>
+                                                                                                <button
+                                                                                                    onClick={() => setChatModalLead(lead)}
+                                                                                                    className="flex-1 bg-indigo-600/30 hover:bg-indigo-500/50 border border-indigo-500/30 text-white p-1.5 rounded-lg flex justify-center transition-colors relative"
+                                                                                                    title="Open Chat"
+                                                                                                >
+                                                                                                    <FaCommentDots size={12} />
+                                                                                                    {lead.unreadCount > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full"></span>}
+                                                                                                </button>
+                                                                                                <button
+                                                                                                    disabled={isDisabled}
+                                                                                                    onClick={(e) => handleOpenReminderModal(lead, e)}
+                                                                                                    className="flex-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 p-1.5 rounded-lg flex justify-center transition-colors disabled:opacity-50"
+                                                                                                    title="Reminder"
+                                                                                                >
+                                                                                                    <FaBell size={12} />
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        </div>
+                                                                                    </td>
+                                                                                </tr>
+                                                                            );
+                                                                        })}
+                                                                    </tbody>
+                                                                </table>
+                                                            </div>
+                                                        )
                         )}
 
                         {/* Pagination */}
@@ -644,7 +1008,76 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                     </div>
                 </div>
 
-            </div>
+
+            {/* Student Details Hover Popover */}
+            {studentDetailsLead && (
+                <div className="fixed bottom-6 right-6 z-[100] transition-opacity pointer-events-none">
+                    <div className="bg-[#0f172a]/95 backdrop-blur-md border border-slate-700 w-[350px] rounded-2xl overflow-hidden flex flex-col transform transition-all shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
+                        <div className="flex justify-between items-center p-4 border-b border-slate-700/50 bg-slate-800/30">
+                            <h2 className="text-slate-200 font-bold flex items-center gap-2">
+                                <FaUser className="text-sky-400" /> Student Details
+                            </h2>
+                            <button onClick={() => setStudentDetailsLead(null)} className="text-slate-400 hover:text-white p-1 rounded hover:bg-rose-500/20 transition-colors pointer-events-auto">
+                                <FaTimes size={16} />
+                            </button>
+                        </div>
+                        <div className="p-5 max-h-[70vh] overflow-y-auto custom-scrollbar pointer-events-auto">
+                            {isStudentDetailsLoading ? (
+                                <div className="flex flex-col items-center justify-center py-10">
+                                    <Loader2 className="w-8 h-8 text-sky-400 animate-spin mb-3" />
+                                    <p className="text-slate-400 text-sm">Fetching records...</p>
+                                </div>
+                            ) : studentDetailsData?.isEnrolled ? (
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-2 text-emerald-400 font-bold bg-emerald-900/20 p-3 rounded-xl border border-emerald-500/30 text-xs">
+                                        <FaCheckCircle size={14}/> Registered Student
+                                    </div>
+                
+                                    <div className="space-y-3 bg-slate-800/20 p-4 rounded-xl border border-slate-700/50">
+                                        <div className="text-sm">
+                                            <span className="text-slate-500 block mb-0.5 text-xs font-semibold">Full Name & ID</span>
+                                            <span className="text-slate-200 font-bold">{studentDetailsData.student.firstName} {studentDetailsData.student.lastName} (ID: {studentDetailsData.student.id})</span>
+                                        </div>
+                                        <div className="text-sm">
+                                            <span className="text-slate-500 block mb-0.5 text-xs font-semibold"><FaMapMarkerAlt className="inline mr-1 text-slate-400"/> Address</span>
+                                            <span className="text-slate-300">{studentDetailsData.student.addressHouseNo}, {studentDetailsData.student.addressStreet}, {studentDetailsData.student.city}</span>
+                                        </div>
+                                        
+                                        {studentDetailsData.student.payments?.[0] && (
+                                            <>
+                                                <div className="text-sm mt-4 pt-4 border-t border-slate-700/50">
+                                                    <span className="text-slate-500 block mb-0.5 text-xs font-semibold"><FaGraduationCap className="inline mr-1 text-slate-400"/> Enrollment</span>
+                                                    <span className="text-sky-300 font-black block">{studentDetailsData.student.payments[0].business?.name}</span>
+                                                    <span className="text-slate-400 block text-xs mt-0.5">{studentDetailsData.student.payments[0].batch?.name}</span>
+                                                </div>
+                                                <div className="text-sm mt-3">
+                                                    <span className="text-slate-500 block mb-1.5 text-xs font-semibold">Enrolled Subjects</span>
+                                                    <div className="flex flex-wrap gap-1.5">
+                                                        {studentDetailsData.enrolledCourses?.map(c => (
+                                                            <span key={c.id} className="bg-slate-700/50 px-2.5 py-1 rounded-md text-[11px] text-slate-200 border border-slate-600 font-medium">{c.name}</span>
+                                                        ))}
+                                                        {(!studentDetailsData.enrolledCourses || studentDetailsData.enrolledCourses.length === 0) && (
+                                                            <span className="text-slate-500 text-xs italic">No specific subjects found.</span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center py-8 text-center">
+                                    <div className="w-12 h-12 rounded-full bg-rose-900/30 flex items-center justify-center mb-3 border border-rose-500/30">
+                                        <FaTimes className="text-rose-400 text-xl" />
+                                    </div>
+                                    <h3 className="text-slate-200 font-bold mb-1">Not Registered</h3>
+                                    <p className="text-slate-500 text-xs">This student hasn't registered for any classes yet.</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* REMINDER MODAL */}
             {showReminder && reminderLead && createPortal(
@@ -708,7 +1141,7 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                         <div className="p-6 border-b border-white/10 flex justify-between items-center bg-gradient-to-r from-indigo-900/50 to-transparent">
                             <h2 className="text-xl font-extrabold text-white flex items-center gap-3">
                                 <BookOpen className="text-indigo-400" />
-                                Open Seminar Staff Guidance
+                                New Inquiries Staff Guidance
                             </h2>
                             <div className="flex items-center gap-4">
                                 <div className="flex bg-black/40 rounded-xl p-1 border border-white/10">
@@ -735,106 +1168,57 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
 
                             {guidanceLang === 'EN' ? (
                                 <>
-                                    <div className="bg-white/5 border border-white/10 p-5 rounded-2xl">
-                                        <h3 className="text-indigo-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">📌 What is Open Seminar?</h3>
-                                        <p className="leading-relaxed">
-                                            The Open Seminar campaign tracks students who have inquired specifically about our opening seminars or normal inquiries who haven't enrolled yet. Your primary goal is to guide them, answer their questions, and successfully enroll them into a payment plan.
-                                        </p>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="bg-white/5 border border-white/10 p-5 rounded-2xl">
-                                            <h3 className="text-emerald-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">🔄 Round 01 vs Round 02</h3>
-                                            <ul className="list-disc list-inside space-y-3 marker:text-emerald-500">
-                                                <li><strong className="text-white">Round 01:</strong> All fresh leads start here. You must call them and set an outcome.</li>
-                                                <li><strong className="text-white">Round 02:</strong> Leads that were pushed from Round 01 for further follow-up. They have a fresh status in Round 02, but previous remarks are kept.</li>
-                                                <li><strong className="text-white">Non Enrolled:</strong> Normal inquiries that are not yet enrolled.</li>
-                                                <li><strong className="text-white">Paid:</strong> Leads that have successfully enrolled (Full, Monthly, or Installment).</li>
-                                            </ul>
-                                        </div>
-
-                                        <div className="bg-white/5 border border-white/10 p-5 rounded-2xl">
-                                            <h3 className="text-blue-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">📈 Phase Progression</h3>
-                                            <ul className="list-disc list-inside space-y-3 marker:text-blue-500">
-                                                <li><strong className="text-white">Phase 1:</strong> Initial contact stage. Fresh leads wait here.</li>
-                                                <li><strong className="text-white">Phase 2:</strong> Once you change the status from 'Pending' and click SAVE, the lead automatically moves to Phase 2.</li>
-                                                <li><strong className="text-white">Phase 3:</strong> Final follow-up stage (if applicable). Currently, Phase 2 is the primary active state after Phase 1.</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white/5 border border-white/10 p-5 rounded-2xl">
-                                        <h3 className="text-amber-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">⚠️ Delay Tracking & Countdown</h3>
-                                        <p className="mb-3">Leads have a strict <strong>5-Day (120 Hours)</strong> deadline to be processed.</p>
-                                        <ul className="list-disc list-inside space-y-2 marker:text-amber-500">
-                                            <li>The timer counts down from 5 days based on when the lead was assigned.</li>
-                                            <li>If the timer turns <strong className="text-rose-400">RED</strong> and says "LATE", the lead has exceeded the 5-day limit and is marked as Delayed.</li>
-                                            <li><strong className="text-white">Goal:</strong> Clear the "Pending" leads before they hit the delay threshold.</li>
+                                    <div className="bg-white/5 border border-white/10 p-5 rounded-2xl mb-6">
+                                        <h3 className="text-emerald-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">📌 NEW INQUIRIES WORKFLOW</h3>
+                                        <ul className="space-y-4">
+                                            <li>
+                                                <strong className="text-rose-400 block mb-1">▶ ROUND 01 (24 Hours)</strong>
+                                                <span className="text-slate-300">All new leads arrive here. You have <strong className="text-white">24 hours</strong> to call, set the outcome, add a remark, and click 'Push' to send them to Round 02.</span>
+                                            </li>
+                                            <li>
+                                                <strong className="text-blue-400 block mb-1">▶ ROUND 02 (7 Days Total)</strong>
+                                                <span className="text-slate-300">
+                                                    Leads arriving from Round 01 will be <strong className="text-indigo-300">FROZEN for 6 Days</strong> (no actions allowed). 
+                                                    On the <strong className="text-white">7th Day</strong>, the lead unfreezes and a <strong className="text-white">24-hour countdown</strong> begins. 
+                                                    You must call, update the status, and push the lead before this time expires.
+                                                </span>
+                                            </li>
+                                            <li>
+                                                <strong className="text-amber-400 block mb-1">▶ NON-ENROLLED (Round 03)</strong>
+                                                <span className="text-slate-300">If a lead is covered in Round 02 and they haven't enrolled yet, pushing them moves them here. They will remain parked in this tab.</span>
+                                            </li>
+                                            <li>
+                                                <strong className="text-emerald-400 block mb-1">▶ PAID (Enrolled)</strong>
+                                                <span className="text-slate-300">Kids automatically move to this tab ONLY when they upload their slips via Manage Payments and the admin approves them. Enrollment status is <strong className="text-white">READ-ONLY</strong> for coordinators.</span>
+                                            </li>
                                         </ul>
-                                    </div>
-
-                                    <div className="bg-white/5 border border-white/10 p-5 rounded-2xl">
-                                        <h3 className="text-rose-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">✅ How to Process a Lead</h3>
-                                        <ol className="list-decimal list-inside space-y-2 marker:text-rose-500">
-                                            <li>Select the <strong>Call Outcome</strong> (e.g. Answered, No Answer, Reject).</li>
-                                            <li>Select the <strong>Call Method</strong> you used (Direct, WhatsApp, 3CX).</li>
-                                            <li>Set the <strong>Enrollment Status</strong> (Full, Monthly, Installment). If they enroll, they move to the "Paid" tab.</li>
-                                            <li>Type your <strong>Remarks</strong> in the text box. (It auto-saves as a Draft).</li>
-                                            <li>Click <strong className="text-white">SAVE PROGRESS</strong>. The lead will move to Phase 2 automatically!</li>
-                                            <li>To push a lead to the next Round, use the yellow arrow button after changing the status.</li>
-                                        </ol>
                                     </div>
                                 </>
                             ) : (
                                 <>
-                                    <div className="bg-white/5 border border-white/10 p-5 rounded-2xl">
-                                        <h3 className="text-indigo-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">📌 Open Seminar කියන්නේ මොකක්ද?</h3>
-                                        <p className="leading-relaxed">
-                                            Open Seminar Campaign එකෙන් පෙන්නන්නේ අපි කරන Open Seminars වලට සම්බන්ධ වෙන්න අහපු ළමයි සහ තාමත් පන්ති වලට ලියාපදිංචි (Enroll) වුණේ නැති සාමාන්‍ය inquiries. ඔයාගේ ප්‍රධාන අරමුණ මේ ළමයින්ට කතා කරලා, එයාලව Payment Plan එකකට ඇතුළත් කරගන්න එකයි.
-                                        </p>
-                                    </div>
-
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="bg-white/5 border border-white/10 p-5 rounded-2xl">
-                                            <h3 className="text-emerald-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">🔄 Round 01 සහ Round 02</h3>
-                                            <ul className="list-disc list-inside space-y-3 marker:text-emerald-500">
-                                                <li><strong className="text-white">Round 01:</strong> අලුතින් එන හැම Lead එකක්ම මුලින්ම එන්නේ මෙතැනට. ඔයා මේ අයට කතා කරලා Outcome එකක් දාන්න ඕනෙ.</li>
-                                                <li><strong className="text-white">Round 02:</strong> Round 01 එකෙන් කතා කරලා ඉවර වෙලා ඊලඟ වටයේ කතා කරන්න "Push" කරපු Leads තියෙන්නේ මෙතැන. මේකෙදි Status එක අලුත් වෙනවා, හැබැයි පරණ Remarks එහෙම්ම තියෙනවා.</li>
-                                                <li><strong className="text-white">Non Enrolled:</strong> සාමාන්‍යයෙන් ඇවිත් තාමත් පන්ති වලට නොබැඳුණු ළමයි.</li>
-                                                <li><strong className="text-white">Paid:</strong> සල්ලි ගෙවලා සම්පූර්ණයෙන් Enroll වුණු ළමයි.</li>
-                                            </ul>
-                                        </div>
-
-                                        <div className="bg-white/5 border border-white/10 p-5 rounded-2xl">
-                                            <h3 className="text-blue-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">📈 Phase වෙනස් වන ආකාරය</h3>
-                                            <ul className="list-disc list-inside space-y-3 marker:text-blue-500">
-                                                <li><strong className="text-white">Phase 1:</strong> අලුතින් ආපු ළමයින්ට කතා කරන්න කලින් ඉන්නේ Phase 1 එකේ.</li>
-                                                <li><strong className="text-white">Phase 2:</strong> ඔයා Lead එකේ Status එක 'Pending' එකෙන් වෙනස් කරලා "SAVE PROGRESS" ඔබපු ගමන්, ඒ Lead එක Auto Phase 2 එකට මාරු වෙනවා.</li>
-
-                                            </ul>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-white/5 border border-white/10 p-5 rounded-2xl">
-                                        <h3 className="text-amber-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">⚠️ Delay Tracking සහ Countdown එක</h3>
-                                        <p className="mb-3">හැම Lead එකකටම අනිවාර්යයෙන් දවස් 5ක (පැය 120ක) කාලයක් තියෙනවා Action එකක් ගන්න.</p>
-                                        <ul className="list-disc list-inside space-y-2 marker:text-amber-500">
-                                            <li>Lead එක ආපු වෙලාවේ ඉඳන් දවස් 5ක Countdown එකක් යන්න පටන් ගන්නවා.</li>
-                                            <li>දවස් 5 පැන්නට පස්සේ Timer එක <strong className="text-rose-400">රතු පාටින්</strong> "LATE" කියලා වැටෙනවා. ඒ කියන්නේ ඒ Lead එක Delayed විදිහට මාර්ක් වෙනවා.</li>
-                                            <li><strong className="text-white">අරමුණ:</strong> මේ දවස් 5 ඉවර වෙන්න කලින් Pending Leads ඔක්කොටම කතා කරලා ඉවර කරන්න.</li>
+                                    <div className="bg-white/5 border border-white/10 p-5 rounded-2xl mb-6">
+                                        <h3 className="text-emerald-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">📌 NEW INQUIRIES WORKFLOW</h3>
+                                        <ul className="space-y-4">
+                                            <li>
+                                                <strong className="text-rose-400 block mb-1">▶ ROUND 01 (පැය 24 යි)</strong>
+                                                <span className="text-slate-300">අලුතින් එන හැම Lead එකක්ම එන්නේ මෙතනට. ඔයාට <strong className="text-white">පැය 24ක්</strong> තියෙනවා කතා කරලා, Outcome එක දාලා 'Push' කරලා Round 02 එකට යවන්න.</span>
+                                            </li>
+                                            <li>
+                                                <strong className="text-blue-400 block mb-1">▶ ROUND 02 (සම්පූර්ණ දවස් 7 යි)</strong>
+                                                <span className="text-slate-300">
+                                                    Round 1 එකෙන් එන Leads පළමු <strong className="text-indigo-300">දවස් 6 පුරාවටම FROZEN</strong> (Lock වෙලා) තියෙන්නේ. 
+                                                    <strong className="text-white">7 වෙනි දවසේ</strong> ඒක Unfreeze වෙලා <strong className="text-white">පැය 24ක countdown එකක්</strong> පටන් ගන්නවා. ඔයා ඒ කාලය ඇතුළත කතා කරලා Push කරන්න ඕනෙ.
+                                                </span>
+                                            </li>
+                                            <li>
+                                                <strong className="text-amber-400 block mb-1">▶ NON-ENROLLED (Round 03)</strong>
+                                                <span className="text-slate-300">Round 02 එකේදී කතා කරලා ඉවර වෙද්දිත් ළමයා පන්ති වලට ලියාපදිංචි වෙලා නැත්නම්, Push කරපු ගමන් Lead එක මේ Tab එකට ඇවිත් මෙතනම තියෙනවා.</span>
+                                            </li>
+                                            <li>
+                                                <strong className="text-emerald-400 block mb-1">▶ PAID (Enrolled)</strong>
+                                                <span className="text-slate-300">ළමයි මේ Tab එකට එන්නේ එයාලා Manage Payments හරහා slip එක දාලා Payment එක Approve වුණාම විතරයි! Coordinator ට Enrollment Status එක වෙනස් කරන්න බෑ (එය <strong className="text-white">READ-ONLY</strong>).</span>
+                                            </li>
                                         </ul>
-                                    </div>
-
-                                    <div className="bg-white/5 border border-white/10 p-5 rounded-2xl">
-                                        <h3 className="text-rose-400 font-black uppercase tracking-widest mb-3 flex items-center gap-2">✅ Lead එකක් Process කරන්නේ කොහොමද?</h3>
-                                        <ol className="list-decimal list-inside space-y-2 marker:text-rose-500">
-                                            <li><strong>Call Outcome</strong> එක තෝරන්න (Answered, No Answer, Reject වගේ).</li>
-                                            <li>කතා කරපු <strong>Call Method</strong> එක තෝරන්න (Direct, WhatsApp, 3CX).</li>
-                                            <li><strong>Enrollment Status</strong> එක තෝරන්න (Full, Monthly, Installment). මේක තේරුවොත් Lead එක කෙලින්ම "Paid" Tab එකට යනවා.</li>
-                                            <li>කතා කරපු දේවල් <strong>Remarks</strong> Box එකේ Type කරන්න. (ඒක Auto Save වෙනවා).</li>
-                                            <li>අවසානයට <strong className="text-white">SAVE PROGRESS</strong> Button එක ඔබන්න. (එතකොට Auto Phase 2 එකට යනවා).</li>
-                                            <li>Lead එක ඊලඟ Round එකට දාන්න ඕනෙ නම්, Status එක වෙනස් කරලා තියෙන කහ පාට ඊතලය Button එක ඔබන්න.</li>
-                                        </ol>
                                     </div>
                                 </>
                             )}
@@ -844,5 +1228,6 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                 </div>
             )}
         </div>
+    </>
     );
 }
