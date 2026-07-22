@@ -661,7 +661,18 @@ function App() {
                                     ) : (
                                       <>
                                         <div className="flex items-start gap-3">
-                                          {p.slipUrl && <img src={p.slipUrl} alt="Slip" className="w-10 h-10 object-cover rounded border border-white/10 relative hover:scale-[4] hover:z-50 transition-transform duration-300 origin-top-left cursor-zoom-in" />}
+                                          {p.slipUrl && (
+                                            <div className="relative group/slip">
+                                              <img src={p.slipUrl} alt="Slip Thumbnail" className="w-10 h-10 object-cover rounded border border-white/10 cursor-zoom-in" />
+                                              <div className="hidden group-hover/slip:block absolute z-[1000] -top-32 left-12 p-3 bg-slate-950/95 border border-cyan-500/50 rounded-2xl shadow-[0_0_80px_rgba(6,182,212,0.6)] backdrop-blur-3xl min-w-[300px]">
+                                                <div className="text-cyan-400 text-[10px] font-bold uppercase tracking-widest mb-2 flex items-center justify-between border-b border-white/10 pb-2">
+                                                  <span>Slip Preview</span>
+                                                  <span>High-Res</span>
+                                                </div>
+                                                <img src={p.slipUrl} alt="Slip High-Res" className="w-[500px] h-auto object-contain rounded-xl max-h-[70vh]" />
+                                              </div>
+                                            </div>
+                                          )}
                                           <div className="flex-1">
                                             <div className="flex justify-between items-center text-xs">
                                               <span className="text-slate-400 font-mono">Ref: {p.extractedRefNo || '---'}</span>
