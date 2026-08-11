@@ -15,10 +15,21 @@ const isValidNIC = (nic) => {
   return oldNicPattern.test(nic) || newNicPattern.test(nic);
 };
 
+const normalizePhone = (p) => {
+  if (!p) return p;
+  let num = String(p).replace(/[\s-]/g, '');
+  if (num.startsWith('+94')) {
+    num = '0' + num.slice(3);
+  } else if (num.startsWith('94') && num.length === 11) {
+    num = '0' + num.slice(2);
+  }
+  return num;
+};
+
 // ================= REGISTER LOGIC =================
 exports.registerStudent = async (req, res) => {
   try {
-    const { 
+    let { 
       firstName, lastName, phone, whatsapp, optionalPhone, 
       nic, addressHouseNo, addressStreet, city, district, 
       password, confirmPassword 
@@ -31,6 +42,10 @@ exports.registerStudent = async (req, res) => {
     if (nic && !isValidNIC(nic)) {
       return res.status(400).json({ error: "Invalid NIC format. Please enter a valid ID number." });
     }
+    
+    phone = normalizePhone(phone);
+    whatsapp = normalizePhone(whatsapp);
+    optionalPhone = normalizePhone(optionalPhone);
 
     const existingUser = await prisma.user.findUnique({ where: { phone } });
     if (existingUser) {
@@ -58,31 +73,59 @@ exports.registerStudent = async (req, res) => {
 // ================= LOGIN LOGIC =================
 exports.loginUser = async (req, res) => {
   try {
-    const { phone, password } = req.body;
+    let { phone, password } = req.body;
+    const rawPhone = String(phone || '').trim();
+    const normalized = normalizePhone(rawPhone);
 
-    const user = await prisma.user.findUnique({ where: { phone } });
+    let user = await prisma.user.findFirst({ 
+      where: { 
+        OR: [
+          { phone: normalized },
+          { phone: rawPhone },
+          { phone: { startsWith: normalized } }
+        ]
+      } 
+    });
+
     if (!user) return res.status(404).json({ error: "User not found!" });
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) return res.status(401).json({ error: "Invalid credentials!" });
 
-    // 🔥 Generate Session ID and update DB
-    const sessionId = crypto.randomBytes(16).toString('hex');
-    await prisma.user.update({
-        where: { id: user.id },
-        data: { session_id: sessionId }
-    });
+    // Single session: ONLY rotate session_id for student accounts. Staff can maintain multi-device logins.
+    const roleUpper = String(user.role || '').trim().toUpperCase();
+    const isExplicitStaff = [
+        'ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN', 'STAFF', 'COORDINATOR', 
+        'CALLER', 'MANAGER', 'MANAGEMENT', 'TEACHER', 'INSTRUCTOR', 
+        'TELECALLER', 'FINANCE', 'ASS MANAGER', 'SOCIAL MEDIA MANAGER', 'SOCIAL MEDIA STAFF'
+    ].includes(roleUpper) || Boolean(user.department) || Boolean(user.businessType);
 
-    // 🔥 Include Session ID in the token
+    const isStudentAccount = !isExplicitStaff && (roleUpper === 'STUDENT' || roleUpper === 'USER');
+
+    let sessionId = user.session_id;
+    if (isStudentAccount) {
+        sessionId = crypto.randomBytes(16).toString('hex');
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { session_id: sessionId }
+        });
+    }
+
+    // Include Session ID in the token payload (Only evaluated for Students)
+    const tokenPayload = { 
+        userId: user.id, 
+        role: user.role, 
+        department: user.department, 
+        businessType: user.businessType
+    };
+    if (isStudentAccount && sessionId) {
+        tokenPayload.sessionId = sessionId;
+    }
+
+    const secretKey = process.env.JWT_SECRET || 'ima_jwt_sec_7d160fdbbfc131f568e69501f98cb67223270989b3051b802012b45efbf9f65e_2026';
     const token = jwt.sign(
-      { 
-          userId: user.id, 
-          role: user.role, 
-          department: user.department, 
-          businessType: user.businessType,
-          sessionId: sessionId 
-      },
-      process.env.JWT_SECRET, 
+      tokenPayload,
+      secretKey, 
       { expiresIn: '30d' }
     );
 
@@ -102,7 +145,6 @@ res.status(200).json({
         image: user.image,
         role: user.role,
         department: user.department,
-        // 🔥 මේ පේළිය අලුතින් add කරන්න 🔥
         businessType: user.businessType
       }
     });
@@ -116,14 +158,13 @@ res.status(200).json({
 // authController.js
 exports.ghostLogin = async (req, res) => {
   try {
+    const secretKey = process.env.JWT_SECRET || 'ima_jwt_sec_7d160fdbbfc131f568e69501f98cb67223270989b3051b802012b45efbf9f65e_2026';
     console.log("=== GHOST LOGIN INITIATED ===");
     console.log("Raw ID from params:", req.params.id);
 
-    // අනිවාර්යයෙන්ම parseInt කරන්න ඕනේ
     const staffId = parseInt(req.params.id, 10);
     console.log("Parsed ID:", staffId);
 
-    // ID එක ඉලක්කමක් නෙවෙයි නම් (NaN) එතනින්ම නවත්තනවා
     if (isNaN(staffId)) {
         console.log("Error: Invalid ID format");
         return res.status(400).json({ error: "Invalid ID format" });
@@ -134,23 +175,39 @@ exports.ghostLogin = async (req, res) => {
 
     if (!user) return res.status(404).json({ error: "User not found!" });
 
-    const sessionId = crypto.randomBytes(16).toString('hex');
-    await prisma.user.update({
-        where: { id: user.id },
-        data: { session_id: sessionId }
-    });
+    const ghostRoleUpper = String(user.role || '').trim().toUpperCase();
+    const isGhostStaff = [
+        'ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN', 'STAFF', 'COORDINATOR', 
+        'CALLER', 'MANAGER', 'MANAGEMENT', 'TEACHER', 'INSTRUCTOR', 
+        'TELECALLER', 'FINANCE', 'ASS MANAGER', 'SOCIAL MEDIA MANAGER', 'SOCIAL MEDIA STAFF'
+    ].includes(ghostRoleUpper) || Boolean(user.department) || Boolean(user.businessType);
 
-    console.log("Session updated successfully, generating token...");
+    const isGhostStudent = !isGhostStaff && (ghostRoleUpper === 'STUDENT' || ghostRoleUpper === 'USER');
+
+    let sessionId = user.session_id;
+    if (isGhostStudent) {
+        sessionId = crypto.randomBytes(16).toString('hex');
+        await prisma.user.update({
+            where: { id: user.id },
+            data: { session_id: sessionId }
+        });
+    }
+
+    console.log("Session processed successfully, generating token...");
+
+    const tokenPayload = { 
+        userId: user.id, 
+        role: user.role, 
+        department: user.department, 
+        businessType: user.businessType
+    };
+    if (isGhostStudent && sessionId) {
+        tokenPayload.sessionId = sessionId;
+    }
 
     const token = jwt.sign(
-      { 
-          userId: user.id, 
-          role: user.role, 
-          department: user.department, 
-          businessType: user.businessType,
-          sessionId: sessionId 
-      },
-      process.env.JWT_SECRET, 
+      tokenPayload,
+      secretKey, 
       { expiresIn: '30d' }
     );
 

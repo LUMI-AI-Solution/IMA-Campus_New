@@ -1,21 +1,12 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-async function check() {
-    const p = await prisma.payment.findUnique({
-        where: { id: 71 },
-        include: {
-            actionedUser: true
-        }
+async function main() {
+    const studentId = 951; // From the upgrade log
+    const payments = await prisma.payment.findMany({
+        where: { studentId: studentId },
+        orderBy: { id: 'desc' }
     });
-    console.log("=== Payment 71 actioned by ===");
-    console.log(JSON.stringify(p ? {
-        id: p.id,
-        status: p.status,
-        actionedById: p.actionedById,
-        actionedUser: p.actionedUser ? { id: p.actionedUser.id, name: p.actionedUser.firstName + " " + p.actionedUser.lastName, role: p.actionedUser.role } : null,
-        updatedAt: p.updatedAt // Wait, does payment have updatedAt? Let's check schema. No, payment does not have updatedAt.
-    } : null, null, 2));
+    console.log(payments.map(p => ({ id: p.id, amount: p.amount, status: p.status, method: p.method, remark: p.remark })));
 }
-
-check().finally(() => prisma.$disconnect());
+main().catch(console.error).finally(() => prisma.$disconnect());

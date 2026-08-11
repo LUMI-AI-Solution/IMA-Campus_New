@@ -10,6 +10,7 @@ const afterSeminarInquiryController = require('../controllers/afterSeminarInquir
 const afterSeminarBridgeController = require('../controllers/afterSeminarBridgeController');
 const afterSeminarRetentionController = require('../controllers/afterSeminarRetentionController');
 const afterSeminarManagerStatsController = require('../controllers/afterSeminarManagerStatsController');
+const verifyToken = require('../middlewares/authMiddleware');
 
 // Multer Storage Configuration
 const storage = multer.diskStorage({
@@ -18,16 +19,30 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 
+// ============================================================================
+// 🌐 WEBHOOKS (Public, NO AUTH)
+// ============================================================================
+router.get('/webhook', afterSeminarInquiryController.verifyWebhook);
+router.post('/webhook', afterSeminarInquiryController.receiveMessage);
+
+// ============================================================================
+// 🔒 SECURE ALL ROUTES BELOW THIS POINT
+// ============================================================================
+router.use(verifyToken);
 
 // ============================================================================
 // 🟢 MODULE 1: INQUIRIES (Direct & Open Seminar)
 // ============================================================================
+
 
 // Settings & Config
 router.post('/settings', afterSeminarInquiryController.saveCrmSettings);
 router.get('/settings/:businessId/:campaignType', afterSeminarInquiryController.getCrmSettings);
 router.get('/followup-status', afterSeminarInquiryController.getFollowUpStatus);
 router.post('/toggle-followup', afterSeminarInquiryController.toggleFollowUpStatus);
+
+router.get('/opensem-status', afterSeminarInquiryController.getOpenSemStatus);
+router.post('/toggle-opensem', afterSeminarInquiryController.toggleOpenSemStatus);
 
 // Leads & Bulk Actions
 router.get('/leads', afterSeminarInquiryController.getLeads);
@@ -39,14 +54,18 @@ router.post('/leads/update-call', afterSeminarInquiryController.updateCallCampai
 router.post('/leads/update-batch', afterSeminarInquiryController.updateLeadBatch);
 router.post('/leads/revert-round', afterSeminarInquiryController.revertDeletedRound);
 
-// Webhook
-router.post('/webhook', afterSeminarInquiryController.receiveMessage);
+// Webhook routes moved to top
 router.get('/meta-templates', afterSeminarInquiryController.getMetaTemplates);
 
 // Chat Messages & Broadcast
 router.get('/messages/:leadId', afterSeminarInquiryController.getMessages);
 router.post('/messages', upload.single('media'), afterSeminarInquiryController.sendMessage);
 router.post('/messages/react', afterSeminarInquiryController.sendReaction);
+router.post('/messages/send-opt-in', afterSeminarInquiryController.sendOptInRequest);
+router.post('/leads/send-call-request', afterSeminarInquiryController.sendCallPermissionRequest);
+router.get('/leads/unnotified-permissions', afterSeminarInquiryController.getUnnotifiedPermissions);
+router.get('/leads/call-permissions', afterSeminarInquiryController.getCallPermissions);
+router.post('/leads/mark-permission-notified', afterSeminarInquiryController.markPermissionNotified);
 router.post('/broadcast', upload.single('media'), afterSeminarInquiryController.sendBroadcast);
 
 // Stats, Test & Next Round
@@ -83,7 +102,13 @@ router.get('/stats/open-seminar', afterSeminarManagerStatsController.getOpenSemi
 router.get('/stats/bridge', afterSeminarManagerStatsController.getBridgePerformanceStats);
 router.get('/stats/paid-campaign', afterSeminarManagerStatsController.getPaidCampaignStats);
 router.get('/stats/coordinator-progress', afterSeminarManagerStatsController.getCoordinatorProgressSheetStats);
-router.get('/leads/master-directory', afterSeminarManagerStatsController.getMasterDirectory);
+router.get('/unassigned-batch-leads', afterSeminarManagerStatsController.getUnassignedBatchLeads);
+router.get('/business-batches', afterSeminarManagerStatsController.getBusinessBatches);
+router.get('/coordinators', afterSeminarManagerStatsController.getCoordinators);
+router.get('/lead-chat/:leadId', afterSeminarManagerStatsController.getLeadChatHistory);
+router.post('/assign-leads-to-batch', afterSeminarManagerStatsController.assignLeadsToBatch);
+router.get('/missing-paid-students', afterSeminarManagerStatsController.getMissingPaidStudents);
+router.post('/push-missing-student-to-crm', afterSeminarManagerStatsController.pushMissingStudentToCrm);
 
 router.get('/retention/campaign-data', afterSeminarRetentionController.getRetentionCampaignData);
 

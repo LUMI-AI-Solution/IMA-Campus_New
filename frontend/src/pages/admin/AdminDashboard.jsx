@@ -1,15 +1,24 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, Loader2, Database, AlertTriangle, Activity, CheckCircle2, Terminal, HardDrive, Cpu, Server } from 'lucide-react';
+import { Search, Loader2, Database, AlertTriangle, Activity, CheckCircle2, Terminal, HardDrive, Cpu, Server, Shield, MessageCircle } from 'lucide-react';
+import { io } from 'socket.io-client';
 import { AreaChart, Area, PieChart, Pie, Cell, BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, CartesianGrid, YAxis } from 'recharts';
 import api from '../../api/axios';
 import toast from 'react-hot-toast';
+import AdminAuditTrail from './AdminAuditTrail';
 
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [stats, setStats] = useState(null);
   const [logs, setLogs] = useState("");
-  const terminalEndRef = useRef(null);
+  const [maintenanceMode, setMaintenanceMode] = useState(false);
+  const [activeView, setActiveView] = useState('overview'); // 'overview' | 'audit'
+  const terminalContainerRef = useRef(null);
+  
+  // WhatsApp Monitor State
+  const [waAlerts, setWaAlerts] = useState([]);
+  const [waStatus, setWaStatus] = useState(null);
+  const socketRef = useRef(null);
 
   // Mock History Data for Charts since backend doesn't save historical CPU stats yet
   const cpuHistory = [
@@ -46,10 +55,93 @@ export default function AdminDashboard() {
         setLoading(false);
       }
     };
+    
+    const fetchWaAlerts = async () => {
+      try {
+        const response = await api.get('/admin/whatsapp-call/alerts');
+        if (response.data.success) {
+           setWaAlerts(response.data.alerts);
+        }
+      } catch (err) {
+        console.warn("WA Alerts Fetch Error", err);
+      }
+    };
+    
+    const fetchWaStatus = async () => {
+        try {
+            const res = await api.get('/admin/whatsapp-call/status');
+            if(res.data.success) {
+                setWaStatus(res.data.data);
+            }
+        } catch(err) {
+            console.warn("WA Status Fetch Error", err);
+        }
+    };
+    const fetchMaintenanceMode = () => {
+        api.get('/admin/settings/maintenance-mode')
+           .then(res => setMaintenanceMode(res.data.active))
+           .catch(err => console.warn("Failed to fetch maintenance mode", err));
+    };
     fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 10000);
-    return () => clearInterval(interval);
+    fetchMaintenanceMode();
+    fetchWaAlerts();
+    fetchWaStatus();
+    
+    // Socket Setup
+    const token = localStorage.getItem('token');
+    const socketUrl = api.defaults.baseURL ? api.defaults.baseURL.replace('/api', '') : 'http://localhost:5000';
+    socketRef.current = io(socketUrl, { auth: { token }, transports: ['websocket', 'polling'] });
+    
+    socketRef.current.on('whatsapp_alert', (newAlert) => {
+        setWaAlerts(prev => [newAlert, ...prev].slice(0, 50));
+        toast.custom((t) => (
+          <div className={`${t.visible ? 'animate-enter' : 'animate-leave'} max-w-md w-full bg-slate-900 border border-emerald-500 shadow-lg rounded-lg pointer-events-auto flex ring-1 ring-black ring-opacity-5`}>
+            <div className="flex-1 w-0 p-4">
+              <div className="flex items-start">
+                <div className="flex-shrink-0 pt-0.5">
+                  <MessageCircle className="h-10 w-10 text-emerald-400" />
+                </div>
+                <div className="ml-3 flex-1">
+                  <p className="text-sm font-bold text-white">WhatsApp Alert: {newAlert.alertType}</p>
+                  <p className="mt-1 text-sm text-gray-300">{newAlert.message}</p>
+                </div>
+              </div>
+            </div>
+            <div className="flex border-l border-gray-700">
+              <button onClick={() => toast.dismiss(t.id)} className="w-full border border-transparent rounded-none rounded-r-lg p-4 flex items-center justify-center text-sm font-medium text-gray-400 hover:text-white focus:outline-none">
+                Close
+              </button>
+            </div>
+          </div>
+        ));
+    });
+
+    const interval = setInterval(() => {
+        fetchDashboardData();
+        fetchMaintenanceMode();
+        fetchWaStatus();
+    }, 10000);
+    
+    return () => {
+        clearInterval(interval);
+        if (socketRef.current) socketRef.current.disconnect();
+    };
   }, []);
+
+  const toggleMaintenanceMode = async (newVal) => {
+      setMaintenanceMode(newVal);
+      try {
+          await api.put('/admin/settings/maintenance-mode', { 
+              active: newVal, 
+              messageEn: "System is under update. Some features may not work properly. If you face any issues, please mention in the WhatsApp group.",
+              messageSi: "පද්ධතිය යාවත්කාලීන වෙමින් පවතී. සමහර පහසුකම් නිසියාකාරව ක්‍රියා නොකිරීමට ඉඩ ඇත. යම් ගැටලුවක් ඇත්නම් කරුණාකර WhatsApp Group එකට දැනුම් දෙන්න." 
+          });
+          toast.success(`System Maintenance Mode ${newVal ? 'ACTIVATED' : 'DEACTIVATED'}!`);
+      } catch (error) {
+          toast.error("Failed to update maintenance mode");
+          setMaintenanceMode(!newVal);
+      }
+  };
 
   // Fetch Live Logs
   useEffect(() => {
@@ -57,8 +149,8 @@ export default function AdminDashboard() {
       try {
         const response = await api.get('/admin/logs');
         setLogs(response.data);
-        if (terminalEndRef.current) {
-          terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        if (terminalContainerRef.current) {
+          terminalContainerRef.current.scrollTop = terminalContainerRef.current.scrollHeight;
         }
       } catch (error) {
         setLogs("Error connecting to server terminal...");
@@ -101,11 +193,29 @@ export default function AdminDashboard() {
     );
   }
 
+  if (activeView === 'audit') {
+      return (
+          <div className="w-full min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#020617] p-4 md:p-8">
+              <button 
+                  onClick={() => setActiveView('overview')}
+                  className="mb-4 flex items-center text-gray-400 hover:text-white transition-colors"
+              >
+                  <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
+                  Back to Dashboard
+              </button>
+              <AdminAuditTrail />
+          </div>
+      );
+  }
+
   return (
-    <div className="w-full animate-fade-in pb-10">
+    <div className="w-full min-h-screen bg-gradient-to-br from-[#0f172a] via-[#1e1b4b] to-[#020617] animate-fade-in pb-10 px-4 md:px-8 pt-6 relative overflow-hidden rounded-2xl shadow-[inset_0_0_100px_rgba(0,0,0,0.5)]">
+      {/* Decorative background blurs */}
+      <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-600/20 rounded-full blur-[100px] pointer-events-none"></div>
+      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-600/20 rounded-full blur-[100px] pointer-events-none"></div>
       
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-8">
+      <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-8 relative z-10">
         <div>
           <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white">System Monitor</h2>
           <p className="text-sm font-medium text-emerald-400 mt-1 flex items-center gap-2">
@@ -115,6 +225,13 @@ export default function AdminDashboard() {
         
         <div className="flex flex-wrap items-center gap-3">
           <button 
+            onClick={() => setActiveView('audit')} 
+            className="flex items-center justify-center gap-2 bg-blue-900/40 hover:bg-blue-800 text-blue-300 border border-blue-700/50 px-5 py-2.5 rounded-lg text-sm font-bold shadow-lg transition-all"
+          >
+            <Shield size={16} /> 
+            Audit Trail
+          </button>
+          <button 
             onClick={handleDownloadBackup} 
             disabled={isBackingUp}
             className="flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white border border-emerald-400 px-5 py-2.5 rounded-lg text-sm font-bold shadow-[0_0_15px_rgba(16,185,129,0.4)] transition-all"
@@ -123,6 +240,24 @@ export default function AdminDashboard() {
             {isBackingUp ? 'Fetching Backup...' : 'Download Latest DB'}
           </button>
         </div>
+      </div>
+
+      {/* SYSTEM MAINTENANCE WIDGET */}
+      <div className={`mb-8 p-6 rounded-2xl border backdrop-blur-xl shadow-lg flex flex-col md:flex-row items-center justify-between gap-6 transition-all duration-300 ${maintenanceMode ? 'bg-amber-500/10 border-amber-500/30 shadow-[0_0_20px_rgba(245,158,11,0.2)]' : 'bg-white/5 border-white/10'}`}>
+          <div className="flex items-center gap-5">
+              <div className={`inline-flex items-center justify-center w-12 h-12 rounded-full ${maintenanceMode ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-400'}`}>
+                  <AlertTriangle size={24} className={maintenanceMode ? 'animate-pulse' : ''}/>
+              </div>
+              <div>
+                  <h3 className={`text-lg font-black tracking-tight ${maintenanceMode ? 'text-amber-400' : 'text-white'}`}>Global Maintenance Mode</h3>
+                  <p className="text-gray-400 text-xs mt-1 font-medium">Toggle this to show the system update warning banner to all staff.</p>
+              </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" className="sr-only peer" checked={maintenanceMode} onChange={(e) => toggleMaintenanceMode(e.target.checked)} />
+              <div className="w-14 h-7 bg-black/50 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[4px] after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500 border border-white/20"></div>
+              <span className={`ml-3 text-xs font-bold uppercase tracking-wider ${maintenanceMode ? 'text-amber-400' : 'text-gray-500'}`}>{maintenanceMode ? 'ACTIVE' : 'OFF'}</span>
+          </label>
       </div>
 
       {/* Top Stats */}
@@ -157,10 +292,10 @@ export default function AdminDashboard() {
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 mb-8">
         
         {/* Left Side: Charts */}
-        <div className="xl:col-span-2 flex flex-col gap-6">
+        <div className="xl:col-span-2 flex flex-col gap-6 relative z-10">
           
           {/* Server Load Area Chart */}
-          <div className="bg-black/40 border border-white/5 backdrop-blur-xl p-6 rounded-2xl shadow-lg">
+          <div className="bg-white/5 border border-white/10 backdrop-blur-2xl p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:shadow-[0_0_20px_rgba(59,130,246,0.15)] transition-all duration-300">
             <div className="flex justify-between items-center mb-6">
                 <h3 className="text-xs font-extrabold text-gray-300 tracking-wider uppercase flex items-center gap-2">
                     <Server size={16} className="text-blue-400" /> CPU Load History (30 Min)
@@ -190,7 +325,7 @@ export default function AdminDashboard() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Storage Distribution Pie Chart */}
-              <div className="bg-black/40 border border-white/5 backdrop-blur-xl p-6 rounded-2xl shadow-lg flex flex-col items-center">
+              <div className="bg-white/5 border border-white/10 backdrop-blur-2xl p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:shadow-[0_0_20px_rgba(16,185,129,0.15)] transition-all duration-300 flex flex-col items-center">
                 <h3 className="text-xs font-extrabold text-gray-300 tracking-wider mb-2 w-full uppercase flex items-center gap-2">
                     <HardDrive size={16} className="text-emerald-400" /> Server Storage Dist. (MB)
                 </h3>
@@ -209,7 +344,7 @@ export default function AdminDashboard() {
               </div>
 
               {/* API Traffic Bar Chart */}
-              <div className="bg-black/40 border border-white/5 backdrop-blur-xl p-6 rounded-2xl shadow-lg">
+              <div className="bg-white/5 border border-white/10 backdrop-blur-2xl p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] hover:shadow-[0_0_20px_rgba(139,92,246,0.15)] transition-all duration-300">
                 <h3 className="text-xs font-extrabold text-gray-300 tracking-wider mb-6 uppercase flex items-center gap-2">
                     <Activity size={16} className="text-purple-400" /> API Traffic by Module
                 </h3>
@@ -229,30 +364,81 @@ export default function AdminDashboard() {
           </div>
         </div>
 
-        {/* Right Side: Hacker Terminal */}
-        <div className="xl:col-span-1 bg-black border border-white/10 rounded-2xl flex flex-col overflow-hidden shadow-[0_0_20px_rgba(0,0,0,0.5)]">
-          <div className="bg-[#1e1e1e] px-4 py-3 flex items-center gap-2 border-b border-white/5">
-            <div className="flex gap-1.5">
-              <div className="w-3 h-3 rounded-full bg-rose-500"></div>
-              <div className="w-3 h-3 rounded-full bg-amber-500"></div>
-              <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+        {/* Right Side: WhatsApp Monitor */}
+        <div className="xl:col-span-1 bg-gradient-to-b from-[#0f172a] to-[#020617] border border-emerald-500/20 rounded-3xl flex flex-col overflow-hidden shadow-[0_0_30px_rgba(16,185,129,0.1)] backdrop-blur-xl relative z-10">
+          <div className="bg-[#111]/90 backdrop-blur-md px-5 py-4 flex items-center justify-between border-b border-emerald-500/20">
+            <div className="flex items-center gap-3">
+              <MessageCircle size={18} className="text-emerald-400" />
+              <p className="text-[13px] text-white font-bold tracking-wider">
+                WhatsApp Status Monitor
+              </p>
             </div>
-            <p className="text-[10px] text-gray-400 ml-2 font-mono flex items-center gap-2">
-              <Terminal size={12} /> root@imacampus-server: ~/live-logs
-            </p>
+            <div className="text-[10px] text-emerald-500 animate-pulse font-mono flex items-center gap-1 font-bold bg-emerald-500/10 px-2 py-1 rounded-full border border-emerald-500/30">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)]"></span> LIVE
+            </div>
           </div>
           
-          <div className="flex-1 p-5 bg-[#0a0a0a] font-mono text-[10px] sm:text-[11px] text-emerald-400 overflow-y-auto max-h-[500px]">
-            <div className="mb-4 text-emerald-500/70 border-b border-emerald-900/30 pb-2">
-                # INITIALIZING SECURE SHELL INTERFACE...<br/>
-                # STREAMING LIVE BACKEND LOGS FROM PM2 PROCESS...<br/>
-                # ENCRYPTED CONNECTION ESTABLISHED.
-            </div>
-            <pre className="whitespace-pre-wrap break-words leading-relaxed">
-              {logs || "Waiting for server connection..."}
-            </pre>
-            <div className="inline-block w-2.5 h-4 bg-emerald-400 animate-pulse ml-1 align-middle mt-2"></div>
-            <div ref={terminalEndRef} />
+          {waStatus && waStatus.length > 0 && (
+              <div className="border-b border-gray-800 bg-black/40 overflow-x-auto custom-scrollbar">
+                  <div className="flex gap-4 p-4 min-w-max">
+                      {waStatus.map((status, index) => (
+                          <div key={status.id || index} className="flex-shrink-0 bg-[#0f172a] border border-slate-700/50 p-3 rounded-2xl flex flex-col justify-between w-64 shadow-lg">
+                              <div className="mb-3">
+                                  <p className="text-[13px] font-bold text-white truncate font-sans tracking-wide">{status.verified_name || 'Business Account'}</p>
+                                  <p className="text-[11px] text-emerald-400 font-mono mt-0.5 opacity-80">{status.display_phone_number || status.id}</p>
+                              </div>
+                              <div className="flex items-center justify-between mt-auto">
+                                  <div className="flex items-center gap-1.5">
+                                      <span className="text-[9px] text-gray-500 font-bold tracking-widest uppercase">QLTY</span>
+                                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                          status.quality_rating === 'GREEN' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-[0_0_8px_rgba(16,185,129,0.15)]' :
+                                          status.quality_rating === 'YELLOW' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_8px_rgba(245,158,11,0.15)]' :
+                                          'bg-rose-500/10 text-rose-400 border border-rose-500/20 shadow-[0_0_8px_rgba(244,63,94,0.15)]'
+                                      }`}>
+                                          {status.quality_rating}
+                                      </span>
+                                  </div>
+                                  <div className="flex items-center gap-1.5">
+                                      <span className="text-[9px] text-gray-500 font-bold tracking-widest uppercase">STS</span>
+                                      <span className={`text-[10px] font-bold font-sans ${status.status === 'CONNECTED' ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                          {status.status}
+                                      </span>
+                                  </div>
+                              </div>
+                          </div>
+                      ))}
+                  </div>
+              </div>
+          )}
+
+          <div className="flex-1 p-5 overflow-y-auto max-h-[500px] scroll-smooth custom-scrollbar">
+             {waAlerts.length === 0 ? (
+                 <div className="flex flex-col items-center justify-center h-full text-gray-500 gap-3">
+                     <CheckCircle2 size={40} className="text-emerald-500/30" />
+                     <p className="text-sm font-medium">All systems normal. No alerts yet.</p>
+                 </div>
+             ) : (
+                 <div className="space-y-4">
+                     {waAlerts.map((alert, idx) => {
+                         let isCritical = alert.alertType.includes('block') || alert.message.toLowerCase().includes('reject');
+                         return (
+                             <div key={alert.id || idx} className={`p-4 rounded-xl border backdrop-blur-sm transition-all hover:-translate-y-0.5 ${isCritical ? 'bg-rose-500/10 border-rose-500/30 hover:shadow-[0_0_15px_rgba(244,63,94,0.2)]' : 'bg-emerald-500/5 border-emerald-500/20 hover:shadow-[0_0_15px_rgba(16,185,129,0.15)]'}`}>
+                                 <div className="flex justify-between items-start mb-2">
+                                     <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-md ${isCritical ? 'bg-rose-500/20 text-rose-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
+                                         {alert.alertType.replace(/_/g, ' ')}
+                                     </span>
+                                     <span className="text-[10px] text-gray-500 font-mono">
+                                         {new Date(alert.createdAt).toLocaleTimeString()}
+                                     </span>
+                                 </div>
+                                 <p className="text-sm text-gray-300 font-medium">
+                                     {alert.message}
+                                 </p>
+                             </div>
+                         )
+                     })}
+                 </div>
+             )}
           </div>
         </div>
 
@@ -264,17 +450,20 @@ export default function AdminDashboard() {
 
 function StatCard({ title, value, icon, trend, trendColor }) {
   return (
-    <div className="bg-black/40 border border-white/5 backdrop-blur-xl p-5 rounded-2xl shadow-lg transition-all hover:bg-black/50 flex flex-col justify-between group">
-      <div className="flex justify-between items-start mb-2">
-        <p className="text-[10px] font-extrabold text-gray-400 tracking-widest uppercase">{title}</p>
-        <div className="p-2 rounded-lg bg-white/5 border border-white/10 group-hover:bg-white/10 transition-colors">
+    <div className="bg-white/5 backdrop-blur-2xl border border-white/10 p-6 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] transition-all duration-300 hover:bg-white/10 hover:shadow-[0_0_25px_rgba(16,185,129,0.15)] hover:-translate-y-1 flex flex-col justify-between group relative overflow-hidden z-10">
+      {/* Glow effect on hover */}
+      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none"></div>
+      
+      <div className="flex justify-between items-start mb-2 relative z-10">
+        <p className="text-[11px] font-extrabold text-gray-400 tracking-widest uppercase">{title}</p>
+        <div className="p-2.5 rounded-xl bg-white/5 border border-white/10 group-hover:bg-white/10 transition-colors shadow-inner">
           {icon}
         </div>
       </div>
-      <div className="flex items-end justify-between mt-2">
-        <h4 className="text-2xl md:text-3xl font-black text-white truncate">{value}</h4>
+      <div className="flex items-end justify-between mt-4 relative z-10">
+        <h4 className="text-3xl md:text-4xl font-black text-white truncate tracking-tight drop-shadow-md">{value}</h4>
         {trend && (
-          <span className={`text-xs font-bold ${trendColor} mb-1 bg-white/5 px-2 py-0.5 rounded`}>
+          <span className={`text-xs font-bold ${trendColor} mb-1 bg-white/5 px-2.5 py-1 rounded-md backdrop-blur-sm border border-white/5 shadow-sm`}>
             {trend}
           </span>
         )}

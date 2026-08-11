@@ -1,7 +1,39 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from '../../api/axios';
-import { FaPaperPlane, FaPaperclip, FaSun, FaMoon, FaMicrophone, FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic, FaSmile, FaStop } from 'react-icons/fa';
+import { FaPaperPlane, FaPaperclip, FaSun, FaMoon, FaMicrophone, FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic, FaSmile, FaStop, FaPhoneAlt, FaChevronDown } from 'react-icons/fa';
 import toast from 'react-hot-toast';
+import englishWords from '../../utils/englishWords.json';
+import OutboundDialerModal from '../AfterSeminarCRM/CRM/OutboundDialerModal';
+import { useCall } from '../../contexts/CallContext';
+
+const englishDictionary = new Set(englishWords.map(w => w.toLowerCase()));
+// Words that are technically English but used heavily in Singlish, so they SHOULD translate to Sinhala
+const singlishOverlap = new Set(['mm', 'wen', 'una', 'an', 'man', 'api', 'ai', 'paw', 'me', 'do', 'to', 'is', 'was', 'are', 'am', 'a', 'i', 'he', 'she', 'it', 'we', 'they', 'you']);
+
+// Overrides for common Singlish words that Google Input Tools struggles with (especially with Aelapilla words)
+const singlishOverrides = {
+    'naa': 'නෑ', 'nae': 'නෑ', 'naae': 'නෑ',
+    'baa': 'බෑ', 'bae': 'බෑ', 'baae': 'බෑ',
+    'kaa': 'කෑ', 'kae': 'කෑ', 'kaae': 'කෑ',
+    'gaa': 'ගෑ', 'gae': 'ගෑ', 'gaae': 'ගෑ',
+    'maa': 'මෑ', 'mae': 'මෑ', 'maae': 'මෑ',
+    'paa': 'පෑ', 'pae': 'පෑ', 'paae': 'පෑ',
+    'raa': 'රෑ', 'rae': 'රෑ', 'raae': 'රෑ',
+    'daa': 'දෑ', 'dae': 'දෑ', 'daae': 'දෑ',
+    'taa': 'ටෑ', 'tae': 'ටෑ', 'taae': 'ටෑ',
+    'saa': 'සෑ', 'sae': 'සෑ', 'saae': 'සෑ',
+    'haa': 'හෑ', 'hae': 'හෑ', 'haae': 'හෑ',
+    'waa': 'වෑ', 'wae': 'වෑ', 'waae': 'වෑ',
+    'yaa': 'යෑ', 'yae': 'යෑ', 'yaae': 'යෑ',
+    'nahe': 'නැහැ', 'naha': 'නැහැ', 'naehe': 'නැහැ',
+    'bahe': 'බැහැ', 'baha': 'බැහැ', 'baehe': 'බැහැ',
+    'ne': 'නේ', 'neda': 'නේද', 'nedha': 'නේද',
+    'nadda': 'නැද්ද', 'nedda': 'නැද්ද', 'naedda': 'නැද්ද',
+    'dakkda': 'දැක්කද', 'dakkada': 'දැක්කද', 'daekkada': 'දැක්කද', 'dekkada': 'දැක්කද',
+    'kariya': 'කැරියා', 'kariyaa': 'කැරියා', 'kaeriya': 'කැරියා', 'kaeriyaa': 'කැරියා',
+    'eka': 'එක', 'ekak': 'එකක්', 'eke': 'එකේ', 'ekanm': 'එකනම්',
+    'nam': 'නම්', 'kyla': 'කියලා', 'kiyala': 'කියලා'
+};
 
 const BACKEND_URL = axios.defaults.baseURL ? axios.defaults.baseURL.replace('/api', '') : 'https://imacampus.online'; 
 
@@ -16,11 +48,26 @@ const formatDateLabel = (dateString) => {
     return msgDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
 };
 
-export default function ChatArea({ selectedLead }) {
+const getCountdownText = (expiryDateStr) => {
+    if (!expiryDateStr) return null;
+    const expiry = new Date(expiryDateStr);
+    const now = new Date();
+    const diff = expiry - now;
+    if (diff <= 0) return null;
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    if (days > 0) return `${days}d left`;
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    return `${hours}h left`;
+};
+
+export default function ChatArea({ selectedLead, businessId }) {
+  const { socket } = useCall();
   const user = JSON.parse(localStorage.getItem('user')) || {};
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [chatTheme, setChatTheme] = useState('dark'); 
+  const [showCallMenu, setShowCallMenu] = useState(false);
+  const [showDialerModal, setShowDialerModal] = useState(false);
   const scrollRef = useRef(null);
   
   // 🔥 අලුතින් දාපු Ref එක (User උඩට Scroll කරලාද ඉන්නේ කියලා බලන්න)
@@ -29,12 +76,15 @@ export default function ChatArea({ selectedLead }) {
   const [replyingTo, setReplyingTo] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [isSending, setIsSending] = useState(false);
+  const isSendingRef = useRef(false);
+  const [isSendingCallReq, setIsSendingCallReq] = useState(false);
   const [activeReactionMsgId, setActiveReactionMsgId] = useState(null);
   
   const [localReactions, setLocalReactions] = useState({});
+  const [enableSinhala, setEnableSinhala] = useState(false);
 
   const [showQuickReplies, setShowQuickReplies] = useState(false);
-  const [quickReplies, setQuickReplies] = useState(() => JSON.parse(localStorage.getItem(`qr_${user.id}`)) || []);
+  const [quickReplies, setQuickReplies] = useState([]);
   const [suggestedQRs, setSuggestedQRs] = useState([]);
   const [newQRName, setNewQRName] = useState('');
   const [newQRMsg, setNewQRMsg] = useState('');
@@ -48,6 +98,64 @@ export default function ChatArea({ selectedLead }) {
   const [recordingDuration, setRecordingDuration] = useState(0);
   const timerRef = useRef(null);
   const audioChunks = useRef([]);
+
+  useEffect(() => {
+      const fetchQuickReplies = async () => {
+          try {
+              const token = localStorage.getItem('token');
+              
+              // --- MIGRATION LOGIC ---
+              const localKey = `qr_${user.id}`;
+              const localQRs = localStorage.getItem(localKey);
+              if (localQRs) {
+                  try {
+                      const parsedQRs = JSON.parse(localQRs);
+                      if (Array.isArray(parsedQRs) && parsedQRs.length > 0) {
+                          for (const qr of parsedQRs) {
+                              try {
+                                  await axios.post('/coordinator-crm/quick-replies', {
+                                      name: qr.name,
+                                      message: qr.message,
+                                      attachment: qr.attachment || null
+                                  }, { headers: { Authorization: `Bearer ${token}` } });
+                              } catch (e) { console.error("Migrate QR error", e); }
+                          }
+                      }
+                  } catch (e) { console.error(e); }
+                  localStorage.removeItem(localKey);
+              }
+              // -----------------------
+
+              const response = await axios.get('/coordinator-crm/quick-replies', {
+                  headers: { Authorization: `Bearer ${token}` }
+              });
+              setQuickReplies(response.data);
+          } catch (error) { console.error("Error fetching QR:", error); }
+      };
+      fetchQuickReplies();
+  }, []);
+
+  useEffect(() => {
+    if (!socket || !selectedLead) return;
+
+    const handlePermissionUpdate = (data) => {
+      console.log("[ChatArea Socket] Real-time permission update received:", data);
+      if (data && (data.leadId === selectedLead.id || data.phone === selectedLead.phone)) {
+        if (data.status) selectedLead.waCallPermissionStatus = data.status;
+        else selectedLead.waCallPermissionStatus = 'ALLOWED';
+        selectedLead.waCallPermissionExpiry = data.expiry || null;
+        setMessages(prev => [...prev]);
+      }
+    };
+
+    socket.on('wa_call_permission_granted', handlePermissionUpdate);
+    socket.on('wa_call_permission_updated', handlePermissionUpdate);
+
+    return () => {
+      socket.off('wa_call_permission_granted', handlePermissionUpdate);
+      socket.off('wa_call_permission_updated', handlePermissionUpdate);
+    };
+  }, [socket, selectedLead]);
 
   useEffect(() => { 
       if (selectedLead) {
@@ -85,8 +193,11 @@ export default function ChatArea({ selectedLead }) {
   const fetchMetaTemplates = async () => {
     try {
       const token = localStorage.getItem('token');
+      const bizId = businessId || selectedLead?.batch?.businessId || selectedLead?.businessId;
+
       const res = await axios.get('/coordinator-crm/meta-templates', {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
+          params: bizId ? { businessId: bizId } : {}
       });
       setMetaTemplates(res.data || []);
     } catch(e) {}
@@ -181,18 +292,99 @@ export default function ChatArea({ selectedLead }) {
       setIsRecording(false);
   };
 
+  const handleSendTemplate = async (tpl) => {
+      if (isSendingRef.current) return;
+      isSendingRef.current = true;
+      setIsSending(true);
+      try {
+          const formData = new FormData();
+          formData.append('leadId', selectedLead.id);
+          formData.append('senderName', user.firstName || 'Staff');
+          formData.append('message', `[Template Output] ${tpl.name}`); 
+          formData.append('localUIMessage', `[Template Output] ${tpl.name}`);
+          
+          formData.append('isTemplate', 'true');
+          formData.append('templateName', tpl.name);
+          formData.append('templateLanguage', tpl.language || 'en');
+
+          const token = localStorage.getItem('token');
+          const res = await axios.post('/coordinator-crm/messages', formData, { 
+              headers: { 
+                  'Content-Type': 'multipart/form-data',
+                  'Authorization': `Bearer ${token}` 
+              } 
+          });
+          
+          setMessages(prev => [...prev, res.data]);
+          setShowMetaTemplates(false);
+          toast.success("Meta Template Sent!");
+
+          isUserScrolledUp.current = false;
+          setTimeout(() => {
+             if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+          }, 100);
+      } catch (error) {
+          console.error(error);
+          toast.error(error.response?.data?.error || "Failed to send template.");
+      } finally {
+          isSendingRef.current = false;
+          setIsSending(false);
+      }
+  };
+
+  const handleSendCallPermissionRequest = async () => {
+      if (isSendingCallReq) return;
+      setIsSendingCallReq(true);
+      try {
+          const token = localStorage.getItem('token');
+          await axios.post('/coordinator-crm/leads/send-call-request', 
+              { leadId: selectedLead.id },
+              { headers: { Authorization: `Bearer ${token}` } }
+          );
+          toast.success("Call Permission Request (with buttons) sent to WhatsApp!");
+      } catch (err) {
+          console.error(err);
+          toast.error(err.response?.data?.error || "Failed to send call permission request.");
+      } finally {
+          setIsSendingCallReq(false);
+      }
+  };
+
+  const handleManualGrantPermission = async (allowType = 'ALWAYS') => {
+      try {
+          const token = localStorage.getItem('token');
+          const res = await axios.post('/admin/whatsapp-call/manual-grant-permission', {
+              leadId: selectedLead?.id,
+              phone: selectedLead?.phone,
+              allowType: allowType
+          }, { headers: { Authorization: `Bearer ${token}` } });
+          
+          toast.success(allowType === 'TEMP' ? "Temp Allow (7 Days Countdown) granted!" : "Always Allow granted!");
+          if (selectedLead && res.data.lead) {
+              selectedLead.waCallPermissionStatus = 'ALLOWED';
+              selectedLead.waCallPermissionExpiry = res.data.lead.waCallPermissionExpiry;
+          }
+      } catch (err) {
+          toast.error("Failed to grant permission manually");
+      }
+  };
+
   const handleSend = async (e, forcedText = null, forcedFileBase64 = null) => {
     if (e) e.preventDefault();
+    if (isSendingRef.current) return; // Prevent multiple clicks/enters synchronously
+    
     const textToSend = forcedText || newMessage;
     if (!textToSend.trim() && !selectedFile && !forcedFileBase64) return;
 
+    isSendingRef.current = true;
     setIsSending(true);
     const targetLeadId = selectedLead.id; 
 
     try {
       const formData = new FormData();
       formData.append('leadId', targetLeadId);
-      formData.append('senderName', user.firstName || 'Staff');
+      const isCallCenterAgent = user?.role?.toUpperCase().replace(/ /g, '_') === 'CALL_CENTER_AGENT';
+      formData.append('senderName', isCallCenterAgent ? 'Caller' : (user.firstName || 'Staff'));
       
       const cleanMessage = textToSend.replace(/^\[Replying to: ".*?"\]\n\n/, '');
       formData.append('message', cleanMessage); 
@@ -239,7 +431,9 @@ export default function ChatArea({ selectedLead }) {
           setMessages([...messages, res.data]);
       }
       
+      
       setNewMessage(''); setReplyingTo(null); setSelectedFile(null); setSuggestedQRs([]); setRecordingDuration(0);
+      isSendingRef.current = false;
       
       // අලුත් මැසේජ් එකක් යැව්වම අනිවාර්යෙන් පල්ලෙහාට යන්න ඕනේ
       isUserScrolledUp.current = false;
@@ -247,7 +441,7 @@ export default function ChatArea({ selectedLead }) {
           if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       }, 100);
 
-    } catch (error) { toast.error("Failed to send message."); }
+    } catch (error) { toast.error("Failed to send message."); isSendingRef.current = false; }
     setIsSending(false);
   };
 
@@ -256,12 +450,72 @@ export default function ChatArea({ selectedLead }) {
   };
 
   const handleInputChange = (e) => {
-    const val = e.target.value;
+    let val = e.target.value;
+    const isAddingSpace = val.endsWith(' ') && val.length > newMessage.length;
+    
     setNewMessage(val);
+
     if (val.startsWith('/')) {
         const keyword = val.substring(1).toLowerCase();
         setSuggestedQRs(quickReplies.filter(qr => qr.name.toLowerCase().includes(keyword)));
-    } else setSuggestedQRs([]);
+    } else {
+        setSuggestedQRs([]);
+    }
+
+    // Auto convert Singlish to Sinhala using Google API when user types a space
+    if (enableSinhala && isAddingSpace && val.trim().length > 0) {
+        const words = val.split(' ');
+        if (words.length >= 2) {
+            const lastWord = words[words.length - 2];
+            
+            // Check if it's a word with alphabetic characters
+            if (lastWord && /^[a-zA-Z]+$/.test(lastWord)) {
+                // Rule 1: Skip if ALL CAPS
+                if (lastWord === lastWord.toUpperCase()) {
+                    return;
+                }
+                
+                // Rule 2: Skip if it's an English word (class, coordination, etc)
+                // EXCEPT if it's a common Singlish word (like 'una', 'wen', 'man')
+                if (englishDictionary.has(lastWord.toLowerCase()) && !singlishOverlap.has(lastWord.toLowerCase())) {
+                    return;
+                }
+
+                // If not English and not caps, translate!
+                const targetIndex = val.lastIndexOf(lastWord + ' ');
+                if (targetIndex !== -1) {
+                    const lWordLower = lastWord.toLowerCase();
+                    
+                    // Check if we have a direct override for this word to fix Google API's shortcomings
+                    if (singlishOverrides[lWordLower]) {
+                        const translatedWord = singlishOverrides[lWordLower];
+                        setNewMessage(prev => {
+                            if (prev.substring(targetIndex, targetIndex + lastWord.length + 1) === lastWord + ' ') {
+                                return prev.substring(0, targetIndex) + translatedWord + ' ' + prev.substring(targetIndex + lastWord.length + 1);
+                            }
+                            return prev;
+                        });
+                        return; // Skip Google API
+                    }
+
+                    fetch(`https://inputtools.google.com/request?text=${lastWord}&itc=si-t-i0-und&num=1&cp=0&cs=1&ie=utf-8&oe=utf-8`)
+                        .then(res => res.json())
+                        .then(data => {
+                            if (data[0] === 'SUCCESS' && data[1] && data[1][0] && data[1][0][1] && data[1][0][1][0]) {
+                                const translatedWord = data[1][0][1][0];
+                                setNewMessage(prev => {
+                                    if (prev.substring(targetIndex, targetIndex + lastWord.length + 1) === lastWord + ' ') {
+                                        return prev.substring(0, targetIndex) + translatedWord + ' ' + prev.substring(targetIndex + lastWord.length + 1);
+                                    }
+                                    return prev;
+                                });
+                            }
+                        })
+                        .catch(err => console.error("Transliteration error:", err));
+                }
+            }
+        }
+    }
   };
 
   const applyQuickReply = (qr) => {
@@ -270,18 +524,25 @@ export default function ChatArea({ selectedLead }) {
     setSuggestedQRs([]);
   };
 
-  const saveQuickReply = (e) => {
+  const saveQuickReply = async (e) => {
       e.preventDefault();
       if(!newQRName || (!newQRMsg && !qrAttachmentBase64)) return;
-      const updated = [...quickReplies, { name: newQRName.replace('/',''), message: newQRMsg, attachment: qrAttachmentBase64 }];
       
       try {
-          localStorage.setItem(`qr_${user.id}`, JSON.stringify(updated));
-          setQuickReplies(updated); 
+          const token = localStorage.getItem('token');
+          const response = await axios.post('/coordinator-crm/quick-replies', {
+              name: newQRName,
+              message: newQRMsg,
+              attachment: qrAttachmentBase64
+          }, {
+              headers: { Authorization: `Bearer ${token}` }
+          });
+          
+          setQuickReplies(prev => [response.data, ...prev]); 
           setNewQRName(''); setNewQRMsg(''); setQrAttachmentBase64(null); 
           toast.success("Quick Reply Saved!");
       } catch (err) {
-          toast.error("Storage full! Try a smaller audio/image file.");
+          toast.error("Failed to save. Try a smaller audio/image file.");
       }
   };
 
@@ -358,6 +619,8 @@ export default function ChatArea({ selectedLead }) {
       return acc;
   }, {});
 
+  const { startOutboundCall } = useCall();
+
   const isDark = chatTheme === 'dark';
   const reactionEmojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
@@ -376,7 +639,24 @@ export default function ChatArea({ selectedLead }) {
           </div>
         </div>
         <div className="flex items-center gap-3">
-            <button onClick={() => setShowMetaTemplates(true)} className={`text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-md ${isDark ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}><FaBolt/> Approved Templates</button>
+            <div className="relative flex items-center gap-2">
+                {selectedLead?.waCallPermissionStatus === 'ALLOWED' ? (
+                    <button onClick={() => startOutboundCall ? startOutboundCall({ lead: selectedLead, businessId: selectedLead?.batch?.businessId, campaignType: selectedLead?.campaignType || 'FREE_SEMINAR' }) : setShowDialerModal(true)} className={`text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-md ${isDark ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}>
+                        <FaPhoneAlt/> WhatsApp Call
+                        {selectedLead?.waCallPermissionExpiry ? (
+                            <span className="bg-white/20 px-2 py-0.5 rounded text-[10px]">
+                                {getCountdownText(selectedLead.waCallPermissionExpiry)}
+                            </span>
+                        ) : (
+                            <span className="bg-white/20 px-2 py-0.5 rounded text-[10px]">
+                                Always Allowed
+                            </span>
+                        )}
+                    </button>
+                ) : null}
+            </div>
+
+            <button onClick={() => setShowMetaTemplates(true)} className={`text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-md ${isDark ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}><FaBolt/> Approved Templates</button>
             <button onClick={() => setChatTheme(isDark ? 'light' : 'dark')} className={`p-2.5 rounded-full transition-colors shadow-inner ${isDark ? 'bg-[#0f172a] text-yellow-500' : 'bg-white text-slate-600'}`}>
                {isDark ? <FaSun size={14}/> : <FaMoon size={14}/>}
             </button>
@@ -504,29 +784,54 @@ export default function ChatArea({ selectedLead }) {
               </div>
           )}
 
-          <div className="p-3.5 flex items-end gap-3">
-            <button onClick={()=>setShowQuickReplies(true)} title="Manage Quick Replies" className={`p-3.5 rounded-xl transition-colors ${isDark ? 'text-blue-400 hover:bg-white/10' : 'text-blue-600 hover:bg-slate-200'}`}><FaMagic size={18}/></button>
-            <label className={`cursor-pointer p-3.5 rounded-xl transition-colors ${isDark ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200'}`}>
-                <FaPaperclip size={18}/>
-                <input type="file" className="hidden" onChange={(e)=>setSelectedFile(e.target.files[0])}/>
-            </label>
-            
-            {isRecording ? (
-                <div className={`flex-1 flex items-center gap-4 px-5 py-3.5 rounded-2xl border border-red-500/50 bg-red-500/10`}>
-                    <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                    <span className="text-red-400 font-bold text-sm flex-1">{formatTime(recordingDuration)}</span>
-                    <button onClick={stopRecording} className="p-2 text-red-400 hover:text-white hover:bg-red-500 rounded-full transition-colors"><FaStop/></button>
-                </div>
-            ) : (
-                <textarea value={newMessage} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder="Type a message or / for quick replies..." rows={Math.min(4, newMessage.split('\n').length)} className={`flex-1 px-5 py-3.5 rounded-2xl border focus:outline-none resize-none overflow-y-auto custom-scrollbar text-[15px] shadow-inner ${isDark ? 'bg-[#0f172a] text-white border-slate-700 focus:border-emerald-600 placeholder-slate-500' : 'bg-white text-slate-800 border-slate-300 focus:border-emerald-500 placeholder-slate-400'}`} />
-            )}
+          {selectedLead?.isOptedOut && (
+              <div className="px-4 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-400 text-xs font-semibold flex items-center justify-between gap-2">
+                  <span>⚠️ Warning: Customer previously indicated NO / Opted-Out. Staff messaging is enabled.</span>
+                  <button 
+                      onClick={async () => {
+                          try {
+                              const token = localStorage.getItem('token');
+                              await axios.post('/coordinator-crm/messages/send-opt-in', 
+                                  { leadId: selectedLead.id },
+                                  { headers: { Authorization: `Bearer ${token}` } }
+                              );
+                              toast.success('Opt-in request sent successfully!');
+                          } catch (error) {
+                              console.error(error);
+                              toast.error('Failed to send opt-in request.');
+                          }
+                      }}
+                      className="px-2.5 py-1 bg-amber-600 text-white text-[11px] font-bold rounded hover:bg-amber-500 transition-colors"
+                  >
+                      Send YES/NO Opt-In
+                  </button>
+              </div>
+          )}
 
-            {!newMessage.trim() && !selectedFile ? (
-                <button type="button" onClick={startRecording} className="p-4 bg-emerald-600/20 text-emerald-500 rounded-full hover:bg-emerald-600 hover:text-white transition-colors shadow-md"><FaMicrophone size={18}/></button>
-            ) : (
-                <button onClick={(e) => handleSend(e)} disabled={isSending} className="p-4 bg-emerald-600 text-white rounded-full hover:bg-emerald-500 transition-colors shadow-xl disabled:opacity-50"><FaPaperPlane size={18} className={isSending ? 'animate-pulse' : ''}/></button>
-            )}
-          </div>
+          <div className="p-3.5 flex items-end gap-3">
+                <button type="button" onClick={() => setEnableSinhala(!enableSinhala)} title="Toggle Sinhala Auto-Type" className={`p-3.5 rounded-xl transition-colors font-black text-sm ${enableSinhala ? (isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-600') : (isDark ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200')}`}>අ</button>
+                <button onClick={()=>setShowQuickReplies(true)} title="Manage Quick Replies" className={`p-3.5 rounded-xl transition-colors ${isDark ? 'text-blue-400 hover:bg-white/10' : 'text-blue-600 hover:bg-slate-200'}`}><FaMagic size={18}/></button>
+                <label className={`cursor-pointer p-3.5 rounded-xl transition-colors ${isDark ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200'}`}>
+                    <FaPaperclip size={18}/>
+                    <input type="file" className="hidden" onChange={(e)=>setSelectedFile(e.target.files[0])}/>
+                </label>
+                
+                {isRecording ? (
+                    <div className={`flex-1 flex items-center gap-4 px-5 py-3.5 rounded-2xl border border-red-500/50 bg-red-500/10`}>
+                        <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                        <span className="text-red-400 font-bold text-sm flex-1">{formatTime(recordingDuration)}</span>
+                        <button onClick={stopRecording} className="p-2 text-red-400 hover:text-white hover:bg-red-500 rounded-full transition-colors"><FaStop/></button>
+                    </div>
+                ) : (
+                    <textarea value={newMessage} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder="Type a message or / for quick replies..." rows={Math.min(4, newMessage.split('\n').length)} className={`flex-1 px-5 py-3.5 rounded-2xl border focus:outline-none resize-none overflow-y-auto custom-scrollbar text-[15px] shadow-inner ${isDark ? 'bg-[#0f172a] text-white border-slate-700 focus:border-emerald-600 placeholder-slate-500' : 'bg-white text-slate-800 border-slate-300 focus:border-emerald-500 placeholder-slate-400'}`} />
+                )}
+
+                {!newMessage.trim() && !selectedFile ? (
+                    <button type="button" onClick={startRecording} className="p-4 bg-emerald-600/20 text-emerald-500 rounded-full hover:bg-emerald-600 hover:text-white transition-colors shadow-md"><FaMicrophone size={18}/></button>
+                ) : (
+                    <button onClick={(e) => handleSend(e)} disabled={isSending} className="p-4 bg-emerald-600 text-white rounded-full hover:bg-emerald-500 transition-colors shadow-xl disabled:opacity-50"><FaPaperPlane size={18} className={isSending ? 'animate-pulse' : ''}/></button>
+                )}
+              </div>
       </div>
 
       {/* QUICK REPLIES MODAL */}
@@ -559,9 +864,16 @@ export default function ChatArea({ selectedLead }) {
                                 {qr.attachment && <div className="text-emerald-400 text-[10px] font-bold mb-1 flex items-center gap-1"><FaPaperclip/> Has Attachment</div>}
                                 <p className="text-slate-300 text-sm whitespace-pre-wrap">{qr.message}</p>
                              </div>
-                             <button onClick={()=>{
-                                 const updated = quickReplies.filter((_, idx)=> idx !== i);
-                                 setQuickReplies(updated); localStorage.setItem(`qr_${user.id}`, JSON.stringify(updated));
+                             <button onClick={async ()=>{
+                                 try {
+                                     const token = localStorage.getItem('token');
+                                     await axios.delete(`/coordinator-crm/quick-replies/${qr.id}`, {
+                                         headers: { Authorization: `Bearer ${token}` }
+                                     });
+                                     setQuickReplies(prev => prev.filter(q => q.id !== qr.id));
+                                 } catch (error) {
+                                     toast.error("Failed to delete quick reply");
+                                 }
                              }} className="text-red-400 hover:text-red-300 text-xs font-bold bg-red-500/10 px-3 py-1.5 rounded-lg">Delete</button>
                          </div>
                      ))}
@@ -578,24 +890,58 @@ export default function ChatArea({ selectedLead }) {
                      <h3 className="text-xl font-bold text-white flex items-center gap-2"><FaBolt className="text-yellow-500"/> Meta Approved Templates</h3>
                      <button onClick={()=>setShowMetaTemplates(false)} className="text-slate-500 hover:text-white bg-white/5 p-2 rounded-lg"><FaTimes/></button>
                  </div>
-                 <div className="space-y-3 max-h-[400px] overflow-y-auto custom-scrollbar pr-2">
+                 <div className="space-y-6 max-h-[500px] overflow-y-auto custom-scrollbar pr-2">
                      {metaTemplates.length === 0 ? (
                          <div className="text-center py-10 text-slate-500 text-sm">No templates configured in Meta API yet.</div>
                      ) : (
-                        metaTemplates.map((tpl, i) => (
-                            <div key={i} className="bg-[#0f172a] p-4 rounded-2xl border border-slate-700">
-                                <h4 className="text-emerald-400 font-bold text-sm mb-2">{tpl.name}</h4>
-                                <p className="text-slate-300 text-sm mb-4">{tpl.text}</p>
-                                <button onClick={() => { handleSend(null, tpl.text); setShowMetaTemplates(false); }} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2">
-                                    <FaPaperPlane/> Send Template
-                                </button>
-                            </div>
-                        ))
+                         <>
+                             {metaTemplates.filter(t => t.name.toLowerCase().includes('call_request')).length > 0 && (
+                                 <div>
+                                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 border-b border-slate-700 pb-2">Call Request Templates</h4>
+                                     <div className="space-y-3">
+                                         {metaTemplates.filter(t => t.name.toLowerCase().includes('call_request')).map((tpl, i) => (
+                                             <div key={`call-${i}`} className="bg-[#0f172a] p-4 rounded-2xl border border-blue-500/30 relative overflow-hidden">
+                                                 <div className="absolute top-0 right-0 bg-blue-600 text-white text-[9px] font-bold px-2 py-1 rounded-bl-lg">CALL PERMISSION</div>
+                                                 <h4 className="text-blue-400 font-bold text-sm mb-2">{tpl.name}</h4>
+                                                 <p className="text-slate-300 text-sm mb-4">{tpl.text}</p>
+                                                 <button onClick={() => handleSendTemplate(tpl)} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2">
+                                                     <FaPaperPlane/> Send Call Request
+                                                 </button>
+                                             </div>
+                                         ))}
+                                     </div>
+                                 </div>
+                             )}
+
+                             <div>
+                                 <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 border-b border-slate-700 pb-2 mt-6">Message Templates</h4>
+                                 <div className="space-y-3">
+                                     {metaTemplates.filter(t => !t.name.toLowerCase().includes('call_request')).map((tpl, i) => (
+                                         <div key={`msg-${i}`} className="bg-[#0f172a] p-4 rounded-2xl border border-slate-700">
+                                             <h4 className="text-emerald-400 font-bold text-sm mb-2">{tpl.name}</h4>
+                                             <p className="text-slate-300 text-sm mb-4">{tpl.text}</p>
+                                             <button onClick={() => handleSendTemplate(tpl)} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-xl text-xs flex items-center justify-center gap-2">
+                                                 <FaPaperPlane/> Send Template
+                                             </button>
+                                         </div>
+                                     ))}
+                                 </div>
+                             </div>
+                         </>
                      )}
                  </div>
              </div>
          </div>
       )}
+
+      {/* Outbound Dialer Modal */}
+      <OutboundDialerModal 
+          isOpen={showDialerModal} 
+          onClose={() => setShowDialerModal(false)} 
+          selectedLead={selectedLead}
+          businessId={selectedLead?.batch?.businessId}
+          campaignType="FREE_SEMINAR" 
+      />
 
     </div>
   );

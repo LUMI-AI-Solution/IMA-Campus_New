@@ -100,7 +100,7 @@ const getVerifiedPhones = async (businessId, batchId) => {
 
 // 🔥 Helper: Get primary enrolled lead IDs to prevent duplicates across campaigns 🔥
 const getPrimaryEnrolledLeadIds = async (businessId, batchId, verifiedPhones) => {
-    const whereClause = buildStatsWhereClause(businessId, batchId, null, null, { campaignType: 'AFTER_SEMINAR' });
+    const whereClause = buildStatsWhereClause(businessId, batchId, null, null, { campaignType: { in: ['AFTER_SEMINAR', 'FREE_SEMINAR'] } });
     const allLeads = await prisma.lead.findMany({
         where: whereClause,
         select: { id: true, phone: true, createdAt: true }
@@ -128,22 +128,44 @@ const getPrimaryEnrolledLeadIds = async (businessId, batchId, verifiedPhones) =>
     return primaryLeadIds;
 };
 
-// 🔥 STRICT HELPER: Fixed BIZ_ string format to prevent Business ID bleeding 🔥
+// 🔥 STRICT HELPER: Fixed BIZ_ and BATCH_ string format to prevent missing leads 🔥
 const buildStatsWhereClause = (businessId, batchId, startDate, endDate, baseConditions = {}) => {
     let whereClause = { ...baseConditions };
 
+    const hasBatch = batchId && batchId !== '' && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null';
+    const hasBiz = businessId && businessId !== '' && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null';
+
     if (batchId === 'UNASSIGNED') {
         whereClause.batchId = null;
-    } else if (batchId && batchId !== '' && batchId !== 'ALL') {
-        whereClause.batchId = parseInt(batchId);
-    } else if (businessId && businessId !== '' && businessId !== 'ALL') {
+    } else if (hasBatch) {
+        const bId = parseInt(batchId);
+        const batchOrConditions = [
+            { batchId: bId },
+            { phone: { endsWith: `_BATCH_${bId}` } },
+            { phone: { contains: `_BATCH_${bId}_` } }
+        ];
+
+        if (hasBiz) {
+            const bizId = parseInt(businessId);
+            whereClause.AND = [
+                { OR: batchOrConditions },
+                {
+                    OR: [
+                        { phone: { endsWith: `_BIZ_${bizId}` } },
+                        { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+                        { phone: { contains: `_BIZ_${bizId}_` } }
+                    ]
+                }
+            ];
+        } else {
+            whereClause.OR = batchOrConditions;
+        }
+    } else if (hasBiz) {
+        const bizId = parseInt(businessId);
         whereClause.OR = [
-            { phone: { endsWith: `_BIZ_${businessId}` } },
-            { phone: { endsWith: `_BIZ_${businessId}_AS` } },
-            { phone: { contains: `_BIZ_${businessId}_BATCH_` } },
-            // 🔥 මේ කෑලි දෙක තමා Manager Stats වලට අඩු වෙලා තිබ්බේ! 🔥
-            { phone: { contains: `_BIZ_${businessId}_ROUND_` } },
-            { phone: { contains: `_BIZ_${businessId}_HISTORY_ROUND_` } }
+            { phone: { endsWith: `_BIZ_${bizId}` } },
+            { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+            { phone: { contains: `_BIZ_${bizId}_` } }
         ];
     }
 
@@ -170,17 +192,17 @@ exports.getManagerDashboardStats = async (req, res) => {
         const { businessId, batchId, startDate, endDate } = req.query;
 
         let courseWhere = {};
-        if (batchId && batchId !== 'ALL') {
+        if (batchId && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null') {
             const batchGroups = await prisma.group.findMany({ where: { batchId: parseInt(batchId) }, select: { id: true } });
             courseWhere.groupId = { in: batchGroups.map(g => g.id) };
-        } else if (businessId && businessId !== 'ALL') {
+        } else if (businessId && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null') {
             const bizBatches = await prisma.batch.findMany({ where: { businessId: parseInt(businessId) }, select: { id: true } });
             const bizGroups = await prisma.group.findMany({ where: { batchId: { in: bizBatches.map(b => b.id) } }, select: { id: true } });
             courseWhere.groupId = { in: bizGroups.map(g => g.id) };
         }
 
         const activeStaffIds = await getActiveStaffIds(businessId, batchId);
-        const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, { campaignType: 'AFTER_SEMINAR' });
+        const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, { campaignType: { in: ['AFTER_SEMINAR', 'FREE_SEMINAR'] } });
 
         // 🔥 Exclude cold bridge transfer leads from campaign overview statistics 🔥
         whereClause.NOT = {
@@ -195,12 +217,17 @@ exports.getManagerDashboardStats = async (req, res) => {
 
         // 🔥 1. PAYMENT VERIFICATION (Get all verified phones first) 🔥
         const paymentWhere = { status: { in: [1, 4] } };
-        if (batchId && batchId !== 'ALL') paymentWhere.batchId = parseInt(batchId);
-        else if (businessId && businessId !== 'ALL') paymentWhere.businessId = parseInt(businessId);
+        if (batchId && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null') paymentWhere.batchId = parseInt(batchId);
+        else if (businessId && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null') paymentWhere.businessId = parseInt(businessId);
 
-        const verifiedPayments = await prisma.payment.findMany({
+        const verifiedPaymentsRaw = await prisma.payment.findMany({
             where: paymentWhere,
             include: { student: true, batch: true }
+        });
+
+        const verifiedPayments = verifiedPaymentsRaw.filter(p => {
+            if (p.amount === 0 || (p.remark && p.remark.toUpperCase().includes('FREE'))) return false;
+            return true;
         });
 
         // Gather all unique NICs and phone numbers of students in verifiedPayments to find related records
@@ -260,12 +287,17 @@ exports.getManagerDashboardStats = async (req, res) => {
         });
 
         const verifiedPhones = new Set();
+        const studentIdMap = {};
         verifiedPayments.forEach(p => {
             if (p.student) {
                 const relatedSuffixes = studentIdToRelatedPhonesMap[p.student.id] || new Set();
-                relatedSuffixes.forEach(suffix => verifiedPhones.add(suffix));
+                relatedSuffixes.forEach(suffix => {
+                    verifiedPhones.add(suffix);
+                    studentIdMap[suffix] = p.student.id;
+                });
             }
         });
+        verifiedPhones.studentIdMap = studentIdMap;
 
         // Clean and index CRM leads by clean phone suffix (last 7 digits)
         const cleanPhoneToLeadMap = {};
@@ -311,9 +343,20 @@ exports.getManagerDashboardStats = async (req, res) => {
             }
         });
 
-        // 2. Stats & Mixer Data
+        // 2. Combined Stats & Advanced Staff Breakdown
         let stats = { totalLeads: leads.length, assignedLeads: 0, unassignedLeads: 0, openSemLeads: 0, newInqLeads: 0, bridgeLeads: 0 };
         let staffMap = {};
+        
+        let totalContacted = 0;
+        let totalAnswered = 0;
+        let totalNoAnswer = 0;
+        let totalReject = 0;
+        let totalActualPending = 0;
+        let totalDirectPaid = 0;
+        let totalEnrolled = 0;
+        let totalDelayed = 0;
+
+        const primaryEnrolledLeadIds = await getPrimaryEnrolledLeadIds(businessId, batchId, verifiedPhones);
 
         const allCourses = await prisma.course.findMany({ select: { id: true, name: true } });
         const globalCourseMap = {};
@@ -332,20 +375,120 @@ exports.getManagerDashboardStats = async (req, res) => {
             else if (l.inquiryType === 'NEW_INQ') stats.newInqLeads++;
             else stats.openSemLeads++;
 
-            if (l.assignedTo && activeStaffIds.has(l.assignedTo)) {
+            if (l.assignedTo) {
                 stats.assignedLeads++;
-                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown`;
-                if (!staffMap[staffName]) staffMap[staffName] = 0;
-                staffMap[staffName]++;
+                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}`.trim() : `Staff #${l.assignedTo}`;
+                
+                if (!staffMap[staffName]) {
+                    staffMap[staffName] = {
+                        name: staffName,
+                        businessType: l.assignedUser?.businessType || 'OTHER',
+                        role: l.assignedUser?.role || 'COORDINATOR',
+                        overall: {
+                            assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, delayed: 0, enrolled: 0, full: 0, upgrade: 0, monthly: 0, installment: 0, directPaid: 0, r1HistoricalDelays: 0, r2HistoricalDelays: 0
+                        },
+                        rounds: {
+                            1: { assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, delayed: 0 },
+                            2: { assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, delayed: 0 },
+                            NON_ENROLLED: { assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, delayed: 0 },
+                            PAID: { assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0 }
+                        }
+                    };
+                }
+
+                // Determine dynamic status fields based on whether it is Open Sem or New Inq
+                let round = 1;
+                let cStatus = 'pending';
+                let fb = '';
+                
+                if (l.inquiryType === 'NEW_INQ') {
+                    round = l.newInqRound || 1;
+                    cStatus = (l.newInqCallStatus || 'pending').toLowerCase();
+                    fb = (l.newInqFeedback || '').toLowerCase();
+                } else {
+                    round = l.openSemRound || 1;
+                    cStatus = (l.openSemCallStatus || 'pending').toLowerCase();
+                    fb = (l.openSemFeedback || '').toLowerCase();
+                }
+                
+                // If enrolled in real DB
+                let isEnrolled = false;
+                if (primaryEnrolledLeadIds.has(l.id)) {
+                    isEnrolled = true;
+                    round = 'PAID';
+                }
+
+                // Call Logic Evaluation
+                const isContacted = ['answered', 'no answer', 'reject', 'call back'].includes(cStatus);
+                const isAnswered = cStatus === 'answered' || isEnrolled;
+                const isNoAnswer = cStatus === 'no answer';
+                const isReject = cStatus === 'reject';
+                const isDirectPaid = fb.includes('direct paid');
+
+                let isDelayed = false;
+                if (!isEnrolled && !isAnswered && !isReject) {
+                    if (round === 1 && l.r1DelayedDays > 0) isDelayed = true;
+                    if (round === 2 && l.r2DelayedDays > 0) isDelayed = true;
+                }
+
+                // Global Aggregates
+                if (isContacted) totalContacted++;
+                if (isAnswered) totalAnswered++;
+                if (isNoAnswer) totalNoAnswer++;
+                if (isReject) totalReject++;
+                if (isDirectPaid) totalDirectPaid++;
+                if (isDelayed) totalDelayed++;
+                if (isEnrolled) totalEnrolled++;
+                if (!isContacted && !isEnrolled && !isReject && cStatus === 'pending') totalActualPending++;
+
+                // Overall Stats Update
+                let bucket = 'pending';
+                if (isReject) bucket = 'reject';
+                else if (isNoAnswer) bucket = 'noAnswer';
+                else if (isAnswered || isEnrolled || (isContacted && !isNoAnswer && !isReject)) bucket = 'answered';
+                else bucket = 'pending';
+
+                staffMap[staffName].overall.assigned++;
+                staffMap[staffName].overall[bucket]++;
+                if (isDelayed) staffMap[staffName].overall.delayed++;
+                if (isContacted) staffMap[staffName].overall.contacted++;
+                if (isDirectPaid) staffMap[staffName].overall.directPaid++;
+                if (isEnrolled) {
+                    staffMap[staffName].overall.enrolled++;
+                    if (l.paymentIntention === 'FULL') staffMap[staffName].overall.full++;
+                    else if (l.paymentIntention === 'UPGRADE') staffMap[staffName].overall.upgrade++;
+                    else if (l.paymentIntention === 'MONTHLY') staffMap[staffName].overall.monthly++;
+                    else if (l.paymentIntention === 'INSTALLMENTS' || l.paymentIntention === 'INSTALLMENT') staffMap[staffName].overall.installment++;
+                }
+
+                if (l.r1DelayedDays > 0) staffMap[staffName].overall.r1HistoricalDelays++;
+                if (l.r2DelayedDays > 0) staffMap[staffName].overall.r2HistoricalDelays++;
+
+                // Round-wise Stats Update
+                let targetRound = 1;
+                if (isEnrolled) targetRound = 'PAID';
+                else if (round === 'NON_ENROLLED' || round >= 3) targetRound = 'NON_ENROLLED';
+                else if (round === 2) targetRound = 2;
+                else targetRound = 1;
+
+                staffMap[staffName].rounds[targetRound].assigned++;
+                staffMap[staffName].rounds[targetRound][bucket]++;
+                if (isDelayed) staffMap[staffName].rounds[targetRound].delayed++;
+                
             } else {
                 stats.unassignedLeads++;
             }
         }
 
         // 3. Populate Mixer Data (Using real verified payments only)
-        const paymentData = await prisma.payment.findMany({
+        const paymentDataRaw = await prisma.payment.findMany({
             where: paymentWhere,
-            select: { studentId: true, payment_type: true, subjects: true }
+            select: { studentId: true, payment_type: true, subjects: true, amount: true, remark: true }
+        });
+
+        const paymentData = paymentDataRaw.filter(p => {
+            if (p.amount === 0 || (p.remark && p.remark.toUpperCase().includes('FREE'))) return false;
+            return true;
         });
 
         const studentPaymentMap = {};
@@ -391,7 +534,15 @@ exports.getManagerDashboardStats = async (req, res) => {
 
         res.status(200).json({
             ...stats,
-            staffAllocation: Object.keys(staffMap).map(name => ({ name, assigned: staffMap[name] })),
+            totalContacted, 
+            totalAnswered,
+            totalNoAnswer,
+            totalReject,
+            totalPending: totalActualPending, 
+            totalDirectPaid,
+            totalEnrolled, 
+            totalDelayed,
+            staffBreakdown: Object.values(staffMap),
             subjectEnrollments: Object.values(subjectAggregates),
             mixerData: realMixerData,
             realEnrollmentTotals: { full: realFullCount, monthly: realMonthlyCount, installment: realInstallCount, total: realTotalEnrolled },
@@ -429,7 +580,11 @@ exports.getNewInquiryStats = async (req, res) => {
         let totalNewInq = leads.length;
         let totalAssigned = 0;
         let totalContacted = 0;
-        let totalPending = 0;
+        let totalAnswered = 0;
+        let totalNoAnswer = 0;
+        let totalReject = 0;
+        let totalActualPending = 0;
+        let totalDirectPaid = 0;
         let totalEnrolled = 0;
         let totalDelayed = 0;
         let staffMap = {};
@@ -437,33 +592,41 @@ exports.getNewInquiryStats = async (req, res) => {
         const now = new Date();
 
         leads.forEach(l => {
-            const isPending = l.callStatus === 'pending' || !l.callStatus;
+            const isPending = l.newInqCallStatus === 'pending' || !l.newInqCallStatus;
+            const isAnswered = l.newInqCallStatus === 'answered';
+            const isNoAnswer = l.newInqCallStatus === 'no_answer';
+            const isReject = l.newInqCallStatus === 'reject';
 
             const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
-            const isEnrolled = isReallyEnrolled || l.enrollmentStatus === 'ENROLLED';
+            const isEnrolled = isReallyEnrolled || l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID';
 
+            const isDirectPaid = isEnrolled && isPending;
+            const isActualPending = isPending && !isEnrolled;
             const isContacted = !isPending;
-            const round = l.coordinationRound || 1;
 
-            // KPI calculation logic
-            const referenceTime = new Date(l.newInqTimestamp || l.updatedAt || l.createdAt);
-            const hoursPassed = (now - referenceTime) / (1000 * 60 * 60);
-            const daysPassed = hoursPassed / 24;
+            const round = l.newInqRound || 1;
+
+            const assignedDaysPassed = (now - new Date(l.assignedAt || l.createdAt)) / (1000 * 60 * 60 * 24);
+            const assignedHoursPassed = assignedDaysPassed * 24;
 
             let isDelayed = false;
-            if (hoursPassed >= 24 && l.phase === 1 && isPending) isDelayed = true;
-            if (daysPassed >= 5 && !isEnrolled && round < 2) isDelayed = true;
-            if (daysPassed >= 10 && !isEnrolled && round < 3) isDelayed = true;
+            if (isPending && !isEnrolled) {
+                if (round === 1 && assignedHoursPassed >= 24) isDelayed = true;
+                if (round === 2 && assignedDaysPassed >= 7) isDelayed = true;
+            }
 
-            if (isEnrolled) totalEnrolled++;
-
-            if (l.assignedTo && activeStaffIds.has(l.assignedTo)) {
+            if (l.assignedTo) {
                 totalAssigned++;
+                if (isEnrolled) totalEnrolled++;
                 if (isContacted) totalContacted++;
-                if (isPending) totalPending++;
+                if (isAnswered) totalAnswered++;
+                if (isNoAnswer) totalNoAnswer++;
+                if (isReject) totalReject++;
+                if (isActualPending) totalActualPending++;
+                if (isDirectPaid) totalDirectPaid++;
                 if (isDelayed) totalDelayed++;
 
-                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown Staff`;
+                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}`.trim() : `Staff #${l.assignedTo}`;
 
                 // 🔥 Initialize Staff Object if not exists 🔥
                 if (!staffMap[staffName]) {
@@ -471,51 +634,75 @@ exports.getNewInquiryStats = async (req, res) => {
                         name: staffName,
                         businessType: l.assignedUser?.businessType,
                         role: l.assignedUser?.role,
-                        overall: { assigned: 0, contacted: 0, pending: 0, enrolled: 0, delayed: 0 },
+                        overall: { 
+                            assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, directPaid: 0, enrolled: 0, delayed: 0, 
+                            full: 0, upgrade: 0, monthly: 0, installment: 0,
+                            r1HistoricalDelays: 0, r2HistoricalDelays: 0 
+                        },
                         rounds: {
-                            1: { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] },
-                            2: { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] },
-                            3: { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] },
-                            PAID: { assigned: 0, contacted: 0, pending: 0, leads: [] }
+                            1: { assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, delayed: 0, movedToR2: 0, leads: [] },
+                            2: { assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, delayed: 0, movedToPaid: 0, movedToNonEnrolled: 0, leads: [] },
+                            NON_ENROLLED: { assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, delayed: 0, leads: [] },
+                            PAID: { assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, leads: [] }
                         }
                     };
                 }
 
                 // 🔥 Overall Stats Update 🔥
-                staffMap[staffName].overall.assigned++;
-                if (isContacted) staffMap[staffName].overall.contacted++;
-                if (isPending) staffMap[staffName].overall.pending++;
-                if (isEnrolled) staffMap[staffName].overall.enrolled++;
-                if (isDelayed) staffMap[staffName].overall.delayed++;
+                let bucket = 'pending';
+                if (isReject) {
+                    bucket = 'reject';
+                } else if (isNoAnswer) {
+                    bucket = 'noAnswer';
+                } else if (isAnswered || isEnrolled || (isContacted && !isNoAnswer && !isReject)) {
+                    bucket = 'answered';
+                } else {
+                    bucket = 'pending';
+                }
 
-                // Prepare Lead Object for Export (Inside the rows)
+                staffMap[staffName].overall.assigned++;
+                staffMap[staffName].overall[bucket]++;
+                if (isDelayed) staffMap[staffName].overall.delayed++;
+                if (isContacted) staffMap[staffName].overall.contacted++;
+                if (isDirectPaid) staffMap[staffName].overall.directPaid++;
+                if (isEnrolled) {
+                    staffMap[staffName].overall.enrolled++;
+                    if (l.paymentIntention === 'FULL') staffMap[staffName].overall.full++;
+                    else if (l.paymentIntention === 'UPGRADE') staffMap[staffName].overall.upgrade++;
+                    else if (l.paymentIntention === 'INSTALLMENTS' || l.paymentIntention === 'INSTALLMENT') staffMap[staffName].overall.installment++;
+                    else staffMap[staffName].overall.monthly++;
+                }
+
+                if (l.r1DelayedDays > 0) staffMap[staffName].overall.r1HistoricalDelays++;
+                if (l.r2DelayedDays > 0) staffMap[staffName].overall.r2HistoricalDelays++;
+
+                // Prepare Lead Object for Export
                 const exportLead = {
                     id: l.id,
                     phone: l.phone ? l.phone.split('_')[0] : '',
                     name: l.name || 'Unknown',
-                    phase: l.phase || 1,
-                    status: l.callStatus || 'pending',
+                    phase: l.newInqPhase || 1,
+                    status: l.newInqCallStatus || 'pending',
                     enrolled: l.enrollmentStatus || 'NON_ENROLLED',
-                    remark: l.feedback || 'No Remark'
+                    remark: l.newInqFeedback || 'No Remark'
                 };
 
-                // 🔥 Round-wise Stats Update & Lead Pushing 🔥
+                // 🔥 Mutually Exclusive Round-wise Stats Update 🔥
+                let targetRound = 1;
                 if (isEnrolled) {
-                    staffMap[staffName].rounds.PAID.assigned++;
-                    if (isContacted) staffMap[staffName].rounds.PAID.contacted++;
-                    if (isPending) staffMap[staffName].rounds.PAID.pending++;
-                    staffMap[staffName].rounds.PAID.leads.push(exportLead);
+                    targetRound = 'PAID';
+                } else if (round === 'NON_ENROLLED' || round >= 3) {
+                    targetRound = 'NON_ENROLLED';
+                } else if (round === 2) {
+                    targetRound = 2;
                 } else {
-                    // Make sure custom rounds (>3) don't crash
-                    if (!staffMap[staffName].rounds[round]) {
-                        staffMap[staffName].rounds[round] = { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] };
-                    }
-                    staffMap[staffName].rounds[round].assigned++;
-                    if (isContacted) staffMap[staffName].rounds[round].contacted++;
-                    if (isPending) staffMap[staffName].rounds[round].pending++;
-                    if (isDelayed) staffMap[staffName].rounds[round].delayed++;
-                    staffMap[staffName].rounds[round].leads.push(exportLead);
+                    targetRound = 1;
                 }
+
+                staffMap[staffName].rounds[targetRound].assigned++;
+                staffMap[staffName].rounds[targetRound][bucket]++;
+                if (isDelayed) staffMap[staffName].rounds[targetRound].delayed++;
+                staffMap[staffName].rounds[targetRound].leads.push(exportLead);
             }
         });
 
@@ -525,16 +712,22 @@ exports.getNewInquiryStats = async (req, res) => {
             phone: l.phone ? l.phone.split('_')[0] : '', // Clean Phone
             name: l.name || 'Unknown',
             assignedToName: l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : 'Unassigned',
-            round: l.coordinationRound || 1,
-            phase: l.phase || 1,
-            callStatus: l.callStatus || 'pending',
+            round: l.newInqRound || 1,
+            phase: l.newInqPhase || 1,
+            callStatus: l.newInqCallStatus || 'pending',
             enrollmentStatus: l.enrollmentStatus || 'NON_ENROLLED',
             paymentPlan: l.paymentIntention || 'NOT_DECIDED',
-            remark: l.feedback || 'No Remark'
+            remark: l.newInqFeedback || 'No Remark'
         }));
 
         res.status(200).json({
-            totalNewInq, totalAssigned, totalContacted, totalPending, totalEnrolled, totalDelayed,
+            totalNewInq, 
+            totalAssigned, 
+            totalContacted, 
+            totalPending: totalActualPending, 
+            totalDirectPaid,
+            totalEnrolled, 
+            totalDelayed,
             staffBreakdown: Object.values(staffMap),
             rawLeads: rawLeadsForExport
         });
@@ -571,7 +764,8 @@ exports.getOpenSeminarStats = async (req, res) => {
         let totalOpenSem = leads.length;
         let totalAssigned = 0;
         let totalContacted = 0;
-        let totalPending = 0;
+        let totalActualPending = 0;
+        let totalDirectPaid = 0;
         let totalEnrolled = 0;
         let totalDelayed = 0;
         let staffMap = {};
@@ -579,32 +773,35 @@ exports.getOpenSeminarStats = async (req, res) => {
         const now = new Date();
 
         leads.forEach(l => {
-            const isPending = l.callStatus === 'pending' || !l.callStatus;
+            const isPending = l.openSemCallStatus === 'pending' || !l.openSemCallStatus;
 
             const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
-            const isEnrolled = isReallyEnrolled || l.enrollmentStatus === 'ENROLLED';
+            const isEnrolled = isReallyEnrolled || l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID';
 
+            const isDirectPaid = isEnrolled && isPending;
+            const isActualPending = isPending && !isEnrolled;
             const isContacted = !isPending;
-            const round = l.coordinationRound || 1;
 
-            const referenceTime = new Date(l.newInqTimestamp || l.updatedAt || l.createdAt);
-            const hoursPassed = (now - referenceTime) / (1000 * 60 * 60);
-            const daysPassed = hoursPassed / 24;
+            const round = l.openSemRound || 1;
+
+            const referenceTime = new Date(l.assignedAt || l.updatedAt || l.createdAt);
+            const assignedDaysPassed = (now - new Date(l.assignedAt || l.createdAt)) / (1000 * 60 * 60 * 24);
 
             let isDelayed = false;
-            if (hoursPassed >= 24 && l.phase === 1 && isPending) isDelayed = true;
-            if (daysPassed >= 5 && !isEnrolled && round < 2) isDelayed = true;
-            if (daysPassed >= 10 && !isEnrolled && round < 3) isDelayed = true;
+            if (isPending && !isEnrolled) {
+                if (assignedDaysPassed >= 14) isDelayed = true;
+                else if (round === 1 && assignedDaysPassed >= 7) isDelayed = true;
+            }
 
-            if (isEnrolled) totalEnrolled++;
-
-            if (l.assignedTo && activeStaffIds.has(l.assignedTo)) {
+            if (l.assignedTo) {
                 totalAssigned++;
+                if (isEnrolled) totalEnrolled++;
                 if (isContacted) totalContacted++;
-                if (isPending) totalPending++;
+                if (isActualPending) totalActualPending++;
+                if (isDirectPaid) totalDirectPaid++;
                 if (isDelayed) totalDelayed++;
 
-                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown Staff`;
+                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}`.trim() : `Staff #${l.assignedTo}`;
 
                 // Initialize Staff Object if not exists
                 if (!staffMap[staffName]) {
@@ -612,53 +809,78 @@ exports.getOpenSeminarStats = async (req, res) => {
                         name: staffName,
                         businessType: l.assignedUser?.businessType,
                         role: l.assignedUser?.role,
-                        overall: { assigned: 0, contacted: 0, pending: 0, enrolled: 0, delayed: 0 },
+                        overall: { 
+                            assigned: 0, contacted: 0, pending: 0, directPaid: 0, enrolled: 0, delayed: 0,
+                            answered: 0, noAnswer: 0, reject: 0, full: 0, upgrade: 0, monthly: 0, installment: 0,
+                            r1HistoricalDelays: 0, r2HistoricalDelays: 0
+                        },
                         rounds: {
-                            1: { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] },
-                            2: { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] },
-                            NON_ENROLLED: { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] },
+                            1: { assigned: 0, contacted: 0, pending: 0, delayed: 0, answered: 0, noAnswer: 0, reject: 0, movedToR2: 0, leads: [] },
+                            2: { assigned: 0, contacted: 0, pending: 0, delayed: 0, answered: 0, noAnswer: 0, reject: 0, movedToPaid: 0, movedToNonEnrolled: 0, leads: [] },
+                            NON_ENROLLED: { assigned: 0, contacted: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0, leads: [] },
                             PAID: { assigned: 0, contacted: 0, pending: 0, leads: [] }
                         }
                     };
                 }
 
+                // Determine the Mutually Exclusive Bucket for this Lead
+                let bucket = 'pending';
+                if (l.openSemCallStatus === 'reject') {
+                    bucket = 'reject';
+                } else if (l.openSemCallStatus === 'no_answer') {
+                    bucket = 'noAnswer';
+                } else if (l.openSemCallStatus === 'answered' || isEnrolled || (isContacted && l.openSemCallStatus !== 'no_answer' && l.openSemCallStatus !== 'reject')) {
+                    bucket = 'answered';
+                } else {
+                    bucket = 'pending';
+                }
+
                 // Overall Stats Update
                 staffMap[staffName].overall.assigned++;
-                if (isContacted) staffMap[staffName].overall.contacted++;
-                if (isPending) staffMap[staffName].overall.pending++;
-                if (isEnrolled) staffMap[staffName].overall.enrolled++;
+                staffMap[staffName].overall[bucket]++;
                 if (isDelayed) staffMap[staffName].overall.delayed++;
+                
+                if (isContacted) staffMap[staffName].overall.contacted++;
+                if (isDirectPaid) staffMap[staffName].overall.directPaid++;
+                if (isEnrolled) {
+                    staffMap[staffName].overall.enrolled++;
+                    if (l.paymentIntention === 'FULL') staffMap[staffName].overall.full++;
+                    else if (l.paymentIntention === 'UPGRADE') staffMap[staffName].overall.upgrade++;
+                    else if (l.paymentIntention === 'MONTHLY') staffMap[staffName].overall.monthly++;
+                    else if (l.paymentIntention === 'INSTALLMENTS' || l.paymentIntention === 'INSTALLMENT') staffMap[staffName].overall.installment++;
+                }
+
+                if (l.r1DelayedDays > 0) staffMap[staffName].overall.r1HistoricalDelays++;
+                if (l.r2DelayedDays > 0) staffMap[staffName].overall.r2HistoricalDelays++;
 
                 // Prepare Lead Object for Export
                 const exportLead = {
                     id: l.id,
                     phone: l.phone.split('_')[0], // Clean Phone
                     name: l.name || 'Unknown',
-                    phase: l.phase || 1,
-                    status: l.callStatus || 'pending',
+                    phase: l.openSemPhase || 1,
+                    status: l.openSemCallStatus || 'pending',
                     enrolled: l.enrollmentStatus,
-                    remark: l.feedback || 'No Remark'
+                    remark: l.openSemFeedback || 'No Remark'
                 };
 
                 // Round-wise Stats Update & Lead Pushing
+                // 🔥 Mutually Exclusive Round-wise Stats Update 🔥
+                let targetRound = 1;
                 if (isEnrolled) {
-                    staffMap[staffName].rounds.PAID.assigned++;
-                    if (isContacted) staffMap[staffName].rounds.PAID.contacted++;
-                    if (isPending) staffMap[staffName].rounds.PAID.pending++;
-                    staffMap[staffName].rounds.PAID.leads.push(exportLead);
-                } else if (l.inquiryType === 'NORMAL') {
-                    staffMap[staffName].rounds.NON_ENROLLED.assigned++;
-                    if (isContacted) staffMap[staffName].rounds.NON_ENROLLED.contacted++;
-                    if (isPending) staffMap[staffName].rounds.NON_ENROLLED.pending++;
-                    if (isDelayed) staffMap[staffName].rounds.NON_ENROLLED.delayed++;
-                    staffMap[staffName].rounds.NON_ENROLLED.leads.push(exportLead);
-                } else if (round <= 2) {
-                    staffMap[staffName].rounds[round].assigned++;
-                    if (isContacted) staffMap[staffName].rounds[round].contacted++;
-                    if (isPending) staffMap[staffName].rounds[round].pending++;
-                    if (isDelayed) staffMap[staffName].rounds[round].delayed++;
-                    staffMap[staffName].rounds[round].leads.push(exportLead);
+                    targetRound = 'PAID';
+                } else if (round === 'NON_ENROLLED' || round >= 3) {
+                    targetRound = 'NON_ENROLLED';
+                } else if (round === 2) {
+                    targetRound = 2;
+                } else {
+                    targetRound = 1;
                 }
+
+                staffMap[staffName].rounds[targetRound].assigned++;
+                staffMap[staffName].rounds[targetRound][bucket]++;
+                if (isDelayed) staffMap[staffName].rounds[targetRound].delayed++;
+                staffMap[staffName].rounds[targetRound].leads.push(exportLead);
             }
         });
 
@@ -668,16 +890,76 @@ exports.getOpenSeminarStats = async (req, res) => {
             phone: l.phone ? l.phone.split('_')[0] : '', // Clean Phone
             name: l.name || 'Unknown',
             assignedToName: l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : 'Unassigned',
-            round: l.coordinationRound || 1,
-            phase: l.phase || 1,
-            callStatus: l.callStatus || 'pending',
+            round: l.openSemRound || 1,
+            phase: l.openSemPhase || 1,
+            callStatus: l.openSemCallStatus || 'pending',
             enrollmentStatus: l.enrollmentStatus || 'NON_ENROLLED',
             paymentPlan: l.paymentIntention || 'NOT_DECIDED',
-            remark: l.feedback || 'No Remark'
+            remark: l.openSemFeedback || 'No Remark'
         }));
 
+        // 🔥 NEW: Aggregate stats by round for the entire campaign (for the top table UI)
+        const campaignRounds = {
+            r1: { assigned: 0, currentlyInRound: 0, pending: 0, noAnswer: 0, reject: 0, delayed: 0, movedToR2: 0, rate: 0 },
+            r2: { assigned: 0, currentlyInRound: 0, pending: 0, noAnswer: 0, reject: 0, delayed: 0, movedToNonEnrolled: 0, movedToPaid: 0, rate: 0 },
+            nonEnrolled: { assigned: 0, currentlyInRound: 0, pending: 0, reject: 0, delayed: 0 },
+            paid: { assigned: 0, currentlyInRound: 0 }
+        };
+
+        const isDelayedFn = (l) => {
+            if (l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID') return false;
+            const startTime = new Date(l.assignedAt || l.createdAt).getTime();
+            const diffMs = now.getTime() - startTime;
+            const currentRound = l.openSemRound || 1;
+            if (currentRound === 1) return diffMs > 7 * 24 * 60 * 60 * 1000;
+            if (currentRound === 2) return diffMs > 14 * 24 * 60 * 60 * 1000;
+            return false;
+        };
+
+        // R1
+        campaignRounds.r1.assigned = leads.length;
+        const r1Current = leads.filter(l => (l.openSemRound || 1) === 1 && l.enrollmentStatus !== 'ENROLLED' && !primaryEnrolledLeadIds.has(l.id));
+        campaignRounds.r1.currentlyInRound = r1Current.length;
+        campaignRounds.r1.pending = r1Current.filter(l => l.openSemCallStatus === 'pending' || !l.openSemCallStatus).length;
+        campaignRounds.r1.noAnswer = r1Current.filter(l => l.openSemCallStatus === 'no_answer').length;
+        campaignRounds.r1.reject = r1Current.filter(l => l.openSemCallStatus === 'reject').length;
+        campaignRounds.r1.delayed = r1Current.filter(l => isDelayedFn(l) && (l.openSemCallStatus === 'pending' || !l.openSemCallStatus)).length;
+        campaignRounds.r1.movedToR2 = leads.filter(l => (l.openSemRound || 1) > 1 && l.enrollmentStatus !== 'ENROLLED' && !primaryEnrolledLeadIds.has(l.id)).length;
+        
+        const r1AnsweredCount = leads.filter(l => (l.openSemRound || 1) > 1 || l.enrollmentStatus === 'ENROLLED' || primaryEnrolledLeadIds.has(l.id) || l.openSemCallStatus === 'answered').length;
+        campaignRounds.r1.rate = campaignRounds.r1.assigned > 0 ? ((r1AnsweredCount / campaignRounds.r1.assigned) * 100).toFixed(1) : 0;
+
+        // R2
+        const r2Arrived = leads.filter(l => (l.openSemRound || 1) >= 2);
+        campaignRounds.r2.assigned = r2Arrived.length;
+        const r2Current = r2Arrived.filter(l => (l.openSemRound || 1) === 2 && l.enrollmentStatus !== 'ENROLLED' && !primaryEnrolledLeadIds.has(l.id));
+        campaignRounds.r2.currentlyInRound = r2Current.length;
+        campaignRounds.r2.pending = r2Current.filter(l => l.openSemCallStatus === 'pending' || !l.openSemCallStatus).length;
+        campaignRounds.r2.noAnswer = r2Current.filter(l => l.openSemCallStatus === 'no_answer').length;
+        campaignRounds.r2.reject = r2Current.filter(l => l.openSemCallStatus === 'reject').length;
+        campaignRounds.r2.delayed = r2Current.filter(l => isDelayedFn(l) && (l.openSemCallStatus === 'pending' || !l.openSemCallStatus)).length;
+        campaignRounds.r2.movedToNonEnrolled = r2Arrived.filter(l => (l.openSemRound || 1) >= 3 && l.enrollmentStatus !== 'ENROLLED' && !primaryEnrolledLeadIds.has(l.id)).length;
+        campaignRounds.r2.movedToPaid = r2Arrived.filter(l => l.enrollmentStatus === 'ENROLLED' || primaryEnrolledLeadIds.has(l.id)).length;
+        
+        const r2AnsweredCount = r2Arrived.filter(l => (l.openSemRound || 1) > 2 || l.enrollmentStatus === 'ENROLLED' || primaryEnrolledLeadIds.has(l.id) || l.openSemCallStatus === 'answered').length;
+        campaignRounds.r2.rate = campaignRounds.r2.assigned > 0 ? ((r2AnsweredCount / campaignRounds.r2.assigned) * 100).toFixed(1) : 0;
+
+        // Non Enrolled
+        const neLeads = leads.filter(l => (l.openSemRound || 1) >= 3 && l.enrollmentStatus !== 'ENROLLED' && !primaryEnrolledLeadIds.has(l.id));
+        campaignRounds.nonEnrolled.assigned = neLeads.length;
+        campaignRounds.nonEnrolled.currentlyInRound = neLeads.length;
+        campaignRounds.nonEnrolled.pending = neLeads.filter(l => l.openSemCallStatus === 'pending' || !l.openSemCallStatus).length;
+        campaignRounds.nonEnrolled.reject = neLeads.filter(l => l.openSemCallStatus === 'reject').length;
+        campaignRounds.nonEnrolled.delayed = neLeads.filter(l => isDelayedFn(l) && (l.openSemCallStatus === 'pending' || !l.openSemCallStatus)).length;
+
+        // Paid
+        const paidLeads = leads.filter(l => l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || primaryEnrolledLeadIds.has(l.id));
+        campaignRounds.paid.assigned = paidLeads.length;
+        campaignRounds.paid.currentlyInRound = paidLeads.length;
+
         res.status(200).json({
-            totalOpenSem, totalAssigned, totalContacted, totalPending, totalEnrolled, totalDelayed,
+            totalOpenSem, totalAssigned, totalContacted, totalPending: totalActualPending, totalDirectPaid, totalEnrolled, totalDelayed,
+            campaignRounds,
             staffBreakdown: Object.values(staffMap),
             rawLeads: rawLeadsForExport // 🔥 Export එකට මේක අත්‍යවශ්‍යයි
         });
@@ -739,8 +1021,8 @@ exports.getBridgePerformanceStats = async (req, res) => {
             if (isPending) totalPending++;
             if (isEnrolled) totalEnrolled++;
 
-            if (l.assignedTo && activeStaffIds.has(l.assignedTo)) {
-                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown`;
+            if (l.assignedTo) {
+                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}`.trim() : `Staff #${l.assignedTo}`;
                 if (!staffMap[staffName]) {
                     staffMap[staffName] = { name: staffName, businessType: l.assignedUser?.businessType, role: l.assignedUser?.role, assigned: 0, contacted: 0, pending: 0, enrolled: 0 };
                 }
@@ -792,14 +1074,14 @@ exports.getPaidCampaignStats = async (req, res) => {
         let staffMap = {};
 
         activeLeads.forEach(l => {
-            const isPending = l.callStatus === 'pending' || !l.callStatus;
+            const isPending = l.paidCallStatus === 'pending' || !l.paidCallStatus;
             const isContacted = !isPending;
 
             if (isContacted) totalContacted++;
             if (isPending) totalPending++;
 
-            if (l.assignedTo && activeStaffIds.has(l.assignedTo)) {
-                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown Staff`;
+            if (l.assignedTo) {
+                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}`.trim() : `Staff #${l.assignedTo}`;
                 if (!staffMap[staffName]) {
                     staffMap[staffName] = { name: staffName, businessType: l.assignedUser?.businessType, assigned: 0, contacted: 0, pending: 0 };
                 }
@@ -1124,8 +1406,8 @@ exports.getCoordinatorProgressSheetStats = async (req, res) => {
 
         leads.forEach(l => {
             // Only aggregate if lead is assigned to active staff
-            if (l.assignedTo && activeStaffIds.has(l.assignedTo)) {
-                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : `Unknown`;
+            if (l.assignedTo) {
+                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}`.trim() : `Staff #${l.assignedTo}`;
 
                 if (!coordinatorMap[staffName]) {
                     coordinatorMap[staffName] = {
@@ -1191,5 +1473,222 @@ exports.getCoordinatorProgressSheetStats = async (req, res) => {
     } catch (error) {
         console.error("Coordinator Progress Stats Error:", error);
         res.status(500).json({ error: "Failed to fetch coordinator progress stats" });
+    }
+};
+
+// ==========================================
+// 6. UNASSIGNED BATCH LEADS CONTROLLERS
+// ==========================================
+exports.getUnassignedBatchLeads = async (req, res) => {
+    try {
+        const { businessId } = req.query;
+        if (!businessId) return res.status(400).json({ error: "businessId is required" });
+
+        const whereClause = {
+            batchId: null,
+            campaignType: 'AFTER_SEMINAR',
+            OR: [
+                { phone: { contains: `_BIZ_${businessId}` } }
+            ]
+        };
+
+        const leads = await prisma.lead.findMany({
+            where: whereClause,
+            select: { id: true, name: true, phone: true, campaignType: true, inquiryType: true, createdAt: true }
+        });
+
+        const formattedLeads = leads.map(l => ({
+            id: l.id,
+            name: l.name || 'Unknown',
+            phone: l.phone ? l.phone.split('_')[0] : '',
+            campaignType: l.campaignType,
+            inquiryType: l.inquiryType,
+            createdAt: l.createdAt
+        }));
+
+        res.status(200).json({ leads: formattedLeads, count: formattedLeads.length });
+    } catch (error) {
+        console.error("getUnassignedBatchLeads Error:", error);
+        res.status(500).json({ error: "Failed to fetch unassigned batch leads" });
+    }
+};
+
+exports.getBusinessBatches = async (req, res) => {
+    try {
+        const { businessId } = req.query;
+        if (!businessId) return res.status(400).json({ error: "businessId is required" });
+
+        const batches = await prisma.batch.findMany({
+            where: { businessId: parseInt(businessId) },
+            select: { id: true, name: true }
+        });
+
+        res.status(200).json(batches);
+    } catch (error) {
+        console.error("getBusinessBatches Error:", error);
+        res.status(500).json({ error: "Failed to fetch business batches" });
+    }
+};
+
+exports.getCoordinators = async (req, res) => {
+    try {
+        const staff = await prisma.user.findMany({
+            where: {
+                role: { notIn: ['Student', 'USER', 'STUDENT', 'student', 'user'] }
+            },
+            select: { id: true, firstName: true, lastName: true, role: true, businessType: true }
+        });
+
+        res.status(200).json(staff);
+    } catch (error) {
+        console.error("getCoordinators Error:", error);
+        res.status(500).json({ error: "Failed to fetch coordinators" });
+    }
+};
+
+exports.getLeadChatHistory = async (req, res) => {
+    try {
+        const { leadId } = req.params;
+        if (!leadId) return res.status(400).json({ error: "leadId is required" });
+
+        const messages = await prisma.chatMessage.findMany({
+            where: { leadId: parseInt(leadId) },
+            orderBy: { createdAt: 'asc' }
+        });
+
+        res.status(200).json({ messages });
+    } catch (error) {
+        console.error("getLeadChatHistory Error:", error);
+        res.status(500).json({ error: "Failed to fetch chat history" });
+    }
+};
+
+exports.assignLeadsToBatch = async (req, res) => {
+    try {
+        const { leadIds, targetBatchId } = req.body;
+        if (!leadIds || !Array.isArray(leadIds) || !targetBatchId) {
+            return res.status(400).json({ error: "leadIds array and targetBatchId are required" });
+        }
+
+        const batchId = parseInt(targetBatchId);
+        const result = await prisma.lead.updateMany({
+            where: { id: { in: leadIds } },
+            data: { batchId }
+        });
+
+        res.status(200).json({ message: "Leads successfully assigned to batch", count: result.count });
+    } catch (error) {
+        console.error("assignLeadsToBatch Error:", error);
+        res.status(500).json({ error: "Failed to assign leads to batch" });
+    }
+};
+
+// ==========================================
+// 7. MISSING PAID WEB STUDENTS CONTROLLERS
+// ==========================================
+exports.getMissingPaidStudents = async (req, res) => {
+    try {
+        const { businessId, batchId } = req.query;
+        if (!businessId || !batchId) return res.status(400).json({ error: "businessId and batchId are required" });
+
+        const paymentWhere = { status: { in: [1, 4] } };
+        if (batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null') paymentWhere.batchId = parseInt(batchId);
+        else paymentWhere.businessId = parseInt(businessId);
+
+        const verifiedPayments = await prisma.payment.findMany({
+            where: paymentWhere,
+            include: { student: true, batch: true }
+        });
+
+        const paidStudentMap = {};
+        verifiedPayments.forEach(p => {
+            if (p.student) {
+                paidStudentMap[p.student.id] = {
+                    id: p.student.id,
+                    name: `${p.student.firstName || ''} ${p.student.lastName || ''}`.trim() || 'Unknown',
+                    phone: p.student.phone || p.student.whatsapp || p.student.optionalPhone || '',
+                    nic: p.student.nic || '',
+                    batchName: p.batch?.name || ''
+                };
+            }
+        });
+
+        const paidStudents = Object.values(paidStudentMap);
+
+        const whereClause = buildStatsWhereClause(businessId, batchId, null, null, { campaignType: 'AFTER_SEMINAR' });
+        const crmLeads = await prisma.lead.findMany({
+            where: whereClause,
+            select: { id: true, phone: true }
+        });
+
+        const crmPhoneSuffixes = new Set();
+        crmLeads.forEach(l => {
+            if (l.phone) {
+                const cleanPhone = l.phone.split('_')[0].replace(/[^0-9]/g, '');
+                if (cleanPhone.length >= 7) crmPhoneSuffixes.add(cleanPhone.slice(-7));
+            }
+        });
+
+        const missingStudents = paidStudents.filter(s => {
+            const cleanPhone = s.phone.replace(/[^0-9]/g, '');
+            if (cleanPhone.length >= 7) {
+                const suffix = cleanPhone.slice(-7);
+                return !crmPhoneSuffixes.has(suffix);
+            }
+            return true;
+        });
+
+        res.status(200).json({ missingStudents, count: missingStudents.length });
+    } catch (error) {
+        console.error("getMissingPaidStudents Error:", error);
+        res.status(500).json({ error: "Failed to fetch missing paid students" });
+    }
+};
+
+exports.pushMissingStudentToCrm = async (req, res) => {
+    try {
+        const { studentId, businessId, batchId, coordinatorId } = req.body;
+        if (!studentId || !businessId || !batchId || !coordinatorId) {
+            return res.status(400).json({ error: "studentId, businessId, batchId, and coordinatorId are required" });
+        }
+
+        const student = await prisma.user.findUnique({ where: { id: parseInt(studentId) } });
+        if (!student) return res.status(404).json({ error: "Student not found" });
+
+        const phone = student.phone || student.whatsapp || student.optionalPhone;
+        if (!phone) return res.status(400).json({ error: "Student has no phone number" });
+
+        const cleanPhone = phone.replace(/[^0-9]/g, '');
+        const formattedPhone = `${cleanPhone}_BIZ_${businessId}`;
+
+        const lead = await prisma.lead.upsert({
+            where: { phone: formattedPhone },
+            update: {
+                batchId: parseInt(batchId),
+                assignedTo: parseInt(coordinatorId),
+                enrollmentStatus: 'ENROLLED',
+                openSemRound: 3,
+                newInqRound: 3,
+                assignedAt: new Date()
+            },
+            create: {
+                name: `${student.firstName || ''} ${student.lastName || ''}`.trim() || 'Student',
+                phone: formattedPhone,
+                source: 'web_registration',
+                campaignType: 'AFTER_SEMINAR',
+                inquiryType: 'NORMAL',
+                batchId: parseInt(batchId),
+                assignedTo: parseInt(coordinatorId),
+                enrollmentStatus: 'ENROLLED',
+                openSemRound: 3,
+                newInqRound: 3,
+                assignedAt: new Date()
+            }
+        });
+
+        res.status(200).json({ message: "Student pushed & assigned to coordinator successfully", lead });
+    } catch (error) {
+        console.error("pushMissingStudentToCrm Error:", error);
+        res.status(500).json({ error: "Failed to push missing student to CRM" });
     }
 };

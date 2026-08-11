@@ -5,9 +5,10 @@ import toast from 'react-hot-toast';
 import LeadCallCard from '../CallCenter/LeadCallCard';
 import ChatArea from './ChatArea';
 import RightSidePanel from './RightSidePanel';
+import ContactSidebar from './ContactSidebar';
 import { FaTimes } from 'react-icons/fa';
 
-export default function StaffCampaignExecution({ filters }) {
+export default function StaffCampaignExecution({ filters, redirectLead }) {
   const currentUserId = JSON.parse(localStorage.getItem('user'))?.id;
   const rawRole = JSON.parse(localStorage.getItem('user'))?.role || '';
   
@@ -18,11 +19,23 @@ export default function StaffCampaignExecution({ filters }) {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 20;
 
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+
   const [chatModalLead, setChatModalLead] = useState(null);
 
   useEffect(() => {
     fetchAssignedLeads();
   }, [filters?.selectedBusiness, filters?.selectedBatch]);
+
+  useEffect(() => {
+    if (redirectLead) {
+      setSearchQuery(redirectLead.phone);
+      setActivePhase(redirectLead.phase || 1);
+      setCurrentPage(1);
+      setStatusFilter('ALL');
+    }
+  }, [redirectLead]);
 
   const fetchAssignedLeads = async () => {
     setLoading(true);
@@ -34,10 +47,11 @@ export default function StaffCampaignExecution({ filters }) {
         headers: { Authorization: `Bearer ${token}` },
         params: {
           tab: 'ASSIGNED',
-          loggedUserId: currentUserId,
+          staffId: currentUserId,
           loggedUserRole: rawRole,
-          businessId: isManager ? (filters?.selectedBusiness || '') : '',
-          batchId: isManager ? (filters?.selectedBatch || '') : ''
+          businessId: filters?.selectedBusiness || '',
+          batchId: filters?.selectedBatch || '',
+          limit: 5000
         }
       });
       
@@ -73,9 +87,15 @@ export default function StaffCampaignExecution({ filters }) {
             if (l.phase === 1) newPhase = 2;
             else if (l.phase === 2) newPhase = 3;
           }
+          
+          let finalCallStatus = statusLower;
+          if (newPhase !== l.phase) {
+            finalCallStatus = 'pending';
+          }
+
           return { 
             ...l, 
-            callStatus: statusLower, 
+            callStatus: finalCallStatus, 
             feedback: data.feedback, 
             phase: newPhase,
             callMethod: data.callMethod,
@@ -93,30 +113,45 @@ export default function StaffCampaignExecution({ filters }) {
     setChatModalLead(lead);
   };
 
-  // Convert Coordinator lead data to the shape expected by LeadCallCard
-  const mapLeadToRoundData = (l) => {
-    return {
-      phase: l.phase || 1,
-      callStatus: l.callStatus || 'pending',
-      callMethod: l.callMethod || 'Direct Call',
-      callAttempt: l.callAttempt || l.coordinationRound || 1,
-      feedback: l.feedback || ''
-    };
-  };
+    // Calculate phase-specific leads
+    let phaseLeads = leads.filter(l => l?.phase === activePhase);
 
-  const roundLeads = leads.map(l => ({ ...l, roundData: mapLeadToRoundData(l) }));
-  
-  const phaseLeads = roundLeads.filter(l => l.roundData.phase === activePhase);
-  const paginatedLeads = phaseLeads.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
-  const totalPages = Math.ceil(phaseLeads.length / ITEMS_PER_PAGE);
+    if (statusFilter !== 'ALL') {
+      phaseLeads = phaseLeads.filter(l => (l.callStatus || 'pending').toUpperCase() === statusFilter);
+    }
 
-  // Stats
-  const totalAssigned = roundLeads.length;
-  const pending = roundLeads.filter(l => !['ANSWERED', 'REJECT', 'COMPLETED'].includes(l.roundData.callStatus?.toUpperCase())).length;
-  const covered = totalAssigned - pending;
-  const responseRate = totalAssigned > 0 
-    ? ((roundLeads.filter(l => ['ANSWERED', 'REJECT'].includes(l.roundData.callStatus?.toUpperCase())).length / totalAssigned) * 100).toFixed(1)
-    : 0;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      phaseLeads = phaseLeads.filter(l => 
+        l.phone?.toLowerCase().includes(q) || 
+        l.name?.toLowerCase().includes(q)
+      );
+    }
+    // Sort logic: Pending ones first, then others. Within group, newest updated first.
+    phaseLeads.sort((a, b) => {
+      const statusA = (a.callStatus || 'PENDING').toUpperCase();
+      const statusB = (b.callStatus || 'PENDING').toUpperCase();
+      
+      const isPendingA = statusA === 'PENDING';
+      const isPendingB = statusB === 'PENDING';
+      
+      if (isPendingA && !isPendingB) return -1;
+      if (!isPendingA && isPendingB) return 1;
+      
+      return new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0);
+    });
+
+    const paginatedLeads = phaseLeads.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
+    const totalPages = Math.ceil(phaseLeads.length / ITEMS_PER_PAGE);
+
+    // Stats calculated dynamically for the activePhase!
+    const totalAssigned = phaseLeads.length;
+    const pending = phaseLeads.filter(l => (l.callStatus || 'PENDING').toUpperCase() === 'PENDING').length;
+    const noAnswer = phaseLeads.filter(l => (l.callStatus || '').toUpperCase() === 'NO_ANSWER').length;
+    const covered = totalAssigned - pending; // In a given phase, if it's not pending, it's covered!
+    const responseRate = totalAssigned > 0 
+      ? ((phaseLeads.filter(l => ['ANSWERED', 'REJECT'].includes(l.callStatus?.toUpperCase())).length / totalAssigned) * 100).toFixed(1)
+      : 0;
 
   return (
     <div className="fade-in w-full h-full pb-10 custom-scrollbar overflow-y-auto">
@@ -125,12 +160,13 @@ export default function StaffCampaignExecution({ filters }) {
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
           
           <div className="flex flex-col md:flex-row gap-6 items-center flex-1">
-            {/* Removed Round 01 / Round 02 toggles as Coordinators and Free Sem do not use Rounds */}
             <div className="flex gap-6 items-center bg-[#0F172A]/50 p-4 px-8 rounded-3xl border border-white/5 shadow-inner">
               <div className="text-slate-500 font-black uppercase tracking-[0.2em] text-xs mr-4">Campaign Stats</div>
               <div className="flex flex-col items-center"><span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Assigned</span><span className="text-2xl font-black text-white">{totalAssigned}</span></div>
               <div className="w-px h-10 bg-white/10 mx-2"></div>
               <div className="flex flex-col items-center"><span className="text-[10px] text-rose-500 font-bold uppercase tracking-wider mb-1">Pending</span><span className="text-2xl font-black text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]">{pending}</span></div>
+              <div className="w-px h-10 bg-white/10 mx-2"></div>
+              <div className="flex flex-col items-center"><span className="text-[10px] text-orange-500 font-bold uppercase tracking-wider mb-1">No Answer</span><span className="text-2xl font-black text-orange-400 drop-shadow-[0_0_8px_rgba(249,115,22,0.4)]">{noAnswer}</span></div>
               <div className="w-px h-10 bg-white/10 mx-2"></div>
               <div className="flex flex-col items-center"><span className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mb-1">Covered</span><span className="text-2xl font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.4)]">{covered}</span></div>
               <div className="w-px h-10 bg-white/10 mx-2"></div>
@@ -146,11 +182,36 @@ export default function StaffCampaignExecution({ filters }) {
         </div>
       </div>
 
+      {/* Search & Filter Bar */}
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
+        <div className="flex-1 relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input 
+            type="text" 
+            placeholder="Search by name or phone..." 
+            value={searchQuery}
+            onChange={e => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+            className="w-full bg-white/5 border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm text-white placeholder-slate-500 outline-none focus:border-emerald-500/50 transition-all shadow-inner"
+          />
+        </div>
+        <select
+          value={statusFilter}
+          onChange={e => { setStatusFilter(e.target.value); setCurrentPage(1); }}
+          className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-emerald-500/50 transition-all shadow-inner cursor-pointer min-w-[200px]"
+        >
+          <option value="ALL" className="bg-slate-900 text-white">All Statuses</option>
+          <option value="PENDING" className="bg-slate-900 text-white">Pending</option>
+          <option value="ANSWERED" className="bg-slate-900 text-emerald-400">Answered</option>
+          <option value="NO_ANSWER" className="bg-slate-900 text-rose-400">No Answer</option>
+          <option value="REJECT" className="bg-slate-900 text-red-500">Reject</option>
+        </select>
+      </div>
+
       <div className="flex gap-6">
         {/* Left Sidebar for Phases */}
         <div className="w-24 shrink-0 flex flex-col gap-3">
           {[1, 2, 3].map(ph => {
-            const phCount = roundLeads.filter(l => l.roundData.phase === ph).length;
+            const phCount = leads.filter(l => l.phase === ph).length;
             return (
               <button
                 key={ph}
@@ -184,19 +245,25 @@ export default function StaffCampaignExecution({ filters }) {
               <p className="text-slate-500 mt-2">There are no leads in Phase {activePhase} for your current filters.</p>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-              {paginatedLeads.map((lead, index) => (
-                <LeadCallCard 
-                  key={lead.id} 
-                  lead={lead} 
-                  roundData={lead.roundData}
-                  activeRound={1}
-                  index={(currentPage - 1) * ITEMS_PER_PAGE + index} 
-                  onSave={handleSaveLead}
-                  onOpenChat={handleOpenChat}
-                />
-              ))}
-            </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {paginatedLeads.map((lead, index) => (
+                  <LeadCallCard 
+                    key={lead.id} 
+                    lead={{
+                      ...lead,
+                      businessId: lead.businessId || lead.batch?.businessId || filters?.selectedBusiness,
+                      batch: lead.batch ? {
+                        ...lead.batch,
+                        businessId: lead.batch?.businessId || lead.businessId || filters?.selectedBusiness
+                      } : { businessId: filters?.selectedBusiness }
+                    }} 
+                    activeRound={activePhase}
+                    index={(currentPage - 1) * ITEMS_PER_PAGE + index} 
+                    onSave={handleSaveLead}
+                    onOpenChat={handleOpenChat}
+                  />
+                ))}
+              </div>
           )}
 
           {/* Pagination */}
@@ -224,8 +291,8 @@ export default function StaffCampaignExecution({ filters }) {
 
       {/* POPUP CHAT MODAL */}
       {chatModalLead && (
-        <div className="fixed inset-0 z-[99999] bg-black/90 backdrop-blur-sm flex justify-center items-center p-2 md:p-6 animate-fade-in">
-          <div className="w-full max-w-7xl h-[95vh] md:h-[90vh] bg-[#0f172a] rounded-3xl flex flex-col border border-slate-700 shadow-2xl overflow-hidden relative">
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-4">
+          <div className="w-[98vw] max-w-[1600px] h-[95vh] md:h-[92vh] bg-[#0f172a] rounded-3xl flex flex-col border border-slate-700 shadow-2xl overflow-hidden relative">
             
             <div className="bg-gradient-to-r from-[#1e293b] to-[#0f172a] p-4 flex justify-between items-center border-b border-slate-700 shrink-0">
               <div className="flex items-center gap-3">
@@ -243,9 +310,27 @@ export default function StaffCampaignExecution({ filters }) {
             </div>
 
             <div className="flex flex-1 overflow-hidden relative">
+              <div className="hidden md:flex shrink-0 border-r border-slate-800 h-full overflow-hidden">
+                <ContactSidebar 
+                  activeMode="CALL_CAMPAIGN" 
+                  selectedLead={chatModalLead} 
+                  setSelectedLead={setChatModalLead}
+                  filters={filters}
+                />
+              </div>
               <ChatArea selectedLead={chatModalLead} />
               <div className="hidden lg:block h-full shrink-0 border-l border-slate-800">
-                <RightSidePanel selectedLead={chatModalLead} activeMode="CALL_CAMPAIGN" />
+                <RightSidePanel 
+                    selectedLead={chatModalLead} 
+                    activeMode="CALL_CAMPAIGN" 
+                    selectedBusiness={filters?.selectedBusiness}
+                    onBatchAssigned={(leadId, batchId) => {
+                        setLeads(prev => prev.map(l => l.id === leadId ? { ...l, batchId } : l));
+                        if (chatModalLead && chatModalLead.id === leadId) {
+                            setChatModalLead(prev => ({ ...prev, batchId }));
+                        }
+                    }} 
+                />
               </div>
             </div>
           </div>

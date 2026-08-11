@@ -1,7 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from '../../../api/axios';
-import { Loader2, Video, MonitorPlay, FileText, FileSignature, CheckCircle, ArrowLeft, X, Lock, CalendarDays, FolderOpen, ChevronDown, Maximize, Minimize, Play, SkipForward } from 'lucide-react';
+import { Loader2, Video, MonitorPlay, FileText, FileSignature, CheckCircle, ArrowLeft, X, Lock, CalendarDays, FolderOpen, ChevronDown, Maximize, Minimize, Play, SkipForward, Pause, Info } from 'lucide-react';
 import toast from 'react-hot-toast';
+
+import YouTube from 'react-youtube';
+import { FaYoutube, FaVimeo } from 'react-icons/fa';
+import { SiZoom } from 'react-icons/si';
+import SecureYoutubePlayer from './SecureYoutubePlayer';
+
 
 export default function CourseView({ courseId, onBack }) {
     const [loading, setLoading] = useState(true);
@@ -12,6 +18,33 @@ export default function CourseView({ courseId, onBack }) {
     // Video Playing State
     const [playingVideo, setPlayingVideo] = useState(null);
     const [nextVideo, setNextVideo] = useState(null);
+
+    // YouTube Secure Player States
+    const [ytPlayer, setYtPlayer] = useState(null);
+    const [ytPlaying, setYtPlaying] = useState(false);
+    const [showYtWarning, setShowYtWarning] = useState(false);
+    const [ytWarningAccepted, setYtWarningAccepted] = useState(false);
+    const [watermarkPos, setWatermarkPos] = useState({ top: 50, left: 50 });
+    const [playType, setPlayType] = useState('zoom'); // 'zoom' or 'yt'
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const studentIdStr = user.id ? `IMA-STU-${user.id} ${user.firstName||''}` : 'IMA-STUDENT';
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setWatermarkPos({
+                top: Math.floor(Math.random() * 80) + 10,
+                left: Math.floor(Math.random() * 80) + 10,
+            });
+        }, 5000);
+        return () => clearInterval(interval);
+    }, []);
+
+    const extractVideoId = (url) => {
+        if (!url) return '';
+        const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|live\/|watch\?v=|watch\?.+&v=))([^&?]+)/);
+        return match ? match[1] : url;
+    };
+
     
     // Fullscreen State & Ref
     const [isFullscreen, setIsFullscreen] = useState(false);
@@ -51,11 +84,22 @@ export default function CourseView({ courseId, onBack }) {
     const getEmbedUrl = (url) => {
         if (!url) return '';
         try {
+            if (url.includes('<iframe')) {
+                const srcMatch = url.match(/src=["'](.*?)["']/);
+                if (srcMatch) return srcMatch[1];
+            }
             if (url.includes('youtube.com') || url.includes('youtu.be')) {
                 const ytRegex = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|live\/|shorts\/))([\w-]{11})/;
                 const match = url.match(ytRegex);
                 if (match && match[1]) {
                     return `https://www.youtube.com/embed/${match[1]}?rel=0&modestbranding=1&autoplay=1`;
+                }
+            }
+            if (url.includes('vimeo.com')) {
+                const vimeoRegex = /(?:vimeo\.com\/|player\.vimeo\.com\/video\/)([0-9]+)/;
+                const match = url.match(vimeoRegex);
+                if (match && match[1]) {
+                    return `https://player.vimeo.com/video/${match[1]}?autoplay=1`;
                 }
             }
             if (url.includes('drive.google.com') && url.includes('/view')) {
@@ -89,24 +133,59 @@ export default function CourseView({ courseId, onBack }) {
         return null;
     };
 
-    const handlePlayVideo = (item) => {
-        const url = item.link || item.url || '';
+    
+    const handlePlayVideo = async (item, type = 'zoom') => {
+        setPlayType(type);
+        setYtWarningAccepted(false);
+        let url = '';
+        if (type === 'yt') url = item.youtubeLink;
+        else if (type === 'vimeo') url = item.vimeoLink;
+        else url = (item.link || item.url || '');
         
-        if (url.includes('youtube.com') || url.includes('youtu.be')) {
-            window.open(url, '_blank');
+        if (type === 'yt') {
+             setShowYtWarning(true);
+             setPlayingVideo({ ...item, secure_link: url });
+             setNextVideo(findNextVideo(item));
+        } else if (type === 'zoom') {
+             let finalLink = getEmbedUrl(url);
+             let isDirect = false;
+             if (item.meetingId || item.zoomMeetingId) {
+                 const mId = item.meetingId || item.zoomMeetingId;
+                 try {
+                     const res = await axios.get(`/mobile/zoom-direct-link/${mId}`);
+                     if (res.data && res.data.mp4Link) {
+                         finalLink = res.data.mp4Link;
+                         isDirect = true;
+                     }
+                 } catch (e) {
+                     console.log("Failed to fetch zoom direct mp4", e);
+                 }
+             }
+             setPlayingVideo({ ...item, secure_link: finalLink, isDirect });
+             setNextVideo(findNextVideo(item));
         } else {
-            setPlayingVideo({ ...item, secure_link: getEmbedUrl(url) });
-            setNextVideo(findNextVideo(item));
+            if (url.includes('youtube.com') || url.includes('youtu.be')) {
+                window.open(url, '_blank');
+            } else {
+                setPlayingVideo({ ...item, secure_link: getEmbedUrl(url) });
+                setNextVideo(findNextVideo(item));
+            }
         }
     };
 
+
+    
     const handleCloseVideo = () => {
         if (document.fullscreenElement) {
             document.exitFullscreen().catch(()=>{});
         }
         setPlayingVideo(null);
         setNextVideo(null);
+        setYtPlayer(null);
+        setYtPlaying(false);
+        setShowYtWarning(false);
     };
+
 
     if (loading) return <div className="flex justify-center items-center py-40"><Loader2 className="animate-spin text-red-500" size={50} /></div>;
 
@@ -125,7 +204,7 @@ export default function CourseView({ courseId, onBack }) {
 
     // 🔥 Updated UI Layout: Enlarged Thumbnails & Removed Numbers 🔥
     const renderRow = (item, index) => (
-        <div key={item.id} className="bg-white/5 hover:bg-white/10 border border-white/5 hover:border-red-500/30 p-4 rounded-2xl transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
+        <div key={item.id} className="bg-black/20 hover:bg-white/10 border border-white/5 hover:border-red-500/30 p-4 rounded-2xl transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6">
             <div className="flex items-center md:items-start gap-4 md:gap-6 flex-1 w-full min-w-0">
                 
                 {/* 🔥 Enlarged Thumbnail (Numbers removed) 🔥 */}
@@ -139,24 +218,47 @@ export default function CourseView({ courseId, onBack }) {
 
                 <div className="flex-1 min-w-0 pt-2 md:pt-4">
                     <h4 className="text-white font-bold text-sm md:text-lg break-words leading-tight mb-2">{item.title}</h4>
-                    <p className="text-[10px] md:text-sm text-white/50 font-medium flex items-center gap-1.5 mt-2">
+                    <p className="text-[10px] md:text-sm text-white/80 font-medium flex items-center gap-1.5 mt-2">
                         <CalendarDays size={16} className="text-red-400 shrink-0"/> {item.date ? new Date(item.date).toDateString() : 'No Date'}
                     </p>
                 </div>
             </div>
             
             <div className="w-full md:w-auto flex shrink-0 pt-3 md:pt-0 border-t border-white/5 md:border-0">
+                
                 {activeTab === 'live' && <a href={item.link} target="_blank" rel="noreferrer" className="w-full md:w-max bg-red-600 hover:bg-red-500 text-white font-bold px-6 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-center gap-2 transition-all"><Video size={16}/> Join Live</a>}
-                {activeTab === 'recordings' && <button onClick={() => handlePlayVideo(item)} className="w-full md:w-max bg-white/10 hover:bg-red-600 text-white font-bold px-6 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-center gap-2 border border-white/10 transition-all"><MonitorPlay size={16} className='text-red-400'/> Play Video</button>}
-                {activeTab === 'documents' && <a href={`${getBaseUrl()}/storage/documents/${item.fileName}`} target="_blank" rel="noreferrer" download className="w-full md:w-max bg-white/10 hover:bg-white/20 text-white font-bold px-6 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-center gap-2 border border-white/10"><FileText size={16} className="text-yellow-400"/> Download</a>}
-                {activeTab === 'sPapers' && <a href={`${getBaseUrl()}/storage/documents/${item.fileName}`} target="_blank" rel="noreferrer" download className="w-full md:w-max bg-white/10 hover:bg-white/20 text-white font-bold px-6 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-center gap-2 border border-white/10"><FileSignature size={16} className="text-yellow-400"/> Download</a>}
-                {activeTab === 'papers' && <a href={`${getBaseUrl()}/storage/documents/${item.fileName}`} target="_blank" rel="noreferrer" download className="w-full md:w-max bg-white/10 hover:bg-white/20 text-white font-bold px-6 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-center gap-2 border border-white/10"><CheckCircle size={16} className="text-yellow-400"/> Download</a>}
+                {activeTab === 'recordings' && (
+                    <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                        {item.youtubeLink && (
+                            <button onClick={() => handlePlayVideo(item, 'yt')} title="Play via YouTube" className="bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white font-bold px-4 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-center gap-2 border border-red-500/30 transition-all shadow-md">
+                                <FaYoutube size={18} /> YouTube
+                            </button>
+                        )}
+                        {item.vimeoLink && (
+                            <button onClick={() => handlePlayVideo(item, 'vimeo')} title="Play via Vimeo" className="bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white font-bold px-4 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-center gap-2 border border-blue-500/30 transition-all shadow-md">
+                                <FaVimeo size={18} /> Vimeo
+                            </button>
+                        )}
+                        {item.link && (
+                            <button onClick={() => handlePlayVideo(item, 'zoom')} title="Play via Zoom" className="bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white font-bold px-4 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-center gap-2 border border-blue-500/30 transition-all shadow-md">
+                                <SiZoom size={18} /> Zoom
+                            </button>
+                        )}
+                        {!item.link && !item.youtubeLink && !item.vimeoLink && (
+                            <span className="text-white/80 text-xs italic px-2">No Video Available</span>
+                        )}
+                    </div>
+                )}
+
+                {activeTab === 'documents' && <a href={`${getBaseUrl()}/storage/documents/${item.fileName}`} target="_blank" rel="noreferrer" download className="w-full md:w-max bg-white/10 hover:bg-white/10 text-white font-bold px-6 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-center gap-2 border border-white/10"><FileText size={16} className="text-yellow-400"/> Download</a>}
+                {activeTab === 'sPapers' && <a href={`${getBaseUrl()}/storage/documents/${item.fileName}`} target="_blank" rel="noreferrer" download className="w-full md:w-max bg-white/10 hover:bg-white/10 text-white font-bold px-6 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-center gap-2 border border-white/10"><FileSignature size={16} className="text-yellow-400"/> Download</a>}
+                {activeTab === 'papers' && <a href={`${getBaseUrl()}/storage/documents/${item.fileName}`} target="_blank" rel="noreferrer" download className="w-full md:w-max bg-white/10 hover:bg-white/10 text-white font-bold px-6 py-2.5 rounded-xl text-xs md:text-sm flex items-center justify-center gap-2 border border-white/10"><CheckCircle size={16} className="text-yellow-400"/> Download</a>}
             </div>
         </div>
     );
 
     const renderContentRows = () => {
-        if (currentData.length === 0) return <div className="text-white/40 text-center py-20 font-medium">No content uploaded yet.</div>;
+        if (currentData.length === 0) return <div className="text-white/80 text-center py-20 font-medium">No content uploaded yet.</div>;
         
         const folders = (data?.lessonGroups || [])
             .filter(f => parseInt(f.type) === getTypeInt(activeTab))
@@ -177,13 +279,13 @@ export default function CourseView({ courseId, onBack }) {
             <div className="flex flex-col gap-6">
                 {groupedItems.map(({folder, items}) => (
                     <div key={folder.id} className="bg-black/20 border border-white/10 rounded-2xl overflow-hidden">
-                        <div onClick={() => toggleFolder(folder.id)} className="flex justify-between items-center bg-white/5 p-4 md:p-6 cursor-pointer hover:bg-white/10">
+                        <div onClick={() => toggleFolder(folder.id)} className="flex justify-between items-center bg-black/20 p-4 md:p-6 cursor-pointer hover:bg-white/10">
                             <h4 className="text-base md:text-lg font-bold text-white flex items-center gap-3"><FolderOpen size={20} className="text-red-500 shrink-0"/> {folder.title}</h4>
-                            <ChevronDown className={`text-white/50 transition-transform shrink-0 ${openFolders[folder.id] ? 'rotate-180' : ''}`} />
+                            <ChevronDown className={`text-white/80 transition-transform shrink-0 ${openFolders[folder.id] ? 'rotate-180' : ''}`} />
                         </div>
                         {openFolders[folder.id] && (
                             <div className="p-3 md:p-6 flex flex-col gap-3 border-t border-white/5">
-                                {items.length === 0 ? <p className="text-sm text-white/40 text-center py-4">Empty folder</p> : items.map((item, index) => renderRow(item, index))}
+                                {items.length === 0 ? <p className="text-sm text-white/80 text-center py-4">Empty folder</p> : items.map((item, index) => renderRow(item, index))}
                             </div>
                         )}
                     </div>
@@ -201,33 +303,69 @@ export default function CourseView({ courseId, onBack }) {
                     
                     {/* Top Controls (Back Button Only) */}
                     <div className="w-full flex justify-between items-center mb-4 mt-2">
-                        <button onClick={handleCloseVideo} className="text-white/80 hover:text-red-400 bg-white/5 hover:bg-white/10 px-5 py-2.5 rounded-xl font-bold flex items-center border border-white/10 transition-colors text-sm shadow-md">
+                        <button onClick={handleCloseVideo} className="text-white/80 hover:text-red-400 bg-black/20 hover:bg-white/10 px-5 py-2.5 rounded-xl font-bold flex items-center border border-white/10 transition-colors text-sm shadow-md">
                             <ArrowLeft size={18} className="mr-2" /> Back to Course
                         </button>
                     </div>
 
-                    {/* Video Player Container (Larger Size) */}
-                    <div className="relative bg-black flex flex-col mx-auto w-full h-[80vh] md:h-[85vh] rounded-[1.5rem] md:rounded-[2rem] shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-white/10 overflow-hidden">
+                    {/* 🔥 Mobile Guide for Zoom Cookies 🔥 */}
+                    {playType === 'zoom' && !playingVideo?.isDirect && (
+                        <div className="md:hidden w-full mb-4 bg-blue-500/10 border border-blue-500/20 rounded-xl p-3.5 flex flex-col gap-1.5 text-sm text-blue-100 shadow-lg">
+                            <div className="flex items-center gap-2 font-bold text-blue-400 mb-1">
+                                <Info size={18} /> Recording එක බලන නිවැරදි ආකාරය:
+                            </div>
+                            <ol className="list-decimal pl-5 space-y-1 text-xs sm:text-sm text-blue-200/90">
+                                <li>කළු පාට Video box එක ඇතුළත පහළට Scroll කරන්න.</li>
+                                <li>එහි ඇති <b>"Accept Cookies"</b> බොත්තම ඔබන්න.</li>
+                                <li>ඉන්පසු <b>Play button</b> එක ඔබා Video එක නරඹන්න.</li>
+                            </ol>
+                        </div>
+                    )}
 
-                        {/* 🔥 FIXED IFRAME: allowFullScreen added, sandbox WITHOUT allow-downloads 🔥 */}
-                        <iframe 
-                            src={playingVideo.secure_link || getEmbedUrl(playingVideo.link)} 
-                            className="w-full h-full border-none pointer-events-auto bg-white" 
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-                            allowFullScreen={true}
-                            webkitallowfullscreen="true"
-                            mozallowfullscreen="true"
-                            sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-forms"
-                            title="Video Player"
-                        ></iframe>
+                    {/* 🔥 Enlarged Player for Mobile (aspect-square) to fit cookie consent 🔥 */}
+                    <div className="relative bg-black mx-auto w-full aspect-square md:aspect-video max-h-[85vh] md:max-h-[80vh] rounded-2xl md:rounded-[2rem] shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-white/10 overflow-hidden">
+                        
+                        {/* 🔥 ZOOM MASK: Covers the top header of Zoom cloud player to hide download button 🔥 */}
+                        {playType === 'zoom' && !playingVideo?.isDirect && (
+                            <div className="absolute top-0 left-0 w-full h-[70px] md:h-[64px] bg-[#000000] z-10"></div>
+                        )}
+
+                        {playType === 'yt' ? (
+                            <SecureYoutubePlayer 
+                                videoUrl={playingVideo.secure_link} 
+                                studentId={studentIdStr}
+                            />
+                        ) : playingVideo?.isDirect ? (
+                            /* 🔥 NATIVE VIDEO PLAYER FOR ZOOM MP4 🔥 */
+                            <video 
+                                src={playingVideo.secure_link} 
+                                className="w-full h-full object-contain bg-black pointer-events-auto"
+                                controls
+                                controlsList="nodownload"
+                                onContextMenu={(e) => e.preventDefault()}
+                                autoPlay
+                            />
+                        ) : (
+                            /* 🔥 FIXED IFRAME: Standard responsive iframe without shifting 🔥 */
+                            <iframe 
+                                src={playingVideo.secure_link || getEmbedUrl(playingVideo.link)} 
+                                className="absolute inset-0 w-full h-full border-none pointer-events-auto bg-black"
+                                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+                                allowFullScreen={true}
+                                webkitallowfullscreen="true"
+                                mozallowfullscreen="true"
+                                sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-forms"
+                                title="Video Player"
+                            ></iframe>
+                        )}
                     </div>
 
                     {/* 🔥 UP NEXT UI 🔥 */}
                     {nextVideo && (
-                        <div className="w-full mt-6 bg-white/5 border border-white/10 p-5 md:p-6 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6 backdrop-blur-md shadow-lg">
+                        <div className="w-full mt-6 bg-black/20 border border-white/20 p-5 md:p-6 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6 backdrop-blur-md shadow-lg">
                             <div className="flex-1 min-w-0 text-center md:text-left">
-                                <h3 className="text-white/50 text-xs font-bold uppercase tracking-widest mb-1.5 flex items-center justify-center md:justify-start gap-2"><SkipForward size={16} className="text-red-400"/> Up Next</h3>
-                                <h2 className="text-white text-lg md:text-xl font-bold truncate">{nextVideo.title}</h2>
+                                <h3 className="text-white/80 text-xs font-bold uppercase tracking-widest mb-1.5 flex items-center justify-center md:justify-start gap-2"><SkipForward size={16} className="text-red-400"/> Up Next</h3>
+                                <h2 className="text-white text-lg md:text-xl font-bold line-clamp-2 md:line-clamp-none">{nextVideo.title}</h2>
                             </div>
                             <button onClick={() => handlePlayVideo(nextVideo)} className="w-full md:w-auto bg-red-600 hover:bg-red-500 text-white font-bold px-8 py-3.5 rounded-xl flex items-center justify-center gap-2 transition-all shrink-0 shadow-lg shadow-red-600/20 hover:scale-[1.02]">
                                 <Play size={18} fill="currentColor" /> Play Next
@@ -238,7 +376,7 @@ export default function CourseView({ courseId, onBack }) {
             ) : (
                 /* 🔥 COURSE CONTENT LIST 🔥 */
                 <div className="animate-fade-in w-full h-full">
-                    <button onClick={onBack} className="mb-6 text-white/70 hover:text-red-400 bg-white/5 hover:bg-white/10 px-4 py-2 rounded-xl font-bold flex items-center border border-white/10 w-max transition-colors text-sm">
+                    <button onClick={onBack} className="mb-6 text-white/70 hover:text-red-400 bg-black/20 hover:bg-white/10 px-4 py-2 rounded-xl font-bold flex items-center border border-white/10 w-max transition-colors text-sm">
                         <ArrowLeft size={16} className="mr-2" /> Back
                     </button>
 
@@ -248,8 +386,8 @@ export default function CourseView({ courseId, onBack }) {
 
                     <div className="flex overflow-x-auto gap-2 mb-6 pb-2 custom-scrollbar scroll-smooth no-scrollbar">
                         {tabs.map(tab => (
-                            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-xs md:text-sm whitespace-nowrap transition-all border ${activeTab === tab.id ? 'bg-red-600 border-red-500 text-white shadow-lg' : 'bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white'}`}>
-                                <tab.icon size={16} className={activeTab === tab.id ? 'text-white' : 'text-white/40'}/> {tab.name} 
+                            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-xs md:text-sm whitespace-nowrap transition-all border ${activeTab === tab.id ? 'bg-red-600 border-red-500 text-white shadow-lg' : 'bg-black/20 border-white/10 text-white/80 hover:bg-white/10 hover:text-white'}`}>
+                                <tab.icon size={16} className={activeTab === tab.id ? 'text-white' : 'text-white/80'}/> {tab.name} 
                             </button>
                         ))}
                     </div>
@@ -259,7 +397,7 @@ export default function CourseView({ courseId, onBack }) {
                             <div className="text-center py-20 px-4">
                                 <Lock size={40} className="text-red-500 mx-auto mb-4" />
                                 <h3 className="text-xl font-bold text-white mb-2">Access Locked</h3>
-                                <p className="text-white/60 text-xs md:text-sm">Please settle your payment to view content.</p>
+                                <p className="text-white/90 text-xs md:text-sm">Please settle your payment to view content.</p>
                             </div>
                         ) : renderContentRows()}
                     </div>

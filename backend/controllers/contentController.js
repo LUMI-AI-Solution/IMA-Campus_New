@@ -519,6 +519,17 @@ exports.addContentGroup = async (req, res) => {
     } catch (e) { res.status(500).json({ error: "Failed to create folder" }); }
 };
 
+exports.updateContentGroup = async (req, res) => {
+    try {
+        const { contentGroupId, title, type, order, course_code } = req.body;
+        const updatedFolder = await prisma.contentGroup.update({
+            where: { id: parseInt(contentGroupId) },
+            data: { title, type: parseInt(type), itemOrder: parseInt(order) || 1, courseCode: course_code === 'NULL' ? null : course_code }
+        });
+        res.status(200).json({ message: "Folder Updated", data: updatedFolder });
+    } catch (e) { console.error(e); res.status(500).json({ error: "Failed to update folder" }); }
+};
+
 exports.deleteContentGroup = async (req, res) => {
     try {
         await prisma.contentGroup.delete({ where: { id: parseInt(req.body.contentGroupId) } });
@@ -529,7 +540,8 @@ exports.deleteContentGroup = async (req, res) => {
 // ================= CONTENT & MASS ASSIGN =================
 exports.addContentMassAssign = async (req, res) => {
     try {
-        const { type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, paperTime, questionCount, isFree, selectedCourses, batch_id, itemOrder } = req.body;
+        console.log("MASS ASSIGN REQ BODY:", req.body);
+        const { type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, paperTime, questionCount, isFree, selectedCourses, batch_id, itemOrder, youtubeLink, vimeoLink, selectedBatches } = req.body;
         
         let fileName = null;
         let thumbnail = null;
@@ -543,12 +555,37 @@ exports.addContentMassAssign = async (req, res) => {
 
         const sanitizedMeetingId = zoomMeetingId ? zoomMeetingId.replace(/\s+/g, '') : null;
 
+        // Process selected batches for Multi-Batch assignment
+        let primaryBatchId = parseInt(batch_id);
+        let additionalBatchStr = null;
+        
+        if (selectedBatches) {
+            try {
+                const batchesArray = JSON.parse(selectedBatches);
+                if (batchesArray && batchesArray.length > 0) {
+                    // Make sure primary batch is in the array, or just use the first one if not
+                    if (!batchesArray.includes(primaryBatchId)) {
+                        primaryBatchId = parseInt(batchesArray[0]);
+                    }
+                    // The rest go into additionalBatchIds (format: ,id1,id2,)
+                    const others = batchesArray.filter(id => parseInt(id) !== primaryBatchId);
+                    if (others.length > 0) {
+                        additionalBatchStr = `,${others.join(',')},`;
+                    }
+                }
+            } catch (err) {
+                console.error("Error parsing selectedBatches:", err);
+            }
+        }
+
         // 🔥 FIX: මෙතනින් Zoom direct link එක fetch කරලා Database එකට save කරන එක අයින් කළා. 
         // Token එකක් paya 1කින් expire වෙන නිසා DB එකේ save කරලා වැඩක් නෑ. DB crash වෙන එකත් නවතිනවා.
         const data = {
             title, 
             contentType: type, 
             link: link, // Normal Link එක විතරක් save කරනවා
+            youtubeLink,
+            vimeoLink,
             meetingId: sanitizedMeetingId, 
             fileName, 
             thumbnail, 
@@ -558,12 +595,13 @@ exports.addContentMassAssign = async (req, res) => {
             paperTime: paperTime ? parseInt(paperTime) : null, 
             questionCount: questionCount ? parseInt(questionCount) : null,
             isFree: isFree === '1', 
-            batchId: parseInt(batch_id), 
+            batchId: primaryBatchId,
+            additionalBatchIds: additionalBatchStr,
             courseId: 0,
             itemOrder: parseInt(itemOrder || 1)
         };
 
-        if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined') {
+        if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined' && contentGroupId !== '') {
             data.contentGroupId = parseInt(contentGroupId);
         }
 
@@ -587,7 +625,7 @@ exports.updateContentMassAssign = async (req, res) => {
         console.log(`\n================ UPDATE CONTENT TRIGGERED ================`);
         console.log(`Frontend එකෙන් ආපු ඔක්කොම Data:`, req.body);
 
-        const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, paperTime, questionCount, isFree, itemOrder, selectedCourses } = req.body;
+        const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, paperTime, questionCount, isFree, itemOrder, selectedCourses, youtubeLink, vimeoLink } = req.body;
         
         const sanitizedMeetingId = zoomMeetingId ? zoomMeetingId.replace(/\s+/g, '') : null;
         console.log(`[DEBUG] Meeting ID එක: "${sanitizedMeetingId}"`);
@@ -608,6 +646,8 @@ exports.updateContentMassAssign = async (req, res) => {
             title, 
             contentType: type, 
             link: finalVideoLink, 
+            youtubeLink,
+            vimeoLink,
             meetingId: sanitizedMeetingId,
             date: date ? new Date(date) : null, 
             startTime, 
@@ -617,6 +657,11 @@ exports.updateContentMassAssign = async (req, res) => {
             isFree: isFree === '1',
             itemOrder: parseInt(itemOrder || 1)
         };
+
+        // Reset reminder flag so cron jobs can send the notification again for updated times
+        if (type === 'live') {
+            updateData.reminderSent = false;
+        }
 
         if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined') {
             updateData.contentGroupId = parseInt(contentGroupId);
@@ -779,19 +824,31 @@ exports.deleteContent = async (req, res) => {
 
 exports.getContents = async (req, res) => {
     try {
-        const { batchId, courseCode, courseId } = req.query;
+        const { batchId, courseCode, courseIds } = req.query;
         
         const lessonGroups = await prisma.contentGroup.findMany({
-            where: { batchId: parseInt(batchId), courseCode: courseCode === 'null' ? null : courseCode },
+            where: {
+                OR: [
+                    { batchId: parseInt(batchId) },
+                    { additionalBatchIds: { contains: `,${batchId},` } }
+                ],
+                courseCode: courseCode === 'null' ? null : courseCode
+            },
             orderBy: { itemOrder: 'asc' }
         });
 
-        const linkedCourses = await prisma.contentCourse.findMany({ where: { course_id: BigInt(courseId) } });
+        const rawIds = courseIds ? courseIds.split(',') : [req.query.courseId];
+        const courseIdArray = rawIds
+            .filter(id => id && id !== 'undefined' && id !== 'null' && id.trim() !== '')
+            .map(id => BigInt(id));
+
+        const linkedCourses = await prisma.contentCourse.findMany({ where: { course_id: { in: courseIdArray } } });
         const contentIds = linkedCourses.map(lc => lc.content_id);
 
         const contents = await prisma.content.findMany({
             where: { id: { in: contentIds } },
-            orderBy: { createdAt: 'desc' }
+            orderBy: { createdAt: 'desc' },
+            include: { group: true }
         });
 
         // 🔥 FIX: Content walata assign wela thiyena courses serama pre-populate wenna yawana eka
@@ -799,10 +856,17 @@ exports.getContents = async (req, res) => {
             where: { content_id: { in: contentIds } }
         });
 
-        const contentsWithCourses = contents.map(c => ({
-            ...c,
-            assignedCourses: allContentCourses.filter(cc => cc.content_id === c.id).map(cc => Number(cc.course_id))
-        }));
+        const contentsWithCourses = contents.map(c => {
+            const cleanContent = { ...c };
+            let finalGroupId = c.contentGroupId;
+            delete cleanContent.group;
+
+            return {
+                ...cleanContent,
+                contentGroupId: finalGroupId,
+                assignedCourses: allContentCourses.filter(cc => cc.content_id === c.id).map(cc => Number(cc.course_id))
+            };
+        });
 
         const safeJson = (data) => JSON.parse(JSON.stringify(data, (k, v) => typeof v === 'bigint' ? v.toString() : v));
         res.status(200).json({ lessonGroups, contents: safeJson(contentsWithCourses) });
@@ -823,18 +887,22 @@ exports.getBatchesFull = async (req, res) => {
         
         if (!isAdmin) {
             const allBiz = await prisma.business.findMany();
+            const userBizList = businessType ? String(businessType).split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
             const myBizs = allBiz.filter(biz => {
-                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
-                const matchesBizType = businessType && (
-                    String(biz.id) === String(businessType).trim() ||
-                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
-                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
-                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+                const isManagerOf = (biz.head_manager_id && String(biz.head_manager_id) === String(userId)) ||
+                                    (biz.ass_manager_id && String(biz.ass_manager_id) === String(userId));
+                const matchesBizType = userBizList.some(b => 
+                    b === String(biz.id) ||
+                    b === biz.name.toLowerCase().trim() ||
+                    biz.name.toLowerCase().trim().includes(b) ||
+                    b.includes(biz.name.toLowerCase().trim())
                 );
                 return isManagerOf || matchesBizType;
             });
             const myBizIds = myBizs.map(b => b.id);
-            whereClause = { businessId: { in: myBizIds } };
+            if (myBizIds.length > 0) {
+                whereClause = { businessId: { in: myBizIds } };
+            }
         }
 
         const batches = await prisma.batch.findMany({ 
@@ -1047,4 +1115,28 @@ exports.setAppEvent = async (req, res) => {
         });
         res.status(200).json({ message: "App Animation Updated!" });
     } catch (error) { res.status(500).json({ error: "Failed to update event" }); }
+};
+
+exports.getMaintenanceMode = async (req, res) => {
+    try {
+        const setting = await prisma.appSetting.findUnique({ where: { key: 'MAINTENANCE_MODE' } });
+        let valueData = { active: false };
+        if (setting) {
+            try { valueData = JSON.parse(setting.value); } catch(e) { valueData = { active: setting.value === 'true' }; }
+        }
+        res.status(200).json(valueData);
+    } catch (error) { res.status(500).json({ error: "Failed to load maintenance mode" }); }
+};
+
+exports.setMaintenanceMode = async (req, res) => {
+    try {
+        const { active, messageEn, messageSi } = req.body;
+        const valueStr = JSON.stringify({ active, messageEn, messageSi });
+        await prisma.appSetting.upsert({
+            where: { key: 'MAINTENANCE_MODE' },
+            update: { value: valueStr },
+            create: { key: 'MAINTENANCE_MODE', value: valueStr }
+        });
+        res.status(200).json({ message: "Maintenance Mode Updated!" });
+    } catch (error) { res.status(500).json({ error: "Failed to update maintenance mode" }); }
 };

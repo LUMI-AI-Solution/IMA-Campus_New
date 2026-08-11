@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import axios from '../../api/axios';
 import { BarChart2, MessageCircle, PhoneCall, Users, Percent, Download, Clock, Plus, Upload, Megaphone, Search, AlertCircle, CheckCircle, Trash2, UserPlus, Lock, User, Phone, RefreshCw, Send, ChevronLeft, ChevronRight } from 'lucide-react';
+import { useCall } from '../../contexts/CallContext';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid , PieChart, Pie, Cell } from 'recharts';
 import toast from 'react-hot-toast';
 
@@ -12,18 +13,18 @@ export default function ManagerCampaignStats({ filters }) {
     const isSystemAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER'].includes(userRole);
     const isManager = ['MANAGER', 'ASS_MANAGER'].includes(userRole);
 
+    const { socket } = useCall();
+
     const [data, setData] = useState({ summary: {}, report: [], msgReport: [] });
     const [allLeads, setAllLeads] = useState([]);
     const [loading, setLoading] = useState(true);
     
     const [activeTab, setActiveTab] = useState('CALLS');
     const [phase, setPhase] = useState('All');
-    const [timeFilter, setTimeFilter] = useState('today');
+    const [timeFilter, setTimeFilter] = useState('all');
     
-    const today9AM = new Date(); today9AM.setHours(9, 0, 0, 0);
-    const todayMidnight = new Date(); todayMidnight.setHours(23, 59, 59, 999);
-    const [startDate, setStartDate] = useState(today9AM.toISOString().slice(0, 16));
-    const [endDate, setEndDate] = useState(todayMidnight.toISOString().slice(0, 16));
+    const [startDate, setStartDate] = useState(new Date().toISOString().split('T')[0]);
+    const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
 
     const [templates, setTemplates] = useState([]);
     const [tplForm, setTplForm] = useState({ name: '', category: 'MARKETING', headerType: 'NONE', headerText: '', bodyText: '', footerText: '' });
@@ -61,11 +62,21 @@ export default function ManagerCampaignStats({ filters }) {
         if (activeTab === 'TEMPLATES') fetchTemplates();
     }, [filters?.selectedBusiness, filters?.selectedBatch, phase, timeFilter, startDate, endDate, activeTab]); 
 
+    useEffect(() => {
+        if (!socket) return;
+        const handleUpdate = () => {
+            fetchStats();
+            fetchAllLeads();
+        };
+        socket.on('call_history_updated', handleUpdate);
+        return () => socket.off('call_history_updated', handleUpdate);
+    }, [socket, filters?.selectedBusiness, filters?.selectedBatch, phase, timeFilter, startDate, endDate]);
+
     const fetchStats = async () => {
         setLoading(true);
         try {
-            let start = timeFilter === 'today' ? today9AM.toISOString() : new Date(startDate).toISOString();
-            let end = timeFilter === 'today' ? todayMidnight.toISOString() : new Date(endDate).toISOString();
+            let start = timeFilter === 'today' ? new Date().setHours(0,0,0,0) : timeFilter === 'all' ? new Date('2020-01-01').toISOString() : new Date(startDate).toISOString();
+            let end = timeFilter === 'today' ? new Date().setHours(23,59,59,999) : timeFilter === 'all' ? new Date('2030-01-01').toISOString() : new Date(endDate).toISOString();
 
             const targetBusinessId = filters?.selectedBusiness || user.businessId;
             const targetBatchId = filters?.selectedBatch || user.batchId;
@@ -93,8 +104,7 @@ export default function ManagerCampaignStats({ filters }) {
         } catch(e) {}
     };
 
-    // 🔥 FIX: Template Fetch eka safe karala cache bypass damma
-        const fetchTemplates = async () => {
+    const fetchTemplates = async () => {
         try { 
             const targetBusinessId = filters?.selectedBusiness || user.businessId || "";
             const targetBatchId = filters?.selectedBatch || user.batchId || "";
@@ -107,7 +117,6 @@ export default function ManagerCampaignStats({ filters }) {
                     'Pragma': 'no-cache'
                 },
                 params: { 
-                    // 🔥 FIX: empty unath string widiyata yawanawa params missing wenne nathi wenna
                     businessId: String(targetBusinessId), 
                     batchId: String(targetBatchId),
                     t: Date.now() 
@@ -177,7 +186,6 @@ export default function ManagerCampaignStats({ filters }) {
             formData.append('buttons', JSON.stringify(tplButtons));
             if (tplFile) formData.append('media', tplFile);
 
-            // 🔥 FIX: Backend ekata Business ID eka yawanawa 🔥
             const targetBusinessId = filters?.selectedBusiness || user.businessId;
             formData.append('businessId', targetBusinessId);
 
@@ -205,7 +213,7 @@ export default function ManagerCampaignStats({ filters }) {
             const token = localStorage.getItem('token');
             await axios.delete(`/coordinator-crm/meta-templates/${name}`, { 
                 headers: { Authorization: `Bearer ${token}` },
-                params: { businessId: targetBusinessId } // 🔥 FIX: Delete karaddith Business ID eka yawanawa 🔥
+                params: { businessId: targetBusinessId } 
             }); 
             toast.success("Deleted"); 
             fetchTemplates(); 
@@ -240,7 +248,7 @@ export default function ManagerCampaignStats({ filters }) {
             await axios.post('/call-center/request-transfer', { leadIds: handoverSelectedLeads }, { headers: { Authorization: `Bearer ${token}` } });
             toast.success("Successfully requested call center transfer!");
             setHandoverSelectedLeads([]);
-            fetchData();
+            fetchStats();
         } catch (err) {
             toast.error("Failed to request transfer");
         }
@@ -299,20 +307,19 @@ export default function ManagerCampaignStats({ filters }) {
             const chunk = selectedLeads.slice(i, i + chunkSize);
             
             const formData = new FormData();
-formData.append('leadIds', JSON.stringify(chunk));
-formData.append('type', bcastType);
-formData.append('message', bcastMessage);
+            formData.append('leadIds', JSON.stringify(chunk));
+            formData.append('type', bcastType);
+            formData.append('message', bcastMessage);
 
-// 🔥 FIX: Template එකේ නමයි Language එකයි වෙන් කරලා Backend එකට යවනවා
-if (bcastType === 'TEMPLATE' && bcastTemplate) {
-    const [tplName, tplLang] = bcastTemplate.split('|');
-    formData.append('templateName', tplName);
-    formData.append('templateLanguage', tplLang || 'en_US');
-} else {
-    formData.append('templateName', bcastTemplate);
-}
+            if (bcastType === 'TEMPLATE' && bcastTemplate) {
+                const [tplName, tplLang] = bcastTemplate.split('|');
+                formData.append('templateName', tplName);
+                formData.append('templateLanguage', tplLang || 'en_US');
+            } else {
+                formData.append('templateName', bcastTemplate);
+            }
 
-if (bcastFile) formData.append('media', bcastFile);
+            if (bcastFile) formData.append('media', bcastFile);
 
             try {
                 const token = localStorage.getItem('token');
@@ -396,40 +403,52 @@ if (bcastFile) formData.append('media', bcastFile);
         }
     };
 
-    const displayReport = useMemo(() => {
-        const rawReport = data?.report || [];
-        if (!teamMembers || teamMembers.length === 0) return rawReport;
-
-        return teamMembers.map(member => {
-            const existing = rawReport.find(r => r.agentName === member.firstName);
-            if (existing) return existing;
-            return {
-                agentName: member.firstName,
-                assigned: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0
-            };
-        });
-    }, [data?.report, teamMembers]);
-
     const displayMsgReport = useMemo(() => {
         const rawMsgReport = data?.msgReport || [];
-        if (!teamMembers || teamMembers.length === 0) return rawMsgReport;
+        if (!filters?.selectedBusiness || !teamMembers || teamMembers.length === 0) return rawMsgReport;
 
-        return teamMembers.map(member => {
+        const filtered = [];
+        teamMembers.forEach(member => {
             const existing = rawMsgReport.find(r => r.agentName === member.firstName);
-            if (existing) return existing;
-            return {
+            if (existing) filtered.push(existing);
+            else filtered.push({
                 agentName: member.firstName,
                 uniqueSent: 0, uniqueReceived: 0
-            };
+            });
         });
-    }, [data?.msgReport, teamMembers]);
+        return filtered;
+    }, [data?.msgReport, teamMembers, filters?.selectedBusiness]);
 
     const isCallCenterRole = (role) => {
         const r = String(role).toUpperCase().replace(/ /g, '_');
         return ['CALLER', 'CALL_CENTER_AGENT', 'CALL_CENTER'].includes(r);
     };
 
-    const coordReport = useMemo(() => (data?.report || []).filter(r => !isCallCenterRole(r.role)), [data?.report]);
+    const coordReport = useMemo(() => {
+        const rawReport = data?.report || [];
+        const allCoordStats = rawReport.filter(r => !isCallCenterRole(r.role));
+        
+        if (filters?.selectedBusiness && teamMembers && teamMembers.length > 0) {
+            const filtered = [];
+            teamMembers.forEach(member => {
+                if (!isCallCenterRole(member.role)) {
+                    const existing = allCoordStats.find(r => r.agentName === member.firstName);
+                    if (existing) {
+                        filtered.push(existing);
+                    } else {
+                        filtered.push({
+                            agentName: member.firstName,
+                            role: member.role,
+                            assigned: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0
+                        });
+                    }
+                }
+            });
+            return filtered;
+        }
+        return allCoordStats;
+    }, [data?.report, teamMembers, filters?.selectedBusiness]);
+
     const ccReport = useMemo(() => (data?.report || []).filter(r => isCallCenterRole(r.role)), [data?.report]);
 
     const coordStats = useMemo(() => {
@@ -456,7 +475,7 @@ if (bcastFile) formData.append('media', bcastFile);
                     <button onClick={() => setActiveTab('WHATSAPP')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === 'WHATSAPP' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}>WhatsApp Metrics</button>
                     <button onClick={() => setActiveTab('TEMPLATES')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === 'TEMPLATES' ? 'bg-purple-600 text-white' : 'text-slate-400'}`}>Meta Templates</button>
                     <button onClick={() => setActiveTab('BROADCAST')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === 'BROADCAST' ? 'bg-amber-600 text-white' : 'text-slate-400'}`}>Broadcast</button>
-                    {(isSystemAdmin || userIsManager) && <button onClick={() => setActiveTab('CALL_CENTER_STATS')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === 'CALL_CENTER_STATS' ? 'bg-orange-600 text-white' : 'text-slate-400'}`}>Call Center Stats</button>}
+                    {(isSystemAdmin || isManager) && <button onClick={() => setActiveTab('CALL_CENTER_STATS')} className={`px-4 py-2 rounded-lg text-sm font-bold whitespace-nowrap ${activeTab === 'CALL_CENTER_STATS' ? 'bg-orange-600 text-white' : 'text-slate-400'}`}>Call Center Stats</button>}
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
@@ -469,8 +488,9 @@ if (bcastFile) formData.append('media', bcastFile);
                                 <option value="3">Phase 3</option>
                             </select>
                             <select value={timeFilter} onChange={e=>setTimeFilter(e.target.value)} className="bg-[#0f172a] text-slate-300 text-sm p-2 rounded-lg border border-slate-700 outline-none">
-                                <option value="today">Today</option>
-                                <option value="custom">Custom Date</option>
+                                <option value="all">Overall (All Data)</option>
+                                <option value="today">Today Only</option>
+                                <option value="custom">Date Range</option>
                             </select>
                             {timeFilter === 'custom' && (
                                 <div className="flex items-center gap-2">
@@ -551,12 +571,22 @@ if (bcastFile) formData.append('media', bcastFile);
                                                     </tr>
                                                 ))}
                                                 {coordReport.length === 0 && <tr><td colSpan="6" className="text-center p-8 text-slate-500 italic">No coordinator stats available</td></tr>}
+                                                {coordReport.length > 0 && (
+                                                    <tr className="bg-[#0f172a]/80 font-black border-t-2 border-white/10">
+                                                        <td className="p-4 text-white uppercase tracking-wider text-sm">TOTAL</td>
+                                                        <td className="p-4 text-center">{coordStats.assigned}</td>
+                                                        <td className="p-4 text-center text-blue-400">{coordStats.pending}</td>
+                                                        <td className="p-4 text-center text-emerald-400">{coordReport.reduce((sum, r) => sum + r.answered, 0)}</td>
+                                                        <td className="p-4 text-center text-amber-400">{coordReport.reduce((sum, r) => sum + r.noAnswer, 0)}</td>
+                                                        <td className="p-4 text-center text-rose-400">{coordReport.reduce((sum, r) => sum + r.reject, 0)}</td>
+                                                    </tr>
+                                                )}
                                             </tbody>
                                         </table>
                                     </div>
                                     <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl p-6 backdrop-blur-xl shadow-xl">
                                         <h3 className="text-sm font-bold text-white mb-4">Coordinator Performance</h3>
-                                        <div style={{ width: '100%', height: '100%', minHeight: '300px' }}>
+                                        <div style={{ width: '100%', height: 300 }}>
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <BarChart data={coordReport} barSize={12}> 
                                                     <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
@@ -618,12 +648,22 @@ if (bcastFile) formData.append('media', bcastFile);
                                                     </tr>
                                                 ))}
                                                 {ccReport.length === 0 && <tr><td colSpan="6" className="text-center p-8 text-slate-500 italic">No call center stats available</td></tr>}
+                                                {ccReport.length > 0 && (
+                                                    <tr className="bg-[#0f172a]/80 font-black border-t-2 border-white/10">
+                                                        <td className="p-4 text-white uppercase tracking-wider text-sm">TOTAL</td>
+                                                        <td className="p-4 text-center">{ccStats.assigned}</td>
+                                                        <td className="p-4 text-center text-blue-400">{ccStats.pending}</td>
+                                                        <td className="p-4 text-center text-emerald-400">{ccReport.reduce((sum, r) => sum + r.answered, 0)}</td>
+                                                        <td className="p-4 text-center text-amber-400">{ccReport.reduce((sum, r) => sum + r.noAnswer, 0)}</td>
+                                                        <td className="p-4 text-center text-rose-400">{ccReport.reduce((sum, r) => sum + r.reject, 0)}</td>
+                                                    </tr>
+                                                )}
                                             </tbody>
                                         </table>
                                     </div>
                                     <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl p-6 backdrop-blur-xl shadow-xl">
                                         <h3 className="text-sm font-bold text-white mb-4">Call Center Performance</h3>
-                                        <div style={{ width: '100%', height: '100%', minHeight: '300px' }}>
+                                        <div style={{ width: '100%', height: 300 }}>
                                             <ResponsiveContainer width="100%" height="100%">
                                                 <BarChart data={ccReport} barSize={12}> 
                                                     <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
@@ -642,26 +682,51 @@ if (bcastFile) formData.append('media', bcastFile);
                     )}
 
                     {activeTab === 'WHATSAPP' && (
-                        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                            <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl overflow-hidden backdrop-blur-xl shadow-xl max-h-[400px] overflow-y-auto custom-scrollbar">
-                                <table className="w-full text-left text-sm text-slate-300">
-                                    <thead className="bg-black/40 text-slate-400 text-xs uppercase tracking-wider sticky top-0 z-10">
-                                        <tr>
-                                            <th className="p-4">Agent Name</th>
-                                            <th className="p-4 text-center text-blue-400">Leads Contacted</th>
-                                            <th className="p-4 text-center text-emerald-400">Leads Replied</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-white/5">
-                                        {displayMsgReport.map((r, i) => (
-                                            <tr key={i} className="hover:bg-white/5">
-                                                <td className="p-4 font-bold text-white">{r.agentName}</td>
-                                                <td className="p-4 text-center font-bold text-blue-400">{r.uniqueSent} <span className="text-[10px] text-slate-500 font-normal">Users</span></td>
-                                                <td className="p-4 text-center font-bold text-emerald-400">{r.uniqueReceived} <span className="text-[10px] text-slate-500 font-normal">Users</span></td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                        <div className="flex flex-col gap-6">
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                                {displayMsgReport.map((r, i) => (
+                                    <div key={i} className="bg-[#1e293b]/40 hover:bg-[#1e293b]/80 border border-white/5 hover:border-blue-500/30 rounded-2xl p-5 backdrop-blur-xl shadow-lg transition-all relative group overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-500/10 to-transparent rounded-full blur-2xl -mr-10 -mt-10 group-hover:from-blue-500/20 transition-all"></div>
+                                        
+                                        <div className="flex items-center gap-3 mb-4 border-b border-white/5 pb-3">
+                                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-700 to-slate-800 border border-white/10 flex items-center justify-center text-slate-300 font-bold shadow-inner">
+                                                {r.agentName.charAt(0).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <h4 className="font-bold text-white text-base tracking-wide">{r.agentName}</h4>
+                                                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">WhatsApp Activity</p>
+                                            </div>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="bg-blue-500/5 rounded-xl p-3 border border-blue-500/10 relative overflow-hidden">
+                                                <div className="absolute top-0 right-0 w-10 h-10 bg-blue-500/10 rounded-full blur-xl"></div>
+                                                <p className="text-[10px] font-black uppercase text-blue-400 mb-1 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span> OUTBOUND</p>
+                                                <div className="flex items-end gap-1.5">
+                                                    <span className="text-2xl font-black text-white leading-none">{r.uniqueSent}</span>
+                                                    <span className="text-[10px] font-bold text-slate-400 mb-0.5 uppercase tracking-wider">Leads</span>
+                                                </div>
+                                                <div className="mt-2 text-[10px] font-semibold text-slate-500 flex justify-between items-center bg-black/20 px-2 py-1 rounded-md border border-white/5">
+                                                    <span>Total Msgs:</span>
+                                                    <span className="text-blue-300 font-bold">{r.totalSent || 0}</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="bg-emerald-500/5 rounded-xl p-3 border border-emerald-500/10 relative overflow-hidden">
+                                                <div className="absolute top-0 right-0 w-10 h-10 bg-emerald-500/10 rounded-full blur-xl"></div>
+                                                <p className="text-[10px] font-black uppercase text-emerald-400 mb-1 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span> INBOUND</p>
+                                                <div className="flex items-end gap-1.5">
+                                                    <span className="text-2xl font-black text-white leading-none">{r.uniqueReceived}</span>
+                                                    <span className="text-[10px] font-bold text-slate-400 mb-0.5 uppercase tracking-wider">Leads</span>
+                                                </div>
+                                                <div className="mt-2 text-[10px] font-semibold text-slate-500 flex justify-between items-center bg-black/20 px-2 py-1 rounded-md border border-white/5">
+                                                    <span>Total Msgs:</span>
+                                                    <span className="text-emerald-300 font-bold">{r.totalReceived || 0}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
                             </div>
                             <div className="bg-[#1e293b]/60 border border-white/5 rounded-2xl p-6 backdrop-blur-xl shadow-xl">
                                 <h3 className="text-sm font-bold text-white mb-4">Unique User Interaction Trends</h3>

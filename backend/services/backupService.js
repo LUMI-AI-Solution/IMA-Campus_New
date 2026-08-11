@@ -16,8 +16,12 @@ function runBackup() {
     const files = fs.readdirSync(BACKUP_DIR);
     files.forEach(file => {
         if (file.endsWith('.sql')) {
-            fs.unlinkSync(path.join(BACKUP_DIR, file));
-            console.log(`[BackupService] Deleted previous backup: ${file}`);
+            try {
+                fs.unlinkSync(path.join(BACKUP_DIR, file));
+                console.log(`[BackupService] Deleted previous backup: ${file}`);
+            } catch (err) {
+                console.log(`[BackupService] Could not delete ${file}: ${err.message}`);
+            }
         }
     });
 

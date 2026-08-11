@@ -2,23 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { FaWhatsapp, FaFilter, FaRobot, FaPowerOff } from 'react-icons/fa';
 import axios from '../../api/axios';
 import toast from 'react-hot-toast';
+import useLocalStorageState from '../../hooks/useLocalStorageState';
 
 // CRM Folder Imports
 import AfterSeminarContactSidebar from './CRM/AfterSeminarContactSidebar';
 import AfterSeminarChatArea from './CRM/AfterSeminarChatArea';
 import AfterSeminarRightPanel from './CRM/AfterSeminarRightPanel';
+import { BarChart, Users, PhoneCall, TrendingUp, CheckCircle, Clock } from 'lucide-react';
+import AgentStatusDropdown from '../../components/CoordinatorCRM/AgentStatusDropdown';
+import WhatsAppBusinessNumberBadge from '../common/WhatsAppBusinessNumberBadge';
 
 export default function AfterSeminarDashboard() {
   const [user, setUser] = useState(null);
   const [selectedLead, setSelectedLead] = useState(null);
-  
   const [businesses, setBusinesses] = useState([]);
   const [batches, setBatches] = useState([]);
   
-  const [selectedBusiness, setSelectedBusiness] = useState('');
-  const [selectedBatch, setSelectedBatch] = useState('');
+  const [selectedBusiness, setSelectedBusiness] = useLocalStorageState('afterSem_selectedBusiness', '');
+  const [selectedBatch, setSelectedBatch] = useLocalStorageState('afterSem_selectedBatch', '');
 
   const [isFollowUpOn, setIsFollowUpOn] = useState(false);
+  const [isOpenSemOn, setIsOpenSemOn] = useState(false);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
@@ -56,35 +60,22 @@ export default function AfterSeminarDashboard() {
   const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN'].includes(userRole);
 
   const displayBatches = batches.filter(b => {
-      if (isAdmin && !selectedBusiness) return true; 
-      if (isAdmin && selectedBusiness) return String(b.businessId) === String(selectedBusiness);
-      
-      const uBizId = String(user?.businessId || selectedBusiness || '').trim();
-      const uBizName = String(user?.businessType || '').toLowerCase().trim();
-      
-      if (uBizId === '' && uBizName === '') return true;
-      
-      const batchBizId = String(b.businessId).trim();
-      const batchBizName = String(b.business?.name || '').toLowerCase().trim();
-      
-      if (uBizId !== '' && batchBizId === uBizId) return true;
-      if (uBizName !== '' && batchBizName === uBizName) return true;
-      if (uBizName !== '' && batchBizName.includes(uBizName)) return true;
-      if (uBizName !== '' && uBizName.includes(batchBizName)) return true;
-
-      return false;
+      if (selectedBusiness) return String(b.businessId) === String(selectedBusiness);
+      return true;
   });
 
-  let activeBusinessId = isAdmin ? selectedBusiness : '';
-  if (!isAdmin && displayBatches.length > 0) {
-      activeBusinessId = String(displayBatches[0].businessId);
-  }
+  let activeBusinessId = selectedBusiness || '';
 
   const needsToSelectBusiness = isAdmin && !selectedBusiness;
 
   useEffect(() => {
-    if(activeBusinessId) fetchFollowUpStatus(activeBusinessId);
-    else setIsFollowUpOn(false);
+    if(activeBusinessId) {
+      fetchFollowUpStatus(activeBusinessId);
+      fetchOpenSemStatus(activeBusinessId);
+    } else {
+      setIsFollowUpOn(false);
+      setIsOpenSemOn(false);
+    }
   }, [activeBusinessId]);
 
   const fetchFollowUpStatus = async (bizId) => {
@@ -92,6 +83,13 @@ export default function AfterSeminarDashboard() {
       const res = await axios.get(`/after-seminar-crm/followup-status?businessId=${bizId}`);
       setIsFollowUpOn(res.data.isOn);
     } catch (error) { console.error("Failed to load status"); }
+  };
+
+  const fetchOpenSemStatus = async (bizId) => {
+    try {
+      const res = await axios.get(`/after-seminar-crm/opensem-status?businessId=${bizId}`);
+      setIsOpenSemOn(res.data.isOn);
+    } catch (error) { console.error("Failed to load open sem status"); }
   };
 
   const handleToggleFollowUp = async () => {
@@ -108,10 +106,23 @@ export default function AfterSeminarDashboard() {
     }
   };
 
+  const handleToggleOpenSem = async () => {
+    const newStatus = !isOpenSemOn;
+    setIsOpenSemOn(newStatus);
+    try {
+      await axios.post('/after-seminar-crm/toggle-opensem', { businessId: activeBusinessId, isOn: newStatus });
+      if (newStatus) toast.success("Open Seminar Mode ACTIVATED!", { icon: '🔓' });
+      else toast.error("Open Seminar Mode DEACTIVATED!", { icon: '🔒' });
+    } catch (error) {
+      setIsOpenSemOn(!newStatus); 
+      toast.error("Failed to update Open Sem mode");
+    }
+  };
+
   const handleRedirectToCampaign = (lead) => {
       let path = '/workspace/campaign/open-seminar';
-      if (lead.source === 'bridge_transfer' && lead.enrollmentStatus !== 'ENROLLED') path = '/workspace/campaign/bridge-transfers';
-      else if (lead.enrollmentStatus === 'ENROLLED') path = '/workspace/campaign/paid-students';
+      if (lead.source === 'bridge_transfer' && (!(lead.enrollmentStatus === 'ENROLLED' || lead.enrollmentStatus === 'PAID' || (lead.enrollmentStatus && lead.enrollmentStatus.startsWith('ENROLLED_'))))) path = '/workspace/campaign/bridge-transfers';
+      else if (((lead.enrollmentStatus === 'ENROLLED' || lead.enrollmentStatus === 'PAID' || (lead.enrollmentStatus && lead.enrollmentStatus.startsWith('ENROLLED_'))))) path = '/workspace/campaign/paid-students';
       else if (lead.inquiryType === 'NEW_INQ') path = '/workspace/campaign/new-inquiries';
       
       // 🔥 Phone number eka URL parameter ekak widiyata add karanawa
@@ -125,29 +136,35 @@ export default function AfterSeminarDashboard() {
   return (
     <div className="h-full flex flex-col gap-4 animate-fade-in-up text-slate-200 relative">
       
-      <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-white/5 backdrop-blur-lg p-3 rounded-2xl border border-white/10 shadow-xl shrink-0">
+      <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-white/5 backdrop-blur-lg p-3 rounded-2xl border border-white/10 shadow-xl shrink-0 relative z-50">
         <div className="flex items-center gap-3 text-lg font-black tracking-wide text-white uppercase px-2">
-            <FaWhatsapp className="text-emerald-400" size={24} /> After Seminar CRM
+            <div className="flex items-center gap-2">
+                <FaWhatsapp className="text-emerald-400" size={24} /> After Seminar CRM
+            </div>
+            {selectedBusiness && (
+                <WhatsAppBusinessNumberBadge businessId={selectedBusiness} campaignType="AFTER_SEMINAR" />
+            )}
         </div>
 
-        <div className="flex items-center gap-3 w-full xl:w-auto overflow-x-auto">
+        <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
           {isManager && (
-            <button onClick={handleToggleFollowUp} disabled={needsToSelectBusiness} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs transition-all shadow-md border whitespace-nowrap ${isFollowUpOn ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50 hover:bg-emerald-500/30' : 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30'} ${needsToSelectBusiness ? 'opacity-50 cursor-not-allowed' : ''}`}>
-              {isFollowUpOn ? <FaRobot className="animate-pulse" /> : <FaPowerOff />}
-              {isFollowUpOn ? 'FOLLOW-UP: ON' : 'FOLLOW-UP: OFF'}
-            </button>
+            <>
+              <AgentStatusDropdown />
+              <button onClick={handleToggleOpenSem} disabled={needsToSelectBusiness} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs transition-all shadow-md border whitespace-nowrap ${isOpenSemOn ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 hover:bg-amber-500/30' : 'bg-slate-500/20 text-slate-400 border-slate-500/50 hover:bg-slate-500/30'} ${needsToSelectBusiness ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                <FaPowerOff />
+                {isOpenSemOn ? 'OPEN SEM: ON' : 'OPEN SEM: OFF'}
+              </button>
+            </>
           )}
 
           <div className="w-px h-6 bg-white/10 mx-1 hidden xl:block"></div>
 
           <div className="flex items-center gap-3">
             <FaFilter className="text-slate-500 shrink-0" />
-            {isAdmin && (
-              <select value={selectedBusiness} onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }} className="bg-black/40 border border-white/10 text-slate-300 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-brand-accent transition-all cursor-pointer">
-                <option value="">Select Business</option>
-                {businesses.map(biz => <option key={biz.id} value={biz.id} className="bg-slate-900">{biz.name}</option>)}
-              </select>
-            )}
+            <select value={selectedBusiness} onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }} className="bg-black/40 border border-white/10 text-slate-300 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-brand-accent transition-all cursor-pointer">
+              <option value="">Select Business (All)</option>
+              {businesses.map(biz => <option key={biz.id} value={biz.id} className="bg-slate-900">{biz.name}</option>)}
+            </select>
 
             <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)} className="bg-black/40 border border-white/10 text-slate-300 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-brand-accent transition-all cursor-pointer">
               <option value="">Select Batch (All)</option>
@@ -175,7 +192,14 @@ export default function AfterSeminarDashboard() {
           {selectedLead ? (
             <>
               <AfterSeminarChatArea selectedLead={selectedLead} businessId={activeBusinessId} />
-              <AfterSeminarRightPanel selectedLead={selectedLead} activeMode={'CRM'} activeBusinessId={activeBusinessId} />
+              <AfterSeminarRightPanel 
+                selectedLead={selectedLead} 
+                activeMode={'CRM'} 
+                activeBusinessId={activeBusinessId} 
+                onBatchAssigned={(leadId, batchId) => {
+                    setSelectedLead(prev => prev.id === leadId ? { ...prev, batchId: parseInt(batchId) } : prev);
+                }}
+              />
             </>
           ) : (
             <div className="flex-1 bg-white/5 backdrop-blur-md rounded-2xl flex flex-col items-center justify-center text-slate-400 shadow-xl border border-white/10">

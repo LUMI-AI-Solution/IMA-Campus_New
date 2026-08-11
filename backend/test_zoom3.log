@@ -1,0 +1,20 @@
+◇ injected env (13) from .env // tip: ◈ secrets for agents [www.dotenvx.com]
+Meeting ID: 97047220370 Date: 2026-05-12T00:00:00.000Z
+[x] Acc 01 returned 400
+{ code: 200, message: 'No permission.' }
+[x] Acc 02 returned 400
+{ code: 200, message: 'No permission.' }
+[!] Acc 03 error: {
+  reason: 'Invalid client_id or client_secret',
+  error: 'invalid_client'
+}
+[✔] Found in Acc 04 (Status: 200)
+    -> MP4: 2026-05-12T14:41:40Z, Size: 2050.46 MB
+[x] Acc 05 returned 400
+{ code: 200, message: 'No permission.' }
+[x] Acc 06 returned 400
+{ code: 200, message: 'No permission.' }
+[x] Acc 07 returned 400
+{ code: 200, message: 'No permission.' }
+[x] Acc 08 returned 400
+{ code: 200, message: 'No permission.' }

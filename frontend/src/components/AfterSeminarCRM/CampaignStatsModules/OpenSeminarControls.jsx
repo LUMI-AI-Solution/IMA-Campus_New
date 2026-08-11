@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from '../../../api/axios';
-import { FaUsers, FaUserTie, FaPhoneVolume, FaCheckCircle, FaExclamationCircle, FaChartBar, FaExclamationTriangle, FaCalendarAlt, FaChevronDown, FaChevronUp, FaFileExport, FaTimes, FaCheckSquare, FaRegSquare } from 'react-icons/fa';
+import { FaUsers, FaUserTie, FaPhoneVolume, FaCheckCircle, FaExclamationCircle, FaChartBar, FaExclamationTriangle, FaCalendarAlt, FaChevronDown, FaChevronUp, FaFileExport, FaTimes, FaCheckSquare, FaRegSquare, FaLayerGroup, FaUserCheck } from 'react-icons/fa';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import toast from 'react-hot-toast';
 import BusinessBadge from '../../common/BusinessBadge';
+import UnassignedBatchModal from './UnassignedBatchModal';
+import MissingPaidStudentsModal from './MissingPaidStudentsModal';
 
 const getShiftData = (dateString) => {
     if (!dateString) return { dateStr: 'Unknown', label: 'Unknown Date', timestamp: 0 };
@@ -40,14 +42,16 @@ export default function OpenSeminarControls({ filters }) {
     const [endDate, setEndDate] = useState('');
     const [expandedRows, setExpandedRows] = useState({});
 
-    // 🔥 Advanced Export Modal States 🔥
+    // 🔥 Advanced Export & Tools Modal States 🔥
     const [showExportModal, setShowExportModal] = useState(false);
+    const [showUnassignedModal, setShowUnassignedModal] = useState(false);
+    const [showMissingPaidModal, setShowMissingPaidModal] = useState(false);
     const [exportMode, setExportMode] = useState('ALL'); // ALL, SINGLE, MULTIPLE
     const [selectedSingleStaff, setSelectedSingleStaff] = useState('');
     const [selectedMultipleStaff, setSelectedMultipleStaff] = useState([]);
 
     const [stats, setStats] = useState({
-        totalOpenSem: 0, totalAssigned: 0, totalContacted: 0, totalPending: 0, totalDelayed: 0, totalEnrolled: 0,
+        totalOpenSem: 0, totalAssigned: 0, totalContacted: 0, totalPending: 0, totalDirectPaid: 0, totalDelayed: 0, totalEnrolled: 0,
         staffBreakdown: [],
         rawLeads: []
     });
@@ -77,7 +81,7 @@ export default function OpenSeminarControls({ filters }) {
             if (res.data) setStats(res.data);
         } catch (error) {
             toast.error("Failed to fetch Open Sem Stats");
-            setStats({ totalOpenSem: 0, totalAssigned: 0, totalContacted: 0, totalPending: 0, totalDelayed: 0, totalEnrolled: 0, staffBreakdown: [], rawLeads: [] });
+            setStats({ totalOpenSem: 0, totalAssigned: 0, totalContacted: 0, totalPending: 0, totalDirectPaid: 0, totalDelayed: 0, totalEnrolled: 0, staffBreakdown: [], rawLeads: [] });
         } finally {
             setLoading(false);
         }
@@ -113,27 +117,30 @@ export default function OpenSeminarControls({ filters }) {
             return toast.error("No leads found to export!");
         }
 
-        const headers = ['Phone', 'Name', 'Assigned Coordinator', 'Round', 'Phase', 'Call Status', 'Enrollment Status', 'Payment Plan', 'Remark'];
+        const headers = ['Phone', 'Name', 'Assigned Coordinator', 'Round', 'Call Status', 'Enrollment Status', 'Payment Plan', 'Remark'];
         const rows = dataToExport.map(l => [
             l.phone,
             (l.name || 'Unknown').replace(/,/g, ' '),
             l.assignedToName || 'Unassigned',
             l.round,
-            l.phase,
             l.callStatus.replace('_', ' ').toUpperCase(),
             l.enrollmentStatus,
             l.paymentPlan,
             (l.remark || 'No Remark').replace(/,/g, ' ').replace(/\n/g, ' ')
         ]);
 
-        const csvContent = "data:text/csv;charset=utf-8," + headers.join(',') + "\n" + rows.map(e => e.join(",")).join("\n");
-        const encodedUri = encodeURI(csvContent);
+        const csvContent = headers.join(',') + "\n" + rows.map(e => e.join(",")).join("\n");
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        
         const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
+        link.setAttribute("href", url);
         link.setAttribute("download", `${filename}.csv`);
+        link.style.visibility = 'hidden';
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+        
         toast.success(`Exported ${dataToExport.length} leads successfully!`);
         setShowExportModal(false);
     };
@@ -180,11 +187,47 @@ export default function OpenSeminarControls({ filters }) {
     const chartData = stats.staffBreakdown.map(staff => ({ name: staff.name, contacted: staff.overall.contacted, delayed: staff.overall.delayed, enrolled: staff.overall.enrolled }));
     const allStaffNames = stats.staffBreakdown.map(s => s.name);
 
+    // 🔥 Aggregate staff rounds to build the Campaign Overview 🔥
+    const aggregatedRounds = {
+        '1': { assigned: 0, answered: 0, pending: 0, noAnswer: 0, reject: 0, delayed: 0 },
+        '2': { assigned: 0, answered: 0, pending: 0, noAnswer: 0, reject: 0, delayed: 0 },
+        'NON_ENROLLED': { assigned: 0, answered: 0, pending: 0, noAnswer: 0, reject: 0 },
+        'PAID': { assigned: 0, answered: 0, pending: 0 }
+    };
+
+    let totalFull = 0;
+    let totalUpgrade = 0;
+    let totalMonthly = 0;
+    let totalInstallment = 0;
+
+    if (stats.staffBreakdown) {
+        stats.staffBreakdown.forEach(staff => {
+            totalFull += (staff.overall?.full || 0);
+            totalUpgrade += (staff.overall?.upgrade || 0);
+            totalMonthly += (staff.overall?.monthly || 0);
+            totalInstallment += (staff.overall?.installment || 0);
+
+            ['1', '2', 'NON_ENROLLED', 'PAID'].forEach(round => {
+                if (staff.rounds && staff.rounds[round]) {
+                    aggregatedRounds[round].assigned += (staff.rounds[round].assigned || 0);
+                    aggregatedRounds[round].answered += (staff.rounds[round].answered || 0);
+                    aggregatedRounds[round].pending += (staff.rounds[round].pending || 0);
+                    aggregatedRounds[round].noAnswer += (staff.rounds[round].noAnswer || 0);
+                    aggregatedRounds[round].reject += (staff.rounds[round].reject || 0);
+                    if (round === '1' || round === '2') {
+                        aggregatedRounds[round].delayed += (staff.rounds[round].delayed || 0);
+                    }
+                }
+            });
+        });
+    }
+
     return (
         <div className="flex flex-col gap-6 font-sans text-slate-200 animate-fade-in p-2 rounded-lg bg-transparent relative">
             
             {/* 🔥 DATE FILTERS ROW & MAIN EXPORT BUTTON 🔥 */}
-            <div className="flex flex-col md:flex-row justify-between items-center bg-white/5 backdrop-blur-xl p-5 rounded-2xl border border-white/10 shadow-xl gap-4">
+            <div className="flex flex-col md:flex-row justify-between items-center bg-black/40 backdrop-blur-3xl p-5 rounded-3xl border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] gap-4 relative overflow-hidden">
+                <div className="absolute top-0 right-1/4 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl"></div>
                 <div className="flex items-center gap-3">
                     <div className="p-2.5 bg-blue-500/10 text-blue-400 rounded-lg"><FaCalendarAlt size={18} /></div>
                     <div>
@@ -204,6 +247,14 @@ export default function OpenSeminarControls({ filters }) {
 
                     <div className="w-px h-6 bg-white/10 mx-2 hidden md:block"></div>
 
+                    {/* TOOLS BUTTONS */}
+                    <button onClick={() => setShowUnassignedModal(true)} className="px-4 py-2 bg-amber-600/90 hover:bg-amber-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-1.5">
+                        <FaLayerGroup size={12} /> Unassigned Batch Leads
+                    </button>
+                    <button onClick={() => setShowMissingPaidModal(true)} className="px-4 py-2 bg-indigo-600/90 hover:bg-indigo-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-1.5">
+                        <FaUserCheck size={12} /> Missing Paid Web Students
+                    </button>
+
                     {/* MASTER EXPORT BUTTON */}
                     <button onClick={() => setShowExportModal(true)} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-2">
                         <FaFileExport size={12} /> Advanced Export
@@ -211,96 +262,139 @@ export default function OpenSeminarControls({ filters }) {
                 </div>
             </div>
 
-            {/* TOP SUMMARY CARDS */}
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-                <div className="bg-white/5 backdrop-blur-md p-5 rounded-2xl border border-white/10 shadow-xl flex flex-col justify-center transition-all">
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-indigo-500/10 text-indigo-400 rounded-lg"><FaUsers size={16} /></div>
-                        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest">Total Assigned</p>
-                    </div>
-                    <h2 className="text-2xl font-semibold text-white">{stats.totalAssigned}</h2>
-                </div>
-
-                <div className="bg-white/5 backdrop-blur-md p-5 rounded-2xl border border-white/10 shadow-xl flex flex-col justify-center transition-all">
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-amber-500/10 text-amber-400 rounded-lg"><FaPhoneVolume size={16} /></div>
-                        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest">Covered</p>
-                    </div>
-                    <h2 className="text-2xl font-semibold text-amber-400">{stats.totalContacted}</h2>
-                </div>
-
-                <div className="bg-white/5 backdrop-blur-md p-5 rounded-2xl border border-white/10 shadow-xl flex flex-col justify-center transition-all">
-                    <div className="flex items-center gap-3 mb-2">
-                        <div className="p-2 bg-slate-500/10 text-slate-400 rounded-lg"><FaExclamationCircle size={16} /></div>
-                        <p className="text-[10px] text-slate-400 font-medium uppercase tracking-widest">Pending</p>
-                    </div>
-                    <h2 className="text-2xl font-semibold text-slate-300">{stats.totalPending}</h2>
-                </div>
-
-                <div className="bg-red-500/5 backdrop-blur-md p-5 rounded-2xl border border-red-500/20 shadow-[0_0_15px_rgba(239,68,68,0.1)] flex flex-col justify-center relative overflow-hidden">
-                    <div className="absolute -right-4 -top-4 w-16 h-16 bg-red-500/10 rounded-full blur-xl animate-pulse"></div>
+            {/* TOP SUMMARY SECTION */}
+            <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">
+                {/* Total Assigned Card (1 col) */}
+                <div className="bg-indigo-500/5 backdrop-blur-2xl p-6 rounded-3xl border border-indigo-500/10 shadow-[0_8px_30px_rgba(79,70,229,0.1)] flex flex-col justify-center relative overflow-hidden group hover:border-indigo-500/30 transition-all duration-500">
+                    <div className="absolute -left-6 -top-6 w-24 h-24 bg-indigo-500/10 rounded-full blur-2xl group-hover:bg-indigo-500/20 transition-all"></div>
                     <div className="flex items-center gap-3 mb-2 relative z-10">
-                        <div className="p-2 bg-red-500/20 text-red-400 rounded-lg animate-pulse"><FaExclamationTriangle size={16} /></div>
-                        <p className="text-[10px] text-red-400 font-bold uppercase tracking-widest">Delayed Calls</p>
+                        <div className="p-2.5 bg-indigo-500/20 text-indigo-400 rounded-xl shadow-inner"><FaUsers size={16} /></div>
+                        <p className="text-[10px] text-indigo-300 font-bold uppercase tracking-widest">Total Assigned</p>
                     </div>
-                    <h2 className="text-2xl font-black text-red-500 relative z-10">{stats.totalDelayed}</h2>
+                    <h2 className="text-3xl font-black text-white relative z-10 drop-shadow-md">{stats.totalAssigned}</h2>
+                    <div className="mt-4 pt-4 border-t border-white/5 relative z-10">
+                        <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest mb-1 flex items-center gap-1.5"><FaCheckCircle size={10} /> Overall Enrolled</p>
+                        <h3 className="text-xl font-black text-emerald-400">{stats.totalEnrolled} <span className="text-xs text-emerald-500">({conversionRate}%)</span></h3>
+                    </div>
                 </div>
 
-                <div className="bg-emerald-500/5 backdrop-blur-md p-5 rounded-2xl border border-emerald-500/20 shadow-lg flex flex-col justify-center relative overflow-hidden">
-                    <div className="absolute -right-6 -top-6 w-20 h-20 bg-emerald-500/10 rounded-full blur-2xl"></div>
-                    <div className="flex items-center gap-3 mb-2 relative z-10">
-                        <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg"><FaCheckCircle size={16} /></div>
-                        <p className="text-[10px] text-emerald-400 font-bold uppercase tracking-widest">Enrolled</p>
-                    </div>
-                    <div className="flex items-end gap-2 relative z-10">
-                        <h2 className="text-2xl font-semibold text-emerald-400 leading-none">{stats.totalEnrolled}</h2>
-                        <span className="text-[10px] text-emerald-500 font-bold mb-0.5">({conversionRate}%)</span>
-                    </div>
+                {/* Campaign Rounds Cards (4 cols) */}
+                <div className="xl:col-span-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    {['1', '2', 'NON_ENROLLED', 'PAID'].map(round => {
+                        const roundData = aggregatedRounds[round];
+                        
+                        let title = `ROUND 0${round}`;
+                        let iconColor = 'text-indigo-400';
+                        let bgGradient = 'from-indigo-500/10 to-transparent';
+                        let borderColor = 'border-indigo-500/20';
+                        let answerColor = 'text-indigo-300';
+                        let answerBg = 'bg-indigo-500/10 border-indigo-500/20';
+
+                        if (round === 'NON_ENROLLED') {
+                            title = 'NON ENROLLED';
+                            iconColor = 'text-slate-400';
+                            bgGradient = 'from-slate-600/10 to-transparent';
+                            borderColor = 'border-slate-500/20';
+                            answerColor = 'text-slate-300';
+                            answerBg = 'bg-slate-500/10 border-slate-500/20';
+                        } else if (round === 'PAID') {
+                            title = 'ENROLLED (PAID)';
+                            iconColor = 'text-emerald-400';
+                            bgGradient = 'from-emerald-500/10 to-transparent';
+                            borderColor = 'border-emerald-500/20';
+                            answerColor = 'text-emerald-300';
+                            answerBg = 'bg-emerald-500/10 border-emerald-500/20';
+                        } else if (round === '2') {
+                            iconColor = 'text-blue-400';
+                            bgGradient = 'from-blue-500/10 to-transparent';
+                            borderColor = 'border-blue-500/20';
+                            answerColor = 'text-blue-300';
+                            answerBg = 'bg-blue-500/10 border-blue-500/20';
+                        }
+
+                        return (
+                            <div key={round} className={`bg-gradient-to-br ${bgGradient} border ${borderColor} rounded-[2rem] p-5 flex flex-col shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 group relative overflow-hidden bg-black/20 backdrop-blur-md`}>
+                                <div className={`absolute top-0 right-0 w-32 h-32 bg-current opacity-[0.03] rounded-bl-full pointer-events-none ${iconColor}`}></div>
+                                
+                                <div className="flex justify-between items-center border-b border-white/5 pb-4 mb-4 relative z-10">
+                                    <span className={`text-xs font-black uppercase tracking-widest ${iconColor} drop-shadow-sm flex items-center gap-2`}>
+                                        {title}
+                                    </span>
+                                </div>
+
+                                <div className="flex flex-col gap-3 relative z-10">
+                                    {round === 'PAID' ? (
+                                        <div className="grid grid-cols-2 gap-3 mt-1">
+                                            <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl flex flex-col justify-center items-center shadow-inner">
+                                                <span className="text-[10px] text-emerald-500/70 font-bold uppercase tracking-wider mb-1">Full</span>
+                                                <span className="text-xl font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]">{totalFull}</span>
+                                            </div>
+                                            <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl flex flex-col justify-center items-center shadow-inner">
+                                                <span className="text-[10px] text-emerald-500/70 font-bold uppercase tracking-wider mb-1">Upgrade</span>
+                                                <span className="text-xl font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]">{totalUpgrade}</span>
+                                            </div>
+                                            <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl flex flex-col justify-center items-center shadow-inner">
+                                                <span className="text-[10px] text-emerald-500/70 font-bold uppercase tracking-wider mb-1">Monthly</span>
+                                                <span className="text-xl font-black text-emerald-400">{totalMonthly}</span>
+                                            </div>
+                                            <div className="bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-xl flex flex-col justify-center items-center shadow-inner">
+                                                <span className="text-[10px] text-emerald-500/70 font-bold uppercase tracking-wider mb-1">Installment</span>
+                                                <span className="text-xl font-black text-emerald-400">{totalInstallment}</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div className="grid grid-cols-2 gap-3">
+                                                <div className="bg-black/30 border border-white/5 p-3 rounded-xl flex flex-col justify-center items-center">
+                                                    <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">Assigned</span>
+                                                    <span className="text-xl font-black text-slate-200">{roundData.assigned}</span>
+                                                </div>
+                                                <div className={`${answerBg} border p-3 rounded-xl flex flex-col justify-center items-center relative overflow-hidden`}>
+                                                    <span className={`text-[10px] ${iconColor} opacity-80 font-bold uppercase tracking-wider mb-1`}>Answered</span>
+                                                    <span className={`text-xl font-black ${answerColor}`}>{roundData.answered}</span>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                <div className="bg-amber-500/5 border border-amber-500/10 p-2.5 rounded-xl flex flex-col justify-center items-center">
+                                                    <span className="text-[9px] text-amber-500/70 font-bold uppercase tracking-wider mb-1">Pending</span>
+                                                    <span className="text-sm font-bold text-amber-400">{roundData.pending}</span>
+                                                </div>
+                                                <div className="bg-slate-500/10 border border-slate-500/10 p-2.5 rounded-xl flex flex-col justify-center items-center">
+                                                    <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mb-1">No Ans</span>
+                                                    <span className="text-sm font-bold text-slate-300">{roundData.noAnswer}</span>
+                                                </div>
+                                                <div className="bg-red-500/5 border border-red-500/10 p-2.5 rounded-xl flex flex-col justify-center items-center">
+                                                    <span className="text-[9px] text-red-400/70 font-bold uppercase tracking-wider mb-1">Reject</span>
+                                                    <span className="text-sm font-bold text-red-400">{roundData.reject}</span>
+                                                </div>
+                                            </div>
+                                            
+                                            {/* Extras: Delayed (Only for R1 & R2) */}
+                                            {(round === '1' || round === '2') && (
+                                                <div className="flex justify-between items-center text-xs mt-2 px-1">
+                                                    {roundData.delayed > 0 ? (
+                                                        <>
+                                                            <span className="text-rose-400/80 font-bold uppercase tracking-wider text-[10px] flex items-center gap-1.5"><FaExclamationTriangle size={10}/> Delayed KPI</span>
+                                                            <span className="text-rose-400 font-black bg-rose-500/10 px-2.5 py-0.5 rounded text-xs border border-rose-500/20">{roundData.delayed}</span>
+                                                        </>
+                                                    ) : (
+                                                        <span className="text-slate-600 font-bold uppercase tracking-wider text-[10px] flex items-center gap-1">No Delays</span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             </div>
 
-            {/* DETAILS ROW */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-                {/* CHART */}
-                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-indigo-500/10 shadow-[0_8px_30px_rgba(0,0,0,0.12)] flex flex-col relative overflow-hidden group hover:border-indigo-500/20 transition-all duration-500">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl group-hover:bg-indigo-500/10 transition-colors duration-700"></div>
-                    <h3 className="text-xs font-semibold text-slate-300 mb-6 uppercase tracking-widest flex items-center gap-2"><FaChartBar className="text-indigo-400" /> Staff Conversion Chart</h3>
-                    <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 min-h-[350px] max-h-[500px]">
-                        {chartData.length === 0 ? <div className="flex h-full items-center justify-center text-slate-500 text-sm">No data available.</div> : (
-                            <div style={{ height: `${Math.max(chartData.length * 60, 300)}px` }}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={chartData} layout="vertical" margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-                                        <XAxis type="number" stroke="#64748b" fontSize={10} tickLine={false} axisLine={false} />
-                                        <YAxis type="category" dataKey="name" stroke="#cbd5e1" fontSize={11} tickLine={false} axisLine={false} width={130} fontWeight="bold" />
-                                        <RechartsTooltip cursor={{ fill: '#4f46e520' }} contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #334155', borderRadius: '16px', fontSize: '12px', color: '#fff', boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)' }} />
-                                        <Legend verticalAlign="top" wrapperStyle={{ fontSize: '11px', paddingBottom: '15px' }} iconType="circle" />
-                                        <Bar dataKey="contacted" name="Covered" fill="url(#colorCovered)" radius={[0, 6, 6, 0]} barSize={14} />
-                                        <Bar dataKey="delayed" name="Delayed (KPI)" fill="url(#colorDelayed)" radius={[0, 6, 6, 0]} barSize={14} />
-                                        <Bar dataKey="enrolled" name="Enrolled" fill="url(#colorEnrolled)" radius={[0, 6, 6, 0]} barSize={14} />
-                                        <defs>
-                                            <linearGradient id="colorCovered" x1="0" y1="0" x2="1" y2="0">
-                                                <stop offset="0%" stopColor="#4f46e5" stopOpacity={0.8}/>
-                                                <stop offset="100%" stopColor="#818cf8" stopOpacity={1}/>
-                                            </linearGradient>
-                                            <linearGradient id="colorDelayed" x1="0" y1="0" x2="1" y2="0">
-                                                <stop offset="0%" stopColor="#e11d48" stopOpacity={0.8}/>
-                                                <stop offset="100%" stopColor="#fb7185" stopOpacity={1}/>
-                                            </linearGradient>
-                                            <linearGradient id="colorEnrolled" x1="0" y1="0" x2="1" y2="0">
-                                                <stop offset="0%" stopColor="#059669" stopOpacity={0.8}/>
-                                                <stop offset="100%" stopColor="#34d399" stopOpacity={1}/>
-                                            </linearGradient>
-                                        </defs>
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
+            {/* DETAILS SECTION */}
+            <div className="w-full mt-6">
                 {/* ADVANCED STAFF BREAKDOWN TABLE */}
-                <div className="bg-white/5 backdrop-blur-xl p-6 rounded-3xl border border-white/10 shadow-xl lg:col-span-2 flex flex-col relative overflow-hidden">
+                <div className="bg-black/40 backdrop-blur-3xl p-6 md:p-8 rounded-[2.5rem] border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.3)] flex flex-col relative overflow-hidden group">
                     <div className="flex justify-between items-center mb-6 relative z-10">
                         <h3 className="text-sm font-bold text-slate-200 uppercase tracking-widest flex items-center gap-3">
                             <div className="p-2 bg-indigo-500/20 rounded-lg shadow-inner border border-indigo-500/20"><FaUserTie className="text-indigo-400"/></div>
@@ -308,127 +402,217 @@ export default function OpenSeminarControls({ filters }) {
                         </h3>
                     </div>
 
-                    <div className="flex-1 overflow-x-auto custom-scrollbar">
+                    <div className="flex-1">
                         {stats.staffBreakdown.length === 0 ? <div className="text-center py-10 text-slate-500 text-sm">No coordinator data available.</div> : (
-                            <table className="w-full text-left text-sm whitespace-nowrap border-collapse">
-                                <thead className="text-slate-400 text-[10px] uppercase tracking-wider bg-black/40">
-                                    <tr>
-                                        <th className="py-4 px-3 font-semibold rounded-tl-lg">Coordinator</th>
-                                        <th className="py-4 px-2 text-center font-semibold">Assigned</th>
-                                        <th className="py-4 px-2 text-center font-semibold text-amber-400">Covered</th>
-                                        <th className="py-4 px-2 text-center font-semibold text-slate-400">Pending</th>
-                                        <th className="py-4 px-2 text-center font-bold text-red-500">Delayed (KPI)</th>
-                                        <th className="py-4 px-2 text-center font-semibold text-emerald-400">Enrolled</th>
-                                        <th className="py-4 px-3 text-right font-semibold rounded-tr-lg">Conversion</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {stats.staffBreakdown.map((staff, idx) => {
-                                        const isExpanded = expandedRows[staff.name];
-                                        const rate = staff.overall.assigned > 0 ? Math.round((staff.overall.enrolled / staff.overall.assigned) * 100) : 0;
-                                        const isHighDelay = staff.overall.delayed > 10;
+                            <div className="flex flex-col gap-5">
+                                {stats.staffBreakdown.map((staff, idx) => {
+                                    const isExpanded = expandedRows[staff.name];
+                                    const rate = staff.overall.assigned > 0 ? Math.round((staff.overall.enrolled / staff.overall.assigned) * 100) : 0;
+                                    const isHighDelay = staff.overall.delayed > 10;
 
-                                        return (
-                                            <React.Fragment key={idx}>
-                                                <tr onClick={() => toggleRow(staff.name)} className={`cursor-pointer transition-colors border-b border-white/5 ${isExpanded ? 'bg-white/10' : 'hover:bg-white/5'}`}>
-                                                    <td className="py-3 px-3 font-medium text-slate-200 flex items-center gap-2">
-                                                        {isExpanded ? <FaChevronUp size={10} className="text-indigo-400" /> : <FaChevronDown size={10} className="text-slate-500" />}
-                                                        <div className="flex items-center gap-2">
-                                                            {staff.name} <BusinessBadge businessType={staff.businessType} role={staff.role} />
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-3 px-2 text-center text-slate-300">{staff.overall.assigned}</td>
-                                                    <td className="py-3 px-2 text-center font-semibold text-amber-400">{staff.overall.contacted}</td>
-                                                    <td className="py-3 px-2 text-center font-semibold text-slate-400">{staff.overall.pending}</td>
-                                                    <td className={`py-3 px-2 text-center font-bold ${isHighDelay ? 'text-red-400 bg-red-500/10' : 'text-red-400'}`}>
-                                                        {isHighDelay && <FaExclamationTriangle className="inline mr-1 animate-pulse" size={10} />}
-                                                        {staff.overall.delayed}
-                                                    </td>
-                                                    <td className="py-3 px-2 text-center font-semibold text-emerald-400">{staff.overall.enrolled}</td>
-                                                    <td className="py-3 px-3 text-right font-bold text-slate-300">
-                                                        <span className={`px-2 py-1 rounded-md text-[10px] ${rate > 50 ? 'bg-emerald-500/20 text-emerald-400' : rate > 20 ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400'}`}>{rate}%</span>
-                                                    </td>
-                                                </tr>
+                                    return (
+                                        <div key={idx} className={`bg-black/40 backdrop-blur-3xl rounded-[2rem] border transition-all duration-500 overflow-hidden ${isExpanded ? 'border-indigo-500/30 shadow-[0_8px_32px_rgba(99,102,241,0.15)]' : 'border-white/10 shadow-xl hover:border-white/20'}`}>
+                                            
+                                            {/* Header Row / Main Overview */}
+                                            <div onClick={() => toggleRow(staff.name)} className={`p-5 cursor-pointer flex flex-col xl:flex-row items-center justify-between gap-6 transition-colors ${isExpanded ? 'bg-indigo-500/5' : 'hover:bg-white/5'}`}>
+                                                
+                                                {/* Coordinator Name & Badge */}
+                                                <div className="flex items-center gap-4 w-full xl:w-1/4">
+                                                    <div className={`p-2.5 rounded-xl flex-shrink-0 transition-all duration-300 ${isExpanded ? 'bg-indigo-500/20 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.3)] rotate-180' : 'bg-white/5 text-slate-400'}`}>
+                                                        <FaChevronDown size={14} />
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="font-black text-lg text-white tracking-wide">{staff.name}</span>
+                                                        <div className="mt-1 flex"><BusinessBadge businessType={staff.businessType} role={staff.role} /></div>
+                                                    </div>
+                                                </div>
 
-                                                {isExpanded && (
-                                                    <tr className="bg-black/40 border-b border-indigo-500/20 relative overflow-hidden">
-                                                        <td colSpan="7" className="p-5">
-                                                            <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/5 via-transparent to-transparent pointer-events-none"></div>
-                                                            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 relative z-10">
-                                                                {['1', '2', 'NON_ENROLLED', 'PAID'].map(round => {
-                                                                    const roundData = staff.rounds && staff.rounds[round] ? staff.rounds[round] : { assigned: 0, contacted: 0, pending: 0, delayed: 0, leads: [] };
+                                                {/* Main Stats Grid */}
+                                                <div className="grid grid-cols-4 md:grid-cols-7 gap-4 w-full xl:w-3/4 flex-1 items-center">
+                                                    <div className="flex flex-col items-center">
+                                                        <span className="text-[9px] uppercase font-bold text-slate-500 mb-1 tracking-widest">Assigned</span>
+                                                        <span className="text-xl font-black text-slate-300">{staff.overall.assigned}</span>
+                                                    </div>
+                                                    <div className="flex flex-col items-center relative group">
+                                                        <span className="text-[9px] uppercase font-bold text-indigo-400 mb-1 tracking-widest group-hover:text-indigo-300 transition-colors">Answered</span>
+                                                        <span className="text-2xl font-black text-indigo-300 drop-shadow-[0_0_12px_rgba(99,102,241,0.5)]">{staff.overall.answered}</span>
+                                                    </div>
+                                                    <div className="flex flex-col items-center">
+                                                        <span className="text-[9px] uppercase font-bold text-slate-400 mb-1 tracking-widest">No Ans</span>
+                                                        <span className="text-lg font-black text-slate-300">{staff.overall.noAnswer}</span>
+                                                    </div>
+                                                    <div className="flex flex-col items-center">
+                                                        <span className="text-[9px] uppercase font-bold text-amber-500 mb-1 tracking-widest">Pending</span>
+                                                        <span className="text-lg font-black text-amber-400">{staff.overall.pending}</span>
+                                                    </div>
+                                                    <div className="flex flex-col items-center">
+                                                        <span className="text-[9px] uppercase font-bold text-red-400/80 mb-1 tracking-widest">Reject</span>
+                                                        <span className="text-lg font-black text-red-400">{staff.overall.reject}</span>
+                                                    </div>
+                                                    <div className="flex flex-col items-center">
+                                                        <span className="text-[9px] uppercase font-bold text-rose-500 mb-1 tracking-widest">Delayed</span>
+                                                        <span className={`text-lg font-black ${isHighDelay ? 'text-rose-400 bg-rose-500/10 px-3 py-0.5 rounded-lg border border-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.3)] animate-pulse' : 'text-rose-400/80'}`}>{staff.overall.delayed}</span>
+                                                    </div>
+                                                    <div className="flex flex-col items-center justify-center border-l border-white/10 pl-4 h-full">
+                                                        <span className="text-[9px] uppercase font-bold text-emerald-500 mb-1 tracking-widest">Conversion</span>
+                                                        <span className={`text-lg font-black px-3 py-1 rounded-xl border ${rate > 50 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.3)]' : rate > 20 ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>{rate}%</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Expanded Section */}
+                                            {isExpanded && (
+                                                <div className="border-t border-indigo-500/20 bg-black/60 p-6 md:p-8 relative">
+                                                    <div className="absolute inset-0 bg-gradient-to-b from-indigo-500/5 to-transparent pointer-events-none"></div>
+                                                    
+                                                    {/* Payment Breakdown Strip & Historical Delays */}
+                                                    <div className="flex flex-col gap-4 mb-8 relative z-10">
+                                                        
+                                                        {/* Historical Delays */}
+                                                        {(staff.overall.r1HistoricalDelays > 0 || staff.overall.r2HistoricalDelays > 0) && (
+                                                            <div className="flex justify-center">
+                                                                <div className="bg-rose-500/5 border border-rose-500/10 rounded-2xl px-5 py-2.5 flex items-center gap-6 shadow-inner">
+                                                                    <span className="text-[10px] uppercase font-black tracking-widest text-rose-500 flex items-center gap-2"><FaExclamationTriangle size={10} /> Historical Delays</span>
+                                                                    <div className="flex items-center gap-4">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-[9px] font-bold text-rose-400/70">ROUND 1</span>
+                                                                            <span className="text-sm font-black text-rose-400">{staff.overall.r1HistoricalDelays || 0}</span>
+                                                                        </div>
+                                                                        <div className="w-px h-4 bg-rose-500/20"></div>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-[9px] font-bold text-rose-400/70">ROUND 2</span>
+                                                                            <span className="text-sm font-black text-rose-400">{staff.overall.r2HistoricalDelays || 0}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
+
+                                                        {/* Payment Plans */}
+                                                        {staff.overall.enrolled > 0 && (
+                                                            <div className="flex flex-wrap justify-center gap-4">
+                                                                <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl px-6 py-3 flex gap-4 items-center shadow-inner">
+                                                                    <span className="text-[10px] uppercase font-black tracking-widest text-emerald-500/70">Full</span>
+                                                                    <span className="text-xl font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]">{staff.overall.full}</span>
+                                                                </div>
+                                                                <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl px-6 py-3 flex gap-4 items-center shadow-inner">
+                                                                    <span className="text-[10px] uppercase font-black tracking-widest text-emerald-500/70">Upgrade</span>
+                                                                    <span className="text-xl font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]">{staff.overall.upgrade}</span>
+                                                                </div>
+                                                                <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl px-6 py-3 flex gap-4 items-center shadow-inner">
+                                                                    <span className="text-[10px] uppercase font-black tracking-widest text-emerald-500/70">Monthly Plan</span>
+                                                                    <span className="text-xl font-black text-emerald-400">{staff.overall.monthly}</span>
+                                                                </div>
+                                                                <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-2xl px-6 py-3 flex gap-4 items-center shadow-inner">
+                                                                    <span className="text-[10px] uppercase font-black tracking-widest text-emerald-500/70">Installments</span>
+                                                                    <span className="text-xl font-black text-emerald-400">{staff.overall.installment}</span>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {/* The 4 Round Cards */}
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 relative z-10">
+                                                        {['1', '2', 'NON_ENROLLED', 'PAID'].map(round => {
+                                                            const roundData = staff.rounds && staff.rounds[round] ? staff.rounds[round] : { assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, delayed: 0, leads: [] };
+                                                            
+                                                            let title = `ROUND 0${round}`;
+                                                            let iconColor = 'text-indigo-400';
+                                                            let bgGradient = 'from-indigo-500/10 to-transparent';
+                                                            let borderColor = 'border-indigo-500/20';
+                                                            let answerColor = 'text-indigo-300';
+                                                            let answerBg = 'bg-indigo-500/10 border-indigo-500/20';
+
+                                                            if (round === 'NON_ENROLLED') {
+                                                                title = 'NON ENROLLED';
+                                                                iconColor = 'text-slate-400';
+                                                                bgGradient = 'from-slate-600/10 to-transparent';
+                                                                borderColor = 'border-slate-500/20';
+                                                                answerColor = 'text-slate-300';
+                                                                answerBg = 'bg-slate-500/10 border-slate-500/20';
+                                                            } else if (round === 'PAID') {
+                                                                title = 'ENROLLED (PAID)';
+                                                                iconColor = 'text-emerald-400';
+                                                                bgGradient = 'from-emerald-500/10 to-transparent';
+                                                                borderColor = 'border-emerald-500/20';
+                                                                answerColor = 'text-emerald-300';
+                                                                answerBg = 'bg-emerald-500/10 border-emerald-500/20';
+                                                            } else if (round === '2') {
+                                                                iconColor = 'text-blue-400';
+                                                                bgGradient = 'from-blue-500/10 to-transparent';
+                                                                borderColor = 'border-blue-500/20';
+                                                                answerColor = 'text-blue-300';
+                                                                answerBg = 'bg-blue-500/10 border-blue-500/20';
+                                                            }
+
+                                                            return (
+                                                                <div key={round} className={`bg-gradient-to-br ${bgGradient} border ${borderColor} rounded-2xl p-4 flex flex-col shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 group relative overflow-hidden`}>
+                                                                    <div className={`absolute top-0 right-0 w-24 h-24 bg-current opacity-[0.03] rounded-bl-full pointer-events-none ${iconColor}`}></div>
                                                                     
-                                                                    let title = `ROUND 0${round}`;
-                                                                    let iconColor = 'text-indigo-400';
-                                                                    let bgGradient = 'from-indigo-500/10 to-transparent';
-                                                                    let borderColor = 'border-indigo-500/20';
+                                                                    <div className="flex justify-between items-center border-b border-white/5 pb-3 mb-3 relative z-10">
+                                                                        <span className={`text-[11px] font-black uppercase tracking-widest ${iconColor} drop-shadow-sm flex items-center gap-2`}>
+                                                                            {title}
+                                                                        </span>
+                                                                        <button onClick={(e) => { e.stopPropagation(); exportStaffRoundData(staff.name, round, roundData.leads); }} className="bg-white/5 hover:bg-white/20 text-slate-300 hover:text-white p-1.5 rounded-md transition-all shadow-sm" title={`Export ${title} Leads`}>
+                                                                            <FaFileExport size={10} />
+                                                                        </button>
+                                                                    </div>
 
-                                                                    if (round === 'NON_ENROLLED') {
-                                                                        title = 'NON ENROLLED';
-                                                                        iconColor = 'text-slate-400';
-                                                                        bgGradient = 'from-slate-600/10 to-transparent';
-                                                                        borderColor = 'border-slate-500/20';
-                                                                    } else if (round === 'PAID') {
-                                                                        title = 'ENROLLED (PAID)';
-                                                                        iconColor = 'text-emerald-400';
-                                                                        bgGradient = 'from-emerald-500/10 to-transparent';
-                                                                        borderColor = 'border-emerald-500/20';
-                                                                    } else if (round === '2') {
-                                                                        iconColor = 'text-blue-400';
-                                                                        bgGradient = 'from-blue-500/10 to-transparent';
-                                                                        borderColor = 'border-blue-500/20';
-                                                                    }
-
-                                                                    return (
-                                                                        <div key={round} className={`bg-gradient-to-br ${bgGradient} border ${borderColor} rounded-2xl p-4 flex flex-col gap-3 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1 group relative overflow-hidden`}>
-                                                                            <div className={`absolute top-0 right-0 w-20 h-20 bg-current opacity-5 rounded-bl-full pointer-events-none ${iconColor}`}></div>
-                                                                            
-                                                                            <div className="flex justify-between items-center border-b border-white/5 pb-2">
-                                                                                <span className={`text-xs font-black uppercase tracking-widest ${iconColor} drop-shadow-sm flex items-center gap-2`}>
-                                                                                    {title}
-                                                                                </span>
-                                                                                <button onClick={(e) => { e.stopPropagation(); exportStaffRoundData(staff.name, round, roundData.leads); }} className="bg-white/5 hover:bg-indigo-500 text-slate-300 hover:text-white p-2 rounded-lg transition-all shadow-sm group-hover:shadow-indigo-500/20" title={`Export ${title} Leads`}>
-                                                                                    <FaFileExport size={12} />
-                                                                                </button>
+                                                                    <div className="flex flex-col gap-2 relative z-10">
+                                                                        <div className="grid grid-cols-2 gap-2">
+                                                                            <div className="bg-black/20 border border-white/5 p-2 rounded-xl flex flex-col justify-center items-center">
+                                                                                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Assigned</span>
+                                                                                <span className="text-sm font-black text-slate-200">{roundData.assigned}</span>
                                                                             </div>
-
-                                                                            <div className="space-y-2 mt-1">
-                                                                                <div className="flex justify-between items-center text-xs">
-                                                                                    <span className="text-slate-400 font-medium">Assigned</span>
-                                                                                    <span className="text-white font-black bg-white/10 px-2 py-0.5 rounded-md">{roundData.assigned}</span>
-                                                                                </div>
-                                                                                <div className="flex justify-between items-center text-xs">
-                                                                                    <span className="text-slate-400 font-medium">Covered</span>
-                                                                                    <span className="text-amber-400 font-black bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">{roundData.contacted}</span>
-                                                                                </div>
-                                                                                <div className="flex justify-between items-center text-xs">
-                                                                                    <span className="text-slate-400 font-medium">Pending</span>
-                                                                                    <span className="text-slate-300 font-black">{roundData.pending}</span>
-                                                                                </div>
-                                                                                {round !== 'PAID' && (
-                                                                                    <div className="flex justify-between items-center text-xs pt-1 border-t border-white/5">
-                                                                                        <span className="text-red-400/80 font-bold">Delayed</span>
-                                                                                        <span className="text-red-500 font-black">{roundData.delayed}</span>
-                                                                                    </div>
-                                                                                )}
-                                                                            </div>
-                                                                            
-                                                                            {/* Mini Progress Bar */}
-                                                                            <div className="w-full bg-black/40 rounded-full h-1 mt-2 overflow-hidden">
-                                                                                <div className={`h-1 rounded-full ${roundData.assigned > 0 ? (roundData.contacted === roundData.assigned ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-amber-500 shadow-[0_0_8px_#f59e0b]') : 'bg-transparent'}`} style={{ width: `${roundData.assigned > 0 ? (roundData.contacted / roundData.assigned) * 100 : 0}%` }}></div>
+                                                                            <div className={`${answerBg} border p-2 rounded-xl flex flex-col justify-center items-center relative overflow-hidden`}>
+                                                                                <span className={`text-[9px] ${iconColor} opacity-80 font-bold uppercase tracking-wider mb-0.5`}>Answered</span>
+                                                                                <span className={`text-sm font-black ${answerColor}`}>{roundData.answered}</span>
                                                                             </div>
                                                                         </div>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                            </React.Fragment>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
+                                                                        <div className="grid grid-cols-3 gap-2">
+                                                                            <div className="bg-amber-500/5 border border-amber-500/10 p-2 rounded-xl flex flex-col justify-center items-center">
+                                                                                <span className="text-[8px] text-amber-500/70 font-bold uppercase tracking-wider mb-0.5">Pending</span>
+                                                                                <span className="text-xs font-bold text-amber-400">{roundData.pending}</span>
+                                                                            </div>
+                                                                            <div className="bg-slate-500/10 border border-slate-500/10 p-2 rounded-xl flex flex-col justify-center items-center">
+                                                                                <span className="text-[8px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">No Ans</span>
+                                                                                <span className="text-xs font-bold text-slate-300">{roundData.noAnswer}</span>
+                                                                            </div>
+                                                                            <div className="bg-red-500/5 border border-red-500/10 p-2 rounded-xl flex flex-col justify-center items-center">
+                                                                                <span className="text-[8px] text-red-400/70 font-bold uppercase tracking-wider mb-0.5">Reject</span>
+                                                                                <span className="text-xs font-bold text-red-400">{roundData.reject}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        
+                                                                        {/* Extras: Delayed (Only for R1 & R2) */}
+                                                                        {(round === '1' || round === '2') && (
+                                                                            <div className="flex justify-between items-center text-xs mt-2 px-1">
+                                                                                {roundData.delayed > 0 ? (
+                                                                                    <>
+                                                                                        <span className="text-rose-400/80 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1"><FaExclamationTriangle size={8}/> Delayed KPI</span>
+                                                                                        <span className="text-rose-400 font-black bg-rose-500/10 px-2 py-0.5 rounded text-[10px] border border-rose-500/20">{roundData.delayed}</span>
+                                                                                    </>
+                                                                                ) : (
+                                                                                    <span className="text-slate-600 font-bold uppercase tracking-wider text-[9px] flex items-center gap-1">No Delays</span>
+                                                                                )}
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                    
+                                                                    {/* Mini Progress Bar */}
+                                                                    <div className="w-full bg-black/40 rounded-full h-1 mt-4 overflow-hidden relative z-10">
+                                                                        <div className={`h-1 rounded-full ${roundData.assigned > 0 ? (roundData.answered === roundData.assigned ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-amber-500 shadow-[0_0_8px_#f59e0b]') : 'bg-transparent'}`} style={{ width: `${roundData.assigned > 0 ? (roundData.answered / roundData.assigned) * 100 : 0}%` }}></div>
+                                                                    </div>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
                         )}
                     </div>
                 </div>
@@ -519,6 +703,22 @@ export default function OpenSeminarControls({ filters }) {
                     </div>
                 </div>
             )}
+
+            {/* Modals */}
+            <UnassignedBatchModal
+                isOpen={showUnassignedModal}
+                onClose={() => setShowUnassignedModal(false)}
+                businessId={filters?.selectedBusiness}
+                onBatchAssigned={fetchOpenSemStats}
+            />
+
+            <MissingPaidStudentsModal
+                isOpen={showMissingPaidModal}
+                onClose={() => setShowMissingPaidModal(false)}
+                businessId={filters?.selectedBusiness}
+                batchId={filters?.selectedBatch || 'ALL'}
+                onStudentPushed={fetchOpenSemStats}
+            />
 
         </div>
     );

@@ -61,4 +61,25 @@ export const loginUser = async (username, password) => {
   }
 };
 
+// 🔥 Verify Google Student ID Token
+export const verifyGoogleStudent = async (idToken) => {
+  try {
+    const response = await api.post('mobile/verify-student', { idToken });
+    return response.data;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// 🔥 Get Secure YouTube Video Stream URL (Bypass Bot Errors)
+export const getSecureVideoStream = async (videoId) => {
+  try {
+    const response = await api.get(`student/getVideoStream/${videoId}`);
+    return response.data;
+  } catch (error) {
+    console.error("Error fetching secure video stream:", error);
+    return null;
+  }
+};
+
 export default api;

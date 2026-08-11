@@ -5,7 +5,7 @@ import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash
 import { Target, PhoneCall, Check, Loader, BookOpen, Loader2, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, externalSearch }) {
+export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, externalSearch, onLeadsLoaded }) {
     const currentUserId = JSON.parse(localStorage.getItem('user'))?.id;
 
     const [leads, setLeads] = useState([]);
@@ -54,6 +54,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
             setLeads([]);
             setMonthlyGroups([]);
             setSelectedGroupName(null);
+            if (onLeadsLoaded) onLeadsLoaded(0);
             setLoading(false);
         }
     }, [filters?.selectedBusiness, filters?.selectedBatch]);
@@ -67,8 +68,9 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                 params: { businessId: filters.selectedBusiness, batchId: filters.selectedBatch, targetMonthName: targetMonth || selectedGroupName }
             });
             
-            const myLeads = (res.data.leads || []).filter(l => l.assignedTo === currentUserId);
+            const myLeads = (res.data.leads || []).filter(l => l.assignedTo != null && currentUserId != null && Number(l.assignedTo) === Number(currentUserId));
             setLeads(myLeads);
+            if (onLeadsLoaded) onLeadsLoaded(myLeads.length);
 
             const groups = res.data.monthlyGroups || [];
             const cMonths = res.data.coordinationMonths || [];
@@ -399,6 +401,25 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         });
     }, [leads, selectedGroupName, monthlyGroups]);
 
+    const tabCounts = useMemo(() => {
+        let full = 0;
+        let monthly = 0;
+        let installment = 0;
+        let nonEnrolled = 0;
+
+        mappedLeads.forEach(l => {
+            if (l.effectiveEnrollmentStatus === 'NON_ENROLLED') {
+                nonEnrolled++;
+            } else {
+                if (l.effectivePaymentIntention === 'FULL' || l.isUpgraded === true) full++;
+                else if (l.effectivePaymentIntention === 'INSTALLMENT') installment++;
+                else if (l.effectivePaymentIntention === 'MONTHLY') monthly++;
+            }
+        });
+
+        return { full, monthly, installment, nonEnrolled };
+    }, [mappedLeads]);
+
     // Apply Filters for the current view
     const visibleLeads = useMemo(() => {
         let filtered = mappedLeads.filter(l => {
@@ -408,7 +429,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
             } else {
                 if (l.effectiveEnrollmentStatus === 'NON_ENROLLED') {
                     matchTab = false;
-                } else if (activeMainTab === 'INSTALLMENTS') {
+                } else if (activeMainTab === 'INSTALLMENT' || activeMainTab === 'INSTALLMENTS') {
                     matchTab = l.effectivePaymentIntention === 'INSTALLMENT';
                 } else if (activeMainTab === 'FULL') {
                     matchTab = l.effectivePaymentIntention === 'FULL' || l.isUpgraded === true;
@@ -432,6 +453,8 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
             filtered = filtered.filter(l => l.callStatus === 'reject');
         } else if (statusFilter === 'NO_ANSWER') {
             filtered = filtered.filter(l => ['no_answer', 'busy', 'switch_off', 'not_connected'].includes(l.callStatus));
+        } else if (statusFilter === 'DROPPED_2MOS') {
+            filtered = filtered.filter(l => l.isDroppedTwoMonthsPlus === true);
         }
 
         filtered.sort((a, b) => {
@@ -445,7 +468,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         return mappedLeads.filter(l => {
             if (activeMainTab === 'NON_ENROLLED') return l.effectiveEnrollmentStatus === 'NON_ENROLLED';
             if (l.effectiveEnrollmentStatus === 'NON_ENROLLED') return false;
-            if (activeMainTab === 'INSTALLMENTS') return l.effectivePaymentIntention === 'INSTALLMENT';
+            if (activeMainTab === 'INSTALLMENT' || activeMainTab === 'INSTALLMENTS') return l.effectivePaymentIntention === 'INSTALLMENT';
             if (activeMainTab === 'FULL') return l.effectivePaymentIntention === 'FULL' || l.isUpgraded === true;
             return l.effectivePaymentIntention === activeMainTab;
         });
@@ -513,30 +536,32 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                 <div className="flex gap-2 bg-[#0F172A]/80 p-2 rounded-2xl flex-wrap shadow-inner mb-6 w-max border border-white/5">
                     <button
                         onClick={() => { setActiveMainTab('FULL'); setActivePhase('ALL'); setCurrentPage(1); setStatusFilter('ALL'); }}
-                        className={`px-6 py-2.5 rounded-xl font-black uppercase tracking-wider transition-all text-sm ${activeMainTab === 'FULL' ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                        className={`px-5 py-2.5 rounded-xl font-black uppercase tracking-wider transition-all text-xs md:text-sm flex items-center gap-2 ${activeMainTab === 'FULL' ? 'bg-gradient-to-r from-indigo-500 to-indigo-600 text-white shadow-lg shadow-indigo-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                     >
-                        FULL PAYMENT
+                        <span>FULL PAYMENT</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${activeMainTab === 'FULL' ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-400'}`}>{tabCounts.full}</span>
                     </button>
                     <button
                         onClick={() => { setActiveMainTab('MONTHLY'); setActivePhase('ALL'); setCurrentPage(1); setStatusFilter('ALL'); }}
-                        className={`px-6 py-2.5 rounded-xl font-black uppercase tracking-wider transition-all text-sm ${activeMainTab === 'MONTHLY' ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-lg shadow-amber-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                        className={`px-5 py-2.5 rounded-xl font-black uppercase tracking-wider transition-all text-xs md:text-sm flex items-center gap-2 ${activeMainTab === 'MONTHLY' ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-white shadow-lg shadow-amber-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                     >
-                        MONTHLY PLAN
+                        <span>MONTHLY PLAN</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${activeMainTab === 'MONTHLY' ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-400'}`}>{tabCounts.monthly}</span>
                     </button>
                     <button
                         onClick={() => { setActiveMainTab('INSTALLMENT'); setActivePhase('ALL'); setCurrentPage(1); setStatusFilter('ALL'); }}
-                        className={`px-6 py-2.5 rounded-xl font-black uppercase tracking-wider transition-all text-sm ${activeMainTab === 'INSTALLMENT' ? 'bg-gradient-to-r from-violet-500 to-violet-600 text-white shadow-lg shadow-violet-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                        className={`px-5 py-2.5 rounded-xl font-black uppercase tracking-wider transition-all text-xs md:text-sm flex items-center gap-2 ${activeMainTab === 'INSTALLMENT' ? 'bg-gradient-to-r from-violet-500 to-violet-600 text-white shadow-lg shadow-violet-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
                     >
-                        INSTALLMENTS
+                        <span>INSTALLMENTS</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${activeMainTab === 'INSTALLMENT' ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-400'}`}>{tabCounts.installment}</span>
                     </button>
-                    {(!selectedGroupName || selectedGroupName === 'ALL' || (monthlyGroups.length > 0 && selectedGroupName !== monthlyGroups[0]?.name)) && (
-                        <button
-                            onClick={() => { setActiveMainTab('NON_ENROLLED'); setActivePhase('ALL'); setCurrentPage(1); setStatusFilter('ALL'); }}
-                            className={`px-6 py-2.5 rounded-xl font-black uppercase tracking-wider transition-all text-sm ${activeMainTab === 'NON_ENROLLED' ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                        >
-                            NON ENROLLED
-                        </button>
-                    )}
+                    <button
+                        onClick={() => { setActiveMainTab('NON_ENROLLED'); setActivePhase('ALL'); setCurrentPage(1); setStatusFilter('ALL'); }}
+                        className={`px-5 py-2.5 rounded-xl font-black uppercase tracking-wider transition-all text-xs md:text-sm flex items-center gap-2 ${activeMainTab === 'NON_ENROLLED' ? 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                    >
+                        <span>NON ENROLLED</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${activeMainTab === 'NON_ENROLLED' ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-400'}`}>{tabCounts.nonEnrolled}</span>
+                    </button>
                 </div>
 
 
@@ -593,6 +618,12 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                                     className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${statusFilter === 'NO_ANSWER' ? 'bg-orange-500 text-black shadow-[0_0_10px_rgba(249,115,22,0.5)]' : 'bg-[#0F172A] border border-white/10 text-orange-400 hover:bg-white/5'}`}
                                 >
                                     📵 NO ANSWER
+                                </button>
+                                <button
+                                    onClick={() => { setStatusFilter(statusFilter === 'DROPPED_2MOS' ? 'ALL' : 'DROPPED_2MOS'); setCurrentPage(1); }}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${statusFilter === 'DROPPED_2MOS' ? 'bg-purple-600 text-white shadow-[0_0_10px_rgba(147,51,234,0.5)]' : 'bg-[#0F172A] border border-white/10 text-purple-400 hover:bg-white/5'}`}
+                                >
+                                    ⚠️ DROPPED (2+ MOS)
                                 </button>
                                 {statusFilter !== 'ALL' && (
                                     <button
@@ -667,6 +698,11 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                                                             <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${lead.enrollmentStatus === 'ENROLLED' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : lead.isProcessing ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>
                                                                 {lead.enrollmentStatus === 'ENROLLED' ? `✅ ${lead.paymentIntention}` : lead.isProcessing ? '⏳ PRO' : '❌ NON ENR'}
                                                             </span>
+                                                            {lead.isDroppedTwoMonthsPlus && (
+                                                                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border bg-purple-500/20 text-purple-300 border-purple-500/40" title={lead.droppedSubjectsDetails?.map(d => `${d.subject} (${d.unpaidMonths} mos unpaid)`).join(', ')}>
+                                                                    ⚠️ DROPPED (2+ MOS)
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>

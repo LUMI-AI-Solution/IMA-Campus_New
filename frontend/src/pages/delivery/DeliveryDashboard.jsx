@@ -8,6 +8,7 @@ import TuteStock from './components/TuteStock';
 import DeliveryHistory from './components/DeliveryHistory';
 import PaymentDetails from './components/PaymentDetails';
 import Overview from './components/Overview';
+import StockReports from './components/StockReports';
 
 export default function DeliveryDashboard({ loggedInUser }) {
     const location = useLocation();
@@ -19,10 +20,11 @@ export default function DeliveryDashboard({ loggedInUser }) {
     const userRole = loggedInUser?.role ? loggedInUser.role.toUpperCase().replace(' ', '_') : '';
     const userDept = loggedInUser?.department ? loggedInUser.department.toUpperCase() : '';
 
-    const isDeliveryManager = (userRole === 'MANAGER' || userRole === 'ASS_MANAGER') && userDept === 'DELIVERY';
+    const isDeliveryStaff = userDept === 'DELIVERY';
     const isTopLevelAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER'].includes(userRole);
     
-    const hasFullAccess = isDeliveryManager || isTopLevelAdmin;
+    // Anyone in Delivery department or top level admin can manage tute stock
+    const hasFullAccess = isDeliveryStaff || isTopLevelAdmin;
     const isReadOnly = !hasFullAccess;
 
     return (
@@ -39,6 +41,7 @@ export default function DeliveryDashboard({ loggedInUser }) {
                         {activeTab === 'pending' && 'Pending & Holds'}
                         {activeTab === 'delivered' && 'Dispatch & Delivered'} 
                         {activeTab === 'stock' && 'Tute Stock'}
+                        {activeTab === 'reports' && 'Advanced Stock Reports'}
                         {activeTab === 'history' && 'Delivery History'}
                         {activeTab === 'payment_details' && 'Payment Details'}
                     </h2>
@@ -69,6 +72,7 @@ export default function DeliveryDashboard({ loggedInUser }) {
                 {activeTab === 'history' && <DeliveryHistory isReadOnly={isReadOnly} />}
                 {activeTab === 'delivered' && <DispatchDelivered searchQuery={searchQuery} isReadOnly={isReadOnly} />} 
                 {activeTab === 'stock' && <TuteStock searchQuery={searchQuery} isReadOnly={isReadOnly} />}
+                {activeTab === 'reports' && <StockReports />}
                 {activeTab === 'payment_details' && <PaymentDetails isReadOnly={isReadOnly} />}
             </div>
 

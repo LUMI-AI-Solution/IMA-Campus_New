@@ -29,11 +29,19 @@ exports.createReminder = async (req, res) => {
 exports.getMyReminders = async (req, res) => {
     try {
         const agentId = req.query.agentId; 
+        const status = req.query.status; // 'active', 'completed', 'all'
         if (!agentId) return res.status(400).json({ error: "Agent ID is required" });
 
+        let where = { agentId: parseInt(agentId) };
+        if (status === 'completed') {
+            where.isCompleted = true;
+        } else if (status !== 'all') {
+            where.isCompleted = false;
+        }
+
         const reminders = await prisma.reminder.findMany({
-            where: { agentId: parseInt(agentId), isCompleted: false },
-            orderBy: { remindAt: 'asc' }
+            where,
+            orderBy: { remindAt: status === 'completed' ? 'desc' : 'asc' }
         });
         res.status(200).json(reminders);
     } catch (error) {

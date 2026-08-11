@@ -21,23 +21,23 @@ export default function CustomSelect({ options, value, onChange, placeholder = '
         <div className={`relative ${className}`} ref={dropdownRef}>
             <input type="hidden" name="staffId" value={value || ''} />
             <div 
-                className="w-full bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs flex justify-between items-center cursor-pointer hover:border-slate-500 transition-colors"
+                className="w-full bg-[#1e293b] border border-slate-600 text-slate-200 rounded-lg p-2 text-xs flex justify-between items-center cursor-pointer hover:border-emerald-500 hover:bg-[#273549] transition-all shadow-sm"
                 onClick={() => setIsOpen(!isOpen)}
             >
-                <div className="flex-1 overflow-hidden whitespace-nowrap text-left pr-2 flex items-center gap-2">
-                    {selectedOption ? selectedOption.label : <span className="text-slate-500">{placeholder}</span>}
+                <div className="flex-1 overflow-hidden whitespace-nowrap text-left pr-2 flex items-center gap-1.5 font-medium">
+                    {selectedOption ? selectedOption.label : <span className="text-slate-400 font-medium">{placeholder}</span>}
                 </div>
-                <FaChevronDown className={`text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} size={10} />
+                <FaChevronDown className={`text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-emerald-400' : ''}`} size={10} />
             </div>
 
             {isOpen && (
-                <div className="absolute z-[100] mt-1 w-full bg-[#121a24] border border-slate-700 rounded-lg shadow-xl max-h-60 overflow-y-auto custom-scrollbar">
+                <div className="absolute z-[9999] mt-1.5 w-full min-w-[220px] bg-[#0f172a] border border-slate-600 rounded-xl shadow-2xl shadow-black max-h-64 overflow-y-auto custom-scrollbar p-1 left-0">
                     {options.map((opt, idx) => (
                         <div 
                             key={idx}
-                            className={`p-2 px-3 text-xs flex items-center gap-2 cursor-pointer transition-colors ${String(opt.value) === String(value) ? 'bg-emerald-900/30 text-emerald-400' : 'text-slate-300 hover:bg-[#1a2430]'}`}
+                            className={`p-2 px-3 text-xs rounded-lg flex items-center gap-2 cursor-pointer transition-all ${String(opt.value) === String(value) ? 'bg-emerald-600/30 text-emerald-300 font-bold' : 'text-slate-200 hover:bg-[#1e293b] hover:text-white'}`}
                             onClick={() => {
-                                onChange({ target: { value: opt.value, name: 'staffId' } }); // Mock event to match standard onChange handler
+                                onChange({ target: { value: opt.value, name: 'staffId' } });
                                 setIsOpen(false);
                             }}
                         >
@@ -45,7 +45,7 @@ export default function CustomSelect({ options, value, onChange, placeholder = '
                         </div>
                     ))}
                     {options.length === 0 && (
-                        <div className="p-2 px-3 text-xs text-slate-500 italic">No options available</div>
+                        <div className="p-2.5 px-3 text-xs text-slate-400 italic">No options available</div>
                     )}
                 </div>
             )}

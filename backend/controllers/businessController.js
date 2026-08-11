@@ -8,8 +8,12 @@ exports.getBusinesses = async (req, res) => {
         const businessType = req.user.businessType;
         
         const userDepartment = req.user.department ? req.user.department.toUpperCase() : '';
-        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
-        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper) || userDepartment === 'DELIVERY' || userDepartment === 'CALL_CENTER' || userDepartment === 'CALL CENTER';
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/[\s_-]+/g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'FINANCE', 'SUPER_ADMIN'].includes(roleUpper) || 
+                        userDepartment === 'DELIVERY' || 
+                        userDepartment === 'CALL_CENTER' || 
+                        userDepartment === 'CALL CENTER' || 
+                        userDepartment === 'FINANCE';
         
         let businesses;
         if (isAdmin) {
@@ -26,13 +30,15 @@ exports.getBusinesses = async (req, res) => {
                     { id: 'asc' }
                 ]
             });
+            const userBizList = businessType ? String(businessType).split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
             businesses = allBiz.filter(biz => {
-                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
-                const matchesBizType = businessType && (
-                    String(biz.id) === String(businessType).trim() ||
-                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
-                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
-                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+                const isManagerOf = (biz.head_manager_id && String(biz.head_manager_id) === String(userId)) ||
+                                    (biz.ass_manager_id && String(biz.ass_manager_id) === String(userId));
+                const matchesBizType = userBizList.some(b => 
+                    b === String(biz.id) ||
+                    b === biz.name.toLowerCase().trim() ||
+                    biz.name.toLowerCase().trim().includes(b) ||
+                    b.includes(biz.name.toLowerCase().trim())
                 );
                 return isManagerOf || matchesBizType;
             });
@@ -45,13 +51,14 @@ exports.getBusinesses = async (req, res) => {
 
 exports.createBusiness = async (req, res) => {
     try {
-        const { name, category, medium, description, streams, isDiscountEnabledForInstallments } = req.body;
+        const { name, category, medium, description, streams, isDiscountEnabledForInstallments, merchantId } = req.body;
         const logo = req.file ? req.file.filename : 'default.png';
 
         const newBiz = await prisma.business.create({
             data: {
                 name, category, medium, description, streams, logo,
-                isDiscountEnabledForInstallments: parseInt(isDiscountEnabledForInstallments || 0)
+                isDiscountEnabledForInstallments: parseInt(isDiscountEnabledForInstallments || 0),
+                merchantId: merchantId || null
             }
         });
         res.status(201).json(newBiz);
@@ -63,7 +70,7 @@ exports.createBusiness = async (req, res) => {
 // Business එකක් Update කිරීම
 exports.updateBusiness = async (req, res) => {
     try {
-        const { businessId, name, category, medium, description, streams, isDiscountEnabledForInstallments } = req.body;
+        const { businessId, name, category, medium, description, streams, isDiscountEnabledForInstallments, merchantId } = req.body;
         
         const updateData = {
             name, 
@@ -71,7 +78,8 @@ exports.updateBusiness = async (req, res) => {
             medium, 
             description, 
             streams,
-            isDiscountEnabledForInstallments: parseInt(isDiscountEnabledForInstallments || 0)
+            isDiscountEnabledForInstallments: parseInt(isDiscountEnabledForInstallments || 0),
+            merchantId: merchantId || null
         };
 
         // අලුත් ලෝගෝ එකක් දාලා තියෙනවා නම් ඒකත් අප්ඩේට් කරනවා

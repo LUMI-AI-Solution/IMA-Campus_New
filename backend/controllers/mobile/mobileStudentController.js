@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const { OAuth2Client } = require('google-auth-library');
@@ -158,18 +159,32 @@ exports.getMobileClassroom = async (req, res) => {
             }
         });
 
-        const formattedClassroom = mySubjects.map(sub => ({
-            id: sub.id.toString(), 
-            name: sub.name,
-            code: sub.code,
-            businessName: sub.group?.batch?.business?.name || "Other",
-            businessLogo: sub.group?.batch?.business?.logo || "default.png",
-            batchName: sub.group?.batch?.name || sub.stream || "General Subjects",
-            batchLogo: sub.group?.batch?.logo || "default.png",
-            description: sub.lecturerName || sub.description,
-            groupType: sub.group?.type || 1, // 1 for Monthly, 2 for Full/Upgrade
-            groupName: sub.group?.name || ""
-        }));
+        const formattedClassroom = mySubjects.map(sub => {
+            let lecturerImage = "default.png";
+            try {
+                let parsedPrices = sub.groupPrices;
+                if (typeof parsedPrices === 'string') parsedPrices = JSON.parse(parsedPrices);
+                if (typeof parsedPrices === 'string') parsedPrices = JSON.parse(parsedPrices);
+                if (Array.isArray(parsedPrices)) {
+                    const imgObj = parsedPrices.find(gp => gp.lecturerImage && gp.lecturerImage.trim() !== '');
+                    if (imgObj) lecturerImage = imgObj.lecturerImage;
+                }
+            } catch(e) {}
+
+            return {
+                id: sub.id.toString(), 
+                name: sub.name,
+                code: sub.code,
+                businessName: sub.group?.batch?.business?.name || "Other",
+                businessLogo: sub.group?.batch?.business?.logo || "default.png",
+                batchName: sub.group?.batch?.name || sub.stream || "General Subjects",
+                batchLogo: sub.group?.batch?.logo || "default.png",
+                description: sub.lecturerName || sub.description,
+                groupType: sub.group?.type || 1, // 1 for Monthly, 2 for Full/Upgrade
+                groupName: sub.group?.name || "",
+                lecturerImage: lecturerImage
+            };
+        });
 
         res.status(200).json(safeJson(formattedClassroom));
     } catch (error) {
@@ -211,17 +226,75 @@ exports.getCourseModules = async (req, res) => {
         if (isEnrolled) paidStatus = 1; 
         else if (isPending) paidStatus = -1; 
 
+        const requestedCourse = await prisma.course.findUnique({
+            where: { id: parseInt(id) },
+            include: { group: true }
+        });
+
+        let targetCourseIds = [BigInt(id)];
+
+        if (requestedCourse && requestedCourse.group?.batchId) {
+            const batchId = requestedCourse.group.batchId;
+            const fullPayments = await prisma.payment.findMany({
+                where: {
+                    studentId: parseInt(studentId),
+                    batchId: batchId,
+                    payment_type: { in: [2, 3] },
+                    status: { in: [1, 4] }
+                }
+            });
+
+            if (fullPayments.length > 0) {
+                // If Full Payment, fetch all courses in this batch with the same code OR same name
+                const similarCourses = await prisma.course.findMany({
+                    where: {
+                        OR: [
+                            requestedCourse.code ? { code: requestedCourse.code } : undefined,
+                            { name: requestedCourse.name }
+                        ].filter(Boolean),
+                        group: { batchId: batchId }
+                    }
+                });
+                
+                const similarCourseIds = similarCourses.map(c => parseInt(c.id));
+                
+                const validFullPayments = fullPayments.filter(p => {
+                    if (!p.subjects) return true;
+                    try {
+                        const subs = JSON.parse(p.subjects).map(s => parseInt(s));
+                        return subs.some(subId => similarCourseIds.includes(subId));
+                    } catch (e) {
+                        return true;
+                    }
+                });
+
+                if (validFullPayments.length > 0) {
+                    targetCourseIds = similarCourses.map(c => BigInt(c.id));
+                }
+            }
+        }
+
         const linkedContents = await prisma.contentCourse.findMany({
-            where: { course_id: BigInt(id) }
+            where: { course_id: { in: targetCourseIds } }
         });
         
         const contentIds = linkedContents.map(lc => lc.content_id);
         
-        const contents = await prisma.content.findMany({
+        const contentsRaw = await prisma.content.findMany({
             where: { id: { in: contentIds } },
             include: { group: true },
             orderBy: { createdAt: 'desc' }
         });
+
+        // 🔥 FIX: Deduplicate contents to prevent showing duplicates when enrolled in both Monthly and Full Payment courses
+        const uniqueContentsMap = new Map();
+        contentsRaw.forEach(c => {
+            const uniqueKey = `${(c.title || '').trim().toLowerCase()}_${c.contentType}`;
+            if (!uniqueContentsMap.has(uniqueKey)) {
+                uniqueContentsMap.set(uniqueKey, c);
+            }
+        });
+        const contents = Array.from(uniqueContentsMap.values());
 
         const groupIds = [...new Set(contents.map(c => c.contentGroupId).filter(Boolean))];
         const lessonGroups = await prisma.contentGroup.findMany({
@@ -400,7 +473,10 @@ exports.updateMobilePassword = async (req, res) => {
         // 4. Aluth password eka DB eke update karanna
         await prisma.user.update({
             where: { id: parseInt(studentId) },
-            data: { password: hashedNewPassword }
+            data: { 
+                password: hashedNewPassword,
+                session_id: crypto.randomBytes(16).toString('hex')
+            }
         });
 
         res.status(200).json({ message: "Password updated successfully" });

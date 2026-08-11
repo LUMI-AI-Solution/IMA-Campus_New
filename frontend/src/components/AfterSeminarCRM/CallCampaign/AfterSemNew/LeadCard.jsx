@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { FaLock, FaUnlock, FaSave, FaCommentDots, FaArrowRight, FaChevronDown, FaChevronUp, FaExclamationTriangle, FaBell, FaTimes, FaCheckCircle, FaTrash } from 'react-icons/fa';
+import { FaLock, FaUnlock, FaSave, FaCommentDots, FaArrowRight, FaChevronDown, FaChevronUp, FaExclamationTriangle, FaBell, FaTimes, FaCheckCircle, FaTrash, FaPhoneAlt, FaWhatsapp } from 'react-icons/fa';
 import { Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from '../../../../api/axios';
+import { useCall } from '../../../../contexts/CallContext';
 
 export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, handleUpdateLocalLead, handleLocalCallStatusChange, handleRemarkTyping, handleSaveCallData, handlePushToNextRound, setChatModalLead, isManager, handleTempUnlock }) {
     
     if (!lead) return null;
 
+    const { startOutboundCall } = useCall();
     const [isExpanded, setIsExpanded] = useState(lead?.callStatus === 'pending' || !lead?.callStatus);
     const currentRemark = drafts?.[lead.id] !== undefined ? drafts[lead.id] : (lead?.feedback || '');
     const isLate = timer?.type === 'danger' && activeTab !== 'ENROLLED';
@@ -133,8 +135,23 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
         }
     };
 
+    const handleSendCallRequest = async (e) => {
+        e.preventDefault();
+        const loadToast = toast.loading("Sending call request...");
+        try {
+            const token = localStorage.getItem('token');
+            await axios.post('/after-seminar-crm/leads/send-call-request', { leadId: lead.id }, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("Request sent successfully!", { id: loadToast });
+            if (typeof handleUpdateLocalLead === 'function') {
+                handleUpdateLocalLead(lead.id, 'waCallPermissionStatus', 'PENDING');
+            }
+        } catch (error) {
+            toast.error("Failed to send request.", { id: loadToast });
+        }
+    };
+
     return (
-        <div className={`bg-white/5 backdrop-blur-md rounded-xl overflow-hidden border ${lead.enrollmentStatus === 'ENROLLED' ? 'border-emerald-500/30' : (isLate ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'border-white/10 hover:border-white/20')} transition-all duration-200 shadow-sm flex flex-col`}>
+        <div className={`bg-white/5 backdrop-blur-md rounded-xl overflow-hidden border ${((lead.enrollmentStatus === 'ENROLLED' || lead.enrollmentStatus === 'PAID' || (lead.enrollmentStatus && lead.enrollmentStatus.startsWith('ENROLLED_')))) ? 'border-emerald-500/30' : (isLate ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'border-white/10 hover:border-white/20')} transition-all duration-200 shadow-sm flex flex-col`}>
             
             <div onClick={() => setIsExpanded(!isExpanded)} className="p-3 flex justify-between items-start cursor-pointer relative bg-black/10 hover:bg-black/20 transition-colors">
                 <div className="flex gap-3 overflow-hidden">
@@ -215,6 +232,32 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
                             placeholder="Add your notes..." 
                             className={`flex-1 w-full bg-black/30 border border-white/10 focus:border-indigo-500 rounded-lg p-2 text-xs font-medium text-slate-200 outline-none resize-none custom-scrollbar transition-colors`} 
                         />
+                    </div>
+
+                    {/* Dual Call Buttons */}
+                    <div className="flex gap-2 w-full mt-3 mb-2">
+                        <button onClick={(e) => { e.preventDefault(); toast.error('Coming Soon', { icon: '🚧' }); }} className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg py-2 text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 transition-all border border-blue-500/30">
+                            <FaPhoneAlt size={12} /> Normal Call
+                        </button>
+
+                        {lead.waCallPermissionStatus === 'ALLOWED' && (!lead.waCallPermissionExpiry || new Date(lead.waCallPermissionExpiry) > new Date()) ? (
+                            <button onClick={() => {
+                                if (startOutboundCall) {
+                                    startOutboundCall({ lead, businessId: lead.batch?.businessId, campaignType: 'AFTER_SEMINAR' });
+                                } else if (typeof onInitiateCall === 'function') {
+                                    onInitiateCall(lead);
+                                } else if (onOpenChat) {
+                                    onOpenChat(lead);
+                                }
+                            }} className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white rounded-lg py-1.5 text-xs font-bold flex flex-col items-center justify-center shadow-md shadow-emerald-500/20 transition-all leading-none border border-emerald-500/30">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                    <FaWhatsapp size={14} /> WhatsApp Call
+                                </div>
+                                <span className="text-[9px] font-mono text-emerald-100 bg-black/20 px-1.5 py-0.5 rounded">
+                                    {lead.waCallPermissionExpiry ? `Ends: ${Math.max(0, Math.ceil((new Date(lead.waCallPermissionExpiry) - new Date()) / (1000 * 60 * 60 * 24)))} Days` : 'Always Allowed'}
+                                </span>
+                            </button>
+                        ) : null}
                     </div>
 
                     <div className="flex flex-col gap-2 mt-auto">

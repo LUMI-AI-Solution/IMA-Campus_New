@@ -1,3 +1,6 @@
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
+
 // Helper function to handle BigInt serialization
 const safeJson = (data) => {
     return JSON.parse(JSON.stringify(data, (key, value) =>
@@ -361,5 +364,195 @@ exports.getFinanceMatrix = async (req, res) => {
     } catch (error) {
         console.error("Finance Matrix Error:", error);
         res.status(500).json({ error: "Failed to load matrix" });
+    }
+};
+
+exports.getPaidCampaignDropMatrix = async (req, res) => {
+    try {
+        const { businessId, batchId } = req.query;
+        if (!batchId || batchId === 'null') return res.status(400).json({ error: "Batch ID is required" });
+        const parsedBatchId = parseInt(batchId);
+
+        const userRole = req.user.role;
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
+        if (!isAdmin) {
+             return res.status(403).json({ error: "Access Denied." });
+        }
+
+        // 1. Get Monthly Groups
+        const rawGroups = await prisma.group.findMany({
+            where: { batchId: parsedBatchId },
+            orderBy: { itemOrder: 'asc' },
+            select: { id: true, name: true }
+        });
+        const monthlyGroups = rawGroups.filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'));
+
+        // 2. Get Courses
+        const courses = await prisma.course.findMany({
+            where: { group: { batchId: parsedBatchId } },
+            select: { id: true, name: true, code: true, startMonth: true, endMonth: true }
+        });
+
+        const courseMap = {};
+        courses.forEach(c => {
+            courseMap[c.id] = c.name.trim().toUpperCase();
+        });
+        const uniqueSubjectNames = [...new Set(Object.values(courseMap))];
+
+        const getActiveMonthsForCourse = (course) => {
+            if (!course) return monthlyGroups;
+            const startStr = (course.startMonth || '').trim().toLowerCase();
+            const endStr = (course.endMonth || '').trim().toLowerCase();
+            if (!startStr || !endStr) return monthlyGroups;
+            let startIndex = monthlyGroups.findIndex(g => g.name.toLowerCase().includes(startStr));
+            let endIndex = monthlyGroups.findIndex(g => g.name.toLowerCase().includes(endStr));
+            if (startIndex === -1) startIndex = 0;
+            if (endIndex === -1) endIndex = monthlyGroups.length - 1;
+            if (startIndex <= endIndex) return monthlyGroups.slice(startIndex, endIndex + 1);
+            else return [...monthlyGroups.slice(startIndex), ...monthlyGroups.slice(0, endIndex + 1)];
+        };
+
+        const subjectActiveMonthsMap = {};
+        uniqueSubjectNames.forEach(subName => {
+            const dbCourse = courses.find(c => c.name.trim().toUpperCase() === subName);
+            subjectActiveMonthsMap[subName] = getActiveMonthsForCourse(dbCourse).map(g => g.id);
+        });
+
+        // 4. Get Payments
+        const payments = await prisma.payment.findMany({
+            where: { batchId: parsedBatchId, status: 1 },
+            include: { student: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, nic: true } } },
+            orderBy: { created_at: 'asc' }
+        });
+
+        // 5. Get Leads from After Sem CRM to map Coordinators
+        const rawLeads = await prisma.lead.findMany({
+             where: { 
+                 campaignType: 'AFTER_SEMINAR',
+                 phone: { contains: `_BIZ_${businessId}` }
+             },
+             include: { assignedUser: { select: { firstName: true, lastName: true } } }
+        });
+        
+        const bizPrefix = `_BIZ_${businessId}_`;
+        const bizSuffix = `_BIZ_${businessId}`;
+        const leads = rawLeads.filter(l => l.phone.includes(bizPrefix) || l.phone.endsWith(bizSuffix));
+        
+        const leadPhoneMap = {};
+        const leadInquiryTypeMap = {};
+        leads.forEach(l => {
+             const norm = l.phone.split('_')[0].replace(/[^0-9]/g, '').slice(-9);
+             leadPhoneMap[norm] = l.assignedUser ? `${l.assignedUser.firstName || ''} ${l.assignedUser.lastName || ''}`.trim() : 'Unassigned';
+             
+             let pType = l.inquiryType || 'Unknown';
+             if (pType === 'NEW_INQ') pType = 'New Inquiry';
+             else if (pType === 'OPEN_SEM') pType = 'Open Seminar';
+             leadInquiryTypeMap[norm] = pType;
+        });
+
+        // 6. Process Students
+        const studentMap = {};
+        for (const p of payments) {
+            if (!p.student) continue;
+            const stuId = p.student.id;
+            if (!studentMap[stuId]) {
+                const normPhone = (p.student.whatsapp || p.student.phone || '').replace(/[^0-9]/g, '').slice(-9);
+                studentMap[stuId] = {
+                    id: stuId,
+                    studentName: `${p.student.firstName || ''} ${p.student.lastName || ''}`.trim(),
+                    studentNo: p.student.nic || p.student.phone,
+                    phone: p.student.phone,
+                    whatsapp: p.student.whatsapp,
+                    coordinator: leadPhoneMap[normPhone] || 'Unassigned',
+                    leadType: leadInquiryTypeMap[normPhone] || '-',
+                    matrixValues: {}, 
+                    paymentTypes: new Set(),
+                    isUpgradeStudent: false
+                };
+                monthlyGroups.forEach(mg => {
+                    studentMap[stuId].matrixValues[mg.id] = { activeSubjects: new Set() };
+                });
+            }
+
+            const sData = studentMap[stuId];
+            const payType = parseInt(p.payment_type);
+
+            if (payType === 1) sData.paymentTypes.add('Monthly');
+            else if (payType === 2) sData.paymentTypes.add('Installment');
+            else if (payType === 3) sData.paymentTypes.add('Full');
+            else if (payType === 4) {
+                sData.paymentTypes.add('Upgrade');
+                sData.isUpgradeStudent = true;
+            }
+
+            try {
+                let subs = typeof p.subjects === 'string' ? JSON.parse(p.subjects) : p.subjects;
+                if (!Array.isArray(subs)) subs = [subs];
+                
+                let enrolledSubjectData = [];
+                subs.forEach(item => {
+                    let cid = typeof item === 'object' ? parseInt(item.id) : parseInt(item);
+                    let subName = cid ? courseMap[cid] : (typeof item === 'string' ? item.trim().toUpperCase() : null);
+                    if (subName && uniqueSubjectNames.includes(subName)) {
+                        enrolledSubjectData.push(subName);
+                    }
+                });
+
+                enrolledSubjectData = [...new Set(enrolledSubjectData)];
+                if (enrolledSubjectData.length === 0) continue;
+
+                enrolledSubjectData.forEach(sub => {
+                     let activeGroupIds = subjectActiveMonthsMap[sub] || monthlyGroups.map(g => g.id);
+                     if (payType === 1) {
+                         let targetMgId = monthlyGroups.find(mg => mg.id === p.groupId)?.id || monthlyGroups[0].id;
+                         if (sData.matrixValues[targetMgId]) {
+                             sData.matrixValues[targetMgId].activeSubjects.add(sub);
+                         }
+                     } else {
+                         activeGroupIds.forEach(mgId => {
+                             if (sData.matrixValues[mgId]) {
+                                 sData.matrixValues[mgId].activeSubjects.add(sub);
+                             }
+                         });
+                     }
+                });
+            } catch (e) { }
+        }
+
+        // Convert Sets to Arrays and compute Plan Type
+        Object.values(studentMap).forEach(sData => {
+            if (sData.isUpgradeStudent) {
+                sData.type = 'Upgrade';
+            } else if (sData.paymentTypes.size === 0) {
+                sData.type = 'Unknown';
+            } else {
+                sData.type = sData.paymentTypes.size > 1 ? 'Hybrid' : Array.from(sData.paymentTypes)[0];
+            }
+            delete sData.paymentTypes;
+            delete sData.isUpgradeStudent;
+
+            Object.keys(sData.matrixValues).forEach(mgId => {
+                sData.matrixValues[mgId].activeSubjects = Array.from(sData.matrixValues[mgId].activeSubjects);
+            });
+        });
+
+        const typeOrder = { 'Full': 1, 'Monthly': 2, 'Installment': 3, 'Upgrade': 4, 'Hybrid': 5 };
+        const sortedStudents = Object.values(studentMap).sort((a, b) => {
+            const wA = typeOrder[a.type] || 99;
+            const wB = typeOrder[b.type] || 99;
+            if (wA !== wB) return wA - wB;
+            return a.id - b.id;
+        });
+
+        res.status(200).json(safeJson({
+            months: monthlyGroups,
+            subjects: uniqueSubjectNames,
+            students: sortedStudents
+        }));
+
+    } catch (error) {
+        console.error("Paid Campaign Matrix Error:", error);
+        res.status(500).json({ error: "Failed to load drop matrix" });
     }
 };

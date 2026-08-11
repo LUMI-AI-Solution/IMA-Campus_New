@@ -1,5 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 
 /* 🔥 FIX: Tailwind v4 Class-based Dark Mode 🔥 */
 @variant dark (&:where(.dark, .dark *));
@@ -23,25 +24,47 @@
 }
 
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: 'Inter', sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
   margin: 0;
   -webkit-font-smoothing: antialiased;
   background-color: #000;
 }
 
 /* Custom Scrollbars */
-.custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 10px; }
-.dark .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); }
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
 
-.no-scrollbar::-webkit-scrollbar { display: none; }
-.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
 
-* { transition: background-color 0.4s ease, border-color 0.4s ease, color 0.4s ease; }
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 10px;
+}
+
+.dark .custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+* {
+  transition: background-color 0.4s ease, border-color 0.4s ease, color 0.4s ease;
+}
 
 /* Modal fix */
-.modal-content, [role="dialog"] > div, .fixed.inset-0 > div > div {
+.modal-content,
+[role="dialog"]>div {
   max-height: 90vh !important;
   overflow-y: auto !important;
 }
@@ -52,85 +75,155 @@ body {
 
 /* 1. Aurora Background Animation */
 @keyframes gradientMove {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
+  0% {
+    background-position: 0% 50%;
+  }
+
+  50% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
+  }
 }
 
 .bg-anim-aurora {
-    background: linear-gradient(-45deg, #0f2027, #203a43, #2c5364, #121212);
-    background-size: 400% 400%;
-    animation: gradientMove 15s ease infinite;
+  background: linear-gradient(-45deg, #0f2027, #203a43, #2c5364, #121212);
+  background-size: 400% 400%;
+  animation: gradientMove 15s ease infinite;
 }
 
 /* 2. Galaxy Stars Background Animation (🔥 UPDATED to Deep Navy Blue 🔥) */
 @keyframes moveStars {
-    from { background-position: 0 0; }
-    to { background-position: -10000px 5000px; }
+  from {
+    background-position: 0 0;
+  }
+
+  to {
+    background-position: -10000px 5000px;
+  }
 }
 
 .bg-anim-stars {
-    /* වෙනස් කලේ මෙතන: තද කළු (#050505) අයින් කරලා ලස්සන Deep Space Blue (#0B101E) දැම්මා */
-    background-color: #0B101E; 
-    background-image: 
-        radial-gradient(white, rgba(255,255,255,.2) 2px, transparent 4px),
-        radial-gradient(white, rgba(255,255,255,.15) 1px, transparent 30px),
-        radial-gradient(white, rgba(255,255,255,.1) 2px, transparent 40px);
-    background-size: 550px 550px, 350px 350px, 250px 250px;
-    background-position: 0 0, 40px 60px, 130px 270px;
-    animation: moveStars 200s linear infinite;
+  /* වෙනස් කලේ මෙතන: තද කළු (#050505) අයින් කරලා ලස්සන Deep Space Blue (#0B101E) දැම්මා */
+  background-color: #0B101E;
+  background-image:
+    radial-gradient(white, rgba(255, 255, 255, .2) 2px, transparent 4px),
+    radial-gradient(white, rgba(255, 255, 255, .15) 1px, transparent 30px),
+    radial-gradient(white, rgba(255, 255, 255, .1) 2px, transparent 40px);
+  background-size: 550px 550px, 350px 350px, 250px 250px;
+  background-position: 0 0, 40px 60px, 130px 270px;
+  animation: moveStars 200s linear infinite;
 }
 
 /* කලින් තිබ්බ index.css එකේ පහලට මේ ටික එකතු කරන්න */
 
 @keyframes float-ball-1 {
-    0% { transform: translate(0, 0); }
-    33% { transform: translate(100vw, 50vh); }
-    66% { transform: translate(50vw, 100vh); }
-    100% { transform: translate(0, 0); }
+  0% {
+    transform: translate(0, 0);
+  }
+
+  33% {
+    transform: translate(100vw, 50vh);
+  }
+
+  66% {
+    transform: translate(50vw, 100vh);
+  }
+
+  100% {
+    transform: translate(0, 0);
+  }
 }
 
 @keyframes float-ball-2 {
-    0% { transform: translate(100vw, 0); }
-    33% { transform: translate(0, 100vh); }
-    66% { transform: translate(50vw, 0); }
-    100% { transform: translate(100vw, 0); }
+  0% {
+    transform: translate(100vw, 0);
+  }
+
+  33% {
+    transform: translate(0, 100vh);
+  }
+
+  66% {
+    transform: translate(50vw, 0);
+  }
+
+  100% {
+    transform: translate(100vw, 0);
+  }
 }
 
 @keyframes float-ball-3 {
-    0% { transform: translate(50vw, 100vh); }
-    33% { transform: translate(100vw, 0); }
-    66% { transform: translate(0, 50vh); }
-    100% { transform: translate(50vw, 100vh); }
+  0% {
+    transform: translate(50vw, 100vh);
+  }
+
+  33% {
+    transform: translate(100vw, 0);
+  }
+
+  66% {
+    transform: translate(0, 50vh);
+  }
+
+  100% {
+    transform: translate(50vw, 100vh);
+  }
 }
 
 .animate-float-ball-1 {
-    animation: float-ball-1 25s linear infinite;
+  animation: float-ball-1 25s linear infinite;
 }
 
 .animate-float-ball-2 {
-    animation: float-ball-2 30s linear infinite;
+  animation: float-ball-2 30s linear infinite;
 }
 
 .animate-float-ball-3 {
-    animation: float-ball-3 35s linear infinite;
+  animation: float-ball-3 35s linear infinite;
 }
 
 /* ==========================================================
    🌈 NEW: SLOW COLOR SHIFT ANIMATION (anim2)
    ========================================================== */
 @keyframes smoothColorShift {
-    0%   { background-color: #1D4ED8; } /* Blue */
-    20%  { background-color: #B91C1C; } /* Red */
-    40%  { background-color: #15803D; } /* Green */
-    60%  { background-color: #7E22CE; } /* Purple */
-    80%  { background-color: #FEF08A; } /* Light Yellow */
-    100% { background-color: #1D4ED8; } /* Back to Blue smoothly */
+  0% {
+    background-color: #1D4ED8;
+  }
+
+  /* Blue */
+  20% {
+    background-color: #B91C1C;
+  }
+
+  /* Red */
+  40% {
+    background-color: #15803D;
+  }
+
+  /* Green */
+  60% {
+    background-color: #7E22CE;
+  }
+
+  /* Purple */
+  80% {
+    background-color: #FEF08A;
+  }
+
+  /* Light Yellow */
+  100% {
+    background-color: #1D4ED8;
+  }
+
+  /* Back to Blue smoothly */
 }
 
 .bg-anim-color-shift {
-    /* තත්පර 60ක් තියෙන නිසා පට්ටම slow එකේ මාරු වෙන්නේ */
-    animation: smoothColorShift 60s ease-in-out infinite;
+  /* තත්පර 60ක් තියෙන නිසා පට්ටම slow එකේ මාරු වෙන්නේ */
+  animation: smoothColorShift 60s ease-in-out infinite;
 }
 
 
@@ -139,19 +232,198 @@ body {
   .h-screen {
     height: -webkit-fill-available !important;
   }
+
   .min-h-screen {
     min-height: -webkit-fill-available !important;
   }
 }
 
 /* Touch events block වෙන එක නවත්තන්න */
-html, body {
+html,
+body {
   -webkit-overflow-scrolling: touch;
 }
 
 /* 🔥 iOS Tap Delay Fix 🔥 */
-a, button, input, select, textarea, label, [role="button"], .cursor-pointer {
+a,
+button,
+input,
+select,
+textarea,
+label,
+[role="button"],
+.cursor-pointer {
   touch-action: manipulation !important;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Restored glass-card for Student Dashboard components */
+.glass-card {
+  background: rgba(255, 255, 255, 0.02);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+.glass-card:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.glass-container {
+  background: rgba(10, 15, 30, 0.45);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  transform: translateZ(0);
+}
+
+/* UI Optimization for Laptops & Tabs (Zoom Out Effect) */
+@media (max-width: 1440px) {
+  html {
+    font-size: 14.5px;
+  }
+}
+
+@media (max-width: 1280px) {
+  html {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 1024px) {
+  html {
+    font-size: 12px;
+  }
+}
+
+/* AI Badge එක (කලින් එකම තියාගමු, ඕන නම්) */
+.lumi-badge {
+  margin-left: auto;
+  background-color: #b122e5;
+  color: white;
+  font-size: 11px;
+  padding: 3px 7px;
+  border-radius: 12px;
+  font-weight: bold;
+  box-shadow: 0 0 10px rgba(177, 34, 229, 0.5);
+  animation: s1-icon 3s infinite alternate;
+}
+
+/* ==========================================================
+   ✨ LUMI CALLER STYLES (Style 1) ✨
+   ========================================================== */
+
+/* Container එකේ ස්ටයිල් */
+.lumi-animated-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    padding: 10px 16px; /* Made slightly smaller */
+    cursor: pointer;
+    border-radius: 12px; /* Smooth rounded corners */
+    overflow: hidden;
+    z-index: 1;
+}
+
+/* Inner background to cover the center and leave a 1px border */
+.lumi-animated-item::before {
+    content: '';
+    position: absolute;
+    inset: 1px;
+    background: rgba(11, 16, 30, 0.85); /* Dark background matching the sidebar */
+    border-radius: 11px;
+    z-index: -1;
+    transition: background 0.3s ease;
+}
+
+.lumi-animated-item:hover::before {
+    background: rgba(255, 255, 255, 0.08); /* Hover effect on the inner background */
+}
+
+/* The spinning line (border animation) */
+.lumi-animated-item::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: conic-gradient(from 0deg, transparent 70%, #00e5ff 100%);
+    animation: lumi-spin 3s linear infinite;
+    z-index: -2;
+}
+
+/* Icon එක Glow වෙන Animation එක */
+.lumi-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 12px; /* Slightly reduced */
+    color: #00e5ff;
+    animation: s1-icon 3s infinite alternate;
+}
+
+/* Text එකේ ලස්සන Gradient පාට */
+.lumi-text {
+    font-size: 13.5px; /* Made slightly smaller */
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    background: linear-gradient(110deg, #a0a5b5 0%, #ffffff 30%, #00e5ff 50%, #ffffff 70%, #a0a5b5 100%);
+    background-size: 200% auto;
+    color: transparent;
+    -webkit-background-clip: text;
+    animation: s1-text 3s linear infinite;
+}
+
+/* --- Animations --- */
+
+/* Style 1: Icon drop-shadow */
+@keyframes s1-icon {
+  to {
+    filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
+  }
+}
+
+/* Style 1: Text background sweep */
+@keyframes s1-text {
+  to {
+    background-position: -200% center;
+  }
+}
+
+/* Spinning line animation */
+@keyframes lumi-spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* --- Animations --- */
+
+/* Style 1: Icon drop-shadow */
+@keyframes s1-icon {
+  to {
+    filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
+  }
+}
+
+/* Style 1: Text background sweep */
+@keyframes s1-text {
+  to {
+    background-position: -200% center;
+  }
+}
+
+/* Spinning line animation */
+@keyframes lumi-spin {
+  100% {
+    transform: rotate(360deg);
+  }
 }

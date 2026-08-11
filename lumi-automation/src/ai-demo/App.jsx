@@ -16,13 +16,13 @@ function App() {
 
   const [students, setStudents] = useState([]);
   const [statements, setStatements] = useState([]);
-  
+
   const [uploadingStatement, setUploadingStatement] = useState(false);
   const [activeStudentId, setActiveStudentId] = useState(null);
-  
+
   // Custom Student Modal state
   const [isStudentModalOpen, setIsStudentModalOpen] = useState(false);
-  
+
   // Bulk Verification State
   const [isBulkScanning, setIsBulkScanning] = useState(false);
   const [bulkProgress, setBulkProgress] = useState(0);
@@ -88,10 +88,10 @@ function App() {
     const file = e.target.files[0];
     if (!file) return;
     setUploadingStatement(true);
-    
+
     const formData = new FormData();
     formData.append('statement', file);
-    
+
     try {
       await axios.post(`${API_BASE}/upload-statement`, formData, {
         headers: { 'x-api-password': token, 'Content-Type': 'multipart/form-data' }
@@ -223,39 +223,39 @@ function App() {
     try {
       let pendingPayments = [];
       students.forEach(student => {
-         if (student.payments) {
-            student.payments.forEach(p => {
-               if (p.status === 'PENDING') pendingPayments.push(p.id);
-            });
-         }
+        if (student.payments) {
+          student.payments.forEach(p => {
+            if (p.status === 'PENDING') pendingPayments.push(p.id);
+          });
+        }
       });
 
       let processed = 0;
       let verifiedCount = 0;
       let skippedCount = 0;
-      
+
       for (let i = 0; i < pendingPayments.length; i++) {
-         const id = pendingPayments[i];
-         try {
-             const res = await axios.post(`${API_BASE}/verify-payment/${id}`, {}, {
-               headers: { 'x-api-password': token }
-             });
-             processed++;
-             setBulkProgress(Math.round((processed / pendingPayments.length) * 100));
-             
-             if (res.data.payment && res.data.payment.status === 'VERIFIED') {
-                 verifiedCount++;
-             } else {
-                 skippedCount++;
-             }
-         } catch (e) {
-             console.error('Failed to verify payment id:', id, e);
-             processed++;
-             skippedCount++;
-             setBulkProgress(Math.round((processed / pendingPayments.length) * 100));
-         }
+        const id = pendingPayments[i];
+        try {
+          const res = await axios.post(`${API_BASE}/verify-payment/${id}`, {}, {
+            headers: { 'x-api-password': token }
+          });
+          processed++;
+          setBulkProgress(Math.round((processed / pendingPayments.length) * 100));
+
+          if (res.data.payment && res.data.payment.status === 'VERIFIED') {
+            verifiedCount++;
+          } else {
+            skippedCount++;
+          }
+        } catch (e) {
+          console.error('Failed to verify payment id:', id, e);
+          processed++;
+          skippedCount++;
+          setBulkProgress(Math.round((processed / pendingPayments.length) * 100));
+        }
       }
-      
+
       setBulkResults({ processed, verified: verifiedCount, skipped: skippedCount });
       fetchData();
     } catch (err) {
@@ -268,7 +268,7 @@ function App() {
   const handleManualVerify = async (paymentId, currentStatus) => {
     const remark = prompt("Enter remark for manual verification:");
     if (remark === null) return;
-    
+
     try {
       await axios.post(`${API_BASE}/manual-verify`, {
         paymentId,
@@ -357,7 +357,7 @@ function App() {
     let matchedStudent = null;
     let paymentStatus = 'PENDING';
     let paymentRemark = '';
-    
+
     for (let student of students) {
       const payment = student.payments?.find(p => p.matchedRowId === stmt.id);
       if (payment) {
@@ -431,7 +431,7 @@ function App() {
             LUMI AUTOMATION
           </h1>
           <p className="text-slate-400 text-center mb-8 text-sm">Enterprise Demo Sandbox Access</p>
-          
+
           <form onSubmit={handleLogin} className="space-y-6">
             <div>
               <input
@@ -462,24 +462,24 @@ function App() {
       {/* Background Gradients */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[300px] bg-cyan-900/20 rounded-full blur-[120px] pointer-events-none"></div>
 
-      <StudentModal 
-        isOpen={isStudentModalOpen} 
-        onClose={() => setIsStudentModalOpen(false)} 
-        onSuccess={fetchData} 
-        token={token} 
+      <StudentModal
+        isOpen={isStudentModalOpen}
+        onClose={() => setIsStudentModalOpen(false)}
+        onSuccess={fetchData}
+        token={token}
       />
 
       {(isBulkScanning || bulkResults) && (
-        <ScanningOverlay 
-          isScanning={isBulkScanning && !bulkResults} 
+        <ScanningOverlay
+          isScanning={isBulkScanning && !bulkResults}
           progress={bulkProgress}
-          results={bulkResults} 
-          onClose={() => { setIsBulkScanning(false); setBulkResults(null); }} 
+          results={bulkResults}
+          onClose={() => { setIsBulkScanning(false); setBulkResults(null); }}
         />
       )}
 
       {activeHUDSlipUrl && (
-        <VerificationHUD 
+        <VerificationHUD
           slipUrl={activeHUDSlipUrl}
           result={activeHUDResult}
           onClose={() => {
@@ -490,7 +490,7 @@ function App() {
       )}
 
       <div className="max-w-7xl mx-auto relative z-10">
-        
+
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 pb-6 border-b border-white/10">
           <div>
@@ -503,7 +503,7 @@ function App() {
             <p className="text-slate-400 text-sm font-medium">Lumi Automation Enterprise Environment • Stateless Mode</p>
           </div>
           <div className="flex items-center gap-4 mt-4 md:mt-0">
-            <button 
+            <button
               onClick={() => setIsStudentModalOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 border border-slate-700 hover:border-cyan-500/50 rounded-lg text-sm font-semibold transition-colors"
             >
@@ -517,10 +517,10 @@ function App() {
         </div>
 
         <div className="grid grid-cols-1 gap-8">
-          
+
           {/* Top Section: Split in two columns */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            
+
             {/* Left Top: Upload & Staging */}
             <div className="space-y-6">
               {/* Source of Truth Upload */}
@@ -551,7 +551,7 @@ function App() {
               {/* Bulk Operations Panel */}
               <div className="bg-slate-950/50 backdrop-blur-md border border-cyan-500/20 p-6 rounded-2xl shadow-xl shadow-cyan-900/10 relative flex flex-col">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 blur-[50px] rounded-full"></div>
-                
+
                 <h2 className="text-lg font-bold flex items-center gap-2 mb-2 text-white">
                   <ScanLine className="w-5 h-5 text-cyan-400" />
                   Bulk Operations Panel
@@ -561,8 +561,8 @@ function App() {
                   <div className="text-4xl font-bold text-cyan-400 mb-2">{totalPendingPayments}</div>
                   <div className="text-slate-300 font-medium mb-1">Slips Queued</div>
                   <div className="text-xs text-slate-500 max-w-xs mb-4">Pending slips attached to student accounts waiting for verification</div>
-                  
-                  <button 
+
+                  <button
                     onClick={handleVerifyAllPending}
                     disabled={totalPendingPayments === 0 || isVerifyingPending}
                     className="px-6 py-3 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold rounded-lg shadow-lg shadow-cyan-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed mb-3"
@@ -587,7 +587,7 @@ function App() {
                     <div key={student.id} className="relative group rounded-3xl p-[1px] bg-gradient-to-b from-white/10 to-transparent hover:from-cyan-500/50 hover:to-purple-500/50 transition-all duration-500 shadow-lg hover:shadow-[0_0_30px_-5px_rgba(6,182,212,0.4)]">
                       <div className="bg-slate-950/90 backdrop-blur-xl h-full rounded-3xl p-6 relative overflow-hidden flex flex-col">
                         <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-500"></div>
-                        
+
                         <div className="relative z-10 flex-1 flex flex-col">
                           <div className="flex justify-between items-start mb-4">
                             <div>
@@ -626,100 +626,99 @@ function App() {
 
                           {student.payments?.length > 0 && (
                             <div className="mt-4 space-y-2 border-t border-white/5 pt-4">
-                                {student.payments.map(p => (
-                                  <div key={p.id} className="flex flex-col gap-2 bg-black/60 p-3 rounded-xl border border-white/5 relative">
-                                    {editingPaymentId === p.id ? (
-                                      <div className="flex flex-col gap-2">
-                                        <input 
-                                          type="text" 
-                                          value={editPaymentData.extractedRefNo} 
-                                          onChange={e => setEditPaymentData({...editPaymentData, extractedRefNo: e.target.value})}
-                                          className="bg-slate-900 border border-slate-700 text-xs text-white p-1 rounded" 
-                                          placeholder="Ref No" 
-                                        />
-                                        <input 
-                                          type="number" 
-                                          value={editPaymentData.extractedAmount} 
-                                          onChange={e => setEditPaymentData({...editPaymentData, extractedAmount: e.target.value})}
-                                          className="bg-slate-900 border border-slate-700 text-xs text-white p-1 rounded" 
-                                          placeholder="Amount" 
-                                        />
-                                        <select 
-                                          value={editPaymentData.status} 
-                                          onChange={e => setEditPaymentData({...editPaymentData, status: e.target.value})}
-                                          className="bg-slate-900 border border-slate-700 text-xs text-white p-1 rounded"
-                                        >
-                                          <option value="PENDING">PENDING</option>
-                                          <option value="VERIFIED">VERIFIED</option>
-                                          <option value="REJECTED">REJECTED</option>
-                                        </select>
-                                        <div className="flex gap-2 mt-1">
-                                          <button onClick={() => handleEditPaymentSave(p.id)} className="flex-1 bg-green-900/50 text-green-400 border border-green-500/30 text-[10px] uppercase font-bold py-1 rounded hover:bg-green-800/50">Save</button>
-                                          <button onClick={handleEditPaymentCancel} className="flex-1 bg-slate-800 text-slate-400 border border-slate-700 text-[10px] uppercase font-bold py-1 rounded hover:bg-slate-700">Cancel</button>
-                                        </div>
+                              {student.payments.map(p => (
+                                <div key={p.id} className="flex flex-col gap-2 bg-black/60 p-3 rounded-xl border border-white/5 relative">
+                                  {editingPaymentId === p.id ? (
+                                    <div className="flex flex-col gap-2">
+                                      <input
+                                        type="text"
+                                        value={editPaymentData.extractedRefNo}
+                                        onChange={e => setEditPaymentData({ ...editPaymentData, extractedRefNo: e.target.value })}
+                                        className="bg-slate-900 border border-slate-700 text-xs text-white p-1 rounded"
+                                        placeholder="Ref No"
+                                      />
+                                      <input
+                                        type="number"
+                                        value={editPaymentData.extractedAmount}
+                                        onChange={e => setEditPaymentData({ ...editPaymentData, extractedAmount: e.target.value })}
+                                        className="bg-slate-900 border border-slate-700 text-xs text-white p-1 rounded"
+                                        placeholder="Amount"
+                                      />
+                                      <select
+                                        value={editPaymentData.status}
+                                        onChange={e => setEditPaymentData({ ...editPaymentData, status: e.target.value })}
+                                        className="bg-slate-900 border border-slate-700 text-xs text-white p-1 rounded"
+                                      >
+                                        <option value="PENDING">PENDING</option>
+                                        <option value="VERIFIED">VERIFIED</option>
+                                        <option value="REJECTED">REJECTED</option>
+                                      </select>
+                                      <div className="flex gap-2 mt-1">
+                                        <button onClick={() => handleEditPaymentSave(p.id)} className="flex-1 bg-green-900/50 text-green-400 border border-green-500/30 text-[10px] uppercase font-bold py-1 rounded hover:bg-green-800/50">Save</button>
+                                        <button onClick={handleEditPaymentCancel} className="flex-1 bg-slate-800 text-slate-400 border border-slate-700 text-[10px] uppercase font-bold py-1 rounded hover:bg-slate-700">Cancel</button>
                                       </div>
-                                    ) : (
-                                      <>
-                                        <div className="flex items-start gap-3">
-                                          {p.slipUrl && (
-                                            <div className="relative group/slip">
-                                              <img src={p.slipUrl} alt="Slip Thumbnail" className="w-10 h-10 object-cover rounded border border-white/10 cursor-zoom-in" />
-                                              <div className="hidden group-hover/slip:block absolute z-[1000] -top-32 left-12 p-3 bg-slate-950/95 border border-cyan-500/50 rounded-2xl shadow-[0_0_80px_rgba(6,182,212,0.6)] backdrop-blur-3xl min-w-[300px]">
-                                                <div className="text-cyan-400 text-[10px] font-bold uppercase tracking-widest mb-2 flex items-center justify-between border-b border-white/10 pb-2">
-                                                  <span>Slip Preview</span>
-                                                  <span>High-Res</span>
-                                                </div>
-                                                <img src={p.slipUrl} alt="Slip High-Res" className="w-[500px] h-auto object-contain rounded-xl max-h-[70vh]" />
+                                    </div>
+                                  ) : (
+                                    <>
+                                      <div className="flex items-start gap-3">
+                                        {p.slipUrl && (
+                                          <div className="relative group/slip">
+                                            <img src={p.slipUrl} alt="Slip Thumbnail" className="w-10 h-10 object-cover rounded border border-white/10 cursor-zoom-in" />
+                                            <div className="hidden group-hover/slip:block absolute z-[1000] -top-32 left-12 p-3 bg-slate-950/95 border border-cyan-500/50 rounded-2xl shadow-[0_0_80px_rgba(6,182,212,0.6)] backdrop-blur-3xl min-w-[300px]">
+                                              <div className="text-cyan-400 text-[10px] font-bold uppercase tracking-widest mb-2 flex items-center justify-between border-b border-white/10 pb-2">
+                                                <span>Slip Preview</span>
+                                                <span>High-Res</span>
                                               </div>
+                                              <img src={p.slipUrl} alt="Slip High-Res" className="w-[500px] h-auto object-contain rounded-xl max-h-[70vh]" />
                                             </div>
-                                          )}
-                                          <div className="flex-1">
-                                            <div className="flex justify-between items-center text-xs">
-                                              <span className="text-slate-400 font-mono">Ref: {p.extractedRefNo || '---'}</span>
-                                              <span className={`font-bold tracking-wider text-[9px] uppercase px-2 py-1 rounded border ${p.status === 'VERIFIED' ? 'text-green-400 border-green-500/30 bg-green-950/30' : p.status === 'REJECTED' ? 'text-red-400 border-red-500/30 bg-red-950/30' : 'text-yellow-400 border-yellow-500/30 bg-yellow-950/30'}`}>
-                                                {p.status}
-                                              </span>
-                                            </div>
-                                          </div>
-                                        </div>
-                                        {p.remark && (
-                                          <div className={`mt-3 p-3 rounded-xl border whitespace-pre-wrap text-[11px] font-mono leading-relaxed shadow-inner ${
-                                            p.status === 'VERIFIED' ? 'bg-green-950/20 border-green-500/30 text-green-200 shadow-green-900/20' : 
-                                            p.status === 'REJECTED' ? 'bg-red-950/20 border-red-500/30 text-red-200 shadow-red-900/20' : 
-                                            'bg-yellow-950/20 border-yellow-500/30 text-yellow-200 shadow-yellow-900/20'
-                                          }`}>
-                                            <div className="flex items-center gap-2 mb-2 font-bold uppercase tracking-wider text-[10px]">
-                                              {p.status === 'VERIFIED' ? (
-                                                <><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> AI Verification Log</>
-                                              ) : p.status === 'REJECTED' ? (
-                                                <><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span> AI Rejection Log</>
-                                              ) : (
-                                                <><span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></span> AI Processing Log</>
-                                              )}
-                                            </div>
-                                            <div className="opacity-90">{p.remark}</div>
                                           </div>
                                         )}
-                                        <div className="flex gap-1 mt-2 border-t border-white/5 pt-2">
-                                          {p.status === 'PENDING' && (
-                                            <button onClick={() => handleVerifyPayment(p)} className="flex-2 text-center text-[9px] text-black hover:text-black transition-colors uppercase font-bold tracking-widest bg-cyan-500 hover:bg-cyan-400 px-2 py-1 rounded">
-                                              Verify with AI
-                                            </button>
-                                          )}
-                                          <button onClick={() => handleManualVerify(p.id, p.status)} className="flex-1 text-center text-[9px] text-slate-500 hover:text-cyan-400 transition-colors uppercase font-bold tracking-widest bg-slate-900/50 py-1 rounded">
-                                            Toggle
-                                          </button>
-                                          <button onClick={() => handleEditPaymentStart(p)} className="flex-1 text-center text-[9px] text-blue-400 hover:text-blue-300 transition-colors uppercase font-bold tracking-widest bg-blue-900/20 py-1 rounded border border-blue-500/20">
-                                            Edit
-                                          </button>
-                                          <button onClick={() => handleDeletePayment(p.id)} className="flex-1 text-center text-[9px] text-red-400 hover:text-red-300 transition-colors uppercase font-bold tracking-widest bg-red-900/20 py-1 rounded border border-red-500/20">
-                                            Delete
-                                          </button>
+                                        <div className="flex-1">
+                                          <div className="flex justify-between items-center text-xs">
+                                            <span className="text-slate-400 font-mono">Ref: {p.extractedRefNo || '---'}</span>
+                                            <span className={`font-bold tracking-wider text-[9px] uppercase px-2 py-1 rounded border ${p.status === 'VERIFIED' ? 'text-green-400 border-green-500/30 bg-green-950/30' : p.status === 'REJECTED' ? 'text-red-400 border-red-500/30 bg-red-950/30' : 'text-yellow-400 border-yellow-500/30 bg-yellow-950/30'}`}>
+                                              {p.status}
+                                            </span>
+                                          </div>
                                         </div>
-                                      </>
-                                    )}
-                                  </div>
-                                ))}
+                                      </div>
+                                      {p.remark && (
+                                        <div className={`mt-3 p-3 rounded-xl border whitespace-pre-wrap text-[11px] font-mono leading-relaxed shadow-inner ${p.status === 'VERIFIED' ? 'bg-green-950/20 border-green-500/30 text-green-200 shadow-green-900/20' :
+                                            p.status === 'REJECTED' ? 'bg-red-950/20 border-red-500/30 text-red-200 shadow-red-900/20' :
+                                              'bg-yellow-950/20 border-yellow-500/30 text-yellow-200 shadow-yellow-900/20'
+                                          }`}>
+                                          <div className="flex items-center gap-2 mb-2 font-bold uppercase tracking-wider text-[10px]">
+                                            {p.status === 'VERIFIED' ? (
+                                              <><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> AI Verification Log</>
+                                            ) : p.status === 'REJECTED' ? (
+                                              <><span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span> AI Rejection Log</>
+                                            ) : (
+                                              <><span className="w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"></span> AI Processing Log</>
+                                            )}
+                                          </div>
+                                          <div className="opacity-90">{p.remark}</div>
+                                        </div>
+                                      )}
+                                      <div className="flex gap-1 mt-2 border-t border-white/5 pt-2">
+                                        {p.status === 'PENDING' && (
+                                          <button onClick={() => handleVerifyPayment(p)} className="flex-2 text-center text-[9px] text-black hover:text-black transition-colors uppercase font-bold tracking-widest bg-cyan-500 hover:bg-cyan-400 px-2 py-1 rounded">
+                                            Verify with AI
+                                          </button>
+                                        )}
+                                        <button onClick={() => handleManualVerify(p.id, p.status)} className="flex-1 text-center text-[9px] text-slate-500 hover:text-cyan-400 transition-colors uppercase font-bold tracking-widest bg-slate-900/50 py-1 rounded">
+                                          Toggle
+                                        </button>
+                                        <button onClick={() => handleEditPaymentStart(p)} className="flex-1 text-center text-[9px] text-blue-400 hover:text-blue-300 transition-colors uppercase font-bold tracking-widest bg-blue-900/20 py-1 rounded border border-blue-500/20">
+                                          Edit
+                                        </button>
+                                        <button onClick={() => handleDeletePayment(p.id)} className="flex-1 text-center text-[9px] text-red-400 hover:text-red-300 transition-colors uppercase font-bold tracking-widest bg-red-900/20 py-1 rounded border border-red-500/20">
+                                          Delete
+                                        </button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              ))}
                             </div>
                           )}
                         </div>
@@ -745,9 +744,9 @@ function App() {
                 <div className="mt-4 md:mt-0 flex flex-col sm:flex-row items-center gap-4">
                   <div className="relative">
                     <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input 
-                      type="text" 
-                      placeholder="Search records..." 
+                    <input
+                      type="text"
+                      placeholder="Search records..."
                       value={tableSearchQuery}
                       onChange={(e) => setTableSearchQuery(e.target.value)}
                       className="pl-9 pr-4 py-2 bg-black/50 border border-slate-700 rounded-lg text-sm text-white focus:outline-none focus:border-cyan-500 transition-colors w-full sm:w-64"
@@ -769,11 +768,10 @@ function App() {
                     <button
                       key={cat}
                       onClick={() => { setActiveSheetTab(cat); setTableCurrentPage(1); }}
-                      className={`px-4 py-1.5 rounded-full text-sm font-bold transition-colors ${
-                        activeSheetTab === cat 
-                          ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20' 
+                      className={`px-4 py-1.5 rounded-full text-sm font-bold transition-colors ${activeSheetTab === cat
+                          ? 'bg-cyan-500 text-black shadow-lg shadow-cyan-500/20'
                           : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
-                      }`}
+                        }`}
                     >
                       {cat}
                     </button>
@@ -786,67 +784,66 @@ function App() {
                   <div className="overflow-x-auto custom-scrollbar border border-white/5 rounded-xl bg-black/40">
                     <table className="w-full text-left text-sm text-slate-300">
                       <thead className="bg-slate-900/90 text-xs uppercase font-bold text-cyan-500/80 tracking-wider">
-                      <tr>
-                        <th className="px-4 py-4 font-mono">Date</th>
-                        <th className="px-4 py-4 font-mono">Ref No</th>
-                        <th className="px-4 py-4 text-right">Amount (Rs)</th>
-                        <th className="px-4 py-4">Matched Student</th>
-                        <th className="px-4 py-4">Student ID</th>
-                        <th className="px-4 py-4">Status</th>
-                        <th className="px-4 py-4">Remarks</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-white/5">
-                      {paginatedStatements.map(s => (
-                        <tr key={s.id} className="hover:bg-slate-800/80 transition-colors group">
-                          <td className="px-4 py-4 font-mono text-xs text-slate-500">{s.date}</td>
-                          <td className="px-4 py-4 font-mono text-xs text-white group-hover:text-cyan-400 transition-colors">{s.referenceNo}</td>
-                          <td className="px-4 py-4 text-right font-mono font-bold text-purple-400">{s.amount}</td>
-                          <td className="px-4 py-4 font-bold text-white">{s.studentName}</td>
-                          <td className="px-4 py-4 font-mono text-xs text-slate-400">{s.studentId}</td>
-                          <td className="px-4 py-4">
-                            <span className={`inline-flex items-center gap-1 text-[10px] uppercase font-bold tracking-widest px-2 py-1 rounded-full border ${
-                              s.status === 'VERIFIED' ? 'text-green-400 bg-green-500/10 border-green-500/20' :
-                              s.status === 'REJECTED' ? 'text-red-400 bg-red-500/10 border-red-500/20' :
-                              'text-slate-400 bg-slate-800 border-slate-700'
-                            }`}>
-                              {s.status === 'VERIFIED' ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
-                              {s.status}
-                            </span>
-                          </td>
-                          <td className="px-4 py-4 text-xs italic text-slate-400 whitespace-pre-wrap min-w-[300px]">
-                            {s.remark || '---'}
-                          </td>
+                        <tr>
+                          <th className="px-4 py-4 font-mono">Date</th>
+                          <th className="px-4 py-4 font-mono">Ref No</th>
+                          <th className="px-4 py-4 text-right">Amount (Rs)</th>
+                          <th className="px-4 py-4">Matched Student</th>
+                          <th className="px-4 py-4">Student ID</th>
+                          <th className="px-4 py-4">Status</th>
+                          <th className="px-4 py-4">Remarks</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* Pagination Controls */}
-                {totalPages > 1 && (
-                  <div className="mt-4 flex items-center justify-between text-sm">
-                    <span className="text-slate-500">
-                      Showing {(tableCurrentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(tableCurrentPage * ITEMS_PER_PAGE, filteredStatements.length)} of {filteredStatements.length} records
-                    </span>
-                    <div className="flex gap-2">
-                      <button 
-                        onClick={() => setTableCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={tableCurrentPage === 1}
-                        className="px-3 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        Previous
-                      </button>
-                      <button 
-                        onClick={() => setTableCurrentPage(p => Math.min(totalPages, p + 1))}
-                        disabled={tableCurrentPage === totalPages}
-                        className="px-3 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                      >
-                        Next
-                      </button>
-                    </div>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {paginatedStatements.map(s => (
+                          <tr key={s.id} className="hover:bg-slate-800/80 transition-colors group">
+                            <td className="px-4 py-4 font-mono text-xs text-slate-500">{s.date}</td>
+                            <td className="px-4 py-4 font-mono text-xs text-white group-hover:text-cyan-400 transition-colors">{s.referenceNo}</td>
+                            <td className="px-4 py-4 text-right font-mono font-bold text-purple-400">{s.amount}</td>
+                            <td className="px-4 py-4 font-bold text-white">{s.studentName}</td>
+                            <td className="px-4 py-4 font-mono text-xs text-slate-400">{s.studentId}</td>
+                            <td className="px-4 py-4">
+                              <span className={`inline-flex items-center gap-1 text-[10px] uppercase font-bold tracking-widest px-2 py-1 rounded-full border ${s.status === 'VERIFIED' ? 'text-green-400 bg-green-500/10 border-green-500/20' :
+                                  s.status === 'REJECTED' ? 'text-red-400 bg-red-500/10 border-red-500/20' :
+                                    'text-slate-400 bg-slate-800 border-slate-700'
+                                }`}>
+                                {s.status === 'VERIFIED' ? <CheckCircle className="w-3 h-3" /> : <Clock className="w-3 h-3" />}
+                                {s.status}
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 text-xs italic text-slate-400 whitespace-pre-wrap min-w-[300px]">
+                              {s.remark || '---'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                )}
+
+                  {/* Pagination Controls */}
+                  {totalPages > 1 && (
+                    <div className="mt-4 flex items-center justify-between text-sm">
+                      <span className="text-slate-500">
+                        Showing {(tableCurrentPage - 1) * ITEMS_PER_PAGE + 1} to {Math.min(tableCurrentPage * ITEMS_PER_PAGE, filteredStatements.length)} of {filteredStatements.length} records
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setTableCurrentPage(p => Math.max(1, p - 1))}
+                          disabled={tableCurrentPage === 1}
+                          className="px-3 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Previous
+                        </button>
+                        <button
+                          onClick={() => setTableCurrentPage(p => Math.min(totalPages, p + 1))}
+                          disabled={tableCurrentPage === totalPages}
+                          className="px-3 py-1 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="py-12 flex flex-col items-center justify-center text-slate-600 border border-dashed border-slate-800 rounded-xl bg-black/20">
@@ -858,9 +855,10 @@ function App() {
           </div>
         </div>
       </div>
-      
+
       {/* CSS for custom scrollbar embedded for simplicity */}
-      <style dangerouslySetInnerHTML={{__html: `
+      <style dangerouslySetInnerHTML={{
+        __html: `
         .custom-scrollbar::-webkit-scrollbar {
           width: 6px;
         }

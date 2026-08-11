@@ -3,253 +3,44 @@ const prisma = new PrismaClient();
 
 const safeJson = (data) => JSON.parse(JSON.stringify(data, (key, value) => typeof value === 'bigint' ? value.toString() : value));
 
-exports.getModuleOneMatrix = async (req, res) => {
-    try {
-        const { businessId, batchId } = req.query;
-
-        if (!batchId || batchId === 'null') {
-            return res.status(400).json({ error: "Batch ID is required for Matrix view" });
+// Helper function to check access
+const checkAccess = async (req, parsedBizId) => {
+    const userId = req.user.userId || req.user.id;
+    const userRole = req.user.role;
+    const businessType = req.user.businessType;
+    
+    const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
+    const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
+    
+    if (!isAdmin) {
+        const allBiz = await prisma.business.findMany();
+        const myBizs = allBiz.filter(biz => {
+            const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
+            const matchesBizType = businessType && (
+                String(biz.id) === String(businessType).trim() ||
+                biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
+                biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
+                String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+            );
+            return isManagerOf || matchesBizType;
+        });
+        const myBizIds = myBizs.map(b => b.id);
+        
+        if (!myBizIds.includes(parsedBizId)) {
+            return false;
         }
-        
-        const parsedBatchId = parseInt(batchId);
-        
-        const userId = req.user.userId || req.user.id;
-        const userRole = req.user.role;
-        const businessType = req.user.businessType;
-        
-        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
-        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
-        
-        if (!isAdmin) {
-            const allBiz = await prisma.business.findMany();
-            const myBizs = allBiz.filter(biz => {
-                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
-                const matchesBizType = businessType && (
-                    String(biz.id) === String(businessType).trim() ||
-                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
-                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
-                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
-                );
-                return isManagerOf || matchesBizType;
-            });
-            const myBizIds = myBizs.map(b => b.id);
-            
-            const batchObj = await prisma.batch.findUnique({ where: { id: parsedBatchId } });
-            if (!batchObj || !myBizIds.includes(batchObj.businessId)) {
-                return res.status(403).json({ error: "Access Denied. You are not allowed to view this batch's analytics." });
-            }
-        }
-
-        const rawGroups = await prisma.group.findMany({
-            where: { batchId: parseInt(batchId) },
-            orderBy: { itemOrder: 'asc' },
-            select: { id: true, name: true, itemOrder: true, type: true }
-        });
-
-        const groups = rawGroups.filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'));
-
-        const courses = await prisma.course.findMany({
-            where: { group: { batchId: parseInt(batchId) } },
-            select: { id: true, name: true }
-        });
-
-        const courseMap = {};
-        courses.forEach(c => courseMap[c.id] = c.name.trim().toUpperCase());
-        const uniqueSubjectNames = [...new Set(Object.values(courseMap))];
-
-        const payments = await prisma.payment.findMany({
-            where: {
-                batchId: parseInt(batchId),
-                status: { in: [1, 4] } 
-            },
-            select: { studentId: true, groupId: true, payment_type: true, subjects: true }
-        });
-
-        const monthSubjectData = {};
-        groups.forEach(g => {
-            monthSubjectData[g.id] = {};
-            uniqueSubjectNames.forEach(sub => {
-                monthSubjectData[g.id][sub] = { full: new Set(), monthly: new Set(), install: new Set() };
-            });
-        });
-
-        payments.forEach(p => {
-            if (!p.subjects || !p.studentId || !p.groupId) return;
-
-            let enrolledSubjects = [];
-            try {
-                const subs = JSON.parse(p.subjects);
-                subs.forEach(item => {
-                    if (typeof item === 'object' && item.id && courseMap[parseInt(item.id)]) {
-                        enrolledSubjects.push(courseMap[parseInt(item.id)]);
-                    } else if (typeof item === 'string' && isNaN(parseInt(item))) {
-                        enrolledSubjects.push(item.trim().toUpperCase());
-                    } else if (!isNaN(parseInt(item)) && courseMap[parseInt(item)]) {
-                        enrolledSubjects.push(courseMap[parseInt(item)]);
-                    }
-                });
-            } catch(e) { return; }
-
-            enrolledSubjects = [...new Set(enrolledSubjects)];
-            
-            const payType = parseInt(p.payment_type);
-            const groupIndex = groups.findIndex(g => g.id === p.groupId);
-            const targetGroupIndex = groupIndex !== -1 ? groupIndex : 0; 
-            if (groups.length === 0) return;
-
-            enrolledSubjects.forEach(sub => {
-                if (!uniqueSubjectNames.includes(sub)) return;
-
-                if (payType === 3) {
-                    for (let i = targetGroupIndex; i < groups.length; i++) {
-                        monthSubjectData[groups[i].id][sub].full.add(p.studentId);
-                    }
-                } else if (payType === 2 && groupIndex !== -1) {
-                    monthSubjectData[groups[groupIndex].id][sub].install.add(p.studentId);
-                } else if (payType === 1 && groupIndex !== -1) {
-                    monthSubjectData[groups[groupIndex].id][sub].monthly.add(p.studentId);
-                }
-            });
-        });
-
-        const matrix = {};
-        uniqueSubjectNames.forEach(sub => {
-            matrix[sub] = {};
-            let prevActiveSet = new Set();
-            let prevNonFullSet = new Set(); 
-            let prevFullSet = new Set(); // 🔥 අලුතෙන් දැම්මේ: ගිය මාසේ Full හිටපු අයව වෙනම තියාගන්න
-
-            groups.forEach((g, index) => {
-                const currentFull = monthSubjectData[g.id][sub].full;
-                const currentMonthly = monthSubjectData[g.id][sub].monthly;
-                const currentInstall = monthSubjectData[g.id][sub].install;
-                
-                const currentActiveSet = new Set([...currentFull, ...currentMonthly, ...currentInstall]);
-
-                let grown = 0;
-                let dropped = 0;
-                let upgraded = 0; 
-
-                if (index > 0) {
-                    currentActiveSet.forEach(id => {
-                        if (!prevActiveSet.has(id)) grown++;
-                    });
-                    prevActiveSet.forEach(id => {
-                        if (!currentActiveSet.has(id)) dropped++;
-                    });
-                    
-                    // 🔥 FIX: ගිය මාසේ Monthly හිටපු, හැබැයි ගිය මාසේ Full එකේ හිටපු නැති අය විතරක් Upgrade එකක් විදිහට ගන්නවා
-                    currentFull.forEach(id => {
-                        if (prevNonFullSet.has(id) && !prevFullSet.has(id)) upgraded++;
-                    });
-                }
-
-                const prevTotal = prevActiveSet.size;
-                const prevNonFullTotal = prevNonFullSet.size - Array.from(prevNonFullSet).filter(id => prevFullSet.has(id)).length; // 🔥
-
-                const grownPct = prevTotal > 0 ? ((grown / prevTotal) * 100).toFixed(1) : (grown > 0 ? 100 : 0);
-                const droppedPct = prevTotal > 0 ? ((dropped / prevTotal) * 100).toFixed(1) : 0;
-                const upgradedPct = prevNonFullTotal > 0 ? ((upgraded / prevNonFullTotal) * 100).toFixed(1) : 0;
-
-                matrix[sub][g.id] = {
-                    full: currentFull.size,
-                    monthly: currentMonthly.size,
-                    install: currentInstall.size,
-                    total: currentActiveSet.size,
-                    grown,
-                    dropped,
-                    upgraded,
-                    grownPct: parseFloat(grownPct),
-                    droppedPct: parseFloat(droppedPct),
-                    upgradedPct: parseFloat(upgradedPct) 
-                };
-
-                prevActiveSet = currentActiveSet;
-                prevNonFullSet = new Set([...currentMonthly, ...currentInstall]);
-                prevFullSet = currentFull; // 🔥 Update for next loop
-            });
-        });
-
-        const summary = {};
-        let prevSummaryActiveSet = new Set();
-        let prevSummaryNonFullSet = new Set(); 
-        let prevSummaryFullSet = new Set(); // 🔥 අලුතෙන්
-
-        groups.forEach((g, index) => {
-            let monthFullSet = new Set();
-            let monthMonthlySet = new Set();
-            let monthInstallSet = new Set();
-
-            uniqueSubjectNames.forEach(sub => {
-                monthSubjectData[g.id][sub].full.forEach(id => monthFullSet.add(id));
-                monthSubjectData[g.id][sub].monthly.forEach(id => monthMonthlySet.add(id));
-                monthSubjectData[g.id][sub].install.forEach(id => monthInstallSet.add(id));
-            });
-
-            const monthActiveSet = new Set([...monthFullSet, ...monthMonthlySet, ...monthInstallSet]);
-
-            let grown = 0;
-            let dropped = 0;
-            let upgraded = 0;
-
-            if (index > 0) {
-                monthActiveSet.forEach(id => {
-                    if (!prevSummaryActiveSet.has(id)) grown++;
-                });
-                prevSummaryActiveSet.forEach(id => {
-                    if (!monthActiveSet.has(id)) dropped++;
-                });
-                
-                // 🔥 FIX: Summary එකෙත් ඒ Logic එකම දානවා
-                monthFullSet.forEach(id => {
-                    if (prevSummaryNonFullSet.has(id) && !prevSummaryFullSet.has(id)) upgraded++; 
-                });
-            }
-
-            const prevTotal = prevSummaryActiveSet.size;
-            const prevNonFullTotal = prevSummaryNonFullSet.size - Array.from(prevSummaryNonFullSet).filter(id => prevSummaryFullSet.has(id)).length; // 🔥
-
-            const grownPct = prevTotal > 0 ? ((grown / prevTotal) * 100).toFixed(1) : (grown > 0 ? 100 : 0);
-            const droppedPct = prevTotal > 0 ? ((dropped / prevTotal) * 100).toFixed(1) : 0;
-            const upgradedPct = prevNonFullTotal > 0 ? ((upgraded / prevNonFullTotal) * 100).toFixed(1) : 0;
-
-            summary[g.id] = {
-                full: monthFullSet.size,
-                monthly: monthMonthlySet.size,
-                install: monthInstallSet.size,
-                total: monthActiveSet.size,
-                grown,
-                dropped,
-                upgraded, 
-                grownPct: parseFloat(grownPct),
-                droppedPct: parseFloat(droppedPct),
-                upgradedPct: parseFloat(upgradedPct) 
-            };
-
-            prevSummaryActiveSet = monthActiveSet;
-            prevSummaryNonFullSet = new Set([...monthMonthlySet, ...monthInstallSet]);
-            prevSummaryFullSet = monthFullSet; // 🔥 Update for next loop
-        });
-
-        res.status(200).json(safeJson({
-            months: groups,
-            subjects: uniqueSubjectNames,
-            matrix,
-            summary
-        }));
-
-    } catch (error) {
-        console.error("Data Export Matrix Error:", error);
-        res.status(500).json({ error: "Failed to generate data matrix" });
     }
+    return true;
 };
 
 // ============================================================================
-// MODULE 02: CONVERSION & DROP ANALYTICS (INQUIRIES, DISTRIBUTION, DROPS)
+// MODULE 01: RETENTION & DROP ANALYTICS (INQUIRIES, DISTRIBUTION, DROPS)
 // ============================================================================
-exports.getModuleTwoAnalytics = async (req, res) => {
+exports.getModuleOneAnalytics = async (req, res) => {
+    console.log("HIT GET MODULE ONE ANALYTICS ROUTE!");
     try {
         const { businessId, batchId } = req.query;
+        console.log("Query params:", { businessId, batchId });
 
         if (!batchId || batchId === 'null') {
             return res.status(400).json({ error: "Batch ID is required for Analytics" });
@@ -258,31 +49,8 @@ exports.getModuleTwoAnalytics = async (req, res) => {
         const parsedBatchId = parseInt(batchId);
         const parsedBizId = parseInt(businessId);
         
-        const userId = req.user.userId || req.user.id;
-        const userRole = req.user.role;
-        const businessType = req.user.businessType;
-        
-        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
-        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
-        
-        if (!isAdmin) {
-            const allBiz = await prisma.business.findMany();
-            const myBizs = allBiz.filter(biz => {
-                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
-                const matchesBizType = businessType && (
-                    String(biz.id) === String(businessType).trim() ||
-                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
-                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
-                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
-                );
-                return isManagerOf || matchesBizType;
-            });
-            const myBizIds = myBizs.map(b => b.id);
-            
-            if (!myBizIds.includes(parsedBizId)) {
-                return res.status(403).json({ error: "Access Denied. You are not allowed to view this business's analytics." });
-            }
-        }
+        const hasAccess = await checkAccess(req, parsedBizId);
+        if (!hasAccess) return res.status(403).json({ error: "Access Denied." });
 
         // ---------------------------------------------------------
         // 1. SUMMARY CARDS DATA (Inquiries & Real Enrolled)
@@ -308,7 +76,6 @@ exports.getModuleTwoAnalytics = async (req, res) => {
             select: { id: true, name: true, itemOrder: true, type: true }
         });
 
-        // Drop Analytics වලට Full Payment Group එක ඕනේ නෑ, ඒ නිසා ඒක අයින් කරපු සෙට් එකකුත් හදාගන්නවා
         const monthlyGroups = allGroups.filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'));
 
         const courses = await prisma.course.findMany({
@@ -320,25 +87,49 @@ exports.getModuleTwoAnalytics = async (req, res) => {
         courses.forEach(c => courseMap[c.id] = c.name.trim().toUpperCase());
         const uniqueSubjectNames = [...new Set(Object.values(courseMap))];
 
-        const payments = await prisma.payment.findMany({
-            where: { batchId: parsedBatchId, status: { in: [1, 4] } }, // Approved & Post Pay
-            select: { studentId: true, groupId: true, payment_type: true, subjects: true }
+        const batchInstallmentPlans = await prisma.installment.findMany({
+            where: { batchId: parsedBatchId }
         });
 
-        // Real Unique Enrolled Students (Summary Card එකට)
+        const payments = await prisma.payment.findMany({
+            where: { batchId: parsedBatchId, status: { in: [1, 4] } }, 
+            select: { studentId: true, groupId: true, payment_type: true, subjects: true, created_at: true, amount: true, remark: true }
+        });
+
         const uniqueStudents = new Set();
-        const studentSubjectsCount = {}; // For Core Average Logic
+        const studentSubjectsCount = {}; 
+
+        const monthNames = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
+        const batchMonths = [];
+        monthlyGroups.forEach(mg => {
+            monthNames.forEach(m => {
+                if (mg.name.toUpperCase().includes(m) && !batchMonths.includes(m)) {
+                    batchMonths.push(m);
+                }
+            });
+        });
 
         // Data Structures
-        const distributionData = {}; // For Group Distribution Table
-        const dropData = {};         // For Drop Analytics Table
+        const distributionData = {}; // For Group Distribution Table (SLIP COUNTS)
+        const dropData = {};         // For Drop Analytics Table (STUDENT TRACKING)
+        const batchUniqueStudents = {}; // For OVERALL True Unique Students (Headcount)
+
+        batchMonths.forEach(m => {
+            batchUniqueStudents[m] = new Set();
+        });
 
         uniqueSubjectNames.forEach(sub => {
             distributionData[sub] = {};
             dropData[sub] = {};
             
-            allGroups.forEach(g => { distributionData[sub][g.id] = new Set(); });
-            monthlyGroups.forEach(mg => { dropData[sub][mg.id] = { active: new Set(), dropped: 0 }; });
+            batchMonths.forEach(m => {
+                distributionData[sub][m] = { FULL: 0, MONTHLY: 0, INSTALLMENT: 0 };
+                dropData[sub][m] = { 
+                    FULL: new Set(), 
+                    MONTHLY: new Set(),
+                    INSTALLMENT: new Set()
+                }; 
+            });
         });
 
         // ---------------------------------------------------------
@@ -347,7 +138,12 @@ exports.getModuleTwoAnalytics = async (req, res) => {
         payments.forEach(p => {
             if (!p.subjects || !p.studentId || !p.groupId) return;
 
-            uniqueStudents.add(p.studentId); // Real Enrolled Students Count එකට එකතු කරනවා
+            // EXCLUDE FREE CARDS: amount is 0 OR remark contains "FREE"
+            if (p.amount === 0 || (p.remark && p.remark.toUpperCase().includes('FREE'))) {
+                return;
+            }
+
+            uniqueStudents.add(p.studentId); 
 
             if (!studentSubjectsCount[p.studentId]) {
                 studentSubjectsCount[p.studentId] = new Set();
@@ -372,57 +168,244 @@ exports.getModuleTwoAnalytics = async (req, res) => {
 
             enrolledSubjects = [...new Set(enrolledSubjects)];
             const payType = parseInt(p.payment_type);
+            
+            let typeCat = 'MONTHLY';
+            if (payType === 3) typeCat = 'FULL';
+            else if (payType === 2) typeCat = 'INSTALLMENT';
+            else if (payType === 1) typeCat = 'MONTHLY';
 
-            enrolledSubjects.forEach(sub => {
-                if (!uniqueSubjectNames.includes(sub)) return;
-
-                // A) Group Distribution: ඒ ඒ Group එකට අදාලව ළමයි දානවා (Full Payment Group එකත් එක්කම)
-                if (distributionData[sub][p.groupId]) {
-                    distributionData[sub][p.groupId].add(p.studentId);
-                }
-
-                // B) Drop Analytics: අර කලින් Logic එකමයි. Full නම් හැම මාසෙටම දානවා.
-                const mgIndex = monthlyGroups.findIndex(mg => mg.id === p.groupId);
-                const targetMgIndex = mgIndex !== -1 ? mgIndex : 0;
-
-                if (monthlyGroups.length > 0) {
-                    if (payType === 3) { // Full
-                        for (let i = targetMgIndex; i < monthlyGroups.length; i++) {
-                            dropData[sub][monthlyGroups[i].id].active.add(p.studentId);
-                        }
-                    } else if (mgIndex !== -1) { // Monthly / Installment
-                        dropData[sub][monthlyGroups[mgIndex].id].active.add(p.studentId);
+            let pMonth = null;
+            const mg = monthlyGroups.find(m => m.id === p.groupId);
+            if (mg) {
+                for (let m of batchMonths) {
+                    if (mg.name.toUpperCase().includes(m)) {
+                        pMonth = m; break;
                     }
                 }
-            });
+            } else {
+                if (p.created_at) {
+                    const date = new Date(p.created_at);
+                    const monthString = monthNames[date.getMonth()];
+                    if (batchMonths.includes(monthString)) {
+                        pMonth = monthString;
+                    } else if (batchMonths.length > 0) {
+                        pMonth = batchMonths[0];
+                    }
+                }
+            }
+
+            if (pMonth) {
+                let monthsToCover = [];
+                if (typeCat === 'FULL') {
+                    const startIndex = batchMonths.indexOf(pMonth);
+                    if (startIndex !== -1) {
+                        for (let i = startIndex; i < batchMonths.length; i++) {
+                            monthsToCover.push(batchMonths[i]);
+                        }
+                    }
+                } else if (typeCat === 'INSTALLMENT') {
+                    monthsToCover.push(pMonth); // Default fallback
+
+                    const subCount = enrolledSubjects.length;
+                    const plan = batchInstallmentPlans.find(i => i.subjectCount === subCount) ||
+                                 [...batchInstallmentPlans].sort((a,b) => b.subjectCount - a.subjectCount).find(i => i.subjectCount <= subCount);
+
+                    if (plan && plan.details) {
+                        try {
+                            const details = JSON.parse(plan.details);
+                            const stepInfo = details.find(d => parseInt(d.step) === (p.installment_no || 1));
+                            
+                            if (stepInfo) {
+                                let rangeStr = stepInfo.rangeNormal;
+                                if (p.remark && p.remark.includes('[UPGRADE]')) {
+                                    rangeStr = stepInfo.rangeUp1 || stepInfo.rangeNormal;
+                                }
+
+                                if (rangeStr) {
+                                    const parts = rangeStr.split('-');
+                                    if (parts.length === 2) {
+                                        const sIdx = parseInt(parts[0]) - 1;
+                                        const eIdx = parseInt(parts[1]) - 1;
+                                        if (!isNaN(sIdx) && !isNaN(eIdx)) {
+                                            monthsToCover = []; // clear fallback
+                                            const pMonthIdx = batchMonths.indexOf(pMonth);
+                                            for (let i = sIdx; i <= eIdx; i++) {
+                                                if (batchMonths[i] && i >= pMonthIdx) {
+                                                    monthsToCover.push(batchMonths[i]);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch(e) { }
+                    }
+                } else {
+                    monthsToCover.push(pMonth);
+                }
+
+                monthsToCover.forEach(m => {
+                    batchUniqueStudents[m].add(p.studentId);
+                });
+
+                enrolledSubjects.forEach(sub => {
+                    if (!uniqueSubjectNames.includes(sub)) return;
+
+                    monthsToCover.forEach(m => {
+                        if (distributionData[sub][m] !== undefined) {
+                            distributionData[sub][m][typeCat] += 1;
+                        }
+
+                        if (dropData[sub][m] !== undefined) {
+                            dropData[sub][m][typeCat].add(p.studentId);
+                        }
+                    });
+                });
+            }
         });
 
         // ---------------------------------------------------------
-        // 4. CALCULATE DROPS (Month over Month)
+        // 4. CALCULATE DROPS & GROWTH (Month over Month)
         // ---------------------------------------------------------
+        const batchOverallUniqueStats = {};
+        let prevBatchUniqueSet = new Set();
+
+        batchMonths.forEach((m, index) => {
+            const currentBatchSet = batchUniqueStudents[m];
+            let uniqueGrow = 0, uniqueDrop = 0;
+            
+            if (index > 0) {
+                currentBatchSet.forEach(id => {
+                    if (!prevBatchUniqueSet.has(id)) {
+                        uniqueGrow++;
+                    }
+                });
+                prevBatchUniqueSet.forEach(id => {
+                    if (!currentBatchSet.has(id)) {
+                        uniqueDrop++;
+                    }
+                });
+            }
+            
+            batchOverallUniqueStats[m] = {
+                size: currentBatchSet.size,
+                grow: uniqueGrow,
+                drop: uniqueDrop
+            };
+            
+            prevBatchUniqueSet = currentBatchSet;
+        });
+
         const finalDropStats = {};
         uniqueSubjectNames.forEach(sub => {
-            finalDropStats[sub] = { months: {}, totalSubjectDrops: 0 };
-            let prevActiveSet = new Set();
+            finalDropStats[sub] = { 
+                months: {}, 
+                totalMonthlyDrops: 0, totalFullGrowths: 0,
+                totalMonthlyGrowths: 0, totalFullDrops: 0,
+                totalInstDrops: 0, totalInstGrowths: 0,
+                overallDrop: 0, overallGrow: 0
+            };
+            
+            let prevFullSet = new Set();
+            let prevMonthlySet = new Set();
+            let prevInstSet = new Set();
 
-            monthlyGroups.forEach((mg, index) => {
-                const currentActiveSet = dropData[sub][mg.id].active;
-                let dropped = 0;
+            batchMonths.forEach((m, index) => {
+                const currentFullSet = dropData[sub][m].FULL;
+                const currentMonthlySet = dropData[sub][m].MONTHLY;
+                const currentInstSet = dropData[sub][m].INSTALLMENT;
+                
+                let fullGrow = 0, fullDrop = 0;
+                let fullGrowNew = 0, fullGrowUpg = 0;
+                let monthlyGrow = 0, monthlyDrop = 0, monthlyUpg = 0;
+                let instGrow = 0, instDrop = 0, instUpg = 0;
 
                 if (index > 0) {
-                    prevActiveSet.forEach(id => {
-                        if (!currentActiveSet.has(id)) dropped++;
+                    // Full
+                    currentFullSet.forEach(id => { 
+                        if (!prevFullSet.has(id)) {
+                            fullGrow++;
+                            if (prevMonthlySet.has(id) || prevInstSet.has(id)) {
+                                fullGrowUpg++;
+                            } else {
+                                fullGrowNew++;
+                            }
+                        } 
+                    });
+                    prevFullSet.forEach(id => { if (!currentFullSet.has(id)) fullDrop++; });
+
+                    // Monthly
+                    currentMonthlySet.forEach(id => { if (!prevMonthlySet.has(id)) monthlyGrow++; });
+                    prevMonthlySet.forEach(id => { 
+                        if (!currentMonthlySet.has(id)) {
+                            if (currentFullSet.has(id) || currentInstSet.has(id)) {
+                                monthlyUpg++;
+                            } else {
+                                monthlyDrop++;
+                            }
+                        }
+                    });
+
+                    // Installment
+                    currentInstSet.forEach(id => { if (!prevInstSet.has(id)) instGrow++; });
+                    prevInstSet.forEach(id => { 
+                        if (!currentInstSet.has(id)) {
+                            if (currentFullSet.has(id)) {
+                                instUpg++;
+                            } else {
+                                instDrop++;
+                            }
+                        }
                     });
                 }
 
-                finalDropStats[sub].months[mg.id] = dropped;
-                finalDropStats[sub].totalSubjectDrops += dropped;
-                prevActiveSet = currentActiveSet;
+                const calcPct = (val, prevBase) => prevBase > 0 ? ((val / prevBase) * 100).toFixed(1) : 0;
+
+                finalDropStats[sub].months[m] = { 
+                    FULL: { 
+                        grow: fullGrow, 
+                        growNew: fullGrowNew,
+                        growUpg: fullGrowUpg,
+                        drop: fullDrop,
+                        prevSize: prevFullSet.size,
+                        growPct: calcPct(fullGrow, prevFullSet.size), 
+                        growNewPct: calcPct(fullGrowNew, prevFullSet.size),
+                        growUpgPct: calcPct(fullGrowUpg, prevFullSet.size),
+                        dropPct: calcPct(fullDrop, prevFullSet.size) 
+                    },
+                    MONTHLY: { 
+                        grow: monthlyGrow, drop: monthlyDrop, upg: monthlyUpg,
+                        prevSize: prevMonthlySet.size,
+                        growPct: calcPct(monthlyGrow, prevMonthlySet.size), 
+                        dropPct: calcPct(monthlyDrop, prevMonthlySet.size),
+                        upgPct: calcPct(monthlyUpg, prevMonthlySet.size)
+                    },
+                    INSTALLMENT: { 
+                        grow: instGrow, drop: instDrop, upg: instUpg,
+                        prevSize: prevInstSet.size,
+                        growPct: calcPct(instGrow, prevInstSet.size), 
+                        dropPct: calcPct(instDrop, prevInstSet.size),
+                        upgPct: calcPct(instUpg, prevInstSet.size)
+                    }
+                };
+                
+                finalDropStats[sub].totalFullGrowths += fullGrow;
+                finalDropStats[sub].totalFullDrops += fullDrop;
+                finalDropStats[sub].totalMonthlyDrops += monthlyDrop;
+                finalDropStats[sub].totalMonthlyGrowths += monthlyGrow;
+                finalDropStats[sub].totalInstDrops += instDrop;
+                finalDropStats[sub].totalInstGrowths += instGrow;
+                
+                prevFullSet = currentFullSet;
+                prevMonthlySet = currentMonthlySet;
+                prevInstSet = currentInstSet;
             });
+            finalDropStats[sub].overallDrop = finalDropStats[sub].totalFullDrops + finalDropStats[sub].totalMonthlyDrops + finalDropStats[sub].totalInstDrops;
+            finalDropStats[sub].overallGrow = finalDropStats[sub].totalFullGrowths + finalDropStats[sub].totalMonthlyGrowths + finalDropStats[sub].totalInstGrowths;
         });
 
         // ---------------------------------------------------------
-        // 5. CORE AVERAGE LOGIC (3 Subjects / 9 Subjects)
+        // 5. CORE AVERAGE LOGIC
         // ---------------------------------------------------------
         const biz = await prisma.business.findUnique({ where: { id: parsedBizId } });
         const isOL = biz ? (biz.name.toLowerCase().includes('o/l') || biz.name.toLowerCase().includes('ordinary')) : false;
@@ -436,7 +419,6 @@ exports.getModuleTwoAnalytics = async (req, res) => {
                 let mainCount = 0;
                 subsSet.forEach(s => {
                     const sn = s.toLowerCase();
-                    // English, General, GIT අයින් කරලා Main subjects ගාණ බලනවා
                     if (!sn.includes('english') && !sn.includes('general') && !sn.includes('git')) {
                         mainCount++;
                     }
@@ -448,20 +430,21 @@ exports.getModuleTwoAnalytics = async (req, res) => {
         // ---------------------------------------------------------
         // 6. FORMAT RESPONSE DATA
         // ---------------------------------------------------------
-        // Distribution Table එකට යවන්න ලේසි වෙන්න Size එක විතරක් ගන්නවා
         const formattedDistribution = {};
         uniqueSubjectNames.forEach(sub => {
             formattedDistribution[sub] = {};
             let rowTotal = 0;
-            allGroups.forEach(g => {
-                const count = distributionData[sub][g.id].size;
-                formattedDistribution[sub][g.id] = count;
-                rowTotal += count;
+            batchMonths.forEach(m => {
+                const data = distributionData[sub][m];
+                const total = data.FULL + data.MONTHLY + data.INSTALLMENT;
+                formattedDistribution[sub][m] = { ...data, total };
+                rowTotal += total;
             });
             formattedDistribution[sub]['Total'] = rowTotal;
         });
 
         res.status(200).json(safeJson({
+            batchMonths: batchMonths,
             summaryCards: {
                 freeSeminar: freeSeminarCount,
                 openSeminar: openSeminarCount,
@@ -469,15 +452,335 @@ exports.getModuleTwoAnalytics = async (req, res) => {
                 realEnrolled: uniqueStudents.size
             },
             coreAverage: coreAverageCount,
-            allGroups: allGroups, // Columns for Distribution Table
-            monthlyGroups: monthlyGroups, // Columns for Drop Table
+            allGroups: allGroups, 
+            monthlyGroups: monthlyGroups, 
             subjects: uniqueSubjectNames,
             distributionData: formattedDistribution,
-            dropData: finalDropStats
+            dropData: finalDropStats,
+            batchOverallUniqueStats: batchOverallUniqueStats
         }));
 
     } catch (error) {
-        console.error("Module 02 Analytics Error:", error);
-        res.status(500).json({ error: "Failed to load Module 02 Analytics" });
+        console.error("Module 01 Analytics Error:", error);
+        res.status(500).json({ error: "Failed to load Module 01 Analytics" });
+    }
+};
+
+// ============================================================================
+// MODULE 02: BATCH COMPARISON
+// ============================================================================
+exports.getBatchComparison = async (req, res) => {
+    try {
+        const { businessId, batchAId, batchBId } = req.query;
+        if (!batchAId || !batchBId || batchAId === 'null' || batchBId === 'null') {
+            return res.status(400).json({ error: "Both Batch A and Batch B IDs are required." });
+        }
+
+        const bAId = parseInt(batchAId);
+        const bBId = parseInt(batchBId);
+        const parsedBizId = parseInt(businessId);
+
+        const hasAccess = await checkAccess(req, parsedBizId);
+        if (!hasAccess) return res.status(403).json({ error: "Access Denied." });
+
+        const fetchBatchData = async (batchId) => {
+            const batch = await prisma.batch.findUnique({ where: { id: batchId } });
+            if (!batch) return null;
+
+            const freeSem = await prisma.lead.count({ where: { batchId, campaignType: 'FREE_SEMINAR' } });
+            const openSem = await prisma.lead.count({ where: { batchId, campaignType: 'AFTER_SEMINAR', inquiryType: 'OPEN_SEMINAR' } });
+            const newInq = await prisma.lead.count({ where: { batchId, campaignType: 'AFTER_SEMINAR', inquiryType: 'NEW_INQ' } });
+            
+            const payments = await prisma.payment.findMany({
+                where: { batchId, status: { in: [1, 4] } },
+                select: { studentId: true }
+            });
+            const uniqueEnrolled = new Set(payments.map(p => p.studentId)).size;
+
+            return {
+                batchName: batch.name,
+                freeSem, openSem, newInq, uniqueEnrolled
+            };
+        };
+
+        const batchAData = await fetchBatchData(bAId);
+        const batchBData = await fetchBatchData(bBId);
+
+        res.status(200).json(safeJson({
+            batchA: batchAData,
+            batchB: batchBData
+        }));
+
+    } catch (error) {
+        console.error("Batch Comparison Error:", error);
+        res.status(500).json({ error: "Failed to load Batch Comparison" });
+    }
+};
+// ============================================================================
+// MODULE 03: COORDINATOR KPI ANALYTICS
+// ============================================================================
+exports.getCoordinatorKPI = async (req, res) => {
+    try {
+        const { businessId, batchId } = req.query;
+        if (!businessId) {
+            return res.status(400).json({ error: "Business ID is required" });
+        }
+        
+        const parsedBizId = parseInt(businessId);
+        
+        // Access Check
+        const hasAccess = await checkAccess(req, parsedBizId);
+        if (!hasAccess) {
+            return res.status(403).json({ error: "Access Denied to this Campaign" });
+        }
+
+        let leadWhere = { 
+            campaignType: 'AFTER_SEMINAR',
+            assignedTo: { not: null }
+        };
+
+        if (batchId && batchId !== 'null') {
+            leadWhere.batchId = parseInt(batchId);
+        } else {
+            leadWhere.OR = [
+                { phone: { endsWith: `BIZ_${parsedBizId}` } },
+                { phone: { endsWith: `BIZ_${parsedBizId}_AS` } },
+                { phone: { contains: `BIZ_${parsedBizId}_BATCH_` } },
+                { phone: { contains: `BIZ_${parsedBizId}_ROUND_` } },
+                { phone: { contains: `BIZ_${parsedBizId}_HISTORY_ROUND_` } }
+            ];
+        }
+
+        const leads = await prisma.lead.findMany({
+            where: leadWhere,
+            include: {
+                assignedUser: {
+                    select: { id: true, firstName: true, lastName: true }
+                },
+                messages: true,
+                roundProgress: true
+            }
+        });
+
+        // Map phone numbers to find corresponding Users (Students) and Payments
+        const enrolledLeads = leads.filter(l => l.enrollmentStatus === 'ENROLLED');
+        const cleanPhoneMap = {}; // Maps clean phone back to lead's full phone string
+        const cleanPhones = [];
+        
+        enrolledLeads.forEach(l => {
+            let clean = l.phone.split('_')[0];
+            if (clean.startsWith('94')) clean = '0' + clean.substring(2);
+            cleanPhones.push(clean);
+            cleanPhoneMap[l.phone] = clean;
+        });
+
+        const students = await prisma.user.findMany({
+            where: { phone: { in: cleanPhones } },
+            select: { id: true, phone: true }
+        });
+
+        const studentIdByCleanPhone = {};
+        students.forEach(s => studentIdByCleanPhone[s.phone] = s.id);
+
+        const studentPhoneMap = {}; // original lead phone -> student id
+        enrolledLeads.forEach(l => {
+            const cPhone = cleanPhoneMap[l.phone];
+            if (studentIdByCleanPhone[cPhone]) {
+                studentPhoneMap[l.phone] = studentIdByCleanPhone[cPhone];
+            }
+        });
+
+        const studentIds = students.map(s => s.id);
+        const payments = await prisma.payment.findMany({
+            where: { studentId: { in: studentIds }, status: { in: [0, 1, 4] } },
+            orderBy: { created_at: 'desc' }
+        });
+
+        const paymentMap = {}; // studentId -> all payments
+        payments.forEach(p => {
+            if (!paymentMap[p.studentId]) paymentMap[p.studentId] = [];
+            paymentMap[p.studentId].push(p);
+        });
+
+        // Initialize Aggregation Map
+        const coordinatorMap = {};
+        const getMonthYear = (dateStr) => {
+            if (!dateStr) return 'Unknown';
+            const d = new Date(dateStr);
+            return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+        };
+
+        leads.forEach(lead => {
+            if (!lead.assignedUser) return;
+            const staffId = lead.assignedUser.id;
+            
+            if (!coordinatorMap[staffId]) {
+                coordinatorMap[staffId] = {
+                    id: staffId,
+                    name: `${lead.assignedUser.firstName} ${lead.assignedUser.lastName || ''}`.trim(),
+                    calls: {
+                        openSem: { assigned: 0, covered: 0, pending: 0, r1: { covered: 0, pending: 0 }, r2: { covered: 0, pending: 0 }, enrolled: 0, nonEnrolled: 0, paid: 0 },
+                        newInq: { assigned: 0, covered: 0, pending: 0, r1: { covered: 0, pending: 0 }, r2: { covered: 0, pending: 0 }, enrolled: 0, nonEnrolled: 0, paid: 0 },
+                    },
+                    finances: {
+                        totalEnrolled: 0,
+                        monthly: 0, installment: 0, full: 0, upgraded: 0,
+                        subjects: {}
+                    },
+                    messages: {
+                        openSem: { total: 0, sent: 0, received: 0, unread: 0 },
+                        newInq: { total: 0, sent: 0, received: 0, unread: 0 }
+                    },
+                    monthlyTrends: {} // e.g. { '2024-05': { enrolled: 5, drops: 1, growth: 2, monthly: 1, full: 2, install: 2, upgraded: 0 } }
+                };
+            }
+            
+            const c = coordinatorMap[staffId];
+            const inqType = lead.inquiryType === 'NEW_INQ' ? 'newInq' : 'openSem';
+            
+            // Calls Aggregation
+            c.calls[inqType].assigned++;
+            if (lead.callStatus === 'pending') c.calls[inqType].pending++;
+            else c.calls[inqType].covered++;
+
+            // Round Breakdown
+            const r1 = lead.roundProgress?.find(r => r.roundNum === 1);
+            if (r1) {
+                if (r1.callStatus === 'pending') c.calls[inqType].r1.pending++;
+                else c.calls[inqType].r1.covered++;
+            } else {
+                // Fallback to lead coordinationRound
+                if (lead.coordinationRound === 1) {
+                    if (lead.callStatus === 'pending') c.calls[inqType].r1.pending++;
+                    else c.calls[inqType].r1.covered++;
+                }
+            }
+
+            const r2 = lead.roundProgress?.find(r => r.roundNum === 2);
+            if (r2) {
+                if (r2.callStatus === 'pending') c.calls[inqType].r2.pending++;
+                else c.calls[inqType].r2.covered++;
+            } else {
+                if (lead.coordinationRound === 2) {
+                    if (lead.callStatus === 'pending') c.calls[inqType].r2.pending++;
+                    else c.calls[inqType].r2.covered++;
+                }
+            }
+
+            // Enrollments
+            if (lead.enrollmentStatus === 'ENROLLED') {
+                c.calls[inqType].enrolled++;
+                c.calls[inqType].paid++;
+                c.finances.totalEnrolled++;
+                
+                if (lead.paymentIntention === 'MONTHLY') c.finances.monthly++;
+                else if (lead.paymentIntention === 'INSTALLMENT') c.finances.installment++;
+                else if (lead.paymentIntention === 'FULL') c.finances.full++;
+
+                let isUpgraded = false;
+                let isDropped = false;
+                
+                // Check Payments for this student
+                const sId = studentPhoneMap[lead.phone];
+                if (sId && paymentMap[sId] && paymentMap[sId].length > 0) {
+                    const stuPayments = paymentMap[sId];
+                    // Upgraded: Multiple payments with different types or Full after Monthly
+                    if (stuPayments.length > 1) {
+                        const hasMonthly = stuPayments.some(p => p.payment_type === 1);
+                        const hasFull = stuPayments.some(p => p.payment_type === 3);
+                        if (hasMonthly && hasFull) {
+                            isUpgraded = true;
+                            c.finances.upgraded++;
+                        }
+                    }
+
+                    // Subjects Parsing
+                    const firstPayment = stuPayments[stuPayments.length - 1]; // Oldest payment
+                    if (firstPayment && firstPayment.subjects) {
+                        try {
+                            const subs = JSON.parse(firstPayment.subjects);
+                            subs.forEach(s => {
+                                let subName = typeof s === 'string' ? s : (s.name || s.id || 'Unknown');
+                                if (!c.finances.subjects[subName]) c.finances.subjects[subName] = 0;
+                                c.finances.subjects[subName]++;
+                            });
+                        } catch(e) {}
+                    }
+
+                    // Drop Logic: Monthly/Installment and no payment in last 35 days
+                    if (lead.paymentIntention !== 'FULL') {
+                        const latestPayment = stuPayments[0]; // Newest payment
+                        const daysSinceLastPayment = (new Date() - new Date(latestPayment.created_at)) / (1000 * 60 * 60 * 24);
+                        if (daysSinceLastPayment > 35) {
+                            isDropped = true;
+                        }
+                    }
+                }
+
+                // Monthly Trend Logic
+                const monthStr = getMonthYear(lead.createdAt || new Date());
+                if (!c.monthlyTrends[monthStr]) {
+                    c.monthlyTrends[monthStr] = { month: monthStr, enrolled: 0, drops: 0, growth: 0, monthly: 0, full: 0, install: 0, upgraded: 0 };
+                }
+                c.monthlyTrends[monthStr].enrolled++;
+                if (lead.paymentIntention === 'MONTHLY') c.monthlyTrends[monthStr].monthly++;
+                else if (lead.paymentIntention === 'INSTALLMENT') c.monthlyTrends[monthStr].install++;
+                else if (lead.paymentIntention === 'FULL') c.monthlyTrends[monthStr].full++;
+                
+                if (isUpgraded) c.monthlyTrends[monthStr].upgraded++;
+                
+                if (isDropped) {
+                    c.monthlyTrends[monthStr].drops++;
+                } else {
+                    c.monthlyTrends[monthStr].growth++; // Active
+                }
+
+            } else {
+                c.calls[inqType].nonEnrolled++;
+            }
+
+            // Messaging Aggregation
+            if (lead.messages && lead.messages.length > 0) {
+                c.messages[inqType].total += lead.messages.length;
+                lead.messages.forEach(msg => {
+                    // Handle both casing for safety
+                    const dir = msg.direction ? msg.direction.toLowerCase() : '';
+                    if (dir === 'in' || dir === 'inbound') {
+                        c.messages[inqType].received++;
+                        if (!msg.isRead) c.messages[inqType].unread++;
+                    } else if (dir === 'out' || dir === 'outbound') {
+                        c.messages[inqType].sent++;
+                    }
+                });
+            }
+        });
+
+        // Format Output
+        const result = Object.values(coordinatorMap).map(c => {
+            const formattedTrends = Object.values(c.monthlyTrends).sort((a,b) => a.month.localeCompare(b.month));
+            
+            // Format subjects into array for charting
+            const subjectArray = Object.entries(c.finances.subjects).map(([name, count]) => ({
+                name, count, percent: c.finances.totalEnrolled > 0 ? ((count / c.finances.totalEnrolled) * 100).toFixed(1) : 0
+            }));
+
+            // Format Calls Response Rates
+            const os = c.calls.openSem;
+            const ni = c.calls.newInq;
+            os.responseRate = os.assigned > 0 ? ((os.covered / os.assigned) * 100).toFixed(1) : '0.0';
+            ni.responseRate = ni.assigned > 0 ? ((ni.covered / ni.assigned) * 100).toFixed(1) : '0.0';
+
+            return {
+                ...c,
+                monthlyTrendsArray: formattedTrends,
+                subjectsArray: subjectArray
+            };
+        });
+
+        res.status(200).json(safeJson(result));
+
+    } catch (error) {
+        console.error("Coordinator KPI Error:", error);
+        res.status(500).json({ error: "Failed to load Coordinator KPI Analytics" });
     }
 };

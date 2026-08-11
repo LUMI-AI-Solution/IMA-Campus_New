@@ -4,9 +4,11 @@ import api from '../../api/axios';
 import { FolderOpen, Folder, Trash2, XCircle, X,  
   Upload, CheckCircle, FileText, Activity, Loader, 
   ShieldCheck, Database, Search, Key, Lock, Plus, Calendar, 
-  AlertCircle, Settings, KeyRound, Image, CheckSquare, Edit3, Terminal, Send, Bot, User
+  AlertCircle, Settings, KeyRound, Image, CheckSquare, Edit3, Terminal, Send, Bot, User,
+  Zap, Play, StopCircle, History, Clock, Filter, RefreshCw, Eye, ExternalLink, Server, ChevronRight
  } from 'lucide-react';
 import toast from 'react-hot-toast';
+import AIHistoryTab from './AIHistoryTab';
 
 
 
@@ -165,6 +167,7 @@ export default function AISlipVerification({ loggedInUser }) {
   const [statementBank, setStatementBank] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [statementTransactions, setStatementTransactions] = useState([]);
+  const [statementHeaders, setStatementHeaders] = useState([]);
   
   // Settings / Config Panel States
   const [showSettingsAuth, setShowSettingsAuth] = useState(false);
@@ -211,6 +214,34 @@ export default function AISlipVerification({ loggedInUser }) {
 
   // Settings Tabs
   const [activeSettingsTab, setActiveSettingsTab] = useState('banks');
+  const [mainTab, setMainTab] = useState('slips');
+  const getImageUrl = (imageName) => (!imageName || imageName === 'default.png' || imageName === 'null') ? '/logo.png' : (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace('/api', '') : (window.location.protocol === 'https:' ? `https://${window.location.hostname}` : `http://${window.location.hostname}:5000`)) + '/storage/icons/' + imageName;
+  const [activeSlipTab, setActiveSlipTab] = useState('Unprocessed Slips');
+  const [schedules, setSchedules] = useState({ mainQueue: { active: false, times: ['02:00', '', '', '', ''] }, noMatch: { active: false, times: ['12:00', '', '', '', ''] } });
+  const [showScheduleSettings, setShowScheduleSettings] = useState(false);
+  const [manualReviewSubTab, setManualReviewSubTab] = useState('Data Match Not Found');
+  
+  const toggleSchedule = async (type) => {
+    const state = !schedules[type].active;
+    const times = schedules[type].times;
+    setSchedules(prev => ({...prev, [type]: { ...prev[type], active: state }}));
+    toast.success(`${type === 'mainQueue' ? 'Main Queue' : 'No Match'} schedule turned ${state ? 'ON' : 'OFF'}`);
+    api.post('/ai-verification/schedule', { type, active: state, times }).catch(e => console.error(e));
+  };
+  
+  const updateScheduleTime = (type, index, time) => {
+    setSchedules(prev => {
+      const newTimes = [...prev[type].times];
+      newTimes[index] = time;
+      const newState = {...prev, [type]: { ...prev[type], times: newTimes }};
+      
+      // Save to backend immediately
+      api.post('/ai-verification/schedule', { type, active: newState[type].active, times: newTimes }).catch(e => console.error(e));
+      
+      return newState;
+    });
+  };
+  const [bulkStatus, setBulkStatus] = useState({ isRunning: false, processed: 0, total: 0 });
 
   const [gsheetTree, setGsheetTree] = useState({});
   const [selectedFolder, setSelectedFolder] = useState(null);
@@ -221,6 +252,7 @@ export default function AISlipVerification({ loggedInUser }) {
     fetchBusinesses();
     fetchMonths();
     fetchFullConfig();
+    fetchScheduleConfig();
   }, []);
 
   useEffect(() => {
@@ -248,11 +280,32 @@ export default function AISlipVerification({ loggedInUser }) {
       }, 15000); // Poll every 15 seconds
     }
     return () => clearInterval(interval);
-  }, [isAutoVerifyEnabled, isVerifying, pendingSlips, targetSlipConfig, selectedMonth]);
+  }, [isAutoVerifyEnabled, isVerifying, pendingSlips.length, targetSlipConfig, selectedMonth]);
 
   useEffect(() => {
-    if (selectedMonth) fetchMonthTransactions(selectedMonth);
-  }, [selectedMonth]);
+      let interval;
+      const pollBulkStatus = async () => {
+          try {
+              const { data } = await api.get('/ai-verification/bulk-status');
+              setBulkStatus(data);
+              if (data.isRunning) {
+                  fetchPendingSlips();
+              }
+          } catch (error) {
+              console.error("Error polling bulk status", error);
+          }
+      };
+
+      if (mainTab === 'slips') {
+          pollBulkStatus();
+          interval = setInterval(pollBulkStatus, 2000);
+      }
+      return () => clearInterval(interval);
+  }, [mainTab, selectedBusiness, selectedBatch, selectedStatus]);
+
+  useEffect(() => {
+    if (selectedBatch) fetchMonthTransactions(selectedBatch);
+  }, [selectedBatch]);
 
   const fetchBusinesses = async () => {
     try {
@@ -289,13 +342,39 @@ export default function AISlipVerification({ loggedInUser }) {
     } catch (err) { toast.error("Failed to fetch pending slips"); }
   };
 
-  const fetchMonthTransactions = async (month) => {
+  const startBulkVerification = async () => {
+    if (bulkStatus?.isRunning) {
+      try {
+        await api.post('/ai-verification/bulk-stop');
+        toast.success("Bulk Run Stopped");
+      } catch (e) {
+        toast.error("Failed to stop bulk verification");
+      }
+      return;
+    }
+
     try {
-      const res = await api.get(`/ai-verification/transactions?statementMonth=${month}`);
+      const res = await api.post('/ai-verification/bulk-start', {
+        businessId: selectedBusiness,
+        batchId: selectedBatch,
+        status: selectedStatus
+      });
+      toast.success(res.data?.message || "Bulk AI Verification Started");
+    } catch (e) {
+      const errMsg = e.response?.data?.error || "Failed to start bulk verification";
+      toast.error(errMsg);
+    }
+  };
+
+  const fetchMonthTransactions = async (bId) => {
+    try {
+      const res = await api.get(`/ai-verification/transactions?batchId=${bId}`);
       if (res.data && res.data.rows) {
         setStatementTransactions(res.data.rows);
+        setStatementHeaders(res.data.headers || []);
       } else {
         setStatementTransactions(Array.isArray(res.data) ? res.data : []);
+        setStatementHeaders([]);
       }
     } catch (err) { toast.error("Failed to fetch transactions"); }
   };
@@ -331,6 +410,20 @@ export default function AISlipVerification({ loggedInUser }) {
       try { const treeRes = await api.get('/ai-verification/gsheet-config/tree'); setGsheetTree(treeRes.data || {}); } catch(e){}
     } catch (err) {
       toast.error("Failed to load full configuration");
+    }
+  };
+
+  const fetchScheduleConfig = async () => {
+    try {
+      const res = await api.get('/ai-verification/schedule-config');
+      if (res.data && Object.keys(res.data).length > 0) {
+        setSchedules(prev => ({
+          ...prev,
+          ...res.data
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to load schedule config", err);
     }
   };
 
@@ -480,7 +573,7 @@ export default function AISlipVerification({ loggedInUser }) {
       try {
           await api.delete(`/ai-verification/bank-statements/${selectedMonth}`);
           toast.success("Successfully cleared statements.");
-          fetchMonthTransactions(selectedMonth);
+          fetchMonthTransactions(selectedBatch);
       } catch (err) {
           console.error(err);
           toast.error("Failed to clear statements.");
@@ -504,7 +597,7 @@ export default function AISlipVerification({ loggedInUser }) {
       toast.success(res.data.message);
       setStatementFile(null);
       document.getElementById('bank-upload').value = '';
-      fetchMonthTransactions(selectedMonth);
+      fetchMonthTransactions(selectedBatch);
     } catch (err) {
       toast.error(err.response?.data?.error || "Failed to upload file");
     } finally {
@@ -528,7 +621,7 @@ export default function AISlipVerification({ loggedInUser }) {
       setShowManualTxnModal(false);
       setManualTxnDesc('');
       setManualTxnAmount('');
-      fetchMonthTransactions(selectedMonth);
+      fetchMonthTransactions(selectedBatch);
     } catch (err) {
       toast.error(err.response?.data?.error || "Failed to add transaction record");
     } finally {
@@ -541,60 +634,50 @@ export default function AISlipVerification({ loggedInUser }) {
 
   // Verify single slip by payment ID
   const verifySingleSlip = async (slip) => {
-    if (!selectedMonth) return toast.error("Please select a target Month for bank statements");
-    if (!targetSlipConfig) return toast.error("Please select a Target Slip Template first.");
-
     setIsVerifying(true);
     setCurrentVerifyingIndex(0);
     setCurrentVerifyingSlip(slip);
     setAnimStep(1); // Scan image
 
-    const selectedBankConfig = banksConfig.find(b => b.slips?.some(s => s.name === targetSlipConfig));
-    if (selectedBankConfig) {
-      try {
-        await api.post('/ai-verification/settings-active', {
-          activeBank: selectedBankConfig.bankName,
-          activeSlips: [targetSlipConfig]
-        });
-      } catch(e) {
-          console.error("Failed to update active settings", e);
-          setIsVerifying(false);
-          setAnimStep(0);
-          return toast.error("Failed to set active bank template. Check network.");
-      }
-    }
-    await sleep(1200);
+    await sleep(1000);
     setAnimStep(2); // Query DB
-    await sleep(900);
+    await sleep(800);
     setAnimStep(3); // Match transactions
     
     try {
       const res = await api.post('/ai-verification/verify-single', {
         paymentId: slip.id,
-        statementMonth: selectedMonth
-      });
+        autoDetect: true
+      }, { timeout: 35000 });
       
       setAnimStep(4); // Match results ready
-      await sleep(1000);
       
       const result = res.data;
-      if (result.success) {
+      if (result.success || result.status === 'VERIFIED') {
         toast.success(`Slip #${slip.id} matched and verified!`);
         setVerifiedResults(prev => [{ slip, ...result }, ...prev]);
+      } else if (result.status === 'DUPLICATE_SLIP') {
+        toast.warning(result.error || `Duplicate slip detected for #${slip.id}`);
+        setNeedsReviewResults(prev => [{ slip, ...result }, ...prev]);
+      } else if (result.status === 'BUSINESS_MISMATCH') {
+        toast.warning(result.error || `Business mismatch for slip #${slip.id}`);
+        setNeedsReviewResults(prev => [{ slip, ...result }, ...prev]);
       } else {
-        toast.error(`Auto match failed for slip #${slip.id}. Manual review required.`);
+        toast.info(result.error || `Auto match pending/review for slip #${slip.id}`);
         setNeedsReviewResults(prev => [{ slip, ...result }, ...prev]);
       }
+      await sleep(1500);
     } catch (err) {
       toast.error(err.response?.data?.error || `AI processing failed for slip #${slip.id}`);
       setNeedsReviewResults(prev => [{ slip, status: 'ERROR', confidence: 0, matchMethod: 'Error executing AI process' }, ...prev]);
+      await sleep(1000);
     } finally {
       setIsVerifying(false);
       setCurrentVerifyingIndex(-1);
       setCurrentVerifyingSlip(null);
       setAnimStep(0);
       fetchPendingSlips();
-      fetchMonthTransactions(selectedMonth);
+      fetchMonthTransactions(selectedBatch);
     }
   };
   const handleExecuteCommand = async () => {
@@ -697,26 +780,26 @@ export default function AISlipVerification({ loggedInUser }) {
     setAnimStep(0);
     toast.success("Batch verification completed!");
     fetchPendingSlips();
-    fetchMonthTransactions(selectedMonth);
+    fetchMonthTransactions(selectedBatch);
   };
 
   return (
     <div className="p-6 h-[calc(100vh-4rem)] overflow-y-auto font-sans bg-black/30 text-gray-200">
       
       {/* HEADER SECTION */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 bg-gray-900/50 p-4 rounded-2xl border border-gray-800">
+      <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4 bg-gray-900/40 p-3 rounded-xl border border-gray-800">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <ShieldCheck className="text-emerald-500 animate-pulse" size={28} /> AI Slip Verification Center
+          <h1 className="text-lg font-bold text-white flex items-center gap-2">
+            <ShieldCheck className="text-emerald-500" size={20} /> AI Slip Verification Center
           </h1>
-          <p className="text-gray-400 text-sm">Targeted verification sequence for pending deposits</p>
+          <p className="text-gray-400 text-xs">Targeted verification sequence for pending deposits</p>
         </div>
         
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
             <select 
               value={selectedBusiness} 
               onChange={(e) => setSelectedBusiness(e.target.value)}
-              className="bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2 focus:border-blue-500 outline-none"
+              className="bg-gray-800 border border-gray-700 text-gray-300 text-sm rounded-md px-3 py-1.5 focus:border-emerald-500 outline-none"
             >
               <option value="">All Businesses</option>
               {businesses.map(b => (
@@ -727,7 +810,7 @@ export default function AISlipVerification({ loggedInUser }) {
             <select 
               value={selectedBatch} 
               onChange={(e) => setSelectedBatch(e.target.value)}
-              className="bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2 focus:border-blue-500 outline-none"
+              className="bg-gray-800 border border-gray-700 text-gray-300 text-sm rounded-md px-3 py-1.5 focus:border-emerald-500 outline-none"
             >
               <option value="">All Batches</option>
               {batches.map(b => (
@@ -738,177 +821,343 @@ export default function AISlipVerification({ loggedInUser }) {
             <select 
               value={selectedStatus} 
               onChange={(e) => setSelectedStatus(e.target.value)}
-              className="bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2 focus:border-blue-500 outline-none"
+              className="bg-gray-800 border border-gray-700 text-gray-300 text-sm rounded-md px-3 py-1.5 focus:border-emerald-500 outline-none"
             >
               <option value="">All Statuses</option>
               <option value="0">Pending</option>
               <option value="1">Approved</option>
               <option value="2">Rejected</option>
+              <option value="4">Post Pay</option>
+              <option value="3">Non Paid</option>
+              <option value="5">Trash</option>
             </select>
 
-            <button 
-                onClick={() => setShowSettingsAuth(true)}
-                className="p-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-emerald-400 hover:text-emerald-300 rounded-lg transition"
-                title="AI Core Settings & Bank Configuration"
-            >
-                <Settings size={20} />
-            </button>
+            <div className="flex gap-2">
+                <button 
+                    onClick={() => setShowScheduleSettings(true)}
+                    className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-blue-400 hover:text-blue-300 rounded-md transition"
+                    title="AI Schedule Settings"
+                >
+                    <Calendar size={18} />
+                </button>
+                <button 
+                    onClick={() => setShowSettingsAuth(true)}
+                    className="p-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-emerald-400 hover:text-emerald-300 rounded-md transition"
+                    title="AI Core Settings & Bank Configuration"
+                >
+                    <Settings size={18} />
+                </button>
+            </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        {/* LEFT PANEL: PENDING SLIPS & VERIFICATION */}
+        <div className="lg:col-span-12">
+            <div className="flex gap-6 mb-4 border-b border-gray-800 pb-2">
+                <button onClick={() => setMainTab('slips')} className={`pb-2 font-bold text-sm transition-colors ${mainTab==='slips' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-500 hover:text-gray-300'}`}>
+                    <Activity className="inline mr-2 mb-0.5" size={16}/>Collected Slips
+                </button>
+                <button onClick={() => setMainTab('vault')} className={`pb-2 font-bold text-sm transition-colors ${mainTab==='vault' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-500 hover:text-gray-300'}`}>
+                    <Database className="inline mr-2 mb-0.5" size={16}/>Google Sheet Vault
+                </button>
+                <button onClick={() => setMainTab('history')} className={`pb-2 font-bold text-sm transition-colors ${mainTab==='history' ? 'text-blue-400 border-b-2 border-blue-400' : 'text-gray-500 hover:text-gray-300'}`}>
+                    <History className="inline mr-2 mb-0.5" size={16}/>Schedule History
+                </button>
+            </div>
+        </div>
+
+        {mainTab === 'history' && (
+            <div className="lg:col-span-12">
+                <AIHistoryTab api={api} />
+            </div>
+        )}
+
+        {mainTab === 'slips' && (
+        <>
         <div className="lg:col-span-12 flex flex-col gap-6">
+            {/* BULK VERIFICATION DASHBOARD */}
+            {/* AUTO VERIFICATION DASHBOARD (COMPACT) */}
+            <div className="bg-[#111318] border border-gray-800/60 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+                <div className="flex items-center gap-3">
+                    <div className="p-2 bg-gray-800 rounded-lg">
+                        <Bot className="text-gray-300" size={20} />
+                    </div>
+                    <div>
+                        <h3 className="text-sm font-bold text-white mb-0.5">
+                            Auto-Verification Engine
+                        </h3>
+                        <p className="text-xs text-gray-500">
+                            Automatically scans all pending slips, detects the bank template, and verifies against the Google Sheet.
+                        </p>
+                    </div>
+                </div>
+                
+                <div className="flex items-center gap-3">
+                    {bulkStatus?.isRunning && (
+                        <div className="flex flex-col items-end mr-4">
+                            <div className="text-[11px] font-mono mb-1 text-gray-300 flex items-center gap-3 bg-gray-900/80 px-3 py-1 rounded-md border border-gray-700">
+                                <span className="text-blue-400">Total: {bulkStatus.total}</span>
+                                <span className="text-purple-400">Processed: {bulkStatus.processed}</span>
+                                <span className="text-emerald-400 font-bold">Verified: {bulkStatus.success}</span>
+                                <span className="text-amber-400 font-bold">Manual: {bulkStatus.failed}</span>
+                            </div>
+                            <div className="w-full flex items-center gap-2 justify-end">
+                                <div className="text-[10px] text-emerald-400 font-bold">RUNNING {bulkStatus.total > 0 ? Math.round((bulkStatus.processed/bulkStatus.total)*100) : 0}%</div>
+                                <div className="w-32 h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                                    <div className="h-full bg-emerald-500 transition-all duration-300" style={{width: `${bulkStatus.total > 0 ? (bulkStatus.processed / bulkStatus.total) * 100 : 0}%`}}></div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {!bulkStatus?.isRunning ? (
+                        <button 
+                            onClick={async () => {
+                                try {
+                                    const visibleSlipIds = pendingSlips.filter(slip => {
+                                        if (activeSlipTab === 'All Slips') return true;
+                                        if (activeSlipTab === 'Post Pay') return slip.status === 4 && (!slip.remark || (!slip.remark.includes('AI') && !slip.remark.includes('[Duplicate') && !slip.remark.includes('[Business') && !slip.remark.includes('[Batch') && !slip.remark.includes('Skipped')));
+                                        if (activeSlipTab === 'AI Verified') return slip.aiVerified === true;
+                                        if (activeSlipTab === 'Unprocessed') return slip.status === 0 && !slip.aiVerified && (!slip.remark || (!slip.remark.includes('AI') && !slip.remark.includes('[Duplicate') && !slip.remark.includes('[Business') && !slip.remark.includes('[Batch')));
+                                        if (activeSlipTab === 'Manual Review') {
+                                            const r = (slip.remark || '').toLowerCase();
+                                            if (slip.status !== 0 && slip.status !== 4) return false;
+                                            if (manualReviewSubTab === 'Data Match Not Found') return r.includes('no match') || r.includes('not found') || r.includes('no google sheet') || r.includes('unprocessed') || r.includes('failed');
+                                            if (manualReviewSubTab === 'Payment Mismatch') return r.includes('payment') || r.includes('amount') || r.includes('duplicate') || r.includes('ref id');
+                                            if (manualReviewSubTab === 'Batch Mismatch') return r.includes('batch') || r.includes('business') || r.includes('mismatch') || r.includes('stream');
+                                            return r.includes('ai') || r.includes('duplicate') || r.includes('mismatch') || r.includes('skipped');
+                                        }
+                                        return false;
+                                    }).map(s => s.id);
+
+                                    const res = await api.post('/ai-verification/bulk-start', {
+                                        businessId: selectedBusiness,
+                                        batchId: selectedBatch,
+                                        status: selectedStatus,
+                                        paymentIds: visibleSlipIds
+                                    });
+                                    toast.success(res.data?.message || "Bulk AI Verification Started");
+                                    const { data: statusData } = await api.get('/ai-verification/bulk-status');
+                                    setBulkStatus(statusData);
+                                } catch(e) {
+                                    const errMsg = e.response?.data?.error || "Failed to start bulk run";
+                                    toast.error(errMsg);
+                                }
+                            }}
+                            disabled={pendingSlips.length === 0}
+                            className={`px-4 py-2 rounded-lg text-sm font-bold text-white flex items-center gap-2 transition ${pendingSlips.length === 0 ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-[#00B48A] hover:bg-[#009b76]'}`}
+                        >
+                            <Search size={16} /> Start Bulk Auto-Verify
+                        </button>
+                    ) : (
+                        <button 
+                            onClick={async () => {
+                                try {
+                                    await api.post('/ai-verification/bulk-stop');
+                                    toast.success("Bulk AI Verification Stopped");
+                                    const { data: statusData } = await api.get('/ai-verification/bulk-status');
+                                    setBulkStatus(statusData);
+                                } catch(e) {
+                                    toast.error("Failed to stop bulk run");
+                                }
+                            }}
+                            className="px-4 py-2 rounded-lg text-sm font-bold text-white bg-red-600 hover:bg-red-700 flex items-center gap-2 transition"
+                        >
+                            <XCircle size={16} /> Stop Bulk Run
+                        </button>
+                    )}
+                </div>
+            </div>
+
+
+            
+            {/* SCHEDULE SETTINGS MODAL */}
+            {showScheduleSettings && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-gray-900 border border-gray-800 p-6 rounded-2xl w-full max-w-2xl shadow-2xl relative">
+                        <button onClick={() => setShowScheduleSettings(false)} className="absolute top-4 right-4 text-gray-500 hover:text-white"><XCircle size={24}/></button>
+                        <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+                            <Clock className="text-purple-400" size={24} /> AI Verification Schedules
+                        </h2>
+                        
+                        <div className="flex flex-col gap-4">
+                            {/* Main Queue */}
+                            <div className="bg-gray-800/40 border border-gray-700 rounded-xl p-4 flex flex-col gap-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h4 className="text-base font-bold text-gray-200">Main Verification Queue</h4>
+                                        <p className="text-xs text-gray-400">Auto-verify Post Pay and New Slips combined</p>
+                                    </div>
+                                    <div onClick={() => toggleSchedule('mainQueue')} className={`w-12 h-6 ${schedules.mainQueue.active ? 'bg-emerald-500' : 'bg-gray-600'} rounded-full relative cursor-pointer transition-colors`}>
+                                        <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-all ${schedules.mainQueue.active ? 'right-0.5' : 'left-0.5'}`}></div>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-5 gap-2 mt-2">
+                                    {schedules.mainQueue.times.map((t, i) => (
+                                        <input key={i} type="time" value={t} onChange={(e) => updateScheduleTime('mainQueue', i, e.target.value)} className="bg-gray-900 border border-gray-700 text-white rounded px-2 py-1.5 text-sm outline-none focus:border-emerald-500" />
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* No Match Found */}
+                            <div className="bg-gray-800/40 border border-gray-700 rounded-xl p-4 flex flex-col gap-3">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h4 className="text-base font-bold text-red-400 flex items-center gap-1"><AlertCircle size={16}/> Match Not Found Retry</h4>
+                                        <p className="text-xs text-gray-400">Re-attempt verification for failed slips</p>
+                                    </div>
+                                    <div onClick={() => toggleSchedule('noMatch')} className={`w-12 h-6 ${schedules.noMatch.active ? 'bg-emerald-500' : 'bg-gray-600'} rounded-full relative cursor-pointer transition-colors`}>
+                                        <div className={`w-5 h-5 bg-white rounded-full absolute top-0.5 transition-all ${schedules.noMatch.active ? 'right-0.5' : 'left-0.5'}`}></div>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-5 gap-2 mt-2">
+                                    {schedules.noMatch.times.map((t, i) => (
+                                        <input key={i} type="time" value={t} onChange={(e) => updateScheduleTime('noMatch', i, e.target.value)} className="bg-gray-900 border border-gray-700 text-white rounded px-2 py-1.5 text-sm outline-none focus:border-emerald-500" />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-lg">
                 <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-800">
                     <h2 className="text-lg font-bold text-white flex items-center gap-2">
                         <Activity className="text-blue-500" size={20} /> Collected Slips 
                         <span className="bg-blue-500/20 text-blue-400 text-xs px-2 py-1 rounded-full">{pendingSlips.length}</span>
                     </h2>
-                    
-                    <div className="flex items-center gap-2">
-                        <span className="text-gray-400 text-sm">Verify N:</span>
-                        <input 
-                            type="number" 
-                            min="1" 
-                            value={verificationCount} 
-                            onChange={(e) => setVerificationCount(parseInt(e.target.value) || 1)}
-                            className="w-16 bg-gray-800 border border-gray-700 text-white rounded px-2 py-1 text-center outline-none focus:border-blue-500"
-                        />
-                    </div>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-3 items-center mb-4">
-                    <div className="w-full sm:w-1/3">
-                        <label className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 block">Auto AI Verification</label>
-                        <div className="flex items-center gap-3 bg-gray-900/80 border border-gray-700 px-3 py-2 rounded-lg">
-                            <button 
-                                onClick={() => setIsAutoVerifyEnabled(!isAutoVerifyEnabled)}
-                                className={`w-12 h-6 rounded-full transition-colors relative ${isAutoVerifyEnabled ? 'bg-emerald-500' : 'bg-gray-700'}`}
-                            >
-                                <div className={`w-4 h-4 rounded-full bg-white absolute top-1 transition-transform ${isAutoVerifyEnabled ? 'translate-x-7' : 'translate-x-1'}`}></div>
-                            </button>
-                            <span className={`text-sm font-semibold ${isAutoVerifyEnabled ? 'text-emerald-400' : 'text-gray-500'}`}>
-                                {isAutoVerifyEnabled ? 'ACTIVE' : 'OFF'}
-                            </span>
-                        </div>
-                    </div>
-                    <div className="w-full sm:w-1/3">
-                        <label className="text-[10px] text-gray-500 uppercase tracking-wider mb-1 block">Target Slip Template</label>
-                        <select 
-                            value={targetSlipConfig}
-                            onChange={(e) => setTargetSlipConfig(e.target.value)}
-                            className="w-full bg-gray-900/80 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:border-blue-500 outline-none"
+                <div className="flex gap-6 border-b border-gray-800 mb-4 pb-2 overflow-x-auto">
+                    {['All Slips', 'Unprocessed', 'Manual Review', 'AI Verified', 'Post Pay'].map(tab => {
+                        let count = 0;
+                        if (tab === 'All Slips') count = pendingSlips.length;
+                        else if (tab === 'Unprocessed') count = pendingSlips.filter(s => s.status === 0 && !s.aiVerified && (!s.remark || (!s.remark.includes('AI') && !s.remark.includes('[Duplicate') && !s.remark.includes('[Business') && !s.remark.includes('[Batch')))).length;
+                        else if (tab === 'Manual Review') count = pendingSlips.filter(s => (s.status === 0 || s.status === 4) && s.remark && (s.remark.includes('AI') || s.remark.includes('[Duplicate') || s.remark.includes('[Business') || s.remark.includes('[Batch') || s.remark.includes('Skipped'))).length;
+                        else if (tab === 'AI Verified') count = pendingSlips.filter(s => s.aiVerified === true).length;
+                        else if (tab === 'Post Pay') count = pendingSlips.filter(s => s.status === 4 && (!s.remark || (!s.remark.includes('AI') && !s.remark.includes('[Duplicate') && !s.remark.includes('[Business') && !s.remark.includes('[Batch') && !s.remark.includes('Skipped')))).length;
+
+                        return (
+                        <button 
+                            key={tab}
+                            onClick={() => { setActiveSlipTab(tab); if(tab !== 'Manual Review') setManualReviewSubTab(''); }}
+                            className={`pb-2 text-sm font-bold transition-colors border-b-2 whitespace-nowrap ${activeSlipTab === tab ? 'text-blue-400 border-blue-400' : 'text-gray-500 border-transparent hover:text-gray-300'}`}
                         >
-                            <option value="">-- Select Template --</option>
-                            {banksConfig.flatMap(b => b.slips?.map(s => <option key={s.name} value={s.name}>{b.bankName} - {s.name}</option>))}
-                        </select>
-                    </div>
-                    
-                    <button 
-                        onClick={startBatchVerification}
-                        disabled={isVerifying || pendingSlips.length === 0 || !targetSlipConfig}
-                        className={`w-full sm:w-1/3 py-3 mt-4 sm:mt-5 rounded-xl font-bold text-white flex items-center justify-center gap-2 transition ${isVerifying ? 'bg-blue-900/50 border border-blue-500/30' : pendingSlips.length === 0 || !targetSlipConfig ? 'bg-gray-800 text-gray-500 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-[0_0_20px_rgba(59,130,246,0.3)]'}`}
-                    >
-                        {isVerifying ? (
-                            <><Loader className="animate-spin" size={20} /> AI Verification Sequence Active...</>
-                        ) : (
-                            <><Search size={20} /> Verify Selected Slips</>
-                        )}
-                    </button>
+                            {tab} {count > 0 && <span className="ml-1">({count})</span>}
+                        </button>
+                    )})}
                 </div>
 
-                <div className="max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                    <table className="w-full text-left text-sm whitespace-nowrap border-collapse">
-                        <thead className="bg-gray-900 border-b border-gray-700 font-medium text-gray-400 text-[11px] uppercase tracking-wider sticky top-0 z-20">
-                            <tr>
-                                <th className="px-4 py-3">Status</th>
-                                <th className="px-4 py-3">Actioned By / Remark</th>
-                                <th className="px-4 py-3">Slip ID & Amount</th>
-                                <th className="px-4 py-3">Student Name</th>
-                                <th className="px-4 py-3 text-center">Ref Image</th>
-                                <th className="px-4 py-3 text-right">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-800">
-                            {pendingSlips.map((slip, idx) => {
-                                const isCurrent = isVerifying && currentVerifyingSlip?.id === slip.id;
-                                const isProcessed = isVerifying && idx < currentVerifyingIndex;
-                                
-                                return (
-                                    <tr key={slip.id} className={`transition-all duration-300 hover:bg-gray-800/40 ${isCurrent ? 'bg-blue-900/20 shadow-[inset_4px_0_0_rgba(59,130,246,1)]' : isProcessed ? 'opacity-50' : ''}`}>
-                                        <td className="px-4 py-3">
-                                            {slip.status === 1 ? (
-                                                <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/30 font-semibold">Approved</span>
-                                            ) : slip.status === 2 ? (
-                                                <span className="text-[10px] bg-red-500/20 text-red-400 px-2 py-0.5 rounded border border-red-500/30 font-semibold">Rejected</span>
-                                            ) : (
-                                                <span className="text-[10px] bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded border border-amber-500/30 font-semibold flex items-center gap-1 w-max">
-                                                    {isCurrent && <Loader size={10} className="animate-spin" />}
-                                                    Pending
-                                                </span>
-                                            )}
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <div className="flex flex-col gap-1">
-                                                <span className="text-xs font-medium text-gray-300 flex items-center gap-1">
-                                                    {slip.actionedBy ? <><User size={12}/> {slip.actionedBy.firstName || 'Staff'}</> : slip.remark?.startsWith('AI') ? <><Bot size={12} className="text-blue-400"/> AI System</> : <span className="text-gray-600">-</span>}
-                                                </span>
-                                                {slip.remark && <span className="text-[10px] text-amber-400/80 max-w-[200px] truncate" title={slip.remark}>{slip.remark}</span>}
+                {/* SUB-TABS FOR MANUAL REVIEW */}
+                {activeSlipTab === 'Manual Review' && (
+                    <div className="flex gap-2 mb-4 overflow-x-auto">
+                        {['Data Match Not Found', 'Payment Mismatch', 'Batch Mismatch'].map(subTab => {
+                            let count = 0;
+                            if (subTab === 'Data Match Not Found') count = pendingSlips.filter(s => (s.status === 0 || s.status === 4) && s.remark && (s.remark.toLowerCase().includes('no match') || s.remark.toLowerCase().includes('not found') || s.remark.toLowerCase().includes('no google sheet') || s.remark.toLowerCase().includes('unprocessed') || s.remark.toLowerCase().includes('failed'))).length;
+                            else if (subTab === 'Payment Mismatch') count = pendingSlips.filter(s => (s.status === 0 || s.status === 4) && s.remark && (s.remark.toLowerCase().includes('payment') || s.remark.toLowerCase().includes('amount') || s.remark.toLowerCase().includes('duplicate') || s.remark.toLowerCase().includes('ref id'))).length;
+                            else if (subTab === 'Batch Mismatch') count = pendingSlips.filter(s => (s.status === 0 || s.status === 4) && s.remark && (s.remark.toLowerCase().includes('batch') || s.remark.toLowerCase().includes('business') || s.remark.toLowerCase().includes('mismatch') || s.remark.toLowerCase().includes('stream'))).length;
+                            
+                            return (
+                            <button 
+                                key={subTab}
+                                onClick={() => setManualReviewSubTab(subTab)}
+                                className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors border whitespace-nowrap ${manualReviewSubTab === subTab ? 'bg-red-900/40 text-red-400 border-red-500/50' : 'bg-gray-800/50 text-gray-400 border-gray-700 hover:text-gray-300 hover:bg-gray-800'}`}
+                            >
+                                {subTab} {count > 0 && <span className="ml-1">({count})</span>}
+                            </button>
+                        )})}
+                    </div>
+                )}
+
+                <div className="max-h-[750px] overflow-y-auto pr-2 custom-scrollbar">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+                        {pendingSlips.filter(slip => {
+                            if (activeSlipTab === 'All Slips') return true;
+                            if (activeSlipTab === 'Post Pay') return slip.status === 4 && (!slip.remark || (!slip.remark.includes('AI') && !slip.remark.includes('[Duplicate') && !slip.remark.includes('[Business') && !slip.remark.includes('[Batch') && !slip.remark.includes('Skipped')));
+                            if (activeSlipTab === 'AI Verified') return slip.aiVerified === true;
+                            if (activeSlipTab === 'Unprocessed') return slip.status === 0 && !slip.aiVerified && (!slip.remark || (!slip.remark.includes('AI') && !slip.remark.includes('[Duplicate') && !slip.remark.includes('[Business') && !slip.remark.includes('[Batch')));
+                            if (activeSlipTab === 'Manual Review') {
+                                const r = (slip.remark || '').toLowerCase();
+                                if (slip.status !== 0 && slip.status !== 4) return false;
+                                if (manualReviewSubTab === 'Data Match Not Found') return r.includes('no match') || r.includes('not found') || r.includes('no google sheet') || r.includes('unprocessed') || r.includes('failed');
+                                if (manualReviewSubTab === 'Payment Mismatch') return r.includes('payment') || r.includes('amount') || r.includes('duplicate') || r.includes('ref id');
+                                if (manualReviewSubTab === 'Batch Mismatch') return r.includes('batch') || r.includes('business') || r.includes('mismatch') || r.includes('stream');
+                                return r.includes('ai') || r.includes('duplicate') || r.includes('mismatch') || r.includes('skipped');
+                            }
+                        }).map((slip, idx) => {
+                            const isCurrent = isVerifying && currentVerifyingSlip?.id === slip.id;
+                            const isProcessed = isVerifying && idx < currentVerifyingIndex;
+                            
+                            return (
+                                <div key={slip.id} className={`bg-[#111318] border ${isCurrent ? 'border-emerald-500' : 'border-gray-800'} rounded-lg overflow-hidden flex flex-col transition-all duration-200 ${isProcessed ? 'opacity-50' : ''}`}>
+                                    <div className="relative h-64 bg-gray-200 flex items-center justify-center overflow-hidden">
+                                        {slip.slip_image ? (
+                                            <img
+                                                src={
+                                                    import.meta.env.VITE_API_URL
+                                                        ? import.meta.env.VITE_API_URL.replace('/api', '') + `/api/storage/documents/${slip.slip_image.split(',')[0]}`
+                                                        : (window.location.protocol === 'https:' ? `https://${window.location.hostname}` : `http://${window.location.hostname}:5000`) + `/api/storage/documents/${slip.slip_image.split(',')[0]}`
+                                                }
+                                                alt="slip"
+                                                className="w-full h-full object-contain"
+                                                onError={(e) => { e.target.src = '/logo.png'; }}
+                                            />
+                                        ) : <FileText size={32} className="text-gray-400"/>}
+                                        
+                                        <div className="absolute top-2 right-2 bg-black text-white px-2 py-0.5 rounded text-[10px] font-mono">
+                                            #{slip.id}
+                                        </div>
+
+                                        {isCurrent && (
+                                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center backdrop-blur-sm z-10">
+                                                <Loader className="animate-spin text-emerald-400" size={24} />
                                             </div>
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <div className="flex flex-col">
-                                                <span className="text-white font-semibold">#{slip.id}</span>
-                                                <span className="text-emerald-400 font-medium text-xs">LKR {slip.amount.toLocaleString()}</span>
+                                        )}
+                                    </div>
+                                    
+                                    <div className="p-4 flex-1 flex flex-col bg-[#111318]">
+                                        <div className="flex justify-between items-start mb-1">
+                                            <div className="text-sm font-bold text-gray-200 truncate pr-2">{slip.student?.firstName} {slip.student?.lastName}</div>
+                                            <div className="text-sm font-bold text-emerald-400 whitespace-nowrap">LKR {slip.amount.toLocaleString()}</div>
+                                        </div>
+                                        <div className="text-[10px] text-gray-500 mb-3">{new Date(slip.created_at).toLocaleString()}</div>
+                                        
+                                        {slip.remark && (
+                                            <div className="text-[10px] text-amber-400 bg-amber-900/20 p-2 rounded mb-3 border border-amber-900/30">
+                                                {slip.remark}
                                             </div>
-                                        </td>
-                                        <td className="px-4 py-3 text-gray-300">
-                                            {slip.student?.firstName} {slip.student?.lastName}
-                                            <div className="text-[10px] text-gray-500">{new Date(slip.created_at).toLocaleDateString()}</div>
-                                        </td>
-                                        <td className="px-4 py-3 text-center">
-                                            <div className="w-10 h-10 rounded bg-gray-900 border border-gray-700 overflow-hidden mx-auto relative group cursor-pointer hover:scale-[3] hover:z-50 hover:shadow-2xl transition-transform origin-center">
-                                                {slip.slip_image ? (
-                                                    <img
-                                                        src={
-                                                            import.meta.env.VITE_API_URL
-                                                                ? import.meta.env.VITE_API_URL.replace('/api', '') + `/api/storage/documents/${slip.slip_image.split(',')[0]}`
-                                                                : (window.location.protocol === 'https:' ? `https://${window.location.hostname}` : `http://${window.location.hostname}:5000`) + `/api/storage/documents/${slip.slip_image.split(',')[0]}`
-                                                        }
-                                                        alt="slip"
-                                                        className="w-full h-full object-cover"
-                                                        onError={(e) => { e.target.src = '/logo.png'; }}
-                                                    />
-                                                ) : <FileText size={16} className="text-gray-600 mx-auto mt-2"/>}
-                                            </div>
-                                        </td>
-                                        <td className="px-4 py-3 text-right">
+                                        )}
+
+                                        <div className="mt-auto">
                                             <button
                                                 onClick={() => verifySingleSlip(slip)}
                                                 disabled={isVerifying}
-                                                className="text-xs bg-blue-600/80 hover:bg-blue-600 text-white font-medium px-3 py-1.5 rounded transition disabled:bg-gray-800 disabled:text-gray-600"
+                                                className="w-full text-xs bg-transparent hover:bg-gray-800 border border-gray-700 text-gray-400 hover:text-gray-200 font-medium py-2 rounded flex items-center justify-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                             >
-                                                AI Verify
+                                                <Search size={14} /> AI Analyze
                                             </button>
-                                        </td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                     {pendingSlips.length === 0 && (
-                        <div className="text-center p-8 text-gray-500">No pending slips for selected filters.</div>
+                        <div className="text-center p-8 text-gray-500 flex flex-col items-center justify-center bg-gray-900/50 rounded-xl border border-gray-800">
+                            <Activity size={32} className="mb-2 opacity-20" />
+                            <span>No slips found in this category.</span>
+                        </div>
                     )}
                 </div>
             </div>
         </div>
+        </>
+        )}
 
-        </div>
-
-      {/* BOTTOM PANEL: BANK STATEMENT VAULT */}
-      <div className="flex flex-col gap-6 mt-6">
+        {mainTab === 'vault' && (
+        /* BOTTOM PANEL: BANK STATEMENT VAULT */
+        <div className="lg:col-span-12 flex flex-col gap-6 mt-6">
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5 shadow-lg flex flex-col min-h-[300px]">
                 <div className="flex justify-between items-center mb-4 pb-4 border-b border-gray-800">
                     <h2 className="text-lg font-bold text-white flex items-center gap-2">
@@ -932,120 +1181,109 @@ export default function AISlipVerification({ loggedInUser }) {
                 </div>
 
                 {/* Vault Folders */}
-                <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar mb-4 border-b border-gray-800">
-                    {Object.keys(gsheetTree).length > 0 ? Object.keys(gsheetTree).map(folder => (
-                        <button 
-                            key={folder}
-                            onClick={() => { setSelectedFolder(folder); setSelectedMonth(''); setStatementTransactions([]); setSelectedSheetTab(''); }}
-                            className={`px-4 py-2 rounded-t-lg text-sm font-bold transition-colors border-b-2 ${selectedFolder === folder ? 'bg-gray-800 text-emerald-400 border-emerald-500' : 'text-gray-400 border-transparent hover:text-white hover:bg-gray-800/50'}`}
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4 mb-6">
+                    {businesses.map(biz => (
+                        <div 
+                            key={biz.id}
+                            onClick={() => {
+                                setSelectedFolder(biz.id);
+                                fetchBatches(biz.id);
+                                setSelectedBatch('');
+                                setSelectedMonth('');
+                            }}
+                            className={`cursor-pointer rounded-xl border p-4 flex flex-col items-center justify-center gap-3 transition-all ${selectedFolder === biz.id ? 'bg-emerald-900/20 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.2)]' : 'bg-gray-800/50 border-gray-700 hover:bg-gray-800 hover:border-gray-600'}`}
                         >
-                            <Folder size={14} className="inline mr-2 mb-0.5" />{folder}
-                        </button>
-                    )) : (
-                        <div className="text-sm text-gray-500 py-2">No folders configured. Create one below.</div>
+                            {biz.logo ? (
+                                <img 
+                                    src={getImageUrl(biz.logo)} 
+                                    alt={biz.name}
+                                    className="w-16 h-16 object-contain rounded-lg bg-white p-1"
+                                    onError={(e) => { e.target.src = '/logo.png'; }}
+                                />
+                            ) : (
+                                <div className="w-16 h-16 rounded-lg bg-gray-700 flex items-center justify-center text-gray-400">
+                                    <Database size={24} />
+                                </div>
+                            )}
+                            <span className="text-sm font-bold text-center text-gray-200">{biz.name}</span>
+                        </div>
+                    ))}
+                    {businesses.length === 0 && (
+                        <div className="col-span-full text-center py-8 text-gray-500">No businesses configured in Content Hub.</div>
                     )}
-                    
-                    {/* Add Folder Inline */}
-                    <div className="flex items-center gap-2 ml-4">
-                        <input type="text" placeholder="New Folder..." value={newFolderName} onChange={e => setNewFolderName(e.target.value)} className="bg-gray-800 border border-gray-700 text-white text-xs px-2 py-1.5 rounded outline-none" />
-                        <button onClick={() => {
-                            if(!newFolderName.trim()) return toast.error("Folder name required");
-                            const t = {...gsheetTree};
-                            if(t[newFolderName]) return toast.error("Folder already exists");
-                            t[newFolderName] = {};
-                            setGsheetTree(t); saveGsheetTree(t); setNewFolderName('');
-                            setSelectedFolder(newFolderName);
-                        }} className="bg-gray-700 hover:bg-gray-600 text-white p-1.5 rounded"><Plus size={14}/></button>
-                    </div>
                 </div>
 
-                {/* Months (If Folder Selected) */}
+                {/* Batches (If Business Selected) */}
                 {selectedFolder && (
-                    <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar mb-4">
-                        {Object.keys(gsheetTree[selectedFolder] || {}).map(m => (
-                            <button 
-                                key={m}
-                                onClick={() => { setSelectedMonth(m); fetchMonthTransactions(m); setSelectedSheetTab(''); }}
-                                className={`px-4 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${selectedMonth === m ? 'bg-emerald-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'}`}
-                            >
-                                <Calendar size={14} className="inline mr-2 mb-0.5" />{m}
-                            </button>
-                        ))}
-                        
-                        {/* Add Month Inline */}
-                        <div className="flex items-center gap-2 ml-4 border-l border-gray-700 pl-4">
-                            <input type="text" placeholder="New Month..." value={newMonthName} onChange={e => setNewMonthName(e.target.value)} className="bg-gray-800 border border-gray-700 text-white text-xs px-2 py-1.5 rounded outline-none" />
-                            <button onClick={() => {
-                                if(!newMonthName.trim()) return toast.error("Month required");
-                                const t = {...gsheetTree};
-                                if(t[selectedFolder][newMonthName]) return toast.error("Month exists");
-                                t[selectedFolder][newMonthName] = [];
-                                setGsheetTree(t); saveGsheetTree(t); setNewMonthName('');
-                                setSelectedMonth(newMonthName);
-                            }} className="bg-gray-700 hover:bg-gray-600 text-white p-1.5 rounded"><Plus size={14}/></button>
-                            
-                            <button onClick={() => {
-                                if(window.confirm("Delete folder and all its months?")) {
-                                    const t = {...gsheetTree}; delete t[selectedFolder];
-                                    setGsheetTree(t); saveGsheetTree(t); setSelectedFolder(null); setSelectedMonth('');
-                                }
-                            }} className="ml-4 text-xs text-red-500 hover:text-red-400 flex items-center"><Trash2 size={12} className="mr-1"/> Delete Folder</button>
+                    <div className="flex flex-col gap-4 mb-6 p-4 bg-gray-800/30 rounded-xl border border-gray-800">
+                        <h3 className="text-sm font-bold text-gray-300 flex items-center gap-2 mb-2">
+                            <FolderOpen size={16} className="text-emerald-400" /> Select Batch for Google Sheet Sync
+                        </h3>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
+                            {batches.map(batch => (
+                                <button 
+                                    key={batch.id}
+                                    onClick={() => {
+                                        setSelectedBatch(batch.id);
+                                    }}
+                                    className={`px-3 py-2 rounded-lg text-xs font-bold transition-all ${selectedBatch === batch.id ? 'bg-emerald-600 text-white shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'}`}
+                                >
+                                    {batch.name}
+                                </button>
+                            ))}
+                            {batches.length === 0 && (
+                                <div className="col-span-full text-xs text-gray-500 py-2">No batches found for this business.</div>
+                            )}
                         </div>
                     </div>
                 )}
 
-                {/* Upload & Table Area */}
-                {selectedMonth && selectedFolder && (
-                    <div className="flex-1 flex flex-col min-h-0 bg-black/30 border border-gray-800 rounded-xl p-4">
-                        
-                        {/* GSheet Link Config for this Month */}
-                        <div className="bg-gray-900/80 p-3 rounded-lg border border-gray-800 mb-4 flex flex-col gap-2">
-                            <div className="flex justify-between items-center">
-                                <span className="text-emerald-400 font-medium text-sm flex items-center gap-2">
-                                    <Database size={14}/> Google Sheet Links for {selectedFolder} / {selectedMonth}
-                                </span>
-                                <button onClick={() => {
-                                    if(window.confirm("Delete this month?")) {
-                                        const t = {...gsheetTree}; delete t[selectedFolder][selectedMonth];
-                                        setGsheetTree(t); saveGsheetTree(t); setSelectedMonth('');
-                                    }
-                                }} className="text-xs text-red-500 hover:text-red-400 flex items-center"><Trash2 size={12} className="mr-1" /> Delete Month</button>
+                {/* Google Sheet Link Input */}
+                {selectedFolder && selectedBatch && (
+                    <div className="bg-gray-900/80 p-5 rounded-xl border border-emerald-900/50 shadow-inner flex flex-col gap-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-emerald-900/40 flex items-center justify-center border border-emerald-500/30 shrink-0">
+                                <Database size={18} className="text-emerald-400" />
                             </div>
-                            
-                            <div className="flex flex-col gap-2">
-                                {(gsheetTree[selectedFolder][selectedMonth] || []).map((link, idx) => (
-                                    <div key={idx} className="flex items-center gap-2">
-                                        <input type="text" value={link} readOnly className="flex-1 bg-gray-950 border border-gray-700 text-gray-400 text-xs rounded px-3 py-1.5" />
-                                        <button onClick={() => {
-                                            const t = {...gsheetTree}; t[selectedFolder][selectedMonth].splice(idx, 1);
-                                            setGsheetTree(t); saveGsheetTree(t); fetchMonthTransactions(selectedMonth);
-                                        }} className="text-red-500 hover:text-red-400"><XCircle size={16}/></button>
-                                    </div>
-                                ))}
-                                <input 
-                                    type="text" placeholder="Paste Google Sheet URL and press Enter..." 
-                                    className="w-full bg-gray-800 border border-emerald-900/50 text-white text-xs rounded px-3 py-2 outline-none focus:border-emerald-500 transition-colors"
-                                    onKeyDown={(e) => {
-                                        if(e.key === 'Enter' && e.target.value.trim()) {
-                                            let val = e.target.value.trim();
-                                            let sheetId = val;
-                                            const match = val.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
-                                            if(match) sheetId = match[1];
-                                            const t = {...gsheetTree};
-                                            if(!t[selectedFolder][selectedMonth]) t[selectedFolder][selectedMonth] = [];
-                                            t[selectedFolder][selectedMonth].push(sheetId);
-                                            setGsheetTree(t); 
-                                            e.target.value = '';
-                                            saveGsheetTree(t).then(() => {
-                                                fetchMonthTransactions(selectedMonth);
-                                            });
-                                        }
-                                    }}
-                                />
+                            <div>
+                                <h4 className="text-emerald-400 font-bold text-sm">Google Sheet Vault Link</h4>
+                                <p className="text-[10px] text-gray-400">Link a Google Sheet (with 10 categories/tabs) for auto data sync and remarks filling.</p>
                             </div>
                         </div>
+                        
+                        <div className="flex gap-2">
+                            <input 
+                                type="text" 
+                                placeholder="https://docs.google.com/spreadsheets/d/..." 
+                                value={(gsheetTree[selectedFolder] && Array.isArray(gsheetTree[selectedFolder][selectedBatch]) ? gsheetTree[selectedFolder][selectedBatch][0] : gsheetTree[selectedFolder][selectedBatch]) || ''}
+                                onChange={(e) => {
+                                    const t = {...gsheetTree};
+                                    if(!t[selectedFolder]) t[selectedFolder] = {};
+                                    
+                                    // Extract sheet ID from url if full URL is pasted
+                                    let sheetId = e.target.value.trim().replace(/\n/g, '');
+                                    const match = sheetId.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+                                    if(match) sheetId = match[1];
 
-                        <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center mb-4 w-full">
+                                    t[selectedFolder][selectedBatch] = [sheetId]; // Store as array for backend
+                                    setGsheetTree(t);
+                                }}
+                                className="flex-1 bg-gray-950 border border-gray-700 focus:border-emerald-500 text-white text-sm rounded-lg px-4 py-2 outline-none transition"
+                            />
+                            <button 
+                                onClick={async () => {
+                                    await saveGsheetTree(gsheetTree);
+                                    if(selectedBatch) fetchMonthTransactions(selectedBatch);
+                                }} 
+                                className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-6 py-2 rounded-lg transition shadow-[0_0_15px_rgba(16,185,129,0.2)]"
+                            >
+                                Save Link
+                            </button>
+                        </div>
+                        
+
+                        
+                        <div className="flex flex-col sm:flex-row gap-3 justify-between items-start sm:items-center mb-4 w-full mt-4">
                             {/* Sheet Tabs */}
                             <div className="flex gap-2 overflow-x-auto custom-scrollbar flex-1">
                                 {(() => {
@@ -1079,26 +1317,13 @@ export default function AISlipVerification({ loggedInUser }) {
                             </div>
                         </div>
 
-                        <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-gray-950/60 border border-gray-800 rounded-lg shadow-inner">
+                        <div className="flex-1 overflow-y-auto custom-scrollbar relative bg-gray-950/60 border border-gray-800 rounded-lg shadow-inner mt-4 min-h-[300px]">
                             <table className="w-full text-sm text-left text-gray-300">
                                 <thead className="text-[10px] text-gray-400 bg-gray-900/90 uppercase tracking-widest sticky top-0 shadow-sm z-10 border-b border-gray-800">
                                     <tr>
-                                        {(() => {
-                                            const activeConf = banksConfig.find(b => b.bankName === selectedFolder) || {};
-                                            const cCols = activeConf.customColumns || [];
-                                            return (
-                                                <>
-                                                    <th className="px-4 py-3">{activeConf.excelDateCol || 'Date'}</th>
-                                                    {cCols.length > 0 ? (
-                                                        cCols.map((c, i) => <th key={i} className="px-4 py-3">{c.name}</th>)
-                                                    ) : (
-                                                        <th className="px-4 py-3">{activeConf.excelDescCol || 'Description'}</th>
-                                                    )}
-                                                    <th className="px-4 py-3 text-right">{activeConf.excelAmountCol || 'Amount'} (LKR)</th>
-                                                    <th className="px-4 py-3 text-center">Status</th>
-                                                </>
-                                            );
-                                        })()}
+                                        {statementHeaders.map((header, idx) => (
+                                            <th key={idx} className="px-4 py-3">{header}</th>
+                                        ))}
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1111,28 +1336,28 @@ export default function AISlipVerification({ loggedInUser }) {
 
                                         return (
                                         <tr key={txn.id || Math.random()} className={`border-b border-gray-800/30 hover:bg-gray-800/50 transition-colors ${txn.isMatched ? 'opacity-50 bg-gray-900/40' : ''}`}>
-                                            <td className="px-4 py-3 whitespace-nowrap">{txn.txnDate ? new Date(txn.txnDate).toLocaleDateString() : '-'}</td>
-                                            
-                                            {cCols.length > 0 ? (
-                                                cCols.map((c, i) => (
-                                                    <td key={i} className="px-4 py-3 max-w-[150px] truncate" title={parsedDesc ? parsedDesc[c.name] : ''}>
-                                                        {parsedDesc && parsedDesc[c.name] ? (c.isCurrency ? `Rs. ${parsedDesc[c.name]}` : parsedDesc[c.name]) : '-'}
-                                                    </td>
-                                                ))
-                                            ) : (
-                                                <td className="px-4 py-3 max-w-[200px] truncate" title={parsedDesc && parsedDesc['Description'] ? parsedDesc['Description'] : txn.description}>
-                                                    {parsedDesc && parsedDesc['Description'] ? parsedDesc['Description'] : txn.description}
-                                                </td>
-                                            )}
+                                            {statementHeaders.map((header, idx) => {
+                                                const hLower = header.toLowerCase();
+                                                const isStatus = hLower === 'status';
+                                                
+                                                if (isStatus) {
+                                                    return (
+                                                        <td key={idx} className="px-4 py-3">
+                                                            {txn[header] === 'Verified' ? (
+                                                                <span className="text-[10px] bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 px-2 py-0.5 rounded tracking-wider shadow-[0_0_10px_rgba(16,185,129,0.1)]">Verified</span>
+                                                            ) : (
+                                                                <span className="text-[10px] bg-gray-800 text-gray-500 px-2 py-0.5 rounded border border-gray-700 tracking-wider">OPEN</span>
+                                                            )}
+                                                        </td>
+                                                    );
+                                                }
 
-                                            <td className="px-4 py-3 text-right font-mono font-medium text-emerald-400">{txn.amount ? txn.amount.toLocaleString() : '-'}</td>
-                                            <td className="px-4 py-3 text-center">
-                                                {txn.isMatched ? (
-                                                    <span className="text-[10px] bg-gray-800 text-gray-500 px-2 py-0.5 rounded border border-gray-700 tracking-wider">MATCHED</span>
-                                                ) : (
-                                                    <span className="text-[10px] bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 px-2 py-0.5 rounded tracking-wider shadow-[0_0_10px_rgba(16,185,129,0.1)]">OPEN</span>
-                                                )}
-                                            </td>
+                                                return (
+                                                    <td key={idx} className="px-4 py-3 max-w-[200px] truncate" title={txn[header] || '-'}>
+                                                        {txn[header] || '-'}
+                                                    </td>
+                                                );
+                                            })}
                                         </tr>
                                         );
                                     })}
@@ -1140,7 +1365,7 @@ export default function AISlipVerification({ loggedInUser }) {
                                         <tr>
                                             <td colSpan="10" className="text-center py-12 text-gray-500 flex flex-col items-center justify-center">
                                                 <Database size={24} className="mb-2 opacity-50" />
-                                                <span className="text-sm">No records found in {selectedSheetTab || 'this sheet'}.</span>
+                                                <span className="text-sm">No records found in {selectedSheetTab || 'this sheet'}. Please ensure the correct sheet URL is saved above.</span>
                                             </td>
                                         </tr>
                                     )}
@@ -1151,9 +1376,9 @@ export default function AISlipVerification({ loggedInUser }) {
                 )}
             </div>
         </div>
+        )}
 
-
-      {/* RESULTS SECTION */}
+      {/* RESULTS SECTION */}{/* RESULTS SECTION */}
 
 
       {/* VERIFICATION ANIMATION OVERLAY - DIGITAL ARMY PLANNING BOARD */}
@@ -1180,7 +1405,16 @@ export default function AISlipVerification({ loggedInUser }) {
             <div className="flex items-center gap-4 text-emerald-600">
               <span>SAT-LINK: SECURE</span>
               <span>ENC: AES-256-GCM</span>
-              <span>LATENCY: 14ms</span>
+              <button 
+                onClick={() => {
+                  setIsVerifying(false);
+                  setCurrentVerifyingSlip(null);
+                  setAnimStep(0);
+                }}
+                className="ml-2 px-3 py-1 bg-red-950/80 hover:bg-red-900 text-red-400 border border-red-800/80 rounded text-xs font-bold transition-all cursor-pointer z-50 flex items-center gap-1"
+              >
+                <X size={14} /> ABORT / CLOSE
+              </button>
             </div>
           </div>
 
@@ -1922,7 +2156,7 @@ export default function AISlipVerification({ loggedInUser }) {
                 }
             `}</style>
         </div>, document.body)}
-
+    </div>
     </div>
   );
 }

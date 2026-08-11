@@ -11,6 +11,8 @@ export default function PaymentManagement({ loggedInUser }) {
     const isSystemAdmin = loggedInUser?.role?.toUpperCase() === 'SYSTEM_ADMIN' || loggedInUser?.role?.toUpperCase() === 'DIRECTOR';
     const isFinance = loggedInUser?.department === 'Finance';
     const isAdmin = isSystemAdmin || isFinance;
+    const isManager = loggedInUser?.role?.toUpperCase() === 'MANAGER' || loggedInUser?.role?.toUpperCase() === 'ASS MANAGER' || loggedInUser?.role?.toUpperCase() === 'ASS_MANAGER';
+    const hasFullAccess = isAdmin || isManager;
 
     const [loading, setLoading] = useState(true);
     const [payments, setPayments] = useState([]);
@@ -62,6 +64,8 @@ export default function PaymentManagement({ loggedInUser }) {
     
     // State to track selected payment ID for actioning
     const [selectedPaymentId, setSelectedPaymentId] = useState(null);
+    const [historyTab, setHistoryTab] = useState('All');
+    const [expandedHistoryId, setExpandedHistoryId] = useState(null);
 
     const [sendToDeliveryModal, setSendToDeliveryModal] = useState(null);
     const [deliverySelectedSubjects, setDeliverySelectedSubjects] = useState([]);
@@ -76,13 +80,14 @@ export default function PaymentManagement({ loggedInUser }) {
         try {
             const payRes = await axios.get('/admin/payments');
             setPayments(payRes.data || []);
+            
+            if (hasFullAccess) {
+                const coursesRes = await axios.get('/admin/payments/courses');
+                setAllCourses(coursesRes.data || []);
+            }
             if (isAdmin) {
                 const bizRes = await axios.get('/admin/businesses');
                 setBusinesses(bizRes.data || []);
-
-                // Fetch all courses
-                const coursesRes = await axios.get('/admin/payments/courses');
-                setAllCourses(coursesRes.data || []);
             }
         } catch (error) {
             toast.error("Failed to load data.");
@@ -91,10 +96,12 @@ export default function PaymentManagement({ loggedInUser }) {
         }
     };
 
-    useEffect(() => { fetchData(); }, [isAdmin]);
+    useEffect(() => { fetchData(); }, [isAdmin, hasFullAccess]);
 
     useEffect(() => {
         setSelectedPaymentId(null);
+        setHistoryTab('All');
+        setExpandedHistoryId(null);
     }, [studentActionModal]);
 
     useEffect(() => {
@@ -225,7 +232,7 @@ export default function PaymentManagement({ loggedInUser }) {
             if (p.status === 'Pending') pendingUpgradeCount++;
         } else if (p.type === 'Installment' || p.status === 'Upcoming') {
             mappedTab = 'Upcoming';
-            if (p.status === 'Pending' || p.status === 'Upcoming') pendingUpcomingCount++;
+            if (p.status === 'Pending') pendingUpcomingCount++;
         } else if (p.status === 'Pending') {
             mappedTab = 'Pending';
         } else if (isAdjusted && p.status !== 'Rejected') {
@@ -266,7 +273,8 @@ export default function PaymentManagement({ loggedInUser }) {
         }
 
         if (activeTab === 'Upcoming') {
-            if (upcomingFilter === 'Pending' && p.status !== 'Pending' && p.status !== 'Upcoming') return false;
+            if (upcomingFilter === 'Upcoming' && p.status !== 'Upcoming') return false;
+            if (upcomingFilter === 'Pending' && p.status !== 'Pending') return false;
             if (upcomingFilter === 'Approved' && p.status !== 'Approved') return false;
             if (upcomingFilter === 'Rejected' && p.status !== 'Rejected') return false;
         }
@@ -703,7 +711,7 @@ export default function PaymentManagement({ loggedInUser }) {
                         <Unlock size={14} /> {getCountdown(pay.validUntil)}
                     </div>
                 )}
-                {pay.status !== 'Trash' && isAdmin && (
+                {pay.status !== 'Trash' && hasFullAccess && (
                     <>
                         <button onClick={() => handleOpenEditModal(pay)} className="bg-gray-50 dark:bg-black/40 hover:bg-indigo-50 dark:hover:bg-indigo-500/20 text-gray-400 hover:text-indigo-500 dark:text-slate-400 dark:hover:text-indigo-400 border border-gray-200 dark:border-white/5 hover:border-indigo-200 dark:hover:border-indigo-500/30 p-2.5 rounded-xl transition-all shadow-sm outline-none" title="Edit Subjects / Amount">
                             <Edit3 size={16} />
@@ -717,18 +725,27 @@ export default function PaymentManagement({ loggedInUser }) {
 
             <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 mb-6 pl-2 pr-12">
                 <div className="flex-1 min-w-0">
-                    <p className="text-[11px] text-gray-500 dark:text-slate-400 font-extrabold uppercase tracking-widest mb-1.5">{pay.date}</p>
+                    <div className="flex items-center gap-3 mb-1.5 flex-wrap">
+                        <p className="text-[11px] text-gray-500 dark:text-slate-400 font-extrabold uppercase tracking-widest">{pay.date}</p>
+                        {pay.actionDate && pay.actionDate !== '-' && (
+                            <p className="text-[10px] text-emerald-600 dark:text-emerald-300 font-black uppercase tracking-widest bg-emerald-50 dark:bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-500/20 shadow-sm">
+                                Action: {pay.actionDate}
+                            </p>
+                        )}
+                    </div>
                     <h5 className="text-xl font-extrabold text-gray-900 dark:text-white tracking-tight truncate max-w-full flex flex-wrap items-center gap-2">
                         <span className="text-red-500 text-xs font-mono font-semibold bg-red-100 dark:bg-red-500/10 border border-red-500/20 px-2.5 py-1 rounded-lg">
                             ID: {pay.id}
                         </span>
                         <span>{pay.business}</span>
                     </h5>
-                    <p className="text-xs font-bold text-slate-400 mt-2 flex flex-wrap items-center gap-2">
-                        <span className="text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-white/5 border border-gray-200/50 dark:border-white/5 px-2.5 py-1 rounded-lg">Batch: {pay.batch}</span>
+                    <p className="text-base font-bold mt-3 flex flex-wrap items-center gap-3">
+                        <span className="text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-500/20 border-2 border-blue-400 dark:border-blue-500 px-4 py-1.5 rounded-xl animate-pulse font-black shadow-md uppercase tracking-widest">
+                            BATCH: {pay.batch}
+                        </span>
                         {pay.groupName && (
-                            <span className="text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-500/10 px-2.5 py-1 rounded-lg border border-purple-200 dark:border-purple-500/20 font-black uppercase tracking-widest shadow-sm">
-                                Group: {pay.groupName}
+                            <span className="text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-500/20 px-4 py-1.5 rounded-xl border-2 border-purple-400 dark:border-purple-500 font-black uppercase tracking-widest shadow-md animate-pulse">
+                                GROUP: {pay.groupName}
                             </span>
                         )}
                     </p>
@@ -853,7 +870,7 @@ export default function PaymentManagement({ loggedInUser }) {
             </div>
 
             {/* PROCESS PAYMENT ACTIONS */}
-            {['Pending', 'Upcoming', 'Rejected', 'Post Pay', 'Upgrade Slips'].includes(activeTab) && pay.status !== 'Approved' && isAdmin && (
+            {['Pending', 'Upcoming', 'Rejected', 'Post Pay', 'Upgrade Slips'].includes(activeTab) && pay.status !== 'Approved' && hasFullAccess && (
                 <div className="bg-gray-100 dark:bg-slate-900/60 rounded-[2rem] border border-gray-200 dark:border-white/5 p-6 mt-6 shadow-inner ml-2">
                     <p className="text-[10px] font-extrabold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-5 flex items-center justify-center gap-2">
                         <ShieldCheck size={16} /> Action Panel
@@ -894,7 +911,7 @@ export default function PaymentManagement({ loggedInUser }) {
             )}
 
             {/* Delivery Hub Button */}
-            {['Free Card', 'Discount', 'Approved'].includes(pay.status) && isAdmin && (
+            {['Free Card', 'Discount', 'Approved'].includes(pay.status) && hasFullAccess && (
                 <div className="mt-6 ml-2">
                     <button
                         disabled={actioningPaymentId === pay.id || !!pay.hasDelivery}
@@ -961,14 +978,14 @@ export default function PaymentManagement({ loggedInUser }) {
 
             {/* Filters */}
             <PaymentFilters
-                isAdmin={isAdmin} filters={filters} setFilters={setFilters}
+                isAdmin={isAdmin} isSystemAdmin={hasFullAccess} filters={filters} setFilters={setFilters}
                 businesses={businesses} batches={batches} groups={groups}
                 subjects={subjects} stats={stats} onOpenStaffStats={() => setShowStaffModal(true)}
                 onOpenExport={() => setShowExportModal(true)}
             />
 
             {/* Tabs Row */}
-            <div className="flex gap-3 mb-8 pb-3 overflow-x-auto custom-scrollbar p-1">
+            <div className="flex flex-wrap gap-3 mb-8 pb-3 p-1">
                 <button onClick={() => setActiveTab('Pending')} className={getTabClass('Pending')}>
                     <Clock size={16} /> Pending ({tabCounts.Pending})
                     {tabCounts.Pending > 0 && <span className="bg-red-500 text-white rounded-full h-2 w-2 ml-1 animate-pulse"></span>}
@@ -1007,8 +1024,11 @@ export default function PaymentManagement({ loggedInUser }) {
             {/* UPCOMING DUES SUB-TABS */}
             {activeTab === 'Upcoming' && (
                 <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-brand-darkCard p-2.5 rounded-2xl w-full md:w-max border border-gray-200 dark:border-brand-darkBorder shadow-sm mb-6 transition-colors">
+                    <button onClick={() => setUpcomingFilter('Upcoming')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upcomingFilter === 'Upcoming' ? 'bg-blue-50 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-blue-700 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-500/10'}`}>
+                        Upcoming Dues
+                    </button>
                     <button onClick={() => setUpcomingFilter('Pending')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upcomingFilter === 'Pending' ? 'bg-purple-50 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-purple-700 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-500/10'}`}>
-                        Pending {pendingUpcomingCount > 0 && <span className="bg-red-500 text-white rounded-full h-2 w-2 ml-2 inline-block"></span>}
+                        Pending Slips {pendingUpcomingCount > 0 && <span className="bg-red-500 text-white rounded-full h-2 w-2 ml-2 inline-block"></span>}
                     </button>
                     <button onClick={() => setUpcomingFilter('Approved')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upcomingFilter === 'Approved' ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'}`}>Approved</button>
                     <button onClick={() => setUpcomingFilter('Rejected')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upcomingFilter === 'Rejected' ? 'bg-red-50 dark:bg-red-500/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10'}`}>Rejected</button>
@@ -1051,7 +1071,12 @@ export default function PaymentManagement({ loggedInUser }) {
                                                                 <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20 tracking-widest uppercase">{student.studentNo}</span>
                                                                 {student.phone && student.phone !== 'N/A' && <span className="text-[10px] text-sky-400 bg-sky-500/10 px-2.5 py-1 rounded-md border border-sky-500/20 tracking-widest uppercase">{student.phone}</span>}
                                                             </h4>
-                                                            <p className="text-xs font-bold text-slate-400 mt-1.5">{slipPays.length} Slip Payment(s)</p>
+                                                            <p className="text-xs font-bold text-slate-400 mt-1.5 flex items-center gap-3">
+                                                                <span>{slipPays.length} Slip Payment(s)</span>
+                                                                <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded shadow-sm">
+                                                                    Total LKR {slipPays.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0).toLocaleString()}
+                                                                </span>
+                                                            </p>
                                                         </div>
                                                     </div>
                                                     <button onClick={() => setStudentActionModal({ ...student, allPayments: slipPays })} className="w-full md:w-auto bg-emerald-500/15 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 py-3.5 px-6 rounded-xl transition-all text-xs font-extrabold uppercase tracking-widest whitespace-nowrap outline-none shadow-sm group-hover:shadow-[0_0_15px_rgba(16,185,129,0.25)]">View Records</button>
@@ -1083,7 +1108,12 @@ export default function PaymentManagement({ loggedInUser }) {
                                                                 <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20 tracking-widest uppercase">{student.studentNo}</span>
                                                                 {student.phone && student.phone !== 'N/A' && <span className="text-[10px] text-sky-400 bg-sky-500/10 px-2.5 py-1 rounded-md border border-sky-500/20 tracking-widest uppercase">{student.phone}</span>}
                                                             </h4>
-                                                            <p className="text-xs text-slate-400 mt-1.5 font-bold">{onlinePays.length} Online Payment(s)</p>
+                                                            <p className="text-xs font-bold text-slate-400 mt-1.5 flex items-center gap-3">
+                                                                <span>{onlinePays.length} Online Payment(s)</span>
+                                                                <span className="text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded shadow-sm">
+                                                                    Total LKR {onlinePays.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0).toLocaleString()}
+                                                                </span>
+                                                            </p>
                                                         </div>
                                                     </div>
                                                     <button onClick={() => setStudentActionModal({ ...student, allPayments: onlinePays })} className="w-full md:w-auto bg-indigo-500/15 hover:bg-indigo-600 text-indigo-400 hover:text-white border border-indigo-500/30 py-3.5 px-6 rounded-xl transition-all text-xs font-extrabold uppercase tracking-widest whitespace-nowrap outline-none shadow-sm group-hover:shadow-[0_0_15px_rgba(99,102,241,0.25)]">View Records</button>
@@ -1143,6 +1173,9 @@ export default function PaymentManagement({ loggedInUser }) {
                                                                     Group: {latestPayment.groupName}
                                                                 </span>
                                                             )}
+                                                            <span className="text-brand-accent dark:text-blue-400 font-black tracking-widest text-sm bg-blue-500/10 px-3 py-1 rounded-lg border border-blue-500/20 shadow-sm ml-auto">
+                                                                LKR {parseFloat(latestPayment.amount).toLocaleString()}
+                                                            </span>
                                                         </p>
                                                         <div className="flex flex-wrap gap-2 mt-4 items-center">
                                                             <span className="text-[10px] font-black bg-blue-500/15 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/20 uppercase tracking-widest shadow-sm">Type: {latestPayment.type}</span>
@@ -1154,7 +1187,7 @@ export default function PaymentManagement({ loggedInUser }) {
                                             </div>
                                         </div>
                                         <div className="flex items-center justify-between md:justify-end gap-6 w-full md:w-auto border-t border-white/5 md:border-t-0 pt-6 md:pt-0 shrink-0">
-                                            <button onClick={() => setStudentActionModal(student)} className="w-full md:w-auto bg-linear-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-extrabold py-4 md:py-3.5 px-8 rounded-xl hover:shadow-[0_0_20px_rgba(225,29,72,0.4)] active:scale-[0.98] transition-all duration-200 text-xs uppercase tracking-widest whitespace-nowrap outline-none shadow-lg border border-rose-500/30">
+                                            <button onClick={() => setStudentActionModal({ ...student, allPayments: payments.filter(p => p.studentId === student.studentId) })} className="w-full md:w-auto bg-linear-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-extrabold py-4 md:py-3.5 px-8 rounded-xl hover:shadow-[0_0_20px_rgba(225,29,72,0.4)] active:scale-[0.98] transition-all duration-200 text-xs uppercase tracking-widest whitespace-nowrap outline-none shadow-lg border border-rose-500/30">
                                                 Review Payments
                                             </button>
                                         </div>
@@ -1202,24 +1235,29 @@ export default function PaymentManagement({ loggedInUser }) {
 
                                 {(() => {
                                     const allStudentPays = studentActionModal.allPayments || [];
-                                    let leftSidePayment = null;
+                                    const actionableStatuses = ['Pending', 'Upcoming', 'Post Pay'];
+                                    let leftSidePayments = allStudentPays.filter(p => actionableStatuses.includes(p.status));
+                                    
                                     if (selectedPaymentId) {
-                                        leftSidePayment = allStudentPays.find(p => p.id === selectedPaymentId);
-                                    }
-                                    if (!leftSidePayment) {
-                                        leftSidePayment = allStudentPays.find(p => {
-                                            if (activeTab === 'Trash') return p.status === 'Trash';
-                                            if (activeTab === 'Approved') return p.status === 'Approved';
-                                            return p.status === activeTab && p.status !== 'Trash';
-                                        });
-                                    }
-                                    if (!leftSidePayment && allStudentPays.length > 0) leftSidePayment = allStudentPays[0];
-
-                                    if (!leftSidePayment) {
-                                        return <div className="bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/5 rounded-3xl p-10 text-center text-gray-500 dark:text-slate-400 text-lg font-bold shadow-sm flex-1 flex items-center justify-center">No payments found to review.</div>;
+                                        const selected = leftSidePayments.find(p => p.id === selectedPaymentId);
+                                        if (selected) {
+                                            leftSidePayments = [selected, ...leftSidePayments.filter(p => p.id !== selectedPaymentId)];
+                                        }
                                     }
 
-                                    return <div className="flex-1">{renderPaymentCard(leftSidePayment)}</div>;
+                                    if (leftSidePayments.length === 0) {
+                                        return <div className="bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/5 rounded-3xl p-10 text-center text-gray-500 dark:text-slate-400 text-lg font-bold shadow-sm flex-1 flex items-center justify-center">No actionable payments found.</div>;
+                                    }
+
+                                    return (
+                                        <div className="flex-1 space-y-8 overflow-y-auto pr-2 custom-scrollbar pb-6">
+                                            {leftSidePayments.map(p => (
+                                                <div key={p.id} className="relative">
+                                                    {renderPaymentCard(p)}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    );
                                 })()}
                             </div>
 
@@ -1227,72 +1265,93 @@ export default function PaymentManagement({ loggedInUser }) {
                             <div className="bg-gray-50 dark:bg-black/30 rounded-[2.5rem] border border-gray-200 dark:border-white/5 p-6 md:p-8 h-full shadow-inner flex flex-col transition-colors">
                                 <h4 className="font-extrabold text-gray-900 dark:text-white uppercase tracking-widest text-sm flex items-center gap-3 mb-6 border-b border-gray-200 dark:border-white/10 pb-4 shrink-0"><Clock className="text-blue-500 dark:text-blue-400" size={20} /> Other Payments History</h4>
 
-                                <div className="space-y-5 flex-1 overflow-y-auto pr-2 pb-10 custom-scrollbar">
+                                <div className="flex-1 flex flex-col overflow-hidden">
                                     {(() => {
                                         const allStudentPays = studentActionModal.allPayments || [];
-                                        let leftSidePayment = null;
-                                        if (selectedPaymentId) {
-                                            leftSidePayment = allStudentPays.find(p => p.id === selectedPaymentId);
-                                        }
-                                        if (!leftSidePayment) {
-                                            leftSidePayment = allStudentPays.find(p => {
-                                                if (activeTab === 'Trash') return p.status === 'Trash';
-                                                if (activeTab === 'Approved') return p.status === 'Approved';
-                                                return p.status === activeTab && p.status !== 'Trash';
-                                            });
-                                        }
-                                        if (!leftSidePayment && allStudentPays.length > 0) leftSidePayment = allStudentPays[0];
+                                        const actionableStatuses = ['Pending', 'Upcoming', 'Post Pay'];
+                                        
+                                        const rightSidePayments = allStudentPays.filter(p => !actionableStatuses.includes(p.status));
+                                        const filteredHistory = historyTab === 'All' ? rightSidePayments : rightSidePayments.filter(p => p.status === historyTab);
 
-                                        const rightSidePayments = allStudentPays.filter(p => p.id !== leftSidePayment?.id);
-
-                                        if (rightSidePayments.length === 0) {
-                                            return (
-                                                <div className="h-full flex items-center justify-center pb-10">
-                                                    <p className="text-sm text-gray-500 dark:text-slate-500 font-extrabold bg-white dark:bg-white/5 px-6 py-4 rounded-2xl border border-gray-200 dark:border-white/5 shadow-sm text-center uppercase tracking-widest">No other payments available.</p>
-                                                </div>
-                                            );
-                                        }
-
-                                        return rightSidePayments.map(hist => (
-                                            <div key={hist.id} className={`bg-white dark:bg-white/5 rounded-3xl p-6 md:p-8 border transition-all shadow-sm hover:shadow-md relative group/hist ${hist.status === 'Trash' ? 'border-red-200 dark:border-red-500/30 opacity-70' : 'border-gray-200 dark:border-white/5 hover:border-gray-300 dark:hover:border-white/10'}`}>
-                                                
-                                                {/* Edit/Delete absolute positioned buttons */}
-                                                {hist.status !== 'Trash' && hist.status !== 'Approved' && isAdmin && (
-                                                    <div className="absolute top-4 right-4 flex gap-2 opacity-100 sm:opacity-80 group-hover/hist:opacity-100 transition-opacity z-10">
-                                                        <button onClick={() => handleOpenEditModal(hist)} className="bg-gray-50 dark:bg-black/40 hover:bg-indigo-50 dark:hover:bg-indigo-500/20 text-gray-400 hover:text-indigo-500 dark:text-slate-400 dark:hover:text-indigo-400 border border-gray-200 dark:border-white/5 hover:border-indigo-200 dark:hover:border-indigo-500/30 p-2 rounded-lg transition-all shadow-sm outline-none" title="Edit Subjects / Amount">
-                                                            <Edit3 size={14} />
-                                                        </button>
-                                                        <button onClick={() => handleAction(hist, 'Trash')} className="bg-gray-50 dark:bg-black/40 hover:bg-red-50 dark:hover:bg-red-500/20 text-gray-400 hover:text-red-500 dark:text-slate-400 dark:hover:text-red-400 border border-gray-200 dark:border-white/5 hover:border-red-200 dark:hover:border-red-500/30 p-2 rounded-lg transition-all shadow-sm outline-none" title="Move to Trash">
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </div>
-                                                )}
-
-                                                <div className="flex flex-wrap justify-between items-start gap-4 mb-5 pr-16">
-                                                    <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border shadow-sm ${['Approved', 'Free Card', 'Discount'].includes(hist.status) ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20' : hist.status === 'Trash' ? 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20' : hist.status === 'Pending' ? 'bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-500/20' : 'bg-gray-100 dark:bg-slate-500/10 text-gray-700 dark:text-slate-400 border-gray-200 dark:border-slate-500/20'}`}>{hist.status}</span>
-                                                    <span className="text-[10px] text-gray-600 dark:text-slate-300 font-black uppercase tracking-widest bg-gray-50 dark:bg-black/40 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/5 shadow-sm">{hist.date}</span>
-                                                </div>
-                                                <p className="text-xl font-extrabold text-gray-900 dark:text-white leading-tight mb-2 truncate pr-16" title={hist.business}>{hist.business}</p>
-                                                <p className="text-sm text-gray-500 dark:text-slate-400 mb-6 font-bold truncate pr-16">{hist.batch} - {hist.groupName}</p>
-                                                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 text-sm border-t border-gray-100 dark:border-white/5 pt-5">
-                                                    <span className="text-gray-600 dark:text-slate-400 font-extrabold uppercase tracking-widest text-[10px] bg-gray-100 dark:bg-white/5 px-3 py-1.5 rounded-lg shadow-sm w-max">{hist.type}</span>
-                                                    <div className="flex flex-wrap items-center gap-4">
-                                                        {hist.slips && hist.slips.length > 0 && (
-                                                            <button onClick={() => openSlipsInNewTab(hist.slips, studentActionModal.studentName, studentActionModal.studentNo, studentActionModal.phone)} className="text-[10px] font-extrabold text-blue-600 dark:text-blue-400 hover:text-white dark:hover:text-white hover:bg-blue-600 dark:hover:bg-blue-500 uppercase tracking-widest cursor-pointer bg-blue-50 dark:bg-blue-500/10 px-4 py-2 rounded-xl border border-blue-200 dark:border-blue-500/20 flex items-center gap-2 transition-colors shadow-sm outline-none">
-                                                                <FileImage size={14} /> View Slips
+                                        return (
+                                            <div className="flex flex-col h-full overflow-hidden">
+                                                {/* Tabs for Categories */}
+                                                <div className="flex gap-2 overflow-x-auto pb-4 mb-2 custom-scrollbar shrink-0">
+                                                    {['All', 'Approved', 'Rejected', 'Pending', 'Upcoming', 'Free Card', 'Discount', 'Trash'].map(tab => {
+                                                        const count = tab === 'All' ? rightSidePayments.length : rightSidePayments.filter(p => p.status === tab).length;
+                                                        if (count === 0 && tab !== 'All') return null;
+                                                        return (
+                                                            <button key={tab} onClick={() => setHistoryTab(tab)} className={`px-4 py-2 rounded-xl text-xs font-extrabold tracking-widest uppercase transition-all whitespace-nowrap shadow-sm border ${historyTab === tab ? 'bg-blue-500 dark:bg-blue-600 text-white border-blue-600 dark:border-blue-500' : 'bg-white dark:bg-white/5 text-gray-500 dark:text-slate-400 border-gray-200 dark:border-white/10 hover:bg-gray-100 dark:hover:bg-white/10'}`}>
+                                                                {tab} ({count})
                                                             </button>
-                                                        )}
-                                                        {/* Swap to active action payment */}
-                                                        {hist.status !== 'Approved' && hist.status !== 'Trash' && (
-                                                            <button onClick={() => setSelectedPaymentId(hist.id)} className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 hover:text-white dark:hover:text-white hover:bg-emerald-600 dark:hover:bg-emerald-500 uppercase tracking-widest cursor-pointer bg-emerald-50 dark:bg-emerald-500/10 px-4 py-2 rounded-xl border border-emerald-200 dark:border-emerald-500/20 flex items-center gap-2 transition-colors shadow-sm outline-none">
-                                                                Review Payment
-                                                            </button>
-                                                        )}
-                                                        <span className="font-black text-gray-900 dark:text-white text-2xl whitespace-nowrap shrink-0">LKR {parseFloat(hist.amount).toLocaleString()}</span>
-                                                    </div>
+                                                        );
+                                                    })}
+                                                </div>
+
+                                                <div className="space-y-4 overflow-y-auto pr-2 pb-10 custom-scrollbar flex-1">
+                                                    {filteredHistory.length === 0 ? (
+                                                        <div className="h-full flex items-center justify-center pb-10">
+                                                            <p className="text-sm text-gray-500 dark:text-slate-500 font-extrabold bg-white dark:bg-white/5 px-6 py-4 rounded-2xl border border-gray-200 dark:border-white/5 shadow-sm text-center uppercase tracking-widest">No payments found in this category.</p>
+                                                        </div>
+                                                    ) : filteredHistory.map(hist => {
+                                                        const isExpanded = expandedHistoryId === hist.id;
+                                                        return (
+                                                            <div key={hist.id} className="transition-all duration-300">
+                                                                {/* COMPACT VIEW (Header) */}
+                                                                <div 
+                                                                    onClick={() => setExpandedHistoryId(isExpanded ? null : hist.id)}
+                                                                    className={`bg-white dark:bg-white/5 rounded-2xl p-5 border cursor-pointer transition-all shadow-sm hover:shadow-md relative group/hist flex justify-between items-center gap-4 ${isExpanded ? 'border-brand-accent dark:border-blue-500 ring-2 ring-brand-accent/20 dark:ring-blue-500/20' : hist.status === 'Trash' ? 'border-red-200 dark:border-red-500/30 opacity-70' : 'border-gray-200 dark:border-white/5 hover:border-gray-300 dark:hover:border-white/10'}`}
+                                                                >
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="flex flex-wrap items-center gap-3 mb-2">
+                                                                            <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border shadow-sm ${['Approved', 'Free Card', 'Discount'].includes(hist.status) ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20' : hist.status === 'Trash' ? 'bg-red-50 dark:bg-red-500/10 text-red-700 dark:text-red-400 border-red-200 dark:border-red-500/20' : hist.status === 'Pending' ? 'bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-500/20' : 'bg-gray-100 dark:bg-slate-500/10 text-gray-700 dark:text-slate-400 border-gray-200 dark:border-slate-500/20'}`}>{hist.status}</span>
+                                                                            <span className="text-[10px] text-gray-600 dark:text-slate-300 font-black uppercase tracking-widest bg-gray-100 dark:bg-white/5 px-2 py-1 rounded border border-gray-200 dark:border-white/10" title="Payment Date">Paid: {hist.date}</span>
+                                                                            {hist.actionDate && hist.actionDate !== '-' && (
+                                                                                <span className="text-[10px] text-emerald-600 dark:text-emerald-300 font-black uppercase tracking-widest bg-emerald-50 dark:bg-emerald-500/10 px-2 py-1 rounded border border-emerald-200 dark:border-emerald-500/20" title="Action Date">Action: {hist.actionDate}</span>
+                                                                            )}
+                                                                        </div>
+                                                                        <p className="text-sm font-extrabold text-gray-900 dark:text-white truncate mb-3">{hist.business}</p>
+                                                                        
+                                                                        <div className="flex flex-wrap items-center gap-2 mt-1">
+                                                                            <span className="text-red-500 text-[10px] font-mono font-black bg-red-50 dark:bg-red-500/10 border border-red-500/20 px-2 py-1 rounded-lg">ID: {hist.id}</span>
+                                                                            <span className="text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm">
+                                                                                {hist.batch}
+                                                                            </span>
+                                                                            <span className="text-purple-600 dark:text-purple-300 bg-purple-50 dark:bg-purple-500/10 border border-purple-200 dark:border-purple-500/20 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm">
+                                                                                {hist.type} {hist.groupName ? `- ${hist.groupName}` : ''}
+                                                                            </span>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="flex flex-col items-end gap-2 shrink-0">
+                                                                        <span className="font-black text-gray-900 dark:text-white text-lg">LKR {parseFloat(hist.amount).toLocaleString()}</span>
+                                                                        <div className="flex items-center gap-2">
+                                                                            {hist.status !== 'Approved' && hist.status !== 'Trash' && (
+                                                                                <button onClick={(e) => { e.stopPropagation(); setSelectedPaymentId(hist.id); }} className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 hover:text-white dark:hover:text-white hover:bg-emerald-600 dark:hover:bg-emerald-500 uppercase tracking-widest cursor-pointer bg-emerald-50 dark:bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-500/20 transition-colors outline-none shadow-sm">
+                                                                                    Review
+                                                                                </button>
+                                                                            )}
+                                                                            <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-white/5 flex items-center justify-center text-gray-500 dark:text-slate-400 group-hover/hist:bg-gray-200 dark:group-hover/hist:bg-white/10 transition-colors shadow-sm">
+                                                                                <ChevronRight size={16} className={`transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`} />
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* EXPANDED VIEW */}
+                                                                {isExpanded && (
+                                                                    <div className="mt-3 animate-fade-in pl-4 border-l-2 border-brand-accent dark:border-blue-500 ml-4 relative">
+                                                                        {/* Embed the full renderPaymentCard component inside */}
+                                                                        <div className="scale-[0.98] origin-top-left w-[102%]">
+                                                                            {renderPaymentCard(hist)}
+                                                                        </div>
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        );
+                                                    })}
                                                 </div>
                                             </div>
-                                        ));
+                                        );
                                     })()}
                                 </div>
                             </div>

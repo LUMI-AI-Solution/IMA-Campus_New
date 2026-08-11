@@ -20,7 +20,7 @@ export default function ContentHub() {
   const canManageGroupsAndSubjects = isSystemAdmin || isManager;
   const canManageContent = isSystemAdmin || isManager;
 
-  const [viewLevel, setViewLevel] = useState(isSystemAdmin ? 'businesses' : 'batches'); 
+  const [viewLevel, setViewLevel] = useState('businesses'); 
   const [activeBusiness, setActiveBusiness] = useState(null);
   const [activeBatch, setActiveBatch] = useState(null);
   const [batchTab, setBatchTab] = useState('subjects'); 
@@ -59,6 +59,9 @@ export default function ContentHub() {
   
   const [selectedBatchesForContent, setSelectedBatchesForContent] = useState([]);
   const [massAssignSubjects, setMassAssignSubjects] = useState([]);
+  const [masterTutes, setMasterTutes] = useState([]);
+  const [hubBatchConfigs, setHubBatchConfigs] = useState({});
+  const [hubActiveBatchTab, setHubActiveBatchTab] = useState(null);
   const [openFolders, setOpenFolders] = useState({});
 
   const [postBizId, setPostBizId] = useState('all');
@@ -123,34 +126,72 @@ export default function ContentHub() {
                   const mgrRes = await api.get('/admin/staff');
                   setManagersList(extractArray(mgrRes.data)); 
               } catch (err) {}
-              try {
-                  const bizRes = await api.get('/admin/businesses'); 
-                  setBusinesses(extractArray(bizRes.data));
-              } catch (err) {}
-          } else {
-              const overviewRes = await api.get('/admin/manager/overview');
-              if (overviewRes.data && overviewRes.data.business) setActiveBusiness(overviewRes.data.business);
-              const batchRes = await api.get('/admin/manager/batches-full');
-              setBatches(extractArray(batchRes.data));
           }
-      } catch (e) {} finally { setLoading(false); }
+
+          let fetchedBiz = [];
+          try {
+              const bizRes = await api.get('/admin/businesses'); 
+              fetchedBiz = extractArray(bizRes.data);
+              setBusinesses(fetchedBiz);
+          } catch (err) {}
+
+          if (fetchedBiz.length > 0) {
+              if (!isSystemAdmin && fetchedBiz.length === 1) {
+                  const singleBiz = fetchedBiz[0];
+                  setActiveBusiness(singleBiz);
+                  setViewLevel('batches');
+                  await refreshBatches(singleBiz.id);
+              } else {
+                  setViewLevel('businesses');
+              }
+          } else {
+              try {
+                  const batchRes = await api.get('/admin/manager/batches-full');
+                  const fetchedBatches = extractArray(batchRes.data);
+                  setBatches(fetchedBatches);
+                  if (fetchedBatches.length > 0 && fetchedBatches[0].business) {
+                      setActiveBusiness(fetchedBatches[0].business);
+                  }
+                  setViewLevel('batches');
+              } catch (err) {}
+          }
+
+          try {
+              const tutesRes = await api.get('/admin/delivery/master-tutes');
+              setMasterTutes(tutesRes.data || []);
+          } catch (e) {}
+
+      } catch (e) {
+          console.error("fetchInitialData error", e);
+      } finally { setLoading(false); }
   };
 
   useEffect(() => { fetchInitialData(); }, []);
 
   const refreshBatches = async (bizId) => {
       try {
-          const url = isSystemAdmin ? `/admin/batches/${bizId}` : '/admin/manager/batches-full';
-          const res = await api.get(url);
-          let fetchedBatches = isSystemAdmin ? (res.data.batches || res.data) : res.data;
-          fetchedBatches = Array.isArray(fetchedBatches) ? fetchedBatches : [];
+          const targetBizId = bizId || activeBusiness?.id;
+          let fetchedBatches = [];
+          if (targetBizId) {
+              const res = await api.get(`/admin/batches/${targetBizId}`);
+              const data = res.data.batches || res.data;
+              fetchedBatches = Array.isArray(data) ? data : [];
+          } else {
+              const res = await api.get('/admin/manager/batches-full');
+              const data = res.data.batches || res.data;
+              fetchedBatches = Array.isArray(data) ? data : [];
+          }
           setBatches(fetchedBatches);
           
           if (activeBatch) {
               const updatedBatch = fetchedBatches.find(b => b.id.toString() === activeBatch.id.toString());
-              if (updatedBatch) { setActiveBatch(updatedBatch); extractUniqueSubjects(updatedBatch); }
+              if (updatedBatch) { 
+                  setActiveBatch(updatedBatch); 
+                  if (updatedBatch.business) setActiveBusiness(updatedBatch.business);
+                  extractUniqueSubjects(updatedBatch); 
+              }
           }
-      } catch(e) { console.error(e); }
+      } catch(e) { console.error("refreshBatches error", e); }
   };
 
   const extractUniqueSubjects = (batch) => {
@@ -169,6 +210,7 @@ export default function ContentHub() {
                   groupId: g.id, 
                   groupName: g.name, 
                   groupType: g.type, 
+                  courseId: c.id, // 🔥 FIX: Store the actual course ID for this group
                   price: c.price, 
                   deliverTute: gpData.deliverTute === true || gpData.deliverTute === 'true', 
                   tuteName: gpData.tuteName || '',
@@ -177,9 +219,10 @@ export default function ContentHub() {
               };
 
               if(!existing) { 
-                  subs.push({...c, groupPrices: [priceObj] }); 
+                  subs.push({...c, groupPrices: [priceObj], allCourseIds: [c.id] }); 
               } else { 
                   existing.groupPrices.push(priceObj); 
+                  existing.allCourseIds.push(c.id);
                   if (c.price > existing.price) {
                       existing.id = c.id;
                       existing.price = c.price;
@@ -196,7 +239,8 @@ export default function ContentHub() {
   const fetchContents = async (subject, batch) => {
       try {
           const safeCode = subject.code || `SUB_${subject.id}`;
-          const res = await api.get(`/admin/manager/get-contents?batchId=${batch.id}&courseCode=${safeCode}&courseId=${subject.id}`);
+          const courseIdsParam = subject.allCourseIds ? subject.allCourseIds.join(',') : subject.id;
+          const res = await api.get(`/admin/manager/get-contents?batchId=${batch.id}&courseCode=${safeCode}&courseIds=${courseIdsParam}`);
           setLessonGroups(res.data?.lessonGroups || []);
           setSubjectContents(res.data?.contents || []);
           const newOpenState = {};
@@ -220,7 +264,15 @@ export default function ContentHub() {
   };
 
   const openBusinessDetails = (biz) => { setActiveBusiness(biz); setViewLevel('batches'); refreshBatches(biz.id); };
-  const openBatchDetails = (batch) => { setActiveBatch(batch); extractUniqueSubjects(batch); setViewLevel('batch_details'); setBatchTab('subjects'); };
+  const openBatchDetails = (batch) => { 
+      setActiveBatch(batch); 
+      if (batch?.business) {
+          setActiveBusiness(batch.business);
+      }
+      extractUniqueSubjects(batch); 
+      setViewLevel('batch_details'); 
+      setBatchTab('subjects'); 
+  };
   const openContentsView = async (subject) => { setActiveSubject(subject); setViewLevel('contents'); setLoading(true); await fetchContents(subject, activeBatch); setLoading(false); };
 
   const getBaseUrl = () => {
@@ -281,8 +333,24 @@ export default function ContentHub() {
       }
   };
   const isMatchedType = (item) => {
-      const itemType = item.type ?? item.content_type ?? item.contentType;
-      return itemType !== null && (parseInt(itemType) === getTypeInt(contentTab) || itemType.toString() === contentTab);
+      const typeStr = contentType || contentTab;
+      const typeInt = getTypeInt(typeStr);
+      
+      // If item is a folder (ContentGroup), it has a numeric 'type'
+      if (item.type !== undefined) {
+          return parseInt(item.type) === typeInt;
+      }
+      
+      // If item is a Content, it has a string 'contentType' (e.g. 'live', 'recording')
+      if (item.contentType !== undefined) {
+          // If it's already a number or numeric string, check against typeInt
+          if (!isNaN(item.contentType)) return parseInt(item.contentType) === typeInt;
+          // Otherwise, it's a string like 'live', check against typeStr
+          return item.contentType === typeStr;
+      }
+      
+      // Fallback
+      return typeInt === 1;
   };
   const getFolderId = (item) => { const fId = item.content_group_id ?? item.contentGroupId ?? item.folder_id; return fId ? String(fId) : null; };
 
@@ -422,7 +490,11 @@ export default function ContentHub() {
       e.preventDefault();
       const formData = new FormData(e.target);
       const pType = formData.get('paymentType');
-      const cleanDiscountRules = discountRules.filter(rule => rule.courseCount !== '' && rule.pricePerCourse !== '').map(rule => ({ courseCount: parseInt(rule.courseCount, 10), pricePerCourse: parseFloat(rule.pricePerCourse) }));
+      const cleanDiscountRules = discountRules.filter(rule => rule.courseCount != null && rule.courseCount !== '' && ((rule.pricePerCourse != null && rule.pricePerCourse !== '') || (rule.fixedDiscount != null && rule.fixedDiscount !== ''))).map(rule => ({ 
+          courseCount: parseInt(rule.courseCount, 10), 
+          ...(rule.pricePerCourse != null && rule.pricePerCourse !== '' && { pricePerCourse: parseFloat(rule.pricePerCourse) }),
+          ...(rule.fixedDiscount != null && rule.fixedDiscount !== '' && { fixedDiscount: parseFloat(rule.fixedDiscount) })
+      }));
 
       const payload = { 
           group_id: editData?.id, batch_id: activeBatch.id, name: formData.get('name'), paymentType: pType, itemOrder: formData.get('itemOrder'), 
@@ -483,14 +555,10 @@ export default function ContentHub() {
           groupId: k, 
           price: selectedGroupPrices[k].price,
           deliverTute: selectedGroupPrices[k].deliverTute,
-          tuteName: selectedGroupPrices[k].tuteName
+          tuteName: selectedGroupPrices[k].tuteName,
+          tuteCover: selectedGroupPrices[k].tuteCover,
+          lecturerImage: selectedGroupPrices[k].lecturerImage
       }));
-
-      keys.forEach(k => {
-          if (selectedGroupPrices[k].tuteFile) {
-              formData.set(`tuteCover_${k}`, selectedGroupPrices[k].tuteFile);
-          }
-      });
 
       formData.set('course_id', editData?.id || '');
       formData.set('stream', selectedStreams.length > 0 ? selectedStreams[0] : '');
@@ -520,7 +588,8 @@ export default function ContentHub() {
       const folderType = getTypeInt(contentTab); 
       const payload = { 
           contentGroupId: editData?.id, title: formData.get('title'), type: folderType, order: formData.get('order') || 1, 
-          batch_id: activeBatch.id, course_code: activeSubject.code || `SUB_${activeSubject.id}`
+          batch_id: activeBatch.id, course_code: activeSubject.code || `SUB_${activeSubject.id}`,
+          selectedBatches: selectedBatchesForContent
       };
 
       try {
@@ -533,19 +602,59 @@ export default function ContentHub() {
 
   const handleMassAssignSubmit = async (e) => {
       e.preventDefault();
-      if(!editMode && massAssignSubjects.length === 0) return toast.error("Please select at least one subject to assign this content!");
       const formData = new FormData(e.target);
       formData.set('type', contentType);
       formData.set('batch_id', activeBatch.id);
 
-      if(!editMode) formData.set('selectedCourses', JSON.stringify(massAssignSubjects));
-      if(editMode && editData?.id) formData.set('content_id', editData.id);
-
       try {
-          if (editMode) await api.put('/admin/manager/contents/update', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
-          else await api.post('/admin/manager/contents/mass-assign', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
+          if (editMode) {
+              if (massAssignSubjects.length === 0) return toast.error("Please select at least one subject to assign this content!");
+              formData.set('selectedCourses', JSON.stringify(massAssignSubjects));
+              formData.set('selectedBatches', JSON.stringify(selectedBatchesForContent));
+              if (editData?.id) formData.set('content_id', editData.id);
+              await api.put('/admin/manager/contents/update', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
+          } else {
+              // Group selections by folderId for multi-batch, multi-folder creation
+              const folderGroups = {}; 
+              let hasSelections = false;
+
+              Object.keys(hubBatchConfigs).forEach(bId => {
+                  Object.keys(hubBatchConfigs[bId]).forEach(cId => {
+                      const config = hubBatchConfigs[bId][cId];
+                      if (config.isChecked) {
+                          hasSelections = true;
+                          const folderKey = config.folderId || 'uncategorized';
+                          if (!folderGroups[folderKey]) folderGroups[folderKey] = { batches: new Set(), courses: new Set() };
+                          folderGroups[folderKey].batches.add(bId);
+                          folderGroups[folderKey].courses.add(cId);
+                      }
+                  });
+              });
+
+              if (!hasSelections) return toast.error("Please select at least one subject to assign this content!");
+
+              const submissions = Object.keys(folderGroups).map(async (folderKey) => {
+                  const fd = new FormData(e.target);
+                  fd.set('type', contentType);
+                  fd.set('batch_id', activeBatch.id);
+                  
+                  if (folderKey !== 'uncategorized') fd.set('contentGroupId', folderKey);
+                  else fd.delete('contentGroupId');
+                  
+                  fd.set('selectedBatches', JSON.stringify(Array.from(folderGroups[folderKey].batches)));
+                  fd.set('selectedCourses', JSON.stringify(Array.from(folderGroups[folderKey].courses)));
+
+                  return api.post('/admin/manager/contents/mass-assign', fd, { headers: { 'Content-Type': 'multipart/form-data' }});
+              });
+
+              await Promise.all(submissions);
+          }
+
           toast.success("Content Saved!");
-          setShowContentModal(false); if(activeSubject) fetchContents(activeSubject, activeBatch); 
+          setShowContentModal(false); 
+          setHubBatchConfigs({});
+          setHubActiveBatchTab(null);
+          if (activeSubject) fetchContents(activeSubject, activeBatch); 
       } catch (error) { toast.error("Failed to process content"); }
   };
 
@@ -555,7 +664,8 @@ export default function ContentHub() {
     lessonGroups, subjectContents, postsList, showBusinessModal, showAssignModal, showBatchModal, showGroupModal, showCourseModal,
     showLessonGroupModal, showContentModal, showPostModal, showManagePostsModal, previewData, editMode, editData, selectedLogoName,
     selectedGroupPrices, discountRules, contentType, prefilledFolder, selectedBatchesForContent, massAssignSubjects, openFolders,
-    postBizId, postBatches, showInstallmentModal, existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, groupedSubjects, loading, showLecturerModal
+    postBizId, postBatches, showInstallmentModal, existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, groupedSubjects, loading, showLecturerModal, masterTutes,
+    hubBatchConfigs, hubActiveBatchTab
   };
 
   const actionsData = {
@@ -569,7 +679,7 @@ export default function ContentHub() {
     handleDiscountRuleChange, addInstallmentStep, removeInstallmentStep, toggleGroupPrice, updateGroupData, toggleMassAssignSubject,
     fetchPosts, setPostBizId, setBatchTab, setContentTab, getTypeInt, getEmbedUrl, isMatchedType, getFolderId, setShowInstallmentModal, 
     setInstallmentSubjectCount, setInstallmentSteps, setEditInstallmentId, setEditData, setDiscountRules, setSelectedGroupPrices,
-    setShowLecturerModal, handleLecturerSubmit, handleDeleteLecturer
+    setShowLecturerModal, handleLecturerSubmit, handleDeleteLecturer, setHubBatchConfigs, setHubActiveBatchTab
   };
 
   if (loading) return <div className="flex h-full items-center justify-center min-h-[60vh]"><Loader2 size={50} className="animate-spin text-brand-accent" /></div>;
@@ -582,7 +692,7 @@ export default function ContentHub() {
           
           <div className="flex flex-wrap items-center gap-3 text-sm font-semibold text-gray-400">
               {viewLevel !== 'businesses' && <button onClick={() => handleBack(viewLevel==='contents' ? 'batch_details' : viewLevel==='batch_details' ? 'batches' : 'businesses')} className="hover:text-white flex items-center gap-2 bg-white/5 hover:bg-white/10 text-gray-300 px-4 py-2 rounded-xl transition-colors border border-white/5 outline-none"><ArrowLeft size={16}/> Back</button>}
-              {isSystemAdmin && <button onClick={() => handleBack('businesses')} className={`hover:text-white transition-colors ${viewLevel==='businesses' ? 'text-white font-extrabold' : ''}`}>Businesses</button>}
+              <button onClick={() => handleBack('businesses')} className={`hover:text-white transition-colors ${viewLevel==='businesses' ? 'text-white font-extrabold' : ''}`}>Businesses</button>
               {(viewLevel === 'batches' || viewLevel === 'batch_details' || viewLevel === 'contents') && activeBusiness && (
                   <><ChevronRight size={16} className="text-gray-500"/> <button onClick={() => handleBack('batches')} className={`hover:text-white transition-colors truncate max-w-[150px] sm:max-w-none ${viewLevel==='batches' ? 'text-white font-extrabold' : ''}`}>{activeBusiness.name}</button></>
               )}

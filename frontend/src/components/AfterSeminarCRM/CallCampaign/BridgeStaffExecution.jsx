@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import axios from '../../../api/axios';
 import toast from 'react-hot-toast';
 import { Loader2, PhoneCall, CheckCircle2, AlertCircle, Award, CreditCard, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, ChartPie } from 'lucide-react';
-import { FaSave, FaCommentDots, FaSearch, FaKeyboard, FaChartPie } from 'react-icons/fa';
+import { FaSave, FaCommentDots, FaSearch, FaKeyboard, FaChartPie, FaPhoneAlt, FaWhatsapp } from 'react-icons/fa';
 
-export default function BridgeStaffExecution({ filters, setChatModalLead, externalSearch }) {
+export default function BridgeStaffExecution({ filters, setChatModalLead, externalSearch, onLeadsLoaded }) {
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(true);
     const [drafts, setDrafts] = useState({});
@@ -50,8 +50,9 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
                 }
             });
             
-            const activeLeads = (res.data.leads || []).filter(l => l.source === 'bridge_transfer' && l.enrollmentStatus !== 'ENROLLED');
+            const activeLeads = (res.data.leads || []).filter(l => l.source === 'bridge_transfer' && (!(l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_')))));
             setLeads(activeLeads);
+            if (onLeadsLoaded) onLeadsLoaded(activeLeads.length);
             
             const loadedDrafts = {};
             activeLeads.forEach(l => {
@@ -89,7 +90,7 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
             
             toast.success("Saved successfully!");
             
-            if (lead.enrollmentStatus === 'ENROLLED') {
+            if (((lead.enrollmentStatus === 'ENROLLED' || lead.enrollmentStatus === 'PAID' || (lead.enrollmentStatus && lead.enrollmentStatus.startsWith('ENROLLED_'))))) {
                 setSessionEnrolled(prev => ({
                     total: prev.total + 1,
                     full: lead.paymentIntention === 'FULL' ? prev.full + 1 : prev.full,
@@ -341,6 +342,24 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
                                                 <option className="bg-slate-900 text-amber-400" value="no_answer">📵 NO ANSWER</option>
                                                 <option className="bg-slate-900 text-rose-400" value="reject">❌ REJECTED</option>
                                             </select>
+                                        </div>
+
+                                        {/* Dual Call Buttons */}
+                                        <div className="flex gap-2 w-full mt-3">
+                                            <button onClick={(e) => { e.preventDefault(); toast.error('Coming Soon', { icon: '🚧' }); }} className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg py-1.5 text-[10px] font-bold flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 transition-all border border-blue-500/30">
+                                                <FaPhoneAlt size={10} /> Normal Call
+                                            </button>
+
+                                            {lead.waCallPermissionExpiry && new Date(lead.waCallPermissionExpiry) > new Date() ? (
+                                                <button className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white rounded-lg py-1 text-[10px] font-bold flex flex-col items-center justify-center shadow-md shadow-emerald-500/20 transition-all leading-none border border-emerald-500/30">
+                                                    <div className="flex items-center gap-1 mb-0.5">
+                                                        <FaWhatsapp size={12} /> WhatsApp Call
+                                                    </div>
+                                                    <span className="text-[8px] font-mono text-emerald-100 bg-black/20 px-1 py-0.5 rounded">
+                                                        Ends: {Math.max(0, Math.ceil((new Date(lead.waCallPermissionExpiry) - new Date()) / (1000 * 60 * 60 * 24)))} Days
+                                                    </span>
+                                                </button>
+                                            ) : null}
                                         </div>
 
                                         <div className="flex gap-2 mt-auto pt-3">

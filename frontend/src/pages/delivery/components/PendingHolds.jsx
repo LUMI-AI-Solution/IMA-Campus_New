@@ -13,8 +13,7 @@ const DeliveryItemImage = ({ coverName }) => {
         if (!coverName || coverName === 'default-tute.png' || coverName === 'null') {
             setImgSrc(null);
         } else {
-            const baseUrl = axios.defaults.baseURL.replace('/api', '');
-            setImgSrc(`${baseUrl}/storage/documents/${coverName}`);
+            setImgSrc(`${axios.defaults.baseURL}/storage/documents/${coverName}`);
         }
     }, [coverName]);
 
@@ -49,6 +48,9 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
     const [allDeliveries, setAllDeliveries] = useState([]); 
     const [deliveries, setDeliveries] = useState([]);
     const [activePayTab, setActivePayTab] = useState('All');
+    const [selectedBatchFilter, setSelectedBatchFilter] = useState('All');
+    const [apiBatches, setApiBatches] = useState([]);
+
     
     const [viewType, setViewType] = useState('Pending'); 
     const [isEditOrderMode, setIsEditOrderMode] = useState(false);
@@ -87,7 +89,7 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
 
     useEffect(() => {
         if (selectedBiz) {
-            fetchDeliveriesForBiz(selectedBiz);
+            fetchDeliveriesForBiz(selectedBiz, false);
         }
     }, [viewType, allDeliveries]);
 
@@ -107,11 +109,22 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
         }
     };
 
-    const fetchDeliveriesForBiz = (bizId) => {
+    const fetchDeliveriesForBiz = async (bizId, isNewBiz = false) => {
         setSelectedBiz(bizId);
         const bizDeliveries = allDeliveries.filter(d => d.businessId === bizId && d.status === viewType);
         setDeliveries(bizDeliveries);
-        setActivePayTab('All'); 
+        
+        if (isNewBiz) {
+            setActivePayTab('All'); 
+            setSelectedBatchFilter('All');
+        }
+        
+        try {
+            const res = await axios.get(`/admin/batches/${bizId}`);
+            setApiBatches(res.data?.batches || res.data || []);
+        } catch (error) {
+            console.error("Failed to load batches", error);
+        }
     };
 
     const processedDeliveries = useMemo(() => {
@@ -144,8 +157,34 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
         });
     }, [deliveries]);
 
-    // 🔥 FIX: Filter Logic updated to separate 'Mixed' from 'All'
-    const filteredDeliveries = processedDeliveries.filter(order => {
+    const availableBatches = useMemo(() => {
+        if (apiBatches.length > 0) {
+            return ['All', ...apiBatches.map(b => b.name).sort()];
+        }
+        const batches = new Set(processedDeliveries.map(d => d.batchName).filter(Boolean));
+        return ['All', ...Array.from(batches).sort()];
+    }, [processedDeliveries, apiBatches]);
+
+    const baseFilteredDeliveries = processedDeliveries.filter(order => {
+        if (selectedBatchFilter !== 'All' && order.batchName !== selectedBatchFilter) return false;
+
+        const searchLower = searchQuery.toLowerCase();
+        const matchesSearch = order.studentName?.toLowerCase().includes(searchLower) || 
+                              order.id?.toString().includes(searchLower) ||
+                              order.phone?.includes(searchQuery);
+        return matchesSearch;
+    });
+
+    // 🔥 FIX: Tab counts updated to use baseFilteredDeliveries
+    const tabCounts = {
+        All: baseFilteredDeliveries.filter(d => !d.isMix).length,
+        Mixed: baseFilteredDeliveries.filter(d => d.isMix).length,
+        Monthly: baseFilteredDeliveries.filter(d => !d.isMix && d.paymentType === 'Monthly').length,
+        Full: baseFilteredDeliveries.filter(d => !d.isMix && d.paymentType === 'Full').length,
+        Installment: baseFilteredDeliveries.filter(d => !d.isMix && d.paymentType === 'Installment').length,
+    };
+
+    const filteredDeliveries = baseFilteredDeliveries.filter(order => {
         let matchesTab = false;
         
         if (activePayTab === 'All') {
@@ -156,21 +195,8 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
             matchesTab = !order.isMix && order.paymentType === activePayTab;
         }
 
-        const searchLower = searchQuery.toLowerCase();
-        const matchesSearch = order.studentName?.toLowerCase().includes(searchLower) || 
-                              order.id?.toString().includes(searchLower) ||
-                              order.phone?.includes(searchQuery);
-        return matchesTab && matchesSearch;
+        return matchesTab;
     });
-
-    // 🔥 FIX: Tab counts updated
-    const tabCounts = {
-        All: processedDeliveries.filter(d => !d.isMix).length,
-        Mixed: processedDeliveries.filter(d => d.isMix).length,
-        Monthly: processedDeliveries.filter(d => !d.isMix && d.paymentType === 'Monthly').length,
-        Full: processedDeliveries.filter(d => !d.isMix && d.paymentType === 'Full').length,
-        Installment: processedDeliveries.filter(d => !d.isMix && d.paymentType === 'Installment').length,
-    };
 
     if (loading && !selectedBiz) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-brand-accent" size={40}/></div>;
 
@@ -223,7 +249,7 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
                                 key={biz.id} 
                                 onClick={(e) => {
                                     if(isEditOrderMode) return;
-                                    fetchDeliveriesForBiz(biz.id);
+                                    fetchDeliveriesForBiz(biz.id, true);
                                 }}
                                 className={`relative bg-white/70 dark:bg-white/[0.03] backdrop-blur-2xl border p-8 rounded-[2rem] ${isEditOrderMode ? 'cursor-default ring-2 ring-brand-accent/50' : 'cursor-pointer hover:shadow-2xl hover:border-brand-accent/50 dark:hover:border-brand-accent/70'} transition-all shadow-sm flex flex-col items-center justify-center text-center group ${viewType === 'Hold' ? 'border-gray-200 dark:border-orange-500/30 hover:border-orange-500 dark:hover:border-orange-500/60' : 'border-gray-200 dark:border-white/10'}`}
                             >
@@ -264,12 +290,31 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
                 </div>
             ) : (
                 <div>
-                    <div className="flex flex-col xl:flex-row items-center justify-between gap-4 mb-8">
-                        <button onClick={() => {setSelectedBiz(null); setDeliveries([]); fetchAllInitialData();}} className="text-base font-bold text-gray-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white flex items-center gap-2 bg-white/80 dark:bg-white/[0.05] backdrop-blur-xl border border-gray-200 dark:border-white/10 px-6 py-3 rounded-2xl transition-all shrink-0 self-start xl:self-auto shadow-md hover:shadow-lg">
-                            <ArrowLeft size={18}/> Back to Businesses
-                        </button>
+                    <div className="flex flex-col gap-4 mb-8">
+                        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+                            <div className="flex flex-wrap gap-4 items-center shrink-0 w-full xl:w-auto">
+                                <button onClick={() => {setSelectedBiz(null); setDeliveries([]); fetchAllInitialData();}} className="text-base font-bold text-gray-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white flex items-center gap-2 bg-white/80 dark:bg-white/[0.05] backdrop-blur-xl border border-gray-200 dark:border-white/10 px-6 py-3 rounded-2xl transition-all shadow-md hover:shadow-lg shrink-0">
+                                    <ArrowLeft size={18}/> Back to Businesses
+                                </button>
+                                
+                                <div className="flex flex-col sm:flex-row gap-3 items-center bg-white/60 dark:bg-black/20 p-2 rounded-xl border border-gray-200 dark:border-white/10 shadow-inner w-full sm:w-auto">
+                                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                                        <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider ml-1">Batch:</span>
+                                        <select 
+                                            className="w-full sm:w-auto bg-white/80 dark:bg-black/40 text-gray-800 dark:text-gray-200 text-sm font-bold rounded-lg px-3 py-1.5 border border-gray-200 dark:border-white/10 focus:outline-none focus:border-brand-accent cursor-pointer"
+                                            value={selectedBatchFilter}
+                                            onChange={(e) => setSelectedBatchFilter(e.target.value)}
+                                        >
+                                            {availableBatches.map(b => (
+                                                <option key={b} value={b}>{b}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
-                        <div className="flex flex-wrap gap-3 bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl p-2 rounded-2xl border border-gray-200 dark:border-white/10 w-full xl:w-auto shadow-lg transition-colors">
+                        <div className="flex flex-wrap gap-3 bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl p-2 rounded-2xl border border-gray-200 dark:border-white/10 w-full shadow-lg transition-colors overflow-x-auto">
                             {['All', 'Mixed', 'Monthly', 'Full', 'Installment'].map(tab => (
                                 <button 
                                     key={tab} 
@@ -321,7 +366,11 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
 
     const [isEditingInfo, setIsEditingInfo] = useState(false);
     const [tempName, setTempName] = useState(order.studentName);
-    const [tempAddress, setTempAddress] = useState(order.labelAddress || order.address);
+    const [tempHouseNo, setTempHouseNo] = useState(order.originalAddress?.houseNo || '');
+    const [tempStreet, setTempStreet] = useState(order.originalAddress?.street || '');
+    const [tempCity, setTempCity] = useState(order.originalAddress?.city || '');
+    const [tempDistrict, setTempDistrict] = useState(order.originalAddress?.district || '');
+    const tempAddress = [tempHouseNo, tempStreet, tempCity, tempDistrict].filter(Boolean).join(', ') || order.labelAddress || order.address;
     const [tempPhone, setTempPhone] = useState(order.phone);
 
     const [packRemark, setPackRemark] = useState(() => {
@@ -337,7 +386,8 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
         return localStorage.getItem(`draft_hold_remark_${order.id}`) || '';
     });
 
-    const getLecImgUrl = (imageName) => (!imageName || imageName === 'default.png' || imageName === 'null') ? '/logo.png' : `${axios.defaults.baseURL.replace('/api', '')}/storage/icons/${imageName}`;
+    const getBizLogoUrl = (logo) => logo ? `${axios.defaults.baseURL}/storage/images/${logo}` : '/logo.png';
+    const getLecImgUrl = (imageName) => (!imageName || imageName === 'default.png' || imageName === 'null') ? '/logo.png' : `${axios.defaults.baseURL}/storage/icons/${imageName}`;
 
     const handleRemarkChange = (e) => {
         const val = e.target.value;
@@ -357,9 +407,9 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
             if (studentHistory.length === 0) {
                 setHistoryLoading(true);
                 try {
-                    // extract just the first phone number if it contains slashes
-                    const rawPhone = order.payment?.student?.phone || (order.phone ? order.phone.split(' / ')[0] : '');
-                    const res = await axios.get(`/admin/delivery/history-advanced?search=${rawPhone}&limit=50`);
+                    // pass studentId directly for fast query if available
+                    const sId = order.studentId || order.payment?.studentId;
+                    const res = await axios.get(`/admin/delivery/history-advanced?studentId=${sId}&limit=50`);
                     setStudentHistory(res.data.data || []);
                 } catch (error) {
                     toast.error("Failed to load student history.");
@@ -495,13 +545,65 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
 
     const cancelEdit = () => {
         setTempName(order.studentName);
-        setTempAddress(order.labelAddress || order.address);
+        setTempHouseNo(order.originalAddress?.houseNo || '');
+        setTempStreet(order.originalAddress?.street || '');
+        setTempCity(order.originalAddress?.city || '');
+        setTempDistrict(order.originalAddress?.district || '');
         setTempPhone(order.phone);
         setIsEditingInfo(false);
     };
 
+    const saveEdit = async () => {
+        try {
+            await axios.put(`/admin/delivery/${order.id}/label`, {
+                labelName: tempName,
+                labelPhone: tempPhone,
+                houseNo: tempHouseNo,
+                street: tempStreet,
+                city: tempCity,
+                district: tempDistrict
+            });
+            toast.success('Label details updated!');
+            setIsEditingInfo(false);
+            if(onRefresh) onRefresh();
+        } catch (error) {
+            console.error('Save Edit Error:', error);
+            toast.error('Failed to save label details');
+        }
+    };
+
     let cardStyle = 'bg-white/80 dark:bg-white/[0.02] backdrop-blur-2xl border-gray-200 dark:border-white/10 hover:border-brand-accent/50 dark:hover:border-brand-accent/50 shadow-lg'; 
     let typeBadgeStyle = 'bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-slate-200 border-gray-200 dark:border-white/10';
+
+    const copyToClipboard = (text, label) => {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(() => {
+                toast.success(`${label} copied!`);
+            }).catch(() => fallbackCopy(text, label));
+        } else {
+            fallbackCopy(text, label);
+        }
+    };
+
+    const fallbackCopy = (text, label) => {
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        try {
+            if (document.execCommand('copy')) {
+                toast.success(`${label} copied!`);
+            } else {
+                toast.error(`Failed to copy ${label}`);
+            }
+        } catch (err) {
+            toast.error(`Error copying ${label}`);
+        }
+        document.body.removeChild(textArea);
+    };
 
     if (order.status === 'Hold') {
         cardStyle = 'bg-orange-50/90 dark:bg-orange-950/20 backdrop-blur-2xl border-orange-200 dark:border-orange-500/30 hover:border-orange-300 dark:hover:border-orange-500/50 shadow-lg shadow-orange-500/5';
@@ -531,8 +633,14 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
                     <div className="flex-1 w-full">
                         {!isEditingInfo ? (
                             <div className="relative group w-full">
-                               <h4 className="font-black text-2xl text-gray-900 dark:text-white flex flex-wrap items-center gap-3 transition-colors mb-2">
-                                    {tempName} 
+                                <h4 className="font-black text-2xl text-gray-900 dark:text-white flex flex-wrap items-center gap-3 transition-colors mb-2">
+                                    <span 
+                                        className="cursor-pointer hover:text-brand-accent transition-colors underline-offset-4 hover:underline" 
+                                        onClick={() => copyToClipboard(tempName, "Name")}
+                                        title="Click to copy Name"
+                                    >
+                                        {tempName}
+                                    </span>
                                     <span className={`text-[11px] font-black px-3 py-1.5 rounded-lg border tracking-widest uppercase shadow-sm flex items-center gap-1.5 transition-colors ${typeBadgeStyle}`}>
                                         {order.isUpgrade ? `UPGRADE ORDER • ${order.paymentType}` : (order.isMix ? `MIXED ORDER • ${order.paymentType}` : order.paymentType)}
                                     </span>
@@ -542,7 +650,21 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
                                     )}
                                 </h4>
                                 <p className="text-sm text-gray-700 dark:text-slate-300 leading-relaxed w-11/12 font-bold bg-white/60 dark:bg-black/20 p-2.5 rounded-xl border border-gray-200 dark:border-white/5 inline-block transition-colors shadow-sm backdrop-blur-md">
-                                    {tempAddress} <span className="mx-2 text-gray-400 dark:text-white/20">•</span> <span className="text-emerald-600 dark:text-emerald-400 font-black">{tempPhone}</span>
+                                    <span 
+                                        className="cursor-pointer hover:text-brand-accent transition-colors underline-offset-4 hover:underline"
+                                        onClick={() => copyToClipboard(tempAddress, "Address")}
+                                        title="Click to copy Address"
+                                    >
+                                        {tempAddress}
+                                    </span> 
+                                    <span className="mx-2 text-gray-400 dark:text-white/20">•</span> 
+                                    <span 
+                                        className="text-emerald-600 dark:text-emerald-400 font-black cursor-pointer hover:text-emerald-500 hover:underline underline-offset-4 transition-colors"
+                                        onClick={() => copyToClipboard(tempPhone, "Phone")}
+                                        title="Click to copy Phone"
+                                    >
+                                        {tempPhone}
+                                    </span>
                                 </p>
                                 
                                 {order.status === 'Hold' && (
@@ -567,10 +689,15 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
                                 <div className="space-y-3">
                                     <input type="text" value={tempName} onChange={(e)=>setTempName(e.target.value)} className="w-full bg-white dark:bg-black/40 text-sm text-gray-900 dark:text-white p-3 border border-gray-300 dark:border-white/10 rounded-xl outline-none focus:border-brand-accent dark:focus:border-brand-accent font-bold transition-colors shadow-sm" placeholder="Student Name"/>
                                     <input type="text" value={tempPhone} onChange={(e)=>setTempPhone(e.target.value)} className="w-full bg-white dark:bg-black/40 text-sm text-gray-900 dark:text-white p-3 border border-gray-300 dark:border-white/10 rounded-xl outline-none focus:border-brand-accent dark:focus:border-brand-accent font-bold transition-colors shadow-sm" placeholder="Phone Number"/>
-                                    <textarea value={tempAddress} onChange={(e)=>setTempAddress(e.target.value)} className="w-full bg-white dark:bg-black/40 text-sm text-gray-900 dark:text-white p-3 border border-gray-300 dark:border-white/10 rounded-xl outline-none focus:border-brand-accent dark:focus:border-brand-accent resize-none h-20 font-bold transition-colors shadow-sm" placeholder="Address"></textarea>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <input type="text" value={tempHouseNo} onChange={(e)=>setTempHouseNo(e.target.value)} className="w-full bg-white dark:bg-black/40 text-sm text-gray-900 dark:text-white p-3 border border-gray-300 dark:border-white/10 rounded-xl outline-none focus:border-brand-accent dark:focus:border-brand-accent font-bold transition-colors shadow-sm" placeholder="House No"/>
+                                        <input type="text" value={tempStreet} onChange={(e)=>setTempStreet(e.target.value)} className="w-full bg-white dark:bg-black/40 text-sm text-gray-900 dark:text-white p-3 border border-gray-300 dark:border-white/10 rounded-xl outline-none focus:border-brand-accent dark:focus:border-brand-accent font-bold transition-colors shadow-sm" placeholder="Street"/>
+                                        <input type="text" value={tempCity} onChange={(e)=>setTempCity(e.target.value)} className="w-full bg-white dark:bg-black/40 text-sm text-gray-900 dark:text-white p-3 border border-gray-300 dark:border-white/10 rounded-xl outline-none focus:border-brand-accent dark:focus:border-brand-accent font-bold transition-colors shadow-sm" placeholder="City"/>
+                                        <input type="text" value={tempDistrict} onChange={(e)=>setTempDistrict(e.target.value)} className="w-full bg-white dark:bg-black/40 text-sm text-gray-900 dark:text-white p-3 border border-gray-300 dark:border-white/10 rounded-xl outline-none focus:border-brand-accent dark:focus:border-brand-accent font-bold transition-colors shadow-sm" placeholder="District"/>
+                                    </div>
                                 </div>
                                 <div className="flex gap-3 mt-4">
-                                    <button onClick={() => setIsEditingInfo(false)} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-black py-3 rounded-xl flex justify-center items-center gap-2 shadow-lg shadow-emerald-600/20 transition-colors"><Save size={16}/> Save Edit</button>
+                                    <button onClick={saveEdit} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-black py-3 rounded-xl flex justify-center items-center gap-2 shadow-lg shadow-emerald-600/20 transition-colors"><Save size={16}/> Save Edit</button>
                                     <button onClick={cancelEdit} className="px-5 bg-gray-500 dark:bg-slate-700 hover:bg-gray-600 dark:hover:bg-slate-600 text-white rounded-xl flex justify-center items-center font-bold transition-colors shadow-md"><X size={18}/></button>
                                 </div>
                             </div>
@@ -579,7 +706,9 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {order.items?.map((item, i) => (
+                    {order.items?.filter((item, index, self) => 
+                        index === self.findIndex((t) => t.tuteName === item.tuteName)
+                    ).map((item, i) => (
                         <div key={i} className="flex items-center justify-between bg-white/60 dark:bg-black/20 backdrop-blur-md border border-gray-200 dark:border-white/5 p-3.5 rounded-2xl shadow-sm transition-colors hover:bg-white/80 dark:hover:bg-white/5 group">
                             <div className="flex items-center gap-4 min-w-0">
                                 
@@ -623,6 +752,15 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
                                 <p className="text-xs text-blue-700/80 dark:text-blue-300/70 font-bold">
                                     Packed on {new Date(order.lastDelivery.packedAt).toLocaleDateString('en-GB')} • <span className="font-black text-indigo-700 dark:text-indigo-400">{order.lastDelivery.trackingNumber ? `TRK: ${order.lastDelivery.trackingNumber}` : 'No Tracking No'}</span>
                                 </p>
+                                {order.lastDelivery.packRemark ? (
+                                    <p className="text-[10px] text-yellow-700 dark:text-yellow-400 font-bold mt-1 bg-yellow-50 dark:bg-yellow-500/10 px-2 py-0.5 rounded inline-block border border-yellow-200 dark:border-yellow-500/20">
+                                        <span className="font-black uppercase tracking-widest">Remark:</span> {order.lastDelivery.packRemark}
+                                    </p>
+                                ) : (
+                                    <p className="text-[10px] text-gray-500 dark:text-gray-400 font-bold mt-1 bg-gray-50 dark:bg-gray-500/10 px-2 py-0.5 rounded inline-block border border-gray-200 dark:border-gray-500/20">
+                                        <span className="font-black uppercase tracking-widest">Remark:</span> N/A
+                                    </p>
+                                )}
                             </div>
                         </div>
                         <button className="text-xs font-black text-blue-600 dark:text-blue-400 bg-white dark:bg-blue-500/10 hover:bg-blue-50 dark:hover:bg-blue-500/20 px-4 py-2.5 rounded-xl border border-blue-200 dark:border-blue-500/30 shadow-sm transition-colors flex items-center gap-2">
@@ -771,12 +909,31 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
                                                     ))}
                                                 </div>
                                             </div>
-                                            {hist.trackingNumber && (
-                                                <div className="shrink-0 bg-gray-50 dark:bg-black/40 px-4 py-2 rounded-xl border border-gray-200 dark:border-white/5 text-center">
-                                                    <p className="text-[10px] text-gray-500 dark:text-slate-400 font-black uppercase tracking-widest mb-1">Tracking</p>
-                                                    <p className="text-sm text-emerald-600 dark:text-emerald-400 font-black tracking-wider">{hist.trackingNumber}</p>
-                                                </div>
-                                            )}
+                                            <div className="shrink-0 flex flex-col gap-2 items-end">
+                                                {hist.trackingNumber ? (
+                                                    <div className="bg-gray-50 dark:bg-black/40 px-4 py-2 rounded-xl border border-gray-200 dark:border-white/5 text-center min-w-[120px]">
+                                                        <p className="text-[10px] text-gray-500 dark:text-slate-400 font-black uppercase tracking-widest mb-1">Tracking</p>
+                                                        <p className="text-sm text-emerald-600 dark:text-emerald-400 font-black tracking-wider">{hist.trackingNumber}</p>
+                                                    </div>
+                                                ) : (
+                                                    <div className="bg-gray-50 dark:bg-black/40 px-4 py-2 rounded-xl border border-gray-200 dark:border-white/5 text-center min-w-[120px]">
+                                                        <p className="text-[10px] text-gray-500 dark:text-slate-400 font-black uppercase tracking-widest mb-1">Tracking</p>
+                                                        <p className="text-sm text-gray-400 dark:text-gray-500 font-black tracking-wider">N/A</p>
+                                                    </div>
+                                                )}
+                                                
+                                                {hist.packRemark ? (
+                                                    <div className="text-[10px] bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 p-2 rounded-lg border border-yellow-200 dark:border-yellow-500/20 max-w-[200px] min-w-[120px] break-words text-left">
+                                                        <span className="font-black uppercase tracking-widest block mb-0.5 text-[9px]">Remark:</span>
+                                                        {hist.packRemark}
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-[10px] bg-gray-50 dark:bg-gray-500/10 text-gray-500 dark:text-gray-400 p-2 rounded-lg border border-gray-200 dark:border-gray-500/20 max-w-[200px] min-w-[120px] break-words text-left">
+                                                        <span className="font-black uppercase tracking-widest block mb-0.5 text-[9px]">Remark:</span>
+                                                        N/A
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>

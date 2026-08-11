@@ -5,23 +5,62 @@ import axios from '../../../api/axios';
 import toast from 'react-hot-toast';
 
 export default function DispatchDelivered({ searchQuery }) {
+    // SMART IMAGE COMPONENT FOR PENDING ITEMS
+    const DeliveryItemImage = ({ coverName }) => {
+        const [imgSrc, setImgSrc] = useState(null);
+        const [errorStage, setErrorStage] = useState(0);
+
+        useEffect(() => {
+            if (!coverName || coverName === 'default-tute.png' || coverName === 'null') {
+                setImgSrc(null);
+            } else {
+                setImgSrc(`${axios.defaults.baseURL}/storage/documents/${coverName}`);
+            }
+        }, [coverName]);
+
+        const handleError = () => {
+            if (errorStage === 0 && imgSrc) {
+                setImgSrc(imgSrc.replace('/storage/documents/', '/storage/images/'));
+                setErrorStage(1);
+            } else if (errorStage === 1 && imgSrc) {
+                setImgSrc(imgSrc.replace('/storage/images/', '/storage/icons/'));
+                setErrorStage(2);
+            } else {
+                setImgSrc(null);
+            }
+        };
+
+        if (!imgSrc) {
+            return (
+                <div className="w-12 h-16 flex items-center justify-center bg-gray-100 dark:bg-white/10 border border-transparent dark:border-white/20 rounded-xl shrink-0">
+                    <BookOpen size={20} className="text-gray-400 dark:text-slate-400"/>
+                </div>
+            );
+        }
+
+        return <img src={imgSrc} onError={handleError} alt="Cover" className="w-12 h-16 object-cover rounded-xl border border-gray-200 dark:border-white/10 shrink-0" />;
+    };
+
     const [loading, setLoading] = useState(true);
     const [businesses, setBusinesses] = useState([]);
     const [selectedBiz, setSelectedBiz] = useState(null);
     
     const [allDeliveries, setAllDeliveries] = useState([]); 
     const [deliveries, setDeliveries] = useState([]);
-    
-    const [viewType, setViewType] = useState('Dispatch'); 
-    const [selectedOrder, setSelectedOrder] = useState(null); 
+    const [apiBatches, setApiBatches] = useState([]);
 
+    // Handlers
+    const [viewType, setViewType] = useState('Dispatch'); 
+    const [selectedOrder, setSelectedOrder] = useState(null);
+    const [selectedBatchFilter, setSelectedBatchFilter] = useState('All');
+    
     // Pagination & Date Filter States
     const [dateRange, setDateRange] = useState({ start: '', end: '' });
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 20;
 
-    const getBizLogoUrl = (imageName) => (!imageName || imageName === 'default.png' || imageName === 'null') ? '/logo.png' : `${axios.defaults.baseURL.replace('/api', '')}/storage/icons/${imageName}`;
-    const getTuteImgUrl = (imageName) => (!imageName || imageName === 'default-tute.png' || imageName === 'null') ? '/default-tute.png' : `${axios.defaults.baseURL.replace('/api', '')}/storage/documents/${imageName}`;
+    const getBizLogoUrl = (imageName) => (!imageName || imageName === 'default.png' || imageName === 'null') ? '/logo.png' : `${axios.defaults.baseURL}/storage/icons/${imageName}`;
+    const getTuteImgUrl = (imageName) => (!imageName || imageName === 'default-tute.png' || imageName === 'null') ? '/default-tute.png' : `${axios.defaults.baseURL}/storage/documents/${imageName}`;
 
     useEffect(() => {
         fetchAllInitialData();
@@ -47,7 +86,7 @@ export default function DispatchDelivered({ searchQuery }) {
         }
     };
 
-    const fetchDeliveriesForBiz = (bizId) => {
+    const fetchDeliveriesForBiz = async (bizId) => {
         setSelectedBiz(bizId);
         
         const bizDeliveries = allDeliveries.filter(d => {
@@ -59,11 +98,32 @@ export default function DispatchDelivered({ searchQuery }) {
         });
         
         setDeliveries(bizDeliveries);
+        
+        setSelectedBatchFilter('All');
         setCurrentPage(1);
+
+        try {
+            const res = await axios.get(`/admin/batches/${bizId}`);
+            setApiBatches(res.data?.batches || res.data || []);
+        } catch (error) {
+            console.error("Failed to load batches", error);
+        }
     };
 
     // Filter Logic
+    
+    const availableBatches = React.useMemo(() => {
+        if (apiBatches.length > 0) {
+            return ['All', ...apiBatches.map(b => b.name).sort()];
+        }
+        const batches = new Set(deliveries.map(d => d.batchName).filter(Boolean));
+        return ['All', ...Array.from(batches).sort()];
+    }, [deliveries, apiBatches]);
+
     const filteredDeliveries = deliveries.filter(order => {
+        
+        if (selectedBatchFilter !== 'All' && order.batchName !== selectedBatchFilter) return false;
+
         const matchesSearch = order.studentName?.toLowerCase().includes(searchQuery.toLowerCase()) || 
                               order.trackingNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
                               order.id?.toString().includes(searchQuery.toLowerCase());
@@ -132,21 +192,52 @@ export default function DispatchDelivered({ searchQuery }) {
                 </div>
             ) : (
                 <div>
-                    <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-8">
-                        <button onClick={() => {setSelectedBiz(null); setDeliveries([]);}} className="text-base font-bold text-gray-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white flex items-center gap-2 bg-white/80 dark:bg-white/[0.05] backdrop-blur-xl border border-gray-200 dark:border-white/10 px-6 py-3 rounded-2xl transition-all shrink-0 self-start lg:self-auto shadow-md hover:shadow-lg">
-                            <ArrowLeft size={18}/> Back to Businesses
-                        </button>
-
-                        {/* 🔥 Glassmorphic Date Filter 🔥 */}
-                        <div className="flex items-center bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl rounded-2xl border border-gray-200 dark:border-white/10 p-1.5 shadow-lg transition-colors w-full lg:w-auto">
+                    <div className="flex flex-col gap-4 mb-8">
+                        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+                            <div className="flex flex-wrap gap-4 items-center shrink-0 w-full xl:w-auto">
+                                <button onClick={() => {setSelectedBiz(null); setDeliveries([]);}} className="text-base font-bold text-gray-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white flex items-center gap-2 bg-white/80 dark:bg-white/[0.05] backdrop-blur-xl border border-gray-200 dark:border-white/10 px-6 py-3 rounded-2xl transition-all shadow-md hover:shadow-lg shrink-0">
+                                    <ArrowLeft size={18}/> Back to Businesses
+                                </button>
+                                
+                                <div className="flex flex-col sm:flex-row gap-3 items-center bg-white/60 dark:bg-black/20 p-2 rounded-xl border border-gray-200 dark:border-white/10 shadow-inner w-full sm:w-auto">
+                                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                                        <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider ml-1">Batch:</span>
+                                        <select 
+                                            className="w-full sm:w-auto bg-white/80 dark:bg-black/40 text-gray-800 dark:text-gray-200 text-sm font-bold rounded-lg px-3 py-1.5 border border-gray-200 dark:border-white/10 focus:outline-none focus:border-brand-accent cursor-pointer"
+                                            value={selectedBatchFilter}
+                                            onChange={(e) => {
+                                                setSelectedBatchFilter(e.target.value); 
+                                                setCurrentPage(1);
+                                            }}
+                                        >
+                                            {availableBatches.map(b => (
+                                                <option key={b} value={b}>{b}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            {/* 🔥 Glassmorphic Date Filter 🔥 */}
+                            <div className="flex items-center bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl rounded-2xl border border-gray-200 dark:border-white/10 p-1.5 shadow-lg transition-colors w-full xl:w-auto overflow-x-auto">
                             <Calendar className="text-gray-400 dark:text-slate-400 ml-3" size={18}/>
-                            <input type="date" value={dateRange.start} onChange={e => {setDateRange({...dateRange, start: e.target.value}); setCurrentPage(1);}} className="bg-transparent text-sm text-gray-700 dark:text-slate-200 outline-none px-3 py-2 [color-scheme:light] dark:[color-scheme:dark] font-bold"/>
+                            <input type="date" value={dateRange.start} onChange={e => {
+                                setDateRange({...dateRange, start: e.target.value}); 
+                                setCurrentPage(1);
+                            }} className="bg-transparent text-sm text-gray-700 dark:text-slate-200 outline-none px-3 py-2 [color-scheme:light] dark:[color-scheme:dark] font-bold"/>
                             <span className="text-gray-400 dark:text-slate-600 font-black px-1">-</span>
-                            <input type="date" value={dateRange.end} onChange={e => {setDateRange({...dateRange, end: e.target.value}); setCurrentPage(1);}} className="bg-transparent text-sm text-gray-700 dark:text-slate-200 outline-none px-3 py-2 [color-scheme:light] dark:[color-scheme:dark] font-bold"/>
+                            <input type="date" value={dateRange.end} onChange={e => {
+                                setDateRange({...dateRange, end: e.target.value}); 
+                                setCurrentPage(1);
+                            }} className="bg-transparent text-sm text-gray-700 dark:text-slate-200 outline-none px-3 py-2 [color-scheme:light] dark:[color-scheme:dark] font-bold"/>
                             {(dateRange.start || dateRange.end) && (
-                                <button onClick={() => {setDateRange({start:'', end:''}); setCurrentPage(1);}} className="mr-2 p-1.5 rounded-lg text-gray-400 dark:text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/20 dark:hover:text-red-400 transition-colors"><X size={16}/></button>
+                                <button onClick={() => {
+                                    setDateRange({start:'', end:''}); 
+                                    setCurrentPage(1);
+                                }} className="mr-2 p-1.5 rounded-lg text-gray-400 dark:text-slate-400 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-500/20 dark:hover:text-red-400 transition-colors"><X size={16}/></button>
                             )}
                         </div>
+                    </div>
                     </div>
 
                     {paginatedDeliveries.length === 0 ? (
@@ -175,6 +266,15 @@ export default function DispatchDelivered({ searchQuery }) {
                                                 <span className="bg-white/60 dark:bg-black/20 px-2 py-0.5 rounded-md border border-gray-200 dark:border-white/5">REF: <span className="text-gray-900 dark:text-white">ORD-{order.id}</span></span>
                                                 <span className="text-gray-400 dark:text-white/20">•</span> 
                                                 <span>Tracking: <span className={`${viewType === 'Delivered' ? 'text-emerald-600 dark:text-emerald-400' : 'text-brand-accent'} font-black`}>{order.trackingNumber || 'N/A'}</span></span>
+                                                
+                                                {order.packRemark && (
+                                                    <>
+                                                        <span className="text-gray-400 dark:text-white/20">•</span> 
+                                                        <span className="bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 px-2 py-0.5 rounded border border-yellow-200 dark:border-yellow-500/20 text-[10px] font-black uppercase tracking-widest max-w-[200px] truncate" title={order.packRemark}>
+                                                            Remark: {order.packRemark}
+                                                        </span>
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -228,14 +328,27 @@ export default function DispatchDelivered({ searchQuery }) {
                                     <span className="bg-white dark:bg-black/30 text-gray-700 dark:text-slate-300 text-xs px-3 py-1.5 rounded-lg font-black uppercase tracking-widest border border-gray-200 dark:border-white/5 transition-colors">{selectedOrder.paymentType} Payment</span>
                                     <span className="bg-white dark:bg-black/30 text-gray-700 dark:text-slate-300 text-xs px-3 py-1.5 rounded-lg font-black uppercase tracking-widest border border-gray-200 dark:border-white/5 transition-colors">REF: ORD-{selectedOrder.id}</span>
                                 </div>
+                                {selectedOrder.packRemark ? (
+                                    <div className="mt-4 text-xs bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 p-3 rounded-xl border border-yellow-200 dark:border-yellow-500/20 break-words font-bold">
+                                        <span className="font-black uppercase tracking-widest block mb-1">Internal Remark:</span>
+                                        {selectedOrder.packRemark}
+                                    </div>
+                                ) : (
+                                    <div className="mt-4 text-xs bg-gray-50 dark:bg-gray-500/10 text-gray-500 dark:text-gray-400 p-3 rounded-xl border border-gray-200 dark:border-gray-500/20 break-words font-bold">
+                                        <span className="font-black uppercase tracking-widest block mb-1">Internal Remark:</span>
+                                        N/A
+                                    </div>
+                                )}
                             </div>
 
                             <div>
                                 <h4 className="text-xs font-black text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-4 transition-colors">Included Tutes</h4>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                    {selectedOrder.items?.map((item, i) => (
+                                    {selectedOrder.items?.filter((item, index, self) => 
+                                        index === self.findIndex((t) => t.tuteName === item.tuteName)
+                                    ).map((item, i) => (
                                         <div key={i} className="flex items-center gap-4 bg-white/60 dark:bg-black/20 backdrop-blur-md border border-gray-200 dark:border-white/5 p-3.5 rounded-2xl transition-colors hover:bg-white/80 dark:hover:bg-white/5 shadow-sm">
-                                            <img src={getTuteImgUrl(item.tuteImage)} onError={(e) => { e.target.onerror = null; e.target.src = '/default-tute.png'; }} className="w-12 h-16 object-cover rounded-xl border border-gray-200 dark:border-white/10 bg-gray-100 dark:bg-slate-800 shrink-0" alt="Tute" />
+                                            <DeliveryItemImage coverName={item.tuteCover} />
                                             <div className="overflow-hidden">
                                                 <p className="text-sm font-black text-gray-900 dark:text-white truncate transition-colors mb-1">{item.tuteName} <span className={viewType === 'Delivered' ? 'text-emerald-600 dark:text-emerald-400' : 'text-brand-accent'}>x{item.quantity}</span></p>
                                                 <p className="text-[10px] text-gray-500 dark:text-slate-400 font-bold uppercase tracking-widest truncate transition-colors">{item.courseName}</p>

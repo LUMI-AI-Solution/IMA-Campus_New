@@ -186,7 +186,10 @@ const fetchGSheetTransactions = async (targetBatchId = null) => {
                     const refKey = keys.find(k => k.toLowerCase() === 'ref' || k.toLowerCase() === 'description' || k.toLowerCase().includes('refarance') || k.toLowerCase() === 'desc' || k.toLowerCase() === 'serial reference' || k.toLowerCase() === 'seriel refarance');
                     rowObj.description = refKey ? rowObj[refKey] : '';
                     
-                    if(rowObj.Status && rowObj.Status.toLowerCase() === 'verified') rowObj.isMatched = true;
+                    const rowValuesStr = Object.values(rowObj).map(v => String(v).toLowerCase()).join(' ');
+                    if (rowValuesStr.includes('verified')) {
+                        rowObj.isMatched = true;
+                    }
 
                     return rowObj;
                 });
@@ -220,6 +223,36 @@ exports.getBulkStatus = async (req, res) => {
     res.status(200).json(bulkState);
 };
 
+exports.getHistory = async (req, res) => {
+    try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+
+        const totalCount = await prisma.aiVerificationHistory.count();
+        const history = await prisma.aiVerificationHistory.findMany({
+            skip,
+            take: limit,
+            orderBy: {
+                createdAt: 'desc'
+            }
+        });
+
+        res.status(200).json({
+            history,
+            pagination: {
+                total: totalCount,
+                page,
+                limit,
+                totalPages: Math.ceil(totalCount / limit)
+            }
+        });
+    } catch (err) {
+        console.error("[AI History Error]", err);
+        res.status(500).json({ error: "Failed to fetch AI verification history" });
+    }
+};
+
 exports.stopBulkVerification = async (req, res) => {
     if (bulkState.isRunning) {
         bulkState.isRunning = false;
@@ -236,11 +269,9 @@ exports.startBulkVerification = async (req, res) => {
         return res.status(400).json({ error: "Bulk verification is already running" });
     }
     
-    const { statementMonth, statementBatch, businessId, batchId, paymentIds } = req.body;
-    const targetBatchId = statementBatch || batchId;
+    const { statementMonth, statementBatch, businessId, batchId, status, paymentIds } = req.body;
+    const rawBatchId = statementBatch || batchId;
     
-    if (!targetBatchId) return res.status(400).json({ error: "statementBatch or batchId is required" });
-
     // Fetch pending slips
     let pendingSlips = [];
     try {
@@ -255,10 +286,60 @@ exports.startBulkVerification = async (req, res) => {
                 include: { student: true, business: true, batch: true }
             });
         } else {
-            // Fallback 
-            const whereClause = { status: { in: [0, 4] }, slip_image: { not: null } };
-            if (businessId && businessId !== '') whereClause.businessId = parseInt(businessId);
-            if (targetBatchId && targetBatchId !== '') whereClause.batchId = parseInt(targetBatchId);
+            const whereClause = { 
+                status: { in: [0, 4] }, 
+                slip_image: { not: null },
+                NOT: {
+                    OR: [
+                        { remark: { contains: 'AI Skipped' } },
+                        { remark: { contains: '[Duplicate' } },
+                        { remark: { contains: '[Business' } },
+                        { remark: { contains: '[Batch' } }
+                    ]
+                }
+            };
+            if (status !== undefined && status !== '') {
+                whereClause.status = parseInt(status);
+            }
+
+            if (businessId && businessId !== '') {
+                const bizId = parseInt(businessId);
+                whereClause.OR = [
+                    { businessId: bizId },
+                    { batch: { businessId: bizId } },
+                    { group: { batch: { businessId: bizId } } }
+                ];
+            }
+
+            if (rawBatchId && rawBatchId !== '') {
+                const bId = parseInt(rawBatchId);
+                const targetBatch = await prisma.batch.findUnique({ where: { id: bId }, select: { name: true, businessId: true } });
+                
+                if (targetBatch && targetBatch.name && targetBatch.name.toUpperCase().includes('ALL BATCHES')) {
+                    const targetBizId = targetBatch.businessId || (businessId ? parseInt(businessId) : null);
+                    if (targetBizId) {
+                        whereClause.OR = [
+                            { businessId: targetBizId },
+                            { batch: { businessId: targetBizId } },
+                            { group: { batch: { businessId: targetBizId } } }
+                        ];
+                    }
+                } else {
+                    const batchCondition = [
+                        { batchId: bId },
+                        { group: { batchId: bId } }
+                    ];
+                    if (whereClause.OR) {
+                        whereClause.AND = [
+                            { OR: whereClause.OR },
+                            { OR: batchCondition }
+                        ];
+                        delete whereClause.OR;
+                    } else {
+                        whereClause.OR = batchCondition;
+                    }
+                }
+            }
 
             pendingSlips = await prisma.payment.findMany({
                 where: whereClause,
@@ -267,11 +348,12 @@ exports.startBulkVerification = async (req, res) => {
             });
         }
     } catch(e) {
+        console.error("Bulk fetch error:", e);
         return res.status(500).json({ error: "Failed to fetch pending slips" });
     }
 
     if (pendingSlips.length === 0) {
-        return res.status(400).json({ error: "No pending slips found" });
+        return res.status(400).json({ error: "No pending slips found matching the selected filters" });
     }
 
     const execId = ++currentExecutionId;
@@ -304,7 +386,7 @@ exports.startBulkVerification = async (req, res) => {
                 
                 const response = await axios.post(`http://127.0.0.1:${port}/api/ai-verification/verify-single`, {
                     paymentId: slip.id,
-                    statementBatch: targetBatchId,
+                    statementBatch: rawBatchId || slip.batchId,
                     autoDetect: true
                 }, {
                     headers: { 'Authorization': token }
@@ -332,6 +414,27 @@ exports.startBulkVerification = async (req, res) => {
             bulkState.isRunning = false;
             bulkState.currentSlipId = null;
             bulkState.logs.push(`🎉 Bulk Verification Complete! Processed: ${bulkState.processed}, Success: ${bulkState.success}, Failed: ${bulkState.failed}`);
+
+            // Save history record
+            try {
+                const now = new Date();
+                const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Colombo' }).format(now); // YYYY-MM-DD
+                const timeStr = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Colombo', hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
+                await prisma.aiVerificationHistory.create({
+                    data: {
+                        date: dateStr,
+                        time: timeStr,
+                        businessId: businessId ? String(businessId) : null,
+                        batchId: targetBatchId ? String(targetBatchId) : null,
+                        processed: bulkState.processed,
+                        success: bulkState.success,
+                        failed: bulkState.failed
+                    }
+                });
+                console.log("[AI History] History log saved successfully for manual bulk run.");
+            } catch (hErr) {
+                console.error("Failed to create AI history record:", hErr.message);
+            }
         }
     }, 100);
 };
@@ -456,6 +559,33 @@ exports.saveActiveSettings = async (req, res) => {
         res.status(200).json({ message: "Active settings saved successfully" });
     } catch (error) {
         res.status(500).json({ error: "Failed to save active settings" });
+    }
+};
+
+exports.getScheduleConfig = async (req, res) => {
+    try {
+        const configSetting = await prisma.appSetting.findUnique({ where: { key: 'AI_SLIP_VERIFICATION_SCHEDULE' } });
+        let config = {};
+        if (configSetting && configSetting.value) {
+            config = JSON.parse(configSetting.value);
+        }
+        res.status(200).json(config);
+    } catch (error) {
+        res.status(500).json({ error: "Failed to load schedule config" });
+    }
+};
+
+exports.saveScheduleConfig = async (req, res) => {
+    try {
+        const { scheduleConfig } = req.body;
+        await prisma.appSetting.upsert({
+            where: { key: 'AI_SLIP_VERIFICATION_SCHEDULE' },
+            update: { value: JSON.stringify(scheduleConfig) },
+            create: { key: 'AI_SLIP_VERIFICATION_SCHEDULE', value: JSON.stringify(scheduleConfig) }
+        });
+        res.status(200).json({ message: "Schedule configuration saved successfully" });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to save schedule config" });
     }
 };
 
@@ -586,30 +716,62 @@ exports.getPendingSlips = async (req, res) => {
 
         if (status !== undefined && status !== '') {
             where.status = parseInt(status);
-        } else if (includeApproved !== 'true') {
+        } else if (aiTab === 'pending') {
             where.status = 0;
-        }
-
-        if (aiTab === 'pending') {
-            where.status = 0;
-            // Show all pending slips
         } else if (aiTab === 'review') {
             where.status = { in: [0, 4] };
-            where.remark = { contains: 'AI Skipped:' };
         } else if (aiTab === 'verified') {
             where.status = 1;
             where.aiVerified = true;
         } else if (aiTab === 'postpay') {
             where.status = 4;
-            // keep slip_image constraint so AI can actually verify them
+        } else if (includeApproved !== 'true') {
+            where.status = 0;
         }
 
-        if (businessId && businessId !== '') where.businessId = parseInt(businessId);
-        if (batchId && batchId !== '') where.batchId = parseInt(batchId);
+        if (businessId && businessId !== '') {
+            const bizId = parseInt(businessId);
+            where.OR = [
+                { businessId: bizId },
+                { batch: { businessId: bizId } },
+                { group: { batch: { businessId: bizId } } }
+            ];
+        }
+
+        if (batchId && batchId !== '') {
+            const bId = parseInt(batchId);
+            const targetBatch = await prisma.batch.findUnique({ where: { id: bId }, select: { name: true, businessId: true } });
+            
+            if (targetBatch && targetBatch.name && targetBatch.name.toUpperCase().includes('ALL BATCHES')) {
+                const targetBizId = targetBatch.businessId || (businessId ? parseInt(businessId) : null);
+                if (targetBizId) {
+                    where.OR = [
+                        { businessId: targetBizId },
+                        { batch: { businessId: targetBizId } },
+                        { group: { batch: { businessId: targetBizId } } }
+                    ];
+                    if (where.AND) delete where.AND;
+                }
+            } else {
+                const batchCondition = [
+                    { batchId: bId },
+                    { group: { batchId: bId } }
+                ];
+                if (where.OR) {
+                    where.AND = [
+                        { OR: where.OR },
+                        { OR: batchCondition }
+                    ];
+                    delete where.OR;
+                } else {
+                    where.OR = batchCondition;
+                }
+            }
+        }
 
         const slips = await prisma.payment.findMany({
             where,
-            orderBy: { created_at: 'desc' },
+            orderBy: { updatedAt: 'desc' },
             take: 2000,
             include: { 
                 student: { select: { firstName: true, lastName: true, phone: true } },
@@ -698,6 +860,88 @@ function fileToGenerativePart(filePath, mimeType) {
     };
 }
 
+// Helper: Auto-create Delivery record based on ContentHub deliverTute tick
+const createDeliveryForVerifiedPayment = async (payment) => {
+    try {
+        if (!payment || !payment.subjects) return;
+
+        const existingDelivery = await prisma.delivery.findUnique({ where: { paymentId: payment.id } });
+        if (existingDelivery) return;
+
+        let shouldCreateDelivery = true;
+        if (payment.payment_type === 1) {
+            if (payment.groupId) {
+                const ext = await prisma.delivery.findFirst({
+                    where: { studentId: payment.studentId.toString(), paymentType: 'Monthly', payment: { groupId: payment.groupId } }
+                });
+                if (ext) shouldCreateDelivery = false;
+            }
+        } else if (payment.payment_type === 2 || payment.payment_type === 3) {
+            if (payment.batchId) {
+                const ext = await prisma.delivery.findFirst({
+                    where: { studentId: payment.studentId.toString(), paymentType: { in: ['Installment', 'Full'] }, payment: { batchId: payment.batchId } }
+                });
+                if (ext) shouldCreateDelivery = false;
+            }
+        }
+
+        if (!shouldCreateDelivery) return;
+
+        let subIds = [];
+        try {
+            subIds = JSON.parse(payment.subjects).map(id => parseInt(id));
+        } catch(e) {
+            return;
+        }
+
+        if (subIds.length === 0) return;
+
+        const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
+        const deliverableCourses = [];
+
+        for (const course of courses) {
+            let deliverTute = false;
+            let tuteName = course.name || "Tute";
+
+            if (course.groupPrices && payment.groupId) {
+                try {
+                    const gps = JSON.parse(course.groupPrices);
+                    const match = gps.find(g => g.groupId == payment.groupId);
+                    if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
+                        deliverTute = true;
+                        if (match.tuteName && match.tuteName.trim()) tuteName = match.tuteName.trim();
+                    }
+                } catch(e) {}
+            }
+
+            if (deliverTute) {
+                deliverableCourses.push({
+                    courseId: course.id,
+                    tuteName: tuteName,
+                    quantity: 1
+                });
+            }
+        }
+
+        if (deliverableCourses.length > 0) {
+            const paymentTypeStr = payment.payment_type === 1 ? 'Monthly' : (payment.payment_type === 2 ? 'Installment' : 'Full');
+            await prisma.delivery.create({
+                data: {
+                    paymentId: payment.id,
+                    studentId: payment.studentId.toString(),
+                    businessId: payment.businessId,
+                    paymentType: paymentTypeStr,
+                    status: 'Pending',
+                    items: { create: deliverableCourses }
+                }
+            });
+            console.log(`[AI-Delivery] Created Delivery for Payment ID ${payment.id} with ${deliverableCourses.length} tutes.`);
+        }
+    } catch(err) {
+        console.error("[AI-Delivery] Error in createDeliveryForVerifiedPayment:", err.message);
+    }
+};
+
 // Gemini Custom Slip Parsing & Auto-Match Logic
 
 exports.verifySinglePayment = async (req, res) => {
@@ -706,11 +950,73 @@ exports.verifySinglePayment = async (req, res) => {
         
         const payment = await prisma.payment.findUnique({
             where: { id: paymentId },
-            include: { student: true, batch: true }
+            include: { student: true, business: true, batch: true }
         });
 
         if (!payment) return res.status(404).json({ error: "Payment not found" });
         if (!payment.slip_image) return res.status(400).json({ error: "No slip image attached to this payment" });
+
+        // --- RULE 1: Check for Duplicate Slip (by slip_image) ---
+        if (payment.slip_image) {
+            const dupImagePayment = await prisma.payment.findFirst({
+                where: {
+                    id: { not: payment.id },
+                    slip_image: payment.slip_image,
+                    status: 1
+                }
+            });
+            if (dupImagePayment) {
+                const remark = `[Duplicate Slip] Duplicate slip image detected. Already verified in Payment #${dupImagePayment.id}. Skipped.`;
+                await prisma.payment.update({
+                    where: { id: payment.id },
+                    data: { status: payment.status === 4 ? 4 : 0, aiVerified: false, remark }
+                });
+                return res.status(200).json({
+                    success: false,
+                    status: 'DUPLICATE_SLIP',
+                    error: `Skipped: Duplicate slip image already verified in Payment #${dupImagePayment.id}.`,
+                    matched: false,
+                    remark
+                });
+            }
+        }
+
+        // --- RULE 2: Check for Business / Stream Mismatch ---
+        if (payment.studentId) {
+            const prevVerified = await prisma.payment.findMany({
+                where: {
+                    studentId: payment.studentId,
+                    status: 1,
+                    id: { not: payment.id }
+                },
+                include: { business: true, batch: true }
+            });
+
+            const mismatchedPrev = prevVerified.find(p => 
+                (p.businessId && payment.businessId && p.businessId === payment.businessId) &&
+                (p.batchId && payment.batchId && p.batchId !== payment.batchId)
+            );
+
+            if (mismatchedPrev) {
+                const prevBizName = mismatchedPrev.business ? mismatchedPrev.business.name : 'Previous Stream/Business';
+                const prevBatchName = mismatchedPrev.batch ? mismatchedPrev.batch.name : 'Previous Batch';
+                const currBizName = payment.business ? payment.business.name : (payment.businessId ? `Business #${payment.businessId}` : 'Current Stream/Business');
+                const currBatchName = payment.batch ? payment.batch.name : (payment.batchId ? `Batch #${payment.batchId}` : 'Current Batch');
+                const remark = `[Batch Mismatch] Student previously paid for ${prevBizName} / ${prevBatchName}. Current payment is for ${currBizName} / ${currBatchName} in the same business. Skipped for manual review.`;
+                
+                await prisma.payment.update({
+                    where: { id: payment.id },
+                    data: { status: payment.status === 4 ? 4 : 0, aiVerified: false, remark }
+                });
+                return res.status(200).json({
+                    success: false,
+                    status: 'BATCH_MISMATCH',
+                    error: `Skipped: Batch mismatch detected within the same business. Student previously paid for ${prevBatchName}.`,
+                    matched: false,
+                    remark
+                });
+            }
+        }
 
         const configSetting = await prisma.appSetting.findUnique({ where: { key: 'AI_SLIP_VERIFICATION_CONFIG' } });
         const settingsSetting = await prisma.appSetting.findUnique({ where: { key: 'AI_SLIP_VERIFICATION_SETTINGS' } });
@@ -736,18 +1042,8 @@ exports.verifySinglePayment = async (req, res) => {
             if (activeSlipConfigs.length === 0) return res.status(400).json({ error: "No active Slip Types." });
         }
 
-        const firstSlipFileName = payment.slip_image.split(',')[0].trim();
-        const cleanFileName = require('path').basename(firstSlipFileName);
-        const filePathLocal = require('path').join(process.cwd(), 'storage/documents', cleanFileName);
-
-        if (!require('fs').existsSync(filePathLocal)) {
-            return res.status(404).json({ error: "Slip image file not found on server" });
-        }
-
-        const ext = require('path').extname(filePathLocal).toLowerCase();
-        let mimeType = 'image/jpeg';
-        if (ext === '.png') mimeType = 'image/png';
-        else if (ext === '.pdf') mimeType = 'application/pdf';
+        const slipFileNames = payment.slip_image.split(',').map(s => s.trim()).filter(Boolean);
+        if (slipFileNames.length === 0) return res.status(400).json({ error: "No slip image attached to this payment" });
 
         let prompt = '';
         if (autoDetect) {
@@ -812,96 +1108,126 @@ Format:
 `;
         }
 
-        let extracted = null;
+        let allExtractions = [];
         let lastError = null;
 
-        try {
-            const filePart = {
-                inlineData: {
-                    data: require('fs').readFileSync(filePathLocal).toString("base64"),
-                    mimeType
-                }
-            };
-            
-            const saPath = require('path').join(__dirname, '..', 'gemini-service-account.json');
-            
-            if (require('fs').existsSync(saPath)) {
-                try {
-                    const { GoogleAuth } = require('google-auth-library');
-                    const axios = require('axios');
-                    const auth = new GoogleAuth({
-                        keyFile: saPath,
-                        scopes: ['https://www.googleapis.com/auth/generative-language']
-                    });
-                    
-                    const client = await auth.getClient();
-                    const tokenInfo = await client.getAccessToken();
-                    const token = tokenInfo.token;
-                    
-                    const apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
-                    
-                    const res = await axios.post(apiUrl, {
-                        contents: [
-                            { role: "user", parts: [ { text: prompt }, filePart ] }
-                        ]
-                    }, {
-                        headers: {
-                            'Authorization': `Bearer ${token}`,
-                            'Content-Type': 'application/json'
-                        }
-                    });
-                    
-                    const text = res.data.candidates[0].content.parts[0].text;
-                    let cleanText = text.trim();
-                    if (cleanText.startsWith("```json")) cleanText = cleanText.substring(7);
-                    if (cleanText.endsWith("```")) cleanText = cleanText.substring(0, cleanText.length - 3);
-                    
-                    extracted = JSON.parse(cleanText.trim());
-                    console.log("Successfully extracted via Service Account JSON!");
-                } catch(saError) {
-                    console.log("Service Account JSON failed, falling back to API keys... Error:", saError.message);
-                }
-            }
-            
-            if (!extracted) {
-                const apiKeys = await getGeminiKeys();
-                if (apiKeys.length === 0) throw new Error("Gemini API key not found in Settings and SA failed!");
-                const { GoogleGenAI } = require('@google/genai');
-                
-                for (const key of apiKeys) {
+        for (let i = 0; i < slipFileNames.length; i++) {
+            const fileName = slipFileNames[i];
+            const cleanFileName = require('path').basename(fileName);
+            const filePathLocal = require('path').join(process.cwd(), 'storage/documents', cleanFileName);
+
+            if (!require('fs').existsSync(filePathLocal)) continue;
+
+            const ext = require('path').extname(filePathLocal).toLowerCase();
+            let mimeType = 'image/jpeg';
+            if (ext === '.png') mimeType = 'image/png';
+            else if (ext === '.pdf') mimeType = 'application/pdf';
+
+            let singleExtracted = null;
+            try {
+                const filePart = {
+                    inlineData: {
+                        data: require('fs').readFileSync(filePathLocal).toString("base64"),
+                        mimeType
+                    }
+                };
+
+                const saPath = require('path').join(__dirname, '..', 'gemini-service-account.json');
+                if (require('fs').existsSync(saPath)) {
                     try {
-                        const ai = new GoogleGenAI({ apiKey: key });
-                        const response = await ai.models.generateContent({
-                            model: "gemini-2.5-flash-lite",
-                            contents: [prompt, filePart]
+                        const { GoogleAuth } = require('google-auth-library');
+                        const axios = require('axios');
+                        const auth = new GoogleAuth({
+                            keyFile: saPath,
+                            scopes: ['https://www.googleapis.com/auth/generative-language']
                         });
-                        
-                        const text = response.text.trim();
-                        let cleanText = text;
+
+                        const client = await auth.getClient();
+                        const tokenInfo = await client.getAccessToken();
+                        const token = tokenInfo.token;
+
+                        const apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
+
+                        const res = await axios.post(apiUrl, {
+                            contents: [
+                                { role: "user", parts: [ { text: prompt }, filePart ] }
+                            ]
+                        }, {
+                            headers: {
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            }
+                        });
+
+                        const text = res.data.candidates[0].content.parts[0].text;
+                        let cleanText = text.trim();
                         if (cleanText.startsWith("```json")) cleanText = cleanText.substring(7);
                         if (cleanText.endsWith("```")) cleanText = cleanText.substring(0, cleanText.length - 3);
-                        
-                        extracted = JSON.parse(cleanText.trim());
-                        console.log("Successfully extracted via API Key fallback.");
-                        break; // Success, break out of loop
-                    } catch(err) {
-                        lastError = err;
-                        console.log("Gemini API Key failed, trying next... Error:", err.message);
-                        continue;
+
+                        singleExtracted = JSON.parse(cleanText.trim());
+                    } catch(saError) {
+                        console.log(`[AI-Extraction] SA failed for slip ${cleanFileName}:`, saError.message);
                     }
                 }
-                if (!extracted) throw lastError;
+
+                if (!singleExtracted) {
+                    const apiKeys = await getGeminiKeys();
+                    if (apiKeys.length > 0) {
+                        const { GoogleGenAI } = require('@google/genai');
+                        for (const key of apiKeys) {
+                            try {
+                                const ai = new GoogleGenAI({ apiKey: key });
+                                const response = await ai.models.generateContent({
+                                    model: "gemini-2.5-flash-lite",
+                                    contents: [prompt, filePart]
+                                });
+
+                                const text = response.text.trim();
+                                let cleanText = text;
+                                if (cleanText.startsWith("```json")) cleanText = cleanText.substring(7);
+                                if (cleanText.endsWith("```")) cleanText = cleanText.substring(0, cleanText.length - 3);
+
+                                singleExtracted = JSON.parse(cleanText.trim());
+                                break;
+                            } catch(err) {
+                                lastError = err;
+                            }
+                        }
+                    }
+                }
+            } catch(e) {
+                lastError = e;
             }
-        } catch(error) {
-            lastError = error;
+
+            if (singleExtracted) {
+                allExtractions.push({ fileName: cleanFileName, extracted: singleExtracted });
+            }
         }
 
-        console.log("=== GEMINI EXTRACTED ===");
-        console.log(JSON.stringify(extracted, null, 2));
-        console.log("========================");
+        if (allExtractions.length === 0) {
+            return res.status(500).json({ error: "Failed to process slip image(s) with Gemini.", details: lastError?.message });
+        }
+
+        let extracted = allExtractions[0].extracted;
+        let totalExtractedAmount = 0;
+        allExtractions.forEach(item => {
+            const amt = parseFloat(item.extracted?.amount) || 0;
+            totalExtractedAmount += amt;
+        });
+
+        if (allExtractions.length > 1) {
+            const breakdownLines = allExtractions.map((item, idx) => `Slip ${idx + 1} (${item.fileName}): LKR ${(parseFloat(item.extracted?.amount) || 0).toLocaleString()} [Ref: ${item.extracted?.transaction_id || 'N/A'}]`).join(' | ');
+            extracted = {
+                ...extracted,
+                amount: totalExtractedAmount,
+                isMultipleSlips: true,
+                slipCount: allExtractions.length,
+                breakdown: breakdownLines
+            };
+        }
 
         if (!extracted) {
-             return res.status(500).json({ error: "Failed to process with Gemini.", details: lastError?.message });
+            return res.status(500).json({ error: "Failed to process with Gemini.", details: lastError?.message });
         }
 
         let matchMethod = '';
@@ -971,6 +1297,31 @@ Format:
             }
         }
         
+        // --- RULE 3: Check for Duplicate Transaction ID ---
+        if (cleanTxnId && cleanTxnId.length >= 4) {
+            const dupTxnPayment = await prisma.payment.findFirst({
+                where: {
+                    id: { not: payment.id },
+                    status: 1,
+                    remark: { contains: cleanTxnId }
+                }
+            });
+            if (dupTxnPayment) {
+                const remark = `[Duplicate Slip] Extracted Reference ID (${cleanTxnId}) was already verified in Payment #${dupTxnPayment.id}. Skipped.`;
+                await prisma.payment.update({
+                    where: { id: payment.id },
+                    data: { status: payment.status === 4 ? 4 : 0, aiVerified: false, remark }
+                });
+                return res.status(200).json({
+                    success: false,
+                    status: 'DUPLICATE_SLIP',
+                    error: `Skipped: Reference ID (${cleanTxnId}) already verified in Payment #${dupTxnPayment.id}.`,
+                    matched: false,
+                    remark
+                });
+            }
+        }
+        
         const targetAmount = parseFloat(payment.amount);
 
         let matchedRow = null;
@@ -982,7 +1333,6 @@ Format:
                 let hasMatchingAmount = false;
                 for (const [key, val] of Object.entries(row)) {
                     if (key.startsWith('_')) continue;
-                    
                     let strVal = String(val).replace(/,/g, '');
                     let match = strVal.match(/\d+(\.\d+)?/);
                     let cAmt = match ? parseFloat(match[0]) : NaN;
@@ -994,6 +1344,42 @@ Format:
                 }
                 
                 if (!hasMatchingAmount) continue;
+
+                // STRICT DATE MATCHING (with 2-day bank clearance tolerance)
+                let hasMatchingDate = false;
+                if (extracted.date && row.txnDate) {
+                    let extDateStr = String(extracted.date).trim();
+                    let rowDateStr = String(row.txnDate).trim();
+                    
+                    let extD = new Date(extDateStr);
+                    let rowD = new Date(rowDateStr);
+                    
+                    if (isNaN(rowD.getTime())) {
+                        let parts = rowDateStr.split(/[-/]/);
+                        if (parts.length >= 3) {
+                            let day = parseInt(parts[0], 10);
+                            let month = parseInt(parts[1], 10) - 1;
+                            let year = parseInt(parts[2], 10);
+                            if (year < 100) year += 2000;
+                            rowD = new Date(year, month, day);
+                        }
+                    }
+
+                    if (!isNaN(extD.getTime()) && !isNaN(rowD.getTime())) {
+                        const diffDays = Math.abs((extD - rowD) / (1000 * 60 * 60 * 24));
+                        if (diffDays <= 3) { // 3 days tolerance for bank holidays/weekends
+                            hasMatchingDate = true;
+                        }
+                    } else {
+                        if (rowDateStr.includes(extDateStr) || extDateStr.includes(rowDateStr)) {
+                            hasMatchingDate = true;
+                        }
+                    }
+                } else {
+                    hasMatchingDate = true; // Bypass if AI couldn't read date or GSheet has no date column
+                }
+
+                if (!hasMatchingDate) continue;
                 
                 let allRowVals = Object.values(row).map(v => String(v)).join(' ');
                 const normRowRef = allRowVals.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
@@ -1001,35 +1387,45 @@ Format:
                 
                 let extractedPhone = extracted.phone_number ? String(extracted.phone_number).replace(/[^0-9]/g, '') : '';
                 if (extractedPhone.startsWith('94')) extractedPhone = '0' + extractedPhone.substring(2);
-                
-                console.log(`[AI MATCH DEBUG] Target Amount: ${targetAmount}`);
-                console.log(`[AI MATCH DEBUG] Row Values: ${allRowVals}`);
-                console.log(`[AI MATCH DEBUG] normRowRef: ${normRowRef}`);
-                console.log(`[AI MATCH DEBUG] cleanTxnId: ${cleanTxnId}, normTxnId: ${normTxnId}`);
-                console.log(`[AI MATCH DEBUG] extractedPhone: ${extractedPhone}`);
+
+                let studentFirstName = payment.student?.firstName ? String(payment.student.firstName).replace(/[^a-zA-Z0-9]/g, '').toLowerCase() : '';
+                let studentLastName = payment.student?.lastName ? String(payment.student.lastName).replace(/[^a-zA-Z0-9]/g, '').toLowerCase() : '';
+                let extractedRemark = extracted.remark ? String(extracted.remark).replace(/[^a-zA-Z0-9]/g, '').toLowerCase() : '';
+                let extractedNarration = extracted.narration ? String(extracted.narration).replace(/[^a-zA-Z0-9]/g, '').toLowerCase() : '';
+
+                let matchFound = false;
 
                 if (extractedPhone && extractedPhone.length >= 9 && normRowRef.includes(extractedPhone.substring(1))) {
-                        matchedRow = row;
-                        matchedRowIndex = row._rowIndex;
-                        matchMethod = 'Phone Number & Amount Match in GSheet';
-                        confidence = 0.95;
-                        break;
+                    matchFound = true; matchMethod = 'Phone Match';
                 } else if (normTxnId && normTxnId.length >= 3 && normRowRef.includes(normTxnId)) {
-                        matchedRow = row;
-                        matchedRowIndex = row._rowIndex;
-                        matchMethod = 'Exact Ref ID & Amount Match in GSheet';
-                        confidence = 0.98;
-                        break;
-                    } else if (normTxnId && normTxnId.length >= 8) {
-                        const coreId = normTxnId.substring(normTxnId.length - 8);
-                        if (normRowRef.includes(coreId)) {
-                            matchedRow = row;
-                            matchedRowIndex = row._rowIndex;
-                            matchMethod = 'Partial Ref ID (last 8) & Amount Match';
-                            confidence = 0.90;
-                            break;
-                        }
+                    matchFound = true; matchMethod = 'Exact Ref ID Match';
+                } else if (normTxnId && normTxnId.length >= 6) {
+                    const coreId = normTxnId.substring(normTxnId.length - 6);
+                    if (normRowRef.includes(coreId)) {
+                        matchFound = true; matchMethod = 'Partial Ref ID Match';
                     }
+                }
+                
+                if (!matchFound && studentFirstName && studentFirstName.length >= 3 && normRowRef.includes(studentFirstName)) {
+                    matchFound = true; matchMethod = 'First Name Match';
+                }
+                if (!matchFound && studentLastName && studentLastName.length >= 3 && normRowRef.includes(studentLastName)) {
+                    matchFound = true; matchMethod = 'Last Name Match';
+                }
+                if (!matchFound && extractedRemark && extractedRemark.length >= 3 && normRowRef.includes(extractedRemark)) {
+                    matchFound = true; matchMethod = 'Extracted Remark Match';
+                }
+                if (!matchFound && extractedNarration && extractedNarration.length >= 3 && normRowRef.includes(extractedNarration)) {
+                    matchFound = true; matchMethod = 'Extracted Narration Match';
+                }
+
+                if (matchFound) {
+                    matchedRow = row;
+                    matchedRowIndex = row._rowIndex;
+                    confidence = 0.95; 
+                    matchMethod = `Date, Amount & ${matchMethod} in GSheet`;
+                    break;
+                }
             }
         }
 
@@ -1041,11 +1437,20 @@ Format:
         console.log(`confidence: ${confidence}`);
         console.log("=======================");
 
+        let isSumAmountMatched = false;
+        if (allExtractions.length > 1 && Math.abs(totalExtractedAmount - targetAmount) <= 1.0) {
+            isSumAmountMatched = true;
+            if (!matchMethod) {
+                matchMethod = `Multiple Slips Sum Match (${allExtractions.length} Slips Total LKR ${totalExtractedAmount.toLocaleString()} = Target LKR ${targetAmount.toLocaleString()})`;
+                confidence = 0.96;
+            }
+        }
+
         if (isBatchMismatch) {
             await prisma.payment.update({
                 where: { id: payment.id },
                 data: {
-                    status: 0,
+                    status: payment.status === 4 ? 4 : 0,
                     aiVerified: false,
                     remark: `[Batch Mismatch] Student previously paid for ${previousBatchName}. Current payment is for ${payment.batch ? payment.batch.name : 'a different batch'}. Please review manually.`
                 }
@@ -1056,11 +1461,11 @@ Format:
                 error: `Skipped: Batch mismatch detected. Student previously paid for ${previousBatchName}.`,
                 matched: false
             });
-        } else if (gRows.length === 0) {
+        } else if (gRows.length === 0 && !isSumAmountMatched) {
             await prisma.payment.update({
                 where: { id: payment.id },
                 data: {
-                    status: 0,
+                    status: payment.status === 4 ? 4 : 0,
                     aiVerified: false,
                     remark: `AI Skipped: No Google Sheet Linked for this Batch.\n\n--- AI Extraction ---\nBank: ${extracted.matched_bank || 'Unknown'}\nType: ${extracted.matched_slip_type || 'Unknown'}\nExtracted ID: ${extracted.transaction_id || 'null'} (Cleaned: ${cleanTxnId})\nAmount: ${extracted.amount || 'null'}\nTarget Amount: ${targetAmount}`
                 }
@@ -1071,17 +1476,21 @@ Format:
                 error: `Skipped: No Google Sheet Linked. Please link a Google Sheet in the 'Google Sheet Vault' tab for this batch.`,
                 matched: false
             });
-        } else if (matchedRowIndex !== -1 && confidence >= 0.80) {
+        } else if ((matchedRowIndex !== -1 && confidence >= 0.80) || isSumAmountMatched) {
             if (autoVerify) {
-                await prisma.payment.update({
+                const breakdownText = extracted.breakdown ? `\nBreakdown:\n${extracted.breakdown}` : '';
+                const updatedPay = await prisma.payment.update({
                     where: { id: payment.id },
                     data: { 
                         status: 1, 
                         aiVerified: true, 
-                        aiConfidence: confidence,
-                        remark: `AI Verified: ${matchMethod}\n\n--- AI Extraction ---\nBank: ${extracted.matched_bank || 'Unknown'}\nType: ${extracted.matched_slip_type || 'Unknown'}\nExtracted ID: ${extracted.transaction_id || 'null'} (Cleaned: ${cleanTxnId})\nAmount: ${extracted.amount || 'null'}\nTarget Amount: ${targetAmount}`
+                        aiConfidence: confidence || 0.96,
+                        remark: `AI Verified: ${matchMethod}\n\n--- AI Extraction ---\nBank: ${extracted.matched_bank || 'Unknown'}\nType: ${extracted.matched_slip_type || 'Unknown'}\nExtracted ID: ${extracted.transaction_id || 'null'} (Cleaned: ${cleanTxnId})\nExtracted Total: LKR ${totalExtractedAmount.toLocaleString()}\nTarget Amount: LKR ${targetAmount.toLocaleString()}${breakdownText}`
                     }
                 });
+
+                // Trigger ContentHub Auto Delivery Creation
+                await createDeliveryForVerifiedPayment(updatedPay);
 
                 // Write back to GSheet
                 if (matchedRow && matchedRow._spreadsheetId) {
@@ -1644,5 +2053,152 @@ exports.saveGsheetConfigTree = async (req, res) => {
     } catch(err) {
         console.error("Error in saveGsheetConfigTree:", err);
         res.status(500).json({ error: "Failed to save gsheet config" });
+    }
+};
+
+exports.toggleSchedule = async (req, res) => {
+    try {
+        const { type, active, times } = req.body;
+        
+        const configSetting = await prisma.appSetting.findUnique({ where: { key: 'AI_SLIP_VERIFICATION_SCHEDULE' } });
+        let config = {};
+        if (configSetting && configSetting.value) config = JSON.parse(configSetting.value);
+        
+        if (!config[type]) config[type] = {};
+        config[type].active = active;
+        if (times) config[type].times = times;
+
+        await prisma.appSetting.upsert({
+            where: { key: 'AI_SLIP_VERIFICATION_SCHEDULE' },
+            update: { value: JSON.stringify(config) },
+            create: { key: 'AI_SLIP_VERIFICATION_SCHEDULE', value: JSON.stringify(config) }
+        });
+        
+        console.log(`[AI-Scheduler] Schedule for ${type} is now ${active ? 'ON' : 'OFF'} with times:`, times);
+        res.status(200).json({ message: `Schedule ${type} updated successfully` });
+    } catch(err) {
+        console.error("Error toggling schedule:", err);
+        res.status(500).json({ error: "Failed to toggle schedule" });
+    }
+};
+
+
+exports.startScheduledBulkVerification = async (queueType) => {
+    if (bulkState.isRunning) {
+        console.log("[AI-Scheduler] Bulk verification already running, skipping scheduled run.");
+        return;
+    }
+    try {
+        console.log(`[AI-Scheduler] Fetching all pending slips for queue: ${queueType}`);
+        const { PrismaClient } = require('@prisma/client');
+        const prisma = new PrismaClient();
+        
+        const pendingSlips = await prisma.payment.findMany({
+            where: {
+                status: { in: [0, 4] },
+                slip_image: { not: null },
+                NOT: {
+                    OR: [
+                        { remark: { contains: 'AI Skipped' } },
+                        { remark: { contains: '[Duplicate' } },
+                        { remark: { contains: '[Business' } },
+                        { remark: { contains: '[Batch' } }
+                    ]
+                }
+            },
+            include: { student: true }
+        });
+        
+        if (pendingSlips.length === 0) {
+            console.log(`[AI-Scheduler] No pending slips found for ${queueType}.`);
+            return;
+        }
+        
+        console.log(`[AI-Scheduler] Found ${pendingSlips.length} pending slips. Starting process...`);
+        bulkState.isRunning = true;
+        bulkState.shouldStop = false;
+        bulkState.processed = 0;
+        bulkState.success = 0;
+        bulkState.failed = 0;
+        bulkState.total = pendingSlips.length;
+        bulkState.logs = [`Started scheduled verification (${queueType}) for ${pendingSlips.length} slips.`];
+        
+        // Wrap logic in an async IIFE to process in background
+        (async () => {
+            try {
+                for (let i = 0; i < pendingSlips.length; i++) {
+                    if (bulkState.shouldStop) {
+                        bulkState.logs.push("Bulk verification stopped by schedule run.");
+                        break;
+                    }
+                    
+                    const slip = pendingSlips[i];
+                    bulkState.logs.push(`Processing scheduled slip [${slip.id}] Rs. ${slip.amount}`);
+                    bulkState.currentSlipId = slip.id;
+                    
+                    try {
+                        let mockResData = null;
+                        let mockResStatus = 200;
+                        const mockReq = { 
+                            body: { 
+                                paymentId: slip.id, 
+                                autoDetect: true, 
+                                statementBatch: slip.batchId 
+                            } 
+                        };
+                        const mockRes = {
+                            status: function(s) { mockResStatus = s; return this; },
+                            json: function(data) { mockResData = data; return this; }
+                        };
+                        
+                        await exports.verifySinglePayment(mockReq, mockRes);
+                        
+                        if (mockResStatus === 200 && mockResData && mockResData.success && mockResData.status === 'VERIFIED') {
+                            bulkState.success++;
+                            bulkState.logs.push(`✅ Slip #${slip.id} matched successfully.`);
+                        } else {
+                            bulkState.failed++;
+                            bulkState.logs.push(`⚠️ Slip #${slip.id} needs manual review. ${mockResData?.error || ''}`);
+                        }
+                    } catch (err) {
+                        bulkState.failed++;
+                        bulkState.logs.push(`❌ Slip #${slip.id} failed: ${err.message}`);
+                    }
+                    
+                    bulkState.processed++;
+                }
+            } catch(e) {
+                console.error("Scheduled run error", e);
+            } finally {
+                bulkState.isRunning = false;
+                bulkState.currentSlipId = null;
+                bulkState.logs.push(`🎉 Scheduled Verification Complete! Processed: ${bulkState.processed}, Success: ${bulkState.success}, Failed: ${bulkState.failed}`);
+                console.log("[AI-Scheduler] Scheduled run completed.");
+
+                // Save history record
+                try {
+                    const now = new Date();
+                    const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Colombo' }).format(now); // YYYY-MM-DD
+                    const timeStr = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Colombo', hour: '2-digit', minute: '2-digit', hour12: false }).format(now);
+                    await prisma.aiVerificationHistory.create({
+                        data: {
+                            date: dateStr,
+                            time: timeStr,
+                            businessId: null,
+                            batchId: queueType,
+                            processed: bulkState.processed,
+                            success: bulkState.success,
+                            failed: bulkState.failed
+                        }
+                    });
+                    console.log("[AI History] History log saved successfully for scheduled run.");
+                } catch (hErr) {
+                    console.error("Failed to create AI history record for scheduled run:", hErr.message);
+                }
+            }
+        })();
+        
+    } catch(err) {
+        console.error("Error starting scheduled verification:", err);
     }
 };

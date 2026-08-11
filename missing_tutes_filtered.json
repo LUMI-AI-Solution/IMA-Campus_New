@@ -1,0 +1,707 @@
+[
+  {
+    "studentId": "243",
+    "missingCount": 3,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 2628, Method: Slip) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 2628, Method: Slip) | BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 2628, Method: Slip)"
+  },
+  {
+    "studentId": "247",
+    "missingCount": 3,
+    "missingCourses": "Sinhala (PID: 1662, Method: Slip) | Media (PID: 1662, Method: Slip) | Political (PID: 1662, Method: Slip)"
+  },
+  {
+    "studentId": "251",
+    "missingCount": 8,
+    "missingCourses": "Buddhist Civilization | B.C (PID: 1578, Method: Slip) | Political (PID: 1578, Method: Slip) | English (PID: 1578, Method: Slip) | Media (PID: 1578, Method: Slip) | Media (PID: 3036, Method: Slip) | Buddhist Civilization | B.C (PID: 3036, Method: Slip) | Political (PID: 3036, Method: Slip) | English (PID: 3036, Method: Slip)"
+  },
+  {
+    "studentId": "303",
+    "missingCount": 1,
+    "missingCourses": "Sinhala (PID: 4102, Method: PayHere)"
+  },
+  {
+    "studentId": "314",
+    "missingCount": 3,
+    "missingCourses": "Sinhala (PID: 2978, Method: PayHere) | Buddhist Civilization | B.C (PID: 2978, Method: PayHere) | Political (PID: 2978, Method: PayHere)"
+  },
+  {
+    "studentId": "335",
+    "missingCount": 2,
+    "missingCourses": "Media (PID: 3069, Method: Slip) | Buddhist Civilization | B.C (PID: 3069, Method: Slip)"
+  },
+  {
+    "studentId": "381",
+    "missingCount": 2,
+    "missingCourses": "BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 2788, Method: Slip) | ACCOUNTING - ගිණුම්කරණය  (PID: 2788, Method: Slip)"
+  },
+  {
+    "studentId": "398",
+    "missingCount": 3,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 3492, Method: Slip) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 3492, Method: Slip) | BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 3492, Method: Slip)"
+  },
+  {
+    "studentId": "444",
+    "missingCount": 3,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 3044, Method: Slip) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 3044, Method: Slip) | BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 3044, Method: Slip)"
+  },
+  {
+    "studentId": "469",
+    "missingCount": 1,
+    "missingCourses": "GENERAL ENGLISH  (PID: 3408, Method: Slip)"
+  },
+  {
+    "studentId": "496",
+    "missingCount": 1,
+    "missingCourses": "Bio-System Technology (BST) (PID: 1804, Method: Slip)"
+  },
+  {
+    "studentId": "505",
+    "missingCount": 3,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 2636, Method: Slip) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 2636, Method: Slip) | BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 2636, Method: Slip)"
+  },
+  {
+    "studentId": "540",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 3625, Method: Slip)"
+  },
+  {
+    "studentId": "562",
+    "missingCount": 1,
+    "missingCourses": "Political (PID: 1790, Method: Slip)"
+  },
+  {
+    "studentId": "611",
+    "missingCount": 2,
+    "missingCourses": "Media (PID: 4067, Method: Slip) | Political Science (PID: 4067, Method: Slip)"
+  },
+  {
+    "studentId": "635",
+    "missingCount": 2,
+    "missingCourses": "Media (PID: 1537, Method: Slip) | Political (PID: 1537, Method: Slip)"
+  },
+  {
+    "studentId": "643",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 4097, Method: Slip)"
+  },
+  {
+    "studentId": "676",
+    "missingCount": 3,
+    "missingCourses": "Media (PID: 3672, Method: Slip) | Sinhala (PID: 3672, Method: Slip) | Political (PID: 3672, Method: Slip)"
+  },
+  {
+    "studentId": "722",
+    "missingCount": 3,
+    "missingCourses": "Media (PID: 3567, Method: Slip) | Sinhala (PID: 3567, Method: Slip) | Political (PID: 3567, Method: Slip)"
+  },
+  {
+    "studentId": "732",
+    "missingCount": 1,
+    "missingCourses": "ECONOMICS - ආර්ථික විද්‍යාව  (PID: 1873, Method: Slip)"
+  },
+  {
+    "studentId": "739",
+    "missingCount": 1,
+    "missingCourses": "Media  (PID: 2572, Method: Slip)"
+  },
+  {
+    "studentId": "741",
+    "missingCount": 1,
+    "missingCourses": "Geography  (PID: 4119, Method: Slip)"
+  },
+  {
+    "studentId": "742",
+    "missingCount": 1,
+    "missingCourses": "Media  (PID: 4125, Method: Slip)"
+  },
+  {
+    "studentId": "745",
+    "missingCount": 1,
+    "missingCourses": "Media  (PID: 3521, Method: Slip)"
+  },
+  {
+    "studentId": "746",
+    "missingCount": 1,
+    "missingCourses": "Media  (PID: 2598, Method: Slip)"
+  },
+  {
+    "studentId": "767",
+    "missingCount": 1,
+    "missingCourses": "English (PID: 4122, Method: Slip)"
+  },
+  {
+    "studentId": "820",
+    "missingCount": 3,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 2945, Method: Slip) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 2945, Method: Slip) | BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 2945, Method: Slip)"
+  },
+  {
+    "studentId": "829",
+    "missingCount": 1,
+    "missingCourses": "Buddhist Civilization | B.C (PID: 1381, Method: Slip)"
+  },
+  {
+    "studentId": "837",
+    "missingCount": 3,
+    "missingCourses": "Media (PID: 3656, Method: Slip) | Sinhala (PID: 3656, Method: Slip) | Buddhist Civilization | B.C (PID: 3656, Method: Slip)"
+  },
+  {
+    "studentId": "898",
+    "missingCount": 3,
+    "missingCourses": "Sinhala (PID: 1237, Method: Slip) | Political (PID: 1237, Method: Slip) | Media (PID: 1237, Method: Slip)"
+  },
+  {
+    "studentId": "933",
+    "missingCount": 1,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 1732, Method: Slip)"
+  },
+  {
+    "studentId": "950",
+    "missingCount": 2,
+    "missingCourses": "Political Science (PID: 1918, Method: Slip) | Media  (PID: 1918, Method: Slip)"
+  },
+  {
+    "studentId": "959",
+    "missingCount": 1,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 3633, Method: Slip)"
+  },
+  {
+    "studentId": "968",
+    "missingCount": 3,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 3088, Method: Slip) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 3088, Method: Slip) | BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 3088, Method: Slip)"
+  },
+  {
+    "studentId": "975",
+    "missingCount": 9,
+    "missingCourses": "Media (PID: 1015, Method: Slip) | Buddhist Civilization | B.C (PID: 1015, Method: Slip) | Sinhala (PID: 1015, Method: Slip) | Sinhala (PID: 1416, Method: Slip) | Buddhist Civilization | B.C (PID: 1416, Method: Slip) | Media (PID: 1416, Method: Slip) | Media (PID: 1970, Method: Slip) | Sinhala (PID: 1970, Method: Slip) | Buddhist Civilization | B.C (PID: 1970, Method: Slip)"
+  },
+  {
+    "studentId": "1023",
+    "missingCount": 4,
+    "missingCourses": "Media (PID: 2235, Method: Slip) | Sinhala (PID: 2235, Method: Slip) | Buddhist Civilization | B.C (PID: 2235, Method: Slip) | English (PID: 2235, Method: Slip)"
+  },
+  {
+    "studentId": "1090",
+    "missingCount": 1,
+    "missingCourses": "Media  (PID: 1791, Method: Slip)"
+  },
+  {
+    "studentId": "1091",
+    "missingCount": 1,
+    "missingCourses": "General English - COMMERCE (PID: 3769, Method: Slip)"
+  },
+  {
+    "studentId": "1111",
+    "missingCount": 3,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 3252, Method: PayHere) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 3252, Method: PayHere) | BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 3252, Method: PayHere)"
+  },
+  {
+    "studentId": "1139",
+    "missingCount": 6,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 1198, Method: Slip) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 1198, Method: Slip) | BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 1198, Method: Slip) | ACCOUNTING - ගිණුම්කරණය  (PID: 1600, Method: Slip) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 1600, Method: Slip) | BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 1600, Method: Slip)"
+  },
+  {
+    "studentId": "1165",
+    "missingCount": 1,
+    "missingCourses": "Media  (PID: 2533, Method: Slip)"
+  },
+  {
+    "studentId": "1173",
+    "missingCount": 3,
+    "missingCourses": "Media (PID: 1192, Method: Slip) | Sinhala (PID: 1192, Method: Slip) | Political (PID: 1192, Method: Slip)"
+  },
+  {
+    "studentId": "1193",
+    "missingCount": 1,
+    "missingCourses": "Media  (PID: 2983, Method: Slip)"
+  },
+  {
+    "studentId": "1201",
+    "missingCount": 1,
+    "missingCourses": "Media  (PID: 2615, Method: Slip)"
+  },
+  {
+    "studentId": "1217",
+    "missingCount": 1,
+    "missingCourses": "Media  (PID: 3276, Method: PayHere)"
+  },
+  {
+    "studentId": "1230",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 4036, Method: Slip)"
+  },
+  {
+    "studentId": "1235",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 2604, Method: Slip)"
+  },
+  {
+    "studentId": "1240",
+    "missingCount": 2,
+    "missingCourses": "BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 2493, Method: Slip) | ACCOUNTING - ගිණුම්කරණය  (PID: 2493, Method: Slip)"
+  },
+  {
+    "studentId": "1297",
+    "missingCount": 3,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 3677, Method: Slip) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 3677, Method: Slip) | BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 3677, Method: Slip)"
+  },
+  {
+    "studentId": "1354",
+    "missingCount": 1,
+    "missingCourses": "Media  (PID: 1634, Method: Slip)"
+  },
+  {
+    "studentId": "1373",
+    "missingCount": 9,
+    "missingCourses": "Media (PID: 1661, Method: Slip) | Sinhala (PID: 1661, Method: Slip) | Buddhist Civilization | B.C (PID: 1661, Method: Slip) | Sinhala (PID: 1891, Method: Slip) | Buddhist Civilization | B.C (PID: 1891, Method: Slip) | Media (PID: 1891, Method: Slip) | Media (PID: 1892, Method: Slip) | Sinhala (PID: 1892, Method: Slip) | Buddhist Civilization | B.C (PID: 1892, Method: Slip)"
+  },
+  {
+    "studentId": "1443",
+    "missingCount": 2,
+    "missingCourses": "BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 2382, Method: PayHere) | ACCOUNTING - ගිණුම්කරණය  (PID: 2402, Method: PayHere)"
+  },
+  {
+    "studentId": "1468",
+    "missingCount": 1,
+    "missingCourses": "Political Science (PID: 1880, Method: Slip)"
+  },
+  {
+    "studentId": "1536",
+    "missingCount": 1,
+    "missingCourses": "Political (PID: 4118, Method: Slip)"
+  },
+  {
+    "studentId": "1546",
+    "missingCount": 1,
+    "missingCourses": "Political Science (PID: 3243, Method: Slip)"
+  },
+  {
+    "studentId": "1624",
+    "missingCount": 2,
+    "missingCourses": "BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 3126, Method: PayHere) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 3921, Method: PayHere)"
+  },
+  {
+    "studentId": "1642",
+    "missingCount": 1,
+    "missingCourses": "Full Payment with Discount (PID: 1965, Method: Slip)"
+  },
+  {
+    "studentId": "1644",
+    "missingCount": 1,
+    "missingCourses": "Full Payment with Discount (PID: 1967, Method: Slip)"
+  },
+  {
+    "studentId": "1645",
+    "missingCount": 4,
+    "missingCourses": "Buddhist Civilization | B.C (PID: 4043, Method: Slip) | Sinhala (PID: 4124, Method: Slip) | Political (PID: 4124, Method: Slip) | English (PID: 4124, Method: Slip)"
+  },
+  {
+    "studentId": "1650",
+    "missingCount": 1,
+    "missingCourses": "General English - COMMERCE (PID: 1986, Method: Slip)"
+  },
+  {
+    "studentId": "1652",
+    "missingCount": 2,
+    "missingCourses": "Sinhala (PID: 2148, Method: Slip) | Buddhist Civilization | B.C (PID: 2148, Method: Slip)"
+  },
+  {
+    "studentId": "1658",
+    "missingCount": 3,
+    "missingCourses": "ECONOMICS - ආර්ථික විද්‍යාව  (PID: 3253, Method: Slip) | BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 3253, Method: Slip) | General English - COMMERCE (PID: 3253, Method: Slip)"
+  },
+  {
+    "studentId": "1701",
+    "missingCount": 3,
+    "missingCourses": "Media (PID: 2002, Method: Slip) | Buddhist Civilization | B.C (PID: 2002, Method: Slip) | Political (PID: 2002, Method: Slip)"
+  },
+  {
+    "studentId": "1709",
+    "missingCount": 3,
+    "missingCourses": "Buddhist Civilization | B.C (PID: 2342, Method: Slip) | Geography  (PID: 2368, Method: Slip) | English (PID: 3562, Method: Slip)"
+  },
+  {
+    "studentId": "1745",
+    "missingCount": 1,
+    "missingCourses": "English (PID: 2840, Method: PayHere)"
+  },
+  {
+    "studentId": "1763",
+    "missingCount": 2,
+    "missingCourses": "Media (PID: 3966, Method: PayHere) | Geography  (PID: 3966, Method: PayHere)"
+  },
+  {
+    "studentId": "1798",
+    "missingCount": 3,
+    "missingCourses": "Buddhist Civilization | B.C (PID: 3301, Method: Slip) | Sinhala (PID: 3301, Method: Slip) | Political (PID: 3301, Method: Slip)"
+  },
+  {
+    "studentId": "1843",
+    "missingCount": 2,
+    "missingCourses": "Sinhala (PID: 2299, Method: Slip) | Buddhist Civilization | B.C (PID: 2299, Method: Slip)"
+  },
+  {
+    "studentId": "1846",
+    "missingCount": 3,
+    "missingCourses": "Sinhala (PID: 2100, Method: Slip) | Media (PID: 4027, Method: Slip) | Political (PID: 4027, Method: Slip)"
+  },
+  {
+    "studentId": "1848",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 3641, Method: Slip)"
+  },
+  {
+    "studentId": "1945",
+    "missingCount": 2,
+    "missingCourses": "BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 2810, Method: PayHere) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 2811, Method: PayHere)"
+  },
+  {
+    "studentId": "1946",
+    "missingCount": 1,
+    "missingCourses": "Political Science (PID: 3916, Method: PayHere)"
+  },
+  {
+    "studentId": "1972",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 2979, Method: Slip)"
+  },
+  {
+    "studentId": "1985",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 2918, Method: Slip)"
+  },
+  {
+    "studentId": "1986",
+    "missingCount": 1,
+    "missingCourses": "Political (PID: 3174, Method: Slip)"
+  },
+  {
+    "studentId": "2001",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 4077, Method: Slip)"
+  },
+  {
+    "studentId": "2022",
+    "missingCount": 1,
+    "missingCourses": "Political (PID: 3060, Method: PayHere)"
+  },
+  {
+    "studentId": "2029",
+    "missingCount": 3,
+    "missingCourses": "Media (PID: 2147, Method: Slip) | Sinhala (PID: 2147, Method: Slip) | Buddhist Civilization | B.C (PID: 2147, Method: Slip)"
+  },
+  {
+    "studentId": "2107",
+    "missingCount": 2,
+    "missingCourses": "Political (PID: 3366, Method: Slip) | English (PID: 3366, Method: Slip)"
+  },
+  {
+    "studentId": "2123",
+    "missingCount": 1,
+    "missingCourses": "General English  (PID: 2993, Method: Slip)"
+  },
+  {
+    "studentId": "2137",
+    "missingCount": 1,
+    "missingCourses": "English (PID: 3338, Method: Slip)"
+  },
+  {
+    "studentId": "2222",
+    "missingCount": 2,
+    "missingCourses": "Sinhala (PID: 3807, Method: Slip) | Political (PID: 3807, Method: Slip)"
+  },
+  {
+    "studentId": "2259",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 2830, Method: Slip)"
+  },
+  {
+    "studentId": "2271",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 2395, Method: Slip)"
+  },
+  {
+    "studentId": "2277",
+    "missingCount": 1,
+    "missingCourses": "BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 3073, Method: Slip)"
+  },
+  {
+    "studentId": "2327",
+    "missingCount": 2,
+    "missingCourses": "BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 3076, Method: Slip) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 3212, Method: Slip)"
+  },
+  {
+    "studentId": "2334",
+    "missingCount": 7,
+    "missingCourses": "Buddhism (PID: 2492, Method: Slip) | Sinhala (PID: 2492, Method: Slip) | English (PID: 2492, Method: Slip) | Mathematics (PID: 2492, Method: Slip) | History (PID: 2492, Method: Slip) | Science  (PID: 2492, Method: Slip) | Civics (PID: 2492, Method: Slip)"
+  },
+  {
+    "studentId": "2347",
+    "missingCount": 2,
+    "missingCourses": "Science for Technology (SFT) (PID: 2881, Method: Slip) | Science for Technology (SFT) (PID: 3166, Method: Upcoming)"
+  },
+  {
+    "studentId": "2356",
+    "missingCount": 2,
+    "missingCourses": "BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 3383, Method: Slip) | General English - COMMERCE (PID: 3384, Method: Slip)"
+  },
+  {
+    "studentId": "2422",
+    "missingCount": 1,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 2898, Method: Slip)"
+  },
+  {
+    "studentId": "2449",
+    "missingCount": 1,
+    "missingCourses": "English (PID: 2657, Method: Slip)"
+  },
+  {
+    "studentId": "2493",
+    "missingCount": 1,
+    "missingCourses": "Political Science (PID: 4056, Method: Slip)"
+  },
+  {
+    "studentId": "2578",
+    "missingCount": 1,
+    "missingCourses": "Sinhala (PID: 3006, Method: Slip)"
+  },
+  {
+    "studentId": "2592",
+    "missingCount": 1,
+    "missingCourses": "Political Science (PID: 3699, Method: Slip)"
+  },
+  {
+    "studentId": "2689",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 4094, Method: Slip)"
+  },
+  {
+    "studentId": "2702",
+    "missingCount": 4,
+    "missingCourses": "Buddhism (PID: 2961, Method: Slip) | Sinhala (PID: 2961, Method: Slip) | English (PID: 2961, Method: Slip) | History (PID: 2961, Method: Slip)"
+  },
+  {
+    "studentId": "2724",
+    "missingCount": 3,
+    "missingCourses": "Economics (PID: 3790, Method: Slip) | Accounting  (PID: 3790, Method: Slip) | Business Studies  (PID: 3790, Method: Slip)"
+  },
+  {
+    "studentId": "2741",
+    "missingCount": 1,
+    "missingCourses": "English (PID: 3022, Method: Slip)"
+  },
+  {
+    "studentId": "2751",
+    "missingCount": 1,
+    "missingCourses": "ECONOMICS - ආර්ථික විද්‍යාව  (PID: 3932, Method: PayHere)"
+  },
+  {
+    "studentId": "2779",
+    "missingCount": 2,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 3900, Method: Slip) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 3900, Method: Slip)"
+  },
+  {
+    "studentId": "2787",
+    "missingCount": 1,
+    "missingCourses": "Buddhist Civilization | B.C (PID: 4037, Method: Slip)"
+  },
+  {
+    "studentId": "2792",
+    "missingCount": 1,
+    "missingCourses": "English (PID: 3153, Method: Slip)"
+  },
+  {
+    "studentId": "2799",
+    "missingCount": 1,
+    "missingCourses": "Political Science (PID: 3461, Method: Slip)"
+  },
+  {
+    "studentId": "2811",
+    "missingCount": 1,
+    "missingCourses": "History (PID: 4076, Method: Slip)"
+  },
+  {
+    "studentId": "2814",
+    "missingCount": 1,
+    "missingCourses": "Buddhist Civilization | B.C (PID: 3989, Method: Slip)"
+  },
+  {
+    "studentId": "2867",
+    "missingCount": 3,
+    "missingCourses": "Science for Technology (SFT) (PID: 3278, Method: Slip) | Engineering Technology (ET) (PID: 3278, Method: Slip) | Information & Communication Technology (ICT) (PID: 3278, Method: Slip)"
+  },
+  {
+    "studentId": "2879",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 3610, Method: Slip)"
+  },
+  {
+    "studentId": "2970",
+    "missingCount": 1,
+    "missingCourses": "BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 4028, Method: PayHere)"
+  },
+  {
+    "studentId": "3022",
+    "missingCount": 2,
+    "missingCourses": "Media (PID: 3429, Method: Slip) | Sinhala (PID: 3429, Method: Slip)"
+  },
+  {
+    "studentId": "3031",
+    "missingCount": 3,
+    "missingCourses": "Science for Technology (SFT) (PID: 3569, Method: Slip) | Engineering Technology (ET) (PID: 3569, Method: Slip) | Information & Communication Technology (ICT) (PID: 3569, Method: Slip)"
+  },
+  {
+    "studentId": "3055",
+    "missingCount": 2,
+    "missingCourses": "Information & Communication Technology (ICT) (PID: 3728, Method: Slip) | Engineering Technology (ET) (PID: 3911, Method: Slip)"
+  },
+  {
+    "studentId": "3071",
+    "missingCount": 3,
+    "missingCourses": "Science for Technology (SFT) (PID: 4088, Method: Slip) | Engineering Technology (ET) (PID: 4088, Method: Slip) | Information & Communication Technology (ICT) (PID: 4088, Method: Slip)"
+  },
+  {
+    "studentId": "3092",
+    "missingCount": 1,
+    "missingCourses": "General English - COMMERCE (PID: 4117, Method: Slip)"
+  },
+  {
+    "studentId": "3116",
+    "missingCount": 3,
+    "missingCourses": "Media (PID: 3565, Method: Slip) | Sinhala (PID: 3565, Method: Slip) | Political (PID: 3565, Method: Slip)"
+  },
+  {
+    "studentId": "3141",
+    "missingCount": 1,
+    "missingCourses": "BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 3789, Method: Slip)"
+  },
+  {
+    "studentId": "3187",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 4107, Method: Slip)"
+  },
+  {
+    "studentId": "3213",
+    "missingCount": 1,
+    "missingCourses": "Sinhala (PID: 3710, Method: Slip)"
+  },
+  {
+    "studentId": "3270",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 3796, Method: Slip)"
+  },
+  {
+    "studentId": "3318",
+    "missingCount": 10,
+    "missingCourses": "Media (PID: 3845, Method: MockCash) | Political (PID: 3845, Method: MockCash) | English (PID: 3845, Method: MockCash) | Sinhala (PID: 3845, Method: MockCash) | Media (PID: 3846, Method: MockCash) | Political (PID: 3846, Method: MockCash) | English (PID: 3846, Method: MockCash) | Media (PID: 3847, Method: MockCash) | English (PID: 3847, Method: MockCash) | Media (PID: 3848, Method: MockCash)"
+  },
+  {
+    "studentId": "3384",
+    "missingCount": 6,
+    "missingCourses": "Buddhism (PID: 4033, Method: Slip) | Sinhala (PID: 4033, Method: Slip) | English (PID: 4033, Method: Slip) | Mathematics (PID: 4033, Method: Slip) | History (PID: 4033, Method: Slip) | Science  (PID: 4033, Method: Slip)"
+  },
+  {
+    "studentId": "3390",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 4080, Method: Slip)"
+  },
+  {
+    "studentId": "3395",
+    "missingCount": 1,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 4092, Method: PayHere)"
+  },
+  {
+    "studentId": "3465",
+    "missingCount": 2,
+    "missingCourses": "Science for Technology (SFT) (PID: 4045, Method: Slip) | General English  (PID: 4046, Method: Slip)"
+  },
+  {
+    "studentId": "3471",
+    "missingCount": 2,
+    "missingCourses": "Media (PID: 4050, Method: Slip) | Sinhala (PID: 4050, Method: Slip)"
+  },
+  {
+    "studentId": "3479",
+    "missingCount": 6,
+    "missingCourses": "Buddhism (PID: 4111, Method: Slip) | Sinhala (PID: 4111, Method: Slip) | English (PID: 4111, Method: Slip) | Mathematics (PID: 4111, Method: Slip) | History (PID: 4111, Method: Slip) | Civics (PID: 4111, Method: Slip)"
+  },
+  {
+    "studentId": "3483",
+    "missingCount": 2,
+    "missingCourses": "Media (PID: 4061, Method: Slip) | Buddhist Civilization | B.C (PID: 4061, Method: Slip)"
+  },
+  {
+    "studentId": "3485",
+    "missingCount": 2,
+    "missingCourses": "Media (PID: 4064, Method: Slip) | Geography  (PID: 4064, Method: Slip)"
+  },
+  {
+    "studentId": "3488",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 4071, Method: Slip)"
+  },
+  {
+    "studentId": "3499",
+    "missingCount": 1,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 4079, Method: Slip)"
+  },
+  {
+    "studentId": "3500",
+    "missingCount": 1,
+    "missingCourses": "MEDIA (PID: 4109, Method: Slip)"
+  },
+  {
+    "studentId": "3501",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 4101, Method: Slip)"
+  },
+  {
+    "studentId": "3507",
+    "missingCount": 2,
+    "missingCourses": "Science for Technology (SFT) (PID: 4089, Method: Slip) | Engineering Technology (ET) (PID: 4089, Method: Slip)"
+  },
+  {
+    "studentId": "3514",
+    "missingCount": 1,
+    "missingCourses": "MEDIA (PID: 4123, Method: Slip)"
+  },
+  {
+    "studentId": "3520",
+    "missingCount": 2,
+    "missingCourses": "English (PID: 4093, Method: Slip) | Sinhala (PID: 4093, Method: Slip)"
+  },
+  {
+    "studentId": "3523",
+    "missingCount": 3,
+    "missingCourses": "ACCOUNTING - ගිණුම්කරණය  (PID: 4096, Method: Slip) | ECONOMICS - ආර්ථික විද්‍යාව  (PID: 4096, Method: Slip) | BUSINESS STU. - ව්‍යාපාර අධ්‍යනය  (PID: 4096, Method: Slip)"
+  },
+  {
+    "studentId": "3528",
+    "missingCount": 2,
+    "missingCourses": "Political (PID: 4112, Method: Slip) | Media (PID: 4112, Method: Slip)"
+  },
+  {
+    "studentId": "3531",
+    "missingCount": 8,
+    "missingCourses": "Buddhism (PID: 4104, Method: Slip) | Sinhala (PID: 4104, Method: Slip) | English (PID: 4104, Method: Slip) | Mathematics (PID: 4104, Method: Slip) | History (PID: 4104, Method: Slip) | Science  (PID: 4104, Method: Slip) | Commerce  (PID: 4104, Method: Slip) | ICT (PID: 4104, Method: Slip)"
+  },
+  {
+    "studentId": "3532",
+    "missingCount": 9,
+    "missingCourses": "Buddhism (PID: 4108, Method: Slip) | Commerce  (PID: 4108, Method: Slip) | Music  (PID: 4108, Method: Slip) | Mathematics - English Medium (PID: 4108, Method: Slip) | Commerce - English Medium     (PID: 4108, Method: Slip) | Science - English Medium (PID: 4108, Method: Slip) | ICT (PID: 4108, Method: Slip) | History (PID: 4108, Method: Slip) | English (PID: 4108, Method: Slip)"
+  },
+  {
+    "studentId": "3538",
+    "missingCount": 3,
+    "missingCourses": "Media (PID: 4114, Method: Slip) | Sinhala (PID: 4114, Method: Slip) | Buddhist Civilization | B.C (PID: 4114, Method: Slip)"
+  },
+  {
+    "studentId": "3540",
+    "missingCount": 9,
+    "missingCourses": "Buddhism (PID: 4116, Method: Slip) | Sinhala (PID: 4116, Method: Slip) | English (PID: 4116, Method: Slip) | Mathematics (PID: 4116, Method: Slip) | History (PID: 4116, Method: Slip) | Science  (PID: 4116, Method: Slip) | Geography   (PID: 4116, Method: Slip) | Music  (PID: 4116, Method: Slip) | Health (PID: 4116, Method: Slip)"
+  },
+  {
+    "studentId": "3554",
+    "missingCount": 1,
+    "missingCourses": "Media (PID: 4126, Method: Slip)"
+  }
+]

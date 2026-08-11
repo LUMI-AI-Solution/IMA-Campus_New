@@ -3,12 +3,12 @@ const prisma = new PrismaClient();
 
 async function check() {
     const courses = await prisma.course.findMany({
-        where: { id: { in: [33, 46, 49, 34, 44, 45, 50] } },
-        include: { group: true }
+        where: { id: { in: [258, 264, 325, 327, 329, 330] } },
+        include: { tuteStocks: true }
     });
 
-    courses.forEach(c => {
-        console.log(`Course ID: ${c.id}, Name: ${c.name}, Group: ${c.group ? c.group.name : 'N/A'}`);
-    });
+    console.log("Courses:");
+    console.log(JSON.stringify(courses, null, 2));
 }
-check().finally(() => prisma.$disconnect());
+
+check().catch(console.error).finally(() => prisma.$disconnect());

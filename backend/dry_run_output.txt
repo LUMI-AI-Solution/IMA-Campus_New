@@ -1,0 +1,37 @@
+[DRY RUN] Found 35 AI Verified payments to process for delivery.
+[WOULD DISPATCH] Payment ID: 1932 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ], ENGLISH - BOOK 03 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 1974 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2034 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ], BS - BOOK 3 [ MAY BATCH ], ENGLISH - BOOK 03 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2037 | Type: Monthly | Tutes to send: ECONOMICS - BOOK 3 [ MAY BATCH ], BS - BOOK 3 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2043 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 02 [ MAY BATCH ], ECONOMICS - BOOK 2 [ MAY BATCH ], BS - BOOK 2 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2044 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ], BS - BOOK 3 [ MAY BATCH ], ENGLISH - BOOK 03 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2082 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ], BS - BOOK 3 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2097 | Type: Monthly | Tutes to send: ECONOMICS - BOOK 3 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2117 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ], BS - BOOK 3 [ MAY BATCH ], ENGLISH - BOOK 03 [ MAY BATCH ], ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ], BS - BOOK 3 [ MAY BATCH ], ENGLISH - BOOK 03 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2121 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ], BS - BOOK 3 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2124 | Type: Full | Tutes to send: Media Full, Sinhala Full, BC Full
+[WOULD DISPATCH] Payment ID: 2128 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ], BS - BOOK 3 [ MAY BATCH ], ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ], BS - BOOK 3 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2258 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ], BS - BOOK 3 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2290 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ], ACCOUNTING - BOOK 03 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2350 | Type: Monthly | Tutes to send: Lesson 06, Lesson 06
+[WOULD DISPATCH] Payment ID: 2363 | Type: Monthly | Tutes to send: Media Book 01 [ July Batch ], BC Book 01 + Book 02 [July Batch ], Book 01 [ july Batch ]
+[WOULD DISPATCH] Payment ID: 2364 | Type: Monthly | Tutes to send: Media Book 01 [ July Batch ], Sihala book 1 [ July Batch], BC Book 01 + Book 02 [July Batch ]
+[WOULD DISPATCH] Payment ID: 2374 | Type: Monthly | Tutes to send: Media Book 01 [ July Batch ], Book 01 [ july Batch ]
+[WOULD DISPATCH] Payment ID: 2394 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ], ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2396 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ], BS - BOOK 3 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2433 | Type: Monthly | Tutes to send: Media Book 01 [ July Batch ], Book 01 [ july Batch ], Book 01 [ July Batch]
+[WOULD DISPATCH] Payment ID: 2481 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 03 [ MAY BATCH ], ECONOMICS - BOOK 3 [ MAY BATCH ], BS - BOOK 3 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2491 | Type: Monthly | Tutes to send: Media Book 01 [ July Batch ], Sihala book 1 [ July Batch], Book 01 [ july Batch ], Book 01 [ July Batch]
+[WOULD DISPATCH] Payment ID: 2502 | Type: Monthly | Tutes to send: Media Book 01 [ July Batch ], BC Book 01 + Book 02 [July Batch ]
+[WOULD DISPATCH] Payment ID: 2510 | Type: Monthly | Tutes to send: Media Book 01 [ July Batch ], BC Book 01 + Book 02 [July Batch ], Book 01 [ july Batch ]
+[WOULD DISPATCH] Payment ID: 2512 | Type: Full | Tutes to send: Media Full, Political Full
+[WOULD DISPATCH] Payment ID: 2516 | Type: Monthly | Tutes to send: Media Book 01 [ July Batch ]
+[WOULD DISPATCH] Payment ID: 2517 | Type: Full | Tutes to send: Sinhala Full, BC Full, GEO Full
+[WOULD DISPATCH] Payment ID: 2527 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 02 [ MAY BATCH ], ECONOMICS - BOOK 2 [ MAY BATCH ], BS - BOOK 2 [ MAY BATCH ]
+[WOULD DISPATCH] Payment ID: 2597 | Type: Full | Tutes to send: Media Full, Sinhala Full, BC Full
+[WOULD DISPATCH] Payment ID: 2599 | Type: Monthly | Tutes to send: ACCOUNTING - BOOK 01 [ JULY BATCH ], ECON - BOOK 01  [ JULY BATCH ], BS - BOOK 01  [ JULY BATCH ]
+[WOULD DISPATCH] Payment ID: 2639 | Type: Monthly | Tutes to send: Media Book 01 [ July Batch ], Sihala book 1 [ July Batch], Book 01 [ July Batch], Book 01 [ July Batch]
+[WOULD DISPATCH] Payment ID: 2649 | Type: Monthly | Tutes to send: Media Book 01 [ July Batch ], Book 01 [ July Batch]
+[WOULD DISPATCH] Payment ID: 2680 | Type: Monthly | Tutes to send: Media Book 01 [ July Batch ], Sihala book 1 [ July Batch], Book 01 [ july Batch ], Book 01 [ July Batch]
+
+[DRY RUN SUMMARY] Would successfully dispatch 34 deliveries out of 35 verified slips.

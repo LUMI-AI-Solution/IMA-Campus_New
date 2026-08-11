@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs'); // 🔥 අලුතෙන් එකතු කළා ෆෝල්ඩර් එක චෙක් කරන්න
 
 const mobileStudentController = require('../../controllers/mobile/mobileStudentController');
+const mobileStaffController = require('../../controllers/mobile/mobileStaffController');
 
 // 🔥 FIX: Multer Configuration for Profile Images
 // දැන් හරියටම backend/storage/images ෆෝල්ඩර් එකට යයි
@@ -20,7 +21,7 @@ if (!fs.existsSync(uploadDir)) {
 
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        cb(null, uploadDir) 
+        cb(null, uploadDir)
     },
     filename: function (req, file, cb) {
         cb(null, 'profile_' + Date.now() + path.extname(file.originalname))
@@ -32,22 +33,30 @@ const upload = multer({ storage: storage });
 // 🔥 FIX: Token Verification Middleware with Session Check
 const verifyToken = async (req, res, next) => {
     const token = req.headers.authorization?.split(' ')[1];
-    
+
     if (!token) {
         return res.status(401).json({ error: "Access Denied. No token provided." });
     }
 
     try {
         const verified = jwt.verify(token, process.env.JWT_SECRET);
-        
-        // Check if the session ID in the token matches the one in the DB
+
         const user = await prisma.user.findUnique({ where: { id: verified.userId || verified.id } });
-        
-        if (user && user.session_id && user.session_id !== verified.sessionId) {
+
+        const roleUpper = String(user?.role || verified.role || '').trim().toUpperCase();
+        const isExplicitStaff = [
+            'ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN', 'STAFF', 'COORDINATOR', 
+            'CALLER', 'MANAGER', 'MANAGEMENT', 'TEACHER', 'INSTRUCTOR', 
+            'TELECALLER', 'FINANCE', 'ASS MANAGER', 'SOCIAL MEDIA MANAGER', 'SOCIAL MEDIA STAFF'
+        ].includes(roleUpper) || Boolean(user?.department) || Boolean(user?.businessType);
+
+        const isStudentAccount = !isExplicitStaff && roleUpper === 'STUDENT';
+
+        if (isStudentAccount && user && user.session_id && user.session_id !== verified.sessionId) {
             return res.status(401).json({ error: "Logged in from another device. Please log in again." });
         }
 
-        req.user = verified; 
+        req.user = verified;
         next();
     } catch (error) {
         return res.status(401).json({ error: "Invalid or Expired Token." });
@@ -57,6 +66,8 @@ const verifyToken = async (req, res, next) => {
 // 🔓 Public Routes
 router.get('/businesses', mobileStudentController.getMobileBusinesses);
 router.get('/installments/:batchId', mobileStudentController.getMobileInstallments);
+router.post('/verify-student', mobileStudentController.verifyStudent);
+router.post('/update-yt-cookies', mobileStudentController.updateYtCookies);
 
 // 🔒 Protected Routes (Requires Token)
 router.get('/my-payments', verifyToken, mobileStudentController.getMobilePayments);
@@ -64,11 +75,47 @@ router.get('/classroom', verifyToken, mobileStudentController.getMobileClassroom
 router.get('/module/:id', verifyToken, mobileStudentController.getCourseModules);
 router.get('/classroom/lives', verifyToken, mobileStudentController.getMobileUpcomingLives);
 router.post('/profile/password', verifyToken, mobileStudentController.updateMobilePassword);
+router.get('/get-video-token', verifyToken, mobileStudentController.getVideoToken);
 
 // 🔥 NEW: Profile Update Route (Image Upload එකත් එක්ක)
 router.post('/profile/update', verifyToken, upload.single('image'), mobileStudentController.updateMobileProfile);
+
+// 🔥 Proxy Download Route for Zoom Recordings (Using DB ID)
+router.get('/download-rec/:contentId', verifyToken, mobileStudentController.downloadRecording);
+
+// 🔥 Proxy Download Route for Direct Extracted MP4 (Bypass DB & Meeting ID entirely)
+router.get('/proxy-stream', verifyToken, mobileStudentController.proxyStreamUrl);
+
+// 🔥 NEW: Staff Dashboard Overview
+router.get('/staff/overview', verifyToken, mobileStaffController.getStaffOverview);
 
 router.get('/yt-redirect', mobileStudentController.ytRedirect);
 router.get('/app-event', mobileStudentController.getActiveAppEvent);
 
 module.exports = router;
+
+
+// 🔥 ZOOM EXTRACT ROUTE FOR DIRECT DOWNLOAD 🔥
+const { exec } = require('child_process');
+router.get('/zoom-extract', (req, res) => {
+    const videoUrl = req.query.url;
+    if (!videoUrl) return res.status(400).json({ error: 'URL is required' });
+
+    exec(`yt-dlp -J "${videoUrl}"`, { maxBuffer: 1024 * 1024 * 5 }, (error, stdout, stderr) => {
+        if (error) {
+            console.error('yt-dlp error:', error);
+            return res.status(500).json({ error: 'Failed to extract video data' });
+        }
+        
+        try {
+            const data = JSON.parse(stdout);
+            res.json({
+                url: data.url,
+                cookies: data.cookies,
+                http_headers: data.http_headers
+            });
+        } catch (e) {
+            res.status(500).json({ error: 'Failed to parse yt-dlp output' });
+        }
+    });
+});

@@ -60,15 +60,32 @@ api.interceptors.response.use((response) => {
     }
     return response;
 }, (error) => {
-    // 🔥 NEW FIX: 401 aawoth Auto Logout karanawa
     if (error.response && error.response.status === 401) {
-        console.warn("Session Expired or Logged in from another device!");
-        localStorage.removeItem('token');
-        localStorage.removeItem('userToken');
-        localStorage.removeItem('user');
+        const errMsg = String(error.response?.data?.error || '');
+        const storedUser = localStorage.getItem('user');
+        let isStudent = false;
+        if (storedUser) {
+            try {
+                const u = JSON.parse(storedUser);
+                const role = String(u.role || '').toUpperCase();
+                isStudent = (role === 'STUDENT' || role === 'USER') && !u.department && !u.businessType;
+            } catch (e) {}
+        }
         
-        // Auto Login Page ekata yawanawa
-        window.location.href = '/login'; 
+        const isExpiredOrInvalidToken = errMsg.includes('Invalid or Expired Token') || 
+                                         errMsg.includes('Access Denied') || 
+                                         errMsg.includes('Invalid token payload') || 
+                                         errMsg.includes('User account no longer exists');
+
+        const isStudentDeviceMismatch = isStudent && errMsg.includes('Logged in from another device');
+
+        if (isExpiredOrInvalidToken || isStudentDeviceMismatch) {
+            console.warn("Session Expired or Invalid Token:", errMsg);
+            localStorage.removeItem('token');
+            localStorage.removeItem('userToken');
+            localStorage.removeItem('user');
+            window.location.href = '/login'; 
+        }
     }
     return Promise.reject(error);
 });

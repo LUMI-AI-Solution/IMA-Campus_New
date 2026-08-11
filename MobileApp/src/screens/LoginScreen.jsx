@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, Image, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, ImageBackground } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import COLORS from '../constants/colors';
@@ -15,6 +15,8 @@ const LoginScreen = ({ navigation }) => {
 
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertConfig, setAlertConfig] = useState({ title: '', msg: '', type: 'error' });
+
+
 
   const handleLogin = async () => {
     if (!username || !password) {
@@ -101,6 +103,8 @@ const LoginScreen = ({ navigation }) => {
               {loading ? <ActivityIndicator color="white" /> : <Text style={styles.loginBtnText}>Login Now</Text>}
             </TouchableOpacity>
 
+
+
             <TouchableOpacity onPress={() => navigation.navigate('Register')}>
               <Text style={styles.footerText}>Don't have an account? <Text style={{fontWeight:'bold', color: COLORS.primary}}>Register</Text></Text>
             </TouchableOpacity>
@@ -124,6 +128,7 @@ const styles = StyleSheet.create({
   input: { flex: 1, marginLeft: 10, color: '#000', fontSize: 15 },
   loginBtn: { backgroundColor: COLORS.primary, borderRadius: 12, height: 55, justifyContent: 'center', alignItems: 'center', marginTop: 10, elevation: 5 },
   loginBtnText: { color: 'white', fontSize: 16, fontWeight: 'bold' },
+
   footerText: { textAlign: 'center', marginTop: 20, color: '#666', fontSize: 14 }
 });
 

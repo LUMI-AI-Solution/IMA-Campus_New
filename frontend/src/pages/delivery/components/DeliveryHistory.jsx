@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Calendar, ChevronLeft, ChevronRight, CheckCircle, X, Globe, Copy, Loader2, Download, CreditCard, Printer, BookOpen, MessageSquare } from 'lucide-react';
+import { Search, Calendar, ChevronLeft, ChevronRight, CheckCircle, X, Globe, Copy, Loader2, Download, CreditCard, Printer, BookOpen, MessageSquare, Edit3 } from 'lucide-react';
 import axios from '../../../api/axios';
 import toast from 'react-hot-toast';
 
@@ -21,6 +21,12 @@ export default function DeliveryHistory({ isReadOnly }) {
     const [isIframeOpen, setIsIframeOpen] = useState(false);
     const [confirmingId, setConfirmingId] = useState(null);
     const [confirmModal, setConfirmModal] = useState(null);
+
+    // Edit Tracking State
+    const [editModal, setEditModal] = useState(null);
+    const [trackingInput, setTrackingInput] = useState('');
+    const [remarkInput, setRemarkInput] = useState('');
+    const [isUpdating, setIsUpdating] = useState(false);
 
     // Proxy URL for Courier
     const COURIER_URL = `${axios.defaults.baseURL.replace('/api', '')}/api/courier-proxy/client/signIn.php#you_must_login_first`;
@@ -146,6 +152,23 @@ export default function DeliveryHistory({ isReadOnly }) {
             toast.error("Failed to update status");
         } finally {
             setConfirmingId(null);
+        }
+    };
+    const handleUpdateTracking = async () => {
+        if (!editModal) return;
+        setIsUpdating(true);
+        try {
+            await axios.put(`/admin/delivery/update-tracking/${editModal.id}`, {
+                trackingNumber: trackingInput,
+                packRemark: remarkInput
+            });
+            toast.success("Tracking info updated successfully!");
+            setEditModal(null);
+            fetchHistory();
+        } catch (error) {
+            toast.error("Failed to update tracking info");
+        } finally {
+            setIsUpdating(false);
         }
     };
 
@@ -411,22 +434,39 @@ export default function DeliveryHistory({ isReadOnly }) {
                                             </td>
 
                                             <td className="p-4">
-                                                {row.trackingNumber ? (
-                                                    <div className="flex items-center gap-3 bg-gray-50 dark:bg-black/30 w-max px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/5 transition-colors">
-                                                        <span className="text-emerald-600 dark:text-emerald-400 font-black text-xs tracking-widest">{row.trackingNumber}</span>
-                                                        <button onClick={() => copyToClipboard(row.trackingNumber)} className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white transition-colors p-1 bg-white dark:bg-white/5 border border-gray-200 dark:border-transparent rounded-md shadow-sm" title="Copy">
-                                                            <Copy size={12}/>
+                                                <div className="flex items-start justify-between gap-3 group/tracking relative">
+                                                    <div>
+                                                        {row.trackingNumber ? (
+                                                            <div className="flex items-center gap-3 bg-gray-50 dark:bg-black/30 w-max px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/5 transition-colors">
+                                                                <span className="text-emerald-600 dark:text-emerald-400 font-black text-xs tracking-widest">{row.trackingNumber}</span>
+                                                                <button onClick={() => copyToClipboard(row.trackingNumber)} className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white transition-colors p-1 bg-white dark:bg-white/5 border border-gray-200 dark:border-transparent rounded-md shadow-sm" title="Copy">
+                                                                    <Copy size={12}/>
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <span className="text-gray-400 dark:text-slate-500 font-bold text-xs bg-gray-50 dark:bg-white/5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/5 transition-colors">N/A</span>
+                                                        )}
+                                                        {row.packRemark && (
+                                                            <div className="mt-2 text-[10px] bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 p-2 rounded-lg border border-yellow-200 dark:border-yellow-500/20 max-w-[180px] break-words">
+                                                                <span className="font-black uppercase tracking-widest block mb-0.5 text-[9px]">Remark:</span>
+                                                                {row.packRemark}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                    {!isReadOnly && (
+                                                        <button 
+                                                            onClick={() => {
+                                                                setTrackingInput(row.trackingNumber || '');
+                                                                setRemarkInput(row.packRemark || '');
+                                                                setEditModal(row);
+                                                            }}
+                                                            className="opacity-0 group-hover/tracking:opacity-100 transition-opacity bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-400 hover:text-brand-accent dark:text-slate-400 dark:hover:text-brand-accent p-1.5 rounded-md border border-gray-200 dark:border-transparent shadow-sm shrink-0" 
+                                                            title="Edit Tracking & Remark"
+                                                        >
+                                                            <Edit3 size={14}/>
                                                         </button>
-                                                    </div>
-                                                ) : (
-                                                    <span className="text-gray-400 dark:text-slate-500 font-bold text-xs bg-gray-50 dark:bg-white/5 px-3 py-1.5 rounded-lg border border-gray-200 dark:border-white/5 transition-colors">N/A</span>
-                                                )}
-                                                {row.packRemark && (
-                                                    <div className="mt-2 text-[10px] bg-yellow-50 dark:bg-yellow-500/10 text-yellow-700 dark:text-yellow-400 p-2 rounded-lg border border-yellow-200 dark:border-yellow-500/20 max-w-[180px] break-words">
-                                                        <span className="font-black uppercase tracking-widest block mb-0.5 text-[9px]">Remark:</span>
-                                                        {row.packRemark}
-                                                    </div>
-                                                )}
+                                                    )}
+                                                </div>
                                             </td>
 
                                             <td className="p-4 text-center">
@@ -526,6 +566,54 @@ export default function DeliveryHistory({ isReadOnly }) {
                 document.body
             )}
 
+            {/* 🔥 Edit Tracking & Remark Modal 🔥 */}
+            {editModal && createPortal(
+                <div className="fixed inset-0 z-[99999] bg-slate-900/60 dark:bg-slate-900/80 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-[2rem] p-6 md:p-8 w-full max-w-md shadow-2xl transition-colors">
+                        <div className="flex justify-between items-center mb-6">
+                            <h3 className="text-xl font-extrabold text-gray-900 dark:text-white flex items-center gap-3">
+                                <Edit3 className="text-brand-accent" size={24} /> Edit Tracking Details
+                            </h3>
+                            <button onClick={() => setEditModal(null)} className="text-gray-400 hover:text-red-500 dark:text-slate-400 dark:hover:text-red-400 transition-colors bg-gray-50 dark:bg-white/5 hover:bg-red-50 dark:hover:bg-white/10 p-2 rounded-xl outline-none"><X size={20} /></button>
+                        </div>
+                        
+                        <div className="space-y-4 mb-6">
+                            <div>
+                                <label className="text-xs text-gray-600 dark:text-slate-400 font-extrabold uppercase tracking-widest mb-1.5 block">Tracking Number</label>
+                                <input
+                                    type="text"
+                                    value={trackingInput}
+                                    onChange={(e) => setTrackingInput(e.target.value)}
+                                    placeholder="e.g. DPD-883719"
+                                    className="w-full bg-white dark:bg-black/40 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm"
+                                />
+                            </div>
+                            <div>
+                                <label className="text-xs text-gray-600 dark:text-slate-400 font-extrabold uppercase tracking-widest mb-1.5 block">Internal Remark (Optional)</label>
+                                <textarea
+                                    value={remarkInput}
+                                    onChange={(e) => setRemarkInput(e.target.value)}
+                                    placeholder="Any special notes..."
+                                    rows="3"
+                                    className="w-full bg-white dark:bg-black/40 border border-gray-200 dark:border-white/10 rounded-xl px-4 py-3 text-sm text-gray-900 dark:text-white outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm custom-scrollbar resize-none"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 mt-8">
+                            <button onClick={() => setEditModal(null)} className="flex-1 bg-gray-100 dark:bg-white/5 hover:bg-gray-200 dark:hover:bg-white/10 text-gray-700 dark:text-white font-extrabold py-3.5 rounded-xl transition-all shadow-sm">Cancel</button>
+                            <button 
+                                onClick={handleUpdateTracking} 
+                                disabled={isUpdating}
+                                className="flex-1 bg-brand-accent hover:bg-brand-accentDark text-white font-extrabold py-3.5 rounded-xl shadow-lg shadow-brand-accent/30 hover:shadow-brand-accent/50 transition-all disabled:opacity-50 flex justify-center items-center gap-2"
+                            >
+                                {isUpdating ? <Loader2 size={18} className="animate-spin" /> : <CheckCircle size={18} />} Update
+                            </button>
+                        </div>
+                    </div>
+                </div>,
+                document.body
+            )}
         </div>
     );
 }

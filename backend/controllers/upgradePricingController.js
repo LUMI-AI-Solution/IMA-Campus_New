@@ -75,6 +75,7 @@ exports.calculateUpgrade = async (req, res) => {
             const businessId = selectedBatchInfo.businessId;
 
             const batchMonthlyPayments = studentPayments.filter(p => p.payment_type === 1 && p.batchId === batchId);
+            batchMonthlyPayments.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
             const activeMonthly = batchMonthlyPayments[0] || null;
 
             // Check business-specific special offer visibility toggle in AppSetting
@@ -103,11 +104,18 @@ exports.calculateUpgrade = async (req, res) => {
 
             // Extract the monthly subjects the student is currently enrolled in
             let enrolledMonthlySubjectIds = [];
-            if (activeMonthly && activeMonthly.subjects) {
-                try {
-                    enrolledMonthlySubjectIds = JSON.parse(activeMonthly.subjects).map(id => parseInt(id));
-                } catch (e) {}
-            }
+            batchMonthlyPayments.forEach(payment => {
+                if (payment.subjects) {
+                    try {
+                        const parsed = JSON.parse(payment.subjects).map(id => parseInt(id));
+                        parsed.forEach(id => {
+                            if (!enrolledMonthlySubjectIds.includes(id)) {
+                                enrolledMonthlySubjectIds.push(id);
+                            }
+                        });
+                    } catch (e) {}
+                }
+            });
 
             // Eligible subjects are ONLY the ones they are already enrolled in, mapped to their FULL course variants
             const eligibleUpgradeSubjectIdsSet = new Set();

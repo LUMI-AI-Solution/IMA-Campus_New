@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom';
 import axios from '../../api/axios';
 import { FaPhoneAlt, FaCheckCircle, FaTimesCircle, FaUserSecret, FaKey, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaTimes, FaArrowsAlt, FaChevronRight, FaChevronLeft } from 'react-icons/fa';
 import toast from 'react-hot-toast';
+import { useCall } from '../../contexts/CallContext';
 
-export default function RightSidePanel({ selectedLead, activeMode }) {
+export default function RightSidePanel({ selectedLead, activeMode, selectedBusiness, onBatchAssigned }) {
+  const { startOutboundCall } = useCall();
   const [studentDetails, setStudentDetails] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
@@ -18,9 +20,41 @@ export default function RightSidePanel({ selectedLead, activeMode }) {
   // 🔥 MINIMIZE STATE 🔥
   const [isMinimized, setIsMinimized] = useState(false);
 
+  // 🔥 BATCH ALLOCATION STATE 🔥
+  const [batches, setBatches] = useState([]);
+  const [selectedBatchId, setSelectedBatchId] = useState('');
+  const [allocating, setAllocating] = useState(false);
+
   useEffect(() => {
     if (selectedLead?.phone) fetchStudentData();
+    if (selectedLead?.batchId) {
+      setSelectedBatchId(selectedLead.batchId.toString());
+    } else {
+      setSelectedBatchId('');
+    }
   }, [selectedLead]);
+
+  useEffect(() => {
+    fetchBatches();
+  }, [selectedBusiness]);
+
+  const fetchBatches = async () => {
+    try {
+      const res = await axios.get('/public/landing-data');
+      if (res.data && res.data.businesses) {
+          let allBatches = [];
+          if (selectedBusiness) {
+              const biz = res.data.businesses.find(b => b.id === parseInt(selectedBusiness));
+              allBatches = biz ? (biz.batches || []) : [];
+          } else {
+              allBatches = res.data.businesses.flatMap(biz => biz.batches || []);
+          }
+          setBatches(allBatches);
+      }
+    } catch (error) {
+      console.error("Error fetching batches", error);
+    }
+  };
 
   const fetchStudentData = async () => {
     setLoading(true);
@@ -113,6 +147,29 @@ export default function RightSidePanel({ selectedLead, activeMode }) {
       document.addEventListener('mouseup', onMouseUp);
   };
 
+  const handleAllocateBatch = async () => {
+      if (!selectedBatchId) return toast.error("Please select a batch to allocate");
+      try {
+          setAllocating(true);
+          const token = localStorage.getItem('token');
+          await axios.post('/coordinator-crm/leads/update-batch', {
+              leadId: selectedLead.id,
+              batchId: selectedBatchId
+          }, { headers: { Authorization: `Bearer ${token}` } });
+          toast.success("Lead successfully allocated to batch!");
+          // Trigger local state update
+          if (onBatchAssigned) {
+             onBatchAssigned(selectedLead.id, parseInt(selectedBatchId));
+          } else if (selectedLead) {
+             selectedLead.batchId = parseInt(selectedBatchId);
+          }
+      } catch (error) {
+          toast.error("Failed to allocate batch.");
+      } finally {
+          setAllocating(false);
+      }
+  };
+
   return (
     <div className={`${isMinimized ? 'w-[70px]' : 'w-[300px] xl:w-[320px]'} transition-all duration-300 ease-in-out bg-[#23303f] rounded-2xl flex flex-col shrink-0 overflow-hidden text-slate-400 border border-white/5 shadow-lg relative`}>
       
@@ -141,9 +198,17 @@ export default function RightSidePanel({ selectedLead, activeMode }) {
             <div className="flex items-center gap-2 mt-2 text-xs bg-[#0b141a] px-3 py-1.5 rounded-full border border-slate-700 text-emerald-400">
               <FaPhoneAlt size={10} /> {selectedLead.phone}
             </div>
+            {selectedLead?.waCallPermissionStatus === 'ALLOWED' && (
+              <button 
+                onClick={() => startOutboundCall && startOutboundCall({ lead: selectedLead, businessId: selectedLead?.batch?.businessId, campaignType: selectedLead?.campaignType || 'FREE_SEMINAR' })}
+                className="w-full mt-3 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/40 transition-all hover:scale-[1.02]"
+              >
+                <FaPhoneAlt size={11} /> Call via WhatsApp (Allowed)
+              </button>
+            )}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-[#23303f]">
+          <div className="flex-1 overflow-y-auto p-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] bg-[#23303f]">
             <div className="bg-[#1a2430] p-4 rounded-xl border border-white/5 mb-4 shadow-sm">
               <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Lead Status</h3>
               <div className="flex justify-between items-center mb-3">
@@ -180,27 +245,42 @@ export default function RightSidePanel({ selectedLead, activeMode }) {
                             <span className="text-slate-300">{studentDetails.student.addressHouseNo}, {studentDetails.student.addressStreet}, {studentDetails.student.city}</span>
                         </div>
                         
-                        {studentDetails.student.payments?.[0] && (
-                            <>
-                                <div className="text-xs mt-3 pt-3 border-t border-slate-700">
-                                    <span className="text-slate-500 block mb-0.5"><FaGraduationCap className="inline mr-1"/> Enrollment</span>
-                                    <span className="text-blue-300 font-bold block">{studentDetails.student.payments[0].business?.name}</span>
-                                    <span className="text-slate-400 block">{studentDetails.student.payments[0].batch?.name}</span>
-                                </div>
-                                <div className="text-xs mt-2">
-                                    <span className="text-slate-500 block mb-0.5">Enrolled Subjects</span>
-                                    <div className="flex flex-wrap gap-1 mt-1">
-                                        {studentDetails.enrolledCourses?.map(c => (
-                                            <span key={c.id} className="bg-slate-800 px-2 py-1 rounded text-[10px] text-slate-300 border border-slate-700">{c.name}</span>
-                                        ))}
+                        {(() => {
+                            const uniqueEnrollments = studentDetails.student.payments?.reduce((acc, p) => {
+                                const key = `${p.businessId}_${p.batchId}`;
+                                if (!acc[key]) {
+                                    acc[key] = { ...p, courses: p.courses ? [...p.courses] : [] };
+                                } else {
+                                    if(p.courses) {
+                                        const existingCourseIds = acc[key].courses.map(c => c.id);
+                                        const newCourses = p.courses.filter(c => !existingCourseIds.includes(c.id));
+                                        acc[key].courses = [...acc[key].courses, ...newCourses];
+                                    }
+                                }
+                                return acc;
+                            }, {});
+                            return uniqueEnrollments ? Object.values(uniqueEnrollments).map((payment, idx) => (
+                                <div key={idx} className={idx > 0 ? "mt-4" : ""}>
+                                    <div className="text-xs mt-3 pt-3 border-t border-slate-700">
+                                        <span className="text-slate-500 block mb-0.5"><FaGraduationCap className="inline mr-1"/> Enrollment</span>
+                                        <span className="text-blue-300 font-bold block">{payment.business?.name}</span>
+                                        <span className="text-slate-400 block">{payment.batch?.name}</span>
+                                    </div>
+                                    <div className="text-xs mt-2">
+                                        <span className="text-slate-500 block mb-0.5">Enrolled Subjects</span>
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                            {payment.courses?.map(c => (
+                                                <span key={c.id} className="bg-slate-800 px-2 py-1 rounded text-[10px] text-slate-300 border border-slate-700">{c.name}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="text-xs mt-3">
+                                        <span className="text-slate-500 block mb-0.5"><FaCreditCard className="inline mr-1"/> Payment Option</span>
+                                        <span className="text-emerald-400 font-semibold">{getPaymentOption(payment)}</span>
                                     </div>
                                 </div>
-                                <div className="text-xs mt-3">
-                                    <span className="text-slate-500 block mb-0.5"><FaCreditCard className="inline mr-1"/> Payment Option</span>
-                                    <span className="text-emerald-400 font-semibold">{getPaymentOption(studentDetails.student.payments[0])}</span>
-                                </div>
-                            </>
-                        )}
+                            )) : null;
+                        })()}
                     </div>
 
                     <div className="pt-4 mt-2 border-t border-slate-700 space-y-2">
@@ -218,6 +298,29 @@ export default function RightSidePanel({ selectedLead, activeMode }) {
                   Not registered in the main system yet.
                 </div>
               )}
+            </div>
+
+            {/* 🔥 BATCH ALLOCATION UI 🔥 */}
+            <div className="bg-[#1a2430] p-4 rounded-xl border border-white/5 shadow-sm mt-4">
+              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Batch Allocation</h3>
+              <p className="text-[10px] text-slate-400 mb-3 leading-relaxed">Allocate this lead to an active Free Seminar batch manually.</p>
+              <select 
+                value={selectedBatchId} 
+                onChange={(e) => setSelectedBatchId(e.target.value)}
+                className="w-full mb-3 p-2 text-xs bg-[#0f172a] border border-slate-700 text-slate-300 rounded-lg outline-none focus:border-emerald-700"
+              >
+                <option value="">Select Batch...</option>
+                {batches.map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+              <button 
+                onClick={handleAllocateBatch} 
+                disabled={allocating || !selectedBatchId}
+                className="w-full bg-emerald-700/80 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold py-2 rounded-lg transition-colors shadow-md text-xs uppercase tracking-wider"
+              >
+                {allocating ? 'Allocating...' : 'Allocate to Batch'}
+              </button>
             </div>
 
             {activeMode === 'CALL_CAMPAIGN' && (

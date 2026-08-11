@@ -33,6 +33,7 @@ router.post('/archive', crmController.archiveCampaign);
 router.post('/auto-reply', upload.single('attachment'), crmController.addAutoReply);
 router.get('/auto-reply', crmController.getAutoReplies);
 router.delete('/auto-reply/:id', crmController.deleteAutoReply);
+router.put('/auto-reply/:id', upload.single('attachment'), crmController.updateAutoReply);
 
 // 5. Meta OTP / Verification Routes
 router.get('/meta-otps', crmController.getMetaOtps);

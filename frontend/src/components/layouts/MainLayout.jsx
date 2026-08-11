@@ -2,9 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import { Music, X } from 'lucide-react';
+import GlobalToolsMenu from '../GlobalToolsMenu';
 
 export default function MainLayout({ loggedInUser, handleLogout }) {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
+
+  const getZoomLevel = () => {
+    if (window.innerWidth <= 1024) return 0.75;
+    if (window.innerWidth <= 1280) return 0.85;
+    if (window.innerWidth <= 1440) return 0.9;
+    return 1;
+  };
+  const [zoomLevel, setZoomLevel] = useState(getZoomLevel());
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsSidebarOpen(window.innerWidth >= 1024);
+      setZoomLevel(getZoomLevel());
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   
   const [bgImage, setBgImage] = useState(() => {
     return localStorage.getItem('adminTheme') || 'color1';
@@ -67,7 +85,7 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
   };
 
   return (
-    <div className={`font-sans flex items-center justify-center w-full overflow-hidden antialiased text-gray-100 transition-all duration-1000 fixed inset-0 m-0 p-0 ${getBackgroundClass()}`} style={getBackgroundStyle()}>
+    <div className={`font-sans flex items-center justify-center w-full overflow-hidden antialiased text-gray-100 transition-all duration-1000 fixed inset-0 m-0 p-0 ${getBackgroundClass()}`} style={{ ...getBackgroundStyle(), zoom: zoomLevel }}>
       
       {/* ⛅ LIVE SKY ANIMATION */}
       {bgImage === 'anim1' && (
@@ -108,7 +126,7 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
           isSpotifyOpen={isSpotifyOpen}
           setIsSpotifyOpen={setIsSpotifyOpen}
         />
-        <main className="flex-1 flex flex-col overflow-hidden relative bg-transparent z-10">
+        <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
           <div className="flex-1 overflow-auto p-4 lg:p-6 relative custom-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
             <Outlet />
           </div>
@@ -127,6 +145,9 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
             <iframe style={{ borderRadius: '0px' }} src="https://open.spotify.com/embed/playlist/37i9dQZF1DWZeKCadgRdKQ?utm_source=generator&theme=0" width="100%" height="152" frameBorder="0" allowFullScreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
         </div>
       </div>
+
+      {/* Global Tools Menu (Chat & Settings Widgets) */}
+      <GlobalToolsMenu loggedInUser={loggedInUser} />
     </div>
   );
 }

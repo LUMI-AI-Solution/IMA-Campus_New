@@ -1,12 +1,12 @@
 import React from 'react';
-import { FolderOpen, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp, Copy } from 'lucide-react';
+import { FolderOpen, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp, Copy, Link, Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../../api/axios'; 
 import UpgradePricingConfig from '../../admin/UpgradePricingConfig'; 
 
 export default function ContentHubViews({ state, actions }) {
     const {
-        isSystemAdmin, canManageBatches, canManageGroupsAndSubjects, canManageContent,
+        isSystemAdmin, canManageBusiness, canManageBatches, canManageGroupsAndSubjects, canManageContent,
         viewLevel, activeBusiness, activeBatch, batchTab, activeSubject, contentTab, businesses, batches, uniqueSubjects,
         lessonGroups, subjectContents, editMode, openFolders, groupedSubjects
     } = state;
@@ -29,16 +29,12 @@ export default function ContentHubViews({ state, actions }) {
     const copyToClipboard = (text) => {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(() => {
-                toast.success("Link copied!");
-            }).catch(() => {
-                fallbackCopy(text);
+                toast.success("Link copied to clipboard!");
+            }).catch(err => {
+                toast.error("Failed to copy link");
             });
-        } else {
-            fallbackCopy(text);
+            return;
         }
-    };
-
-    const fallbackCopy = (text) => {
         const textArea = document.createElement("textarea");
         textArea.value = text;
         document.body.appendChild(textArea);
@@ -46,7 +42,7 @@ export default function ContentHubViews({ state, actions }) {
         textArea.select();
         try {
             document.execCommand('copy');
-            toast.success("Link copied!");
+            toast.success("Link copied to clipboard!");
         } catch (err) {
             toast.error("Failed to copy link");
         }
@@ -57,7 +53,7 @@ export default function ContentHubViews({ state, actions }) {
         <div className="w-full space-y-8 relative z-10">
             
             {/* BUSINESSES VIEW */}
-            {viewLevel === 'businesses' && isSystemAdmin && (
+            {viewLevel === 'businesses' && (
                 businesses?.length === 0 ? <p className="text-center text-gray-400 py-16 bg-white/[0.02] backdrop-blur-xl rounded-[2rem] border border-white/10 shadow-sm text-lg font-bold">No businesses created yet.</p> : 
                 <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
                 {businesses?.map((biz) => (
@@ -81,12 +77,15 @@ export default function ContentHubViews({ state, actions }) {
                             <div className="flex justify-between items-center"><span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">Asst Manager</span> <span className="text-white font-extrabold truncate pl-2">{getManagerName(biz.ass_manager_id)}</span></div>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-3 mt-auto relative z-10">
-                            <button onClick={() => { setEditData(biz); setShowAssignModal(true); }} className="flex-1 bg-white/5 hover:bg-white/10 text-white py-3.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 transition-colors border border-white/10 outline-none shadow-sm" title="Assign Managers"><UserPlus size={18}/></button>
-                            <button onClick={() => { setEditData(biz); setEditMode(true); setSelectedLogoName(""); setShowBusinessModal(true); }} className="text-blue-400 bg-blue-500/10 hover:bg-blue-500 hover:text-white p-3.5 rounded-xl transition-colors border border-transparent hover:border-blue-500/50 outline-none shadow-sm" title="Edit Business"><Edit3 size={20}/></button>
-                            <button onClick={() => toggleBusinessStatus(biz)} className={`p-3.5 rounded-xl border transition-colors outline-none shadow-sm ${biz.status === 1 ? 'text-green-400 bg-green-500/10 border-green-500/20 hover:bg-green-500 hover:text-white' : 'text-gray-400 bg-white/5 border-white/10 hover:bg-white/20 hover:text-white'}`} title={biz.status === 1 ? "Hide from Students" : "Show to Students"}>{biz.status === 1 ? <Eye size={20}/> : <EyeOff size={20}/>}</button>
-                            <button onClick={() => deleteItem('/admin/business/delete', { business_id: biz.id }, "Business Deleted")} className="text-red-400 bg-red-500/10 hover:bg-red-500 hover:text-white p-3.5 rounded-xl border border-transparent hover:border-red-500/50 transition-colors outline-none shadow-sm" title="Delete Business"><Trash2 size={20}/></button>
-                        </div>
+                        {canManageBusiness && (
+                            <div className="flex flex-wrap items-center gap-3 mt-auto relative z-10">
+                                <button onClick={() => { setEditData(biz); setShowAssignModal(true); }} className="flex-1 bg-white/5 hover:bg-white/10 text-white py-3.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 transition-colors border border-white/10 outline-none shadow-sm" title="Assign Managers"><UserPlus size={18}/></button>
+                                <button onClick={() => alert(`Payment Route Check:\n\nThis business is currently routing payments to Merchant ID:\n${biz.merchantId || "Default / Unassigned (14008328)"}`)} className="text-amber-400 bg-amber-500/10 hover:bg-amber-500 hover:text-white p-3.5 rounded-xl transition-colors border border-transparent hover:border-amber-500/50 outline-none shadow-sm" title="Verify Payment Route"><Link size={20}/></button>
+                                <button onClick={() => { setEditData(biz); setEditMode(true); setSelectedLogoName(""); setShowBusinessModal(true); }} className="text-blue-400 bg-blue-500/10 hover:bg-blue-500 hover:text-white p-3.5 rounded-xl transition-colors border border-transparent hover:border-blue-500/50 outline-none shadow-sm" title="Edit Business"><Edit3 size={20}/></button>
+                                <button onClick={() => toggleBusinessStatus(biz)} className={`p-3.5 rounded-xl border transition-colors outline-none shadow-sm ${biz.status === 1 ? 'text-green-400 bg-green-500/10 border-green-500/20 hover:bg-green-500 hover:text-white' : 'text-gray-400 bg-white/5 border-white/10 hover:bg-white/20 hover:text-white'}`} title={biz.status === 1 ? "Hide from Students" : "Show to Students"}>{biz.status === 1 ? <Eye size={20}/> : <EyeOff size={20}/>}</button>
+                                <button onClick={() => deleteItem('/admin/business/delete', { business_id: biz.id }, "Business Deleted")} className="text-red-400 bg-red-500/10 hover:bg-red-500 hover:text-white p-3.5 rounded-xl border border-transparent hover:border-red-500/50 transition-colors outline-none shadow-sm" title="Delete Business"><Trash2 size={20}/></button>
+                            </div>
+                        )}
                         <button onClick={() => openBusinessDetails(biz)} className="w-full bg-brand-accent/90 hover:bg-brand-accent text-white py-4 rounded-xl text-sm md:text-base font-extrabold flex justify-center items-center gap-2 transition-transform hover:scale-[1.02] shadow-[0_4px_15px_rgba(225,29,72,0.4)] mt-1 outline-none relative z-10 uppercase tracking-wide border border-transparent">Manage Batches <ChevronRight size={18}/></button>
                     </div>
                 ))}
@@ -95,34 +94,73 @@ export default function ContentHubViews({ state, actions }) {
 
             {/* BATCHES VIEW */}
             {viewLevel === 'batches' && (
-                batches?.length === 0 ? <p className="text-center text-gray-400 py-16 bg-white/[0.02] backdrop-blur-xl rounded-[2rem] border border-white/10 shadow-sm text-lg font-bold">No batches available yet.</p> : 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {batches?.map((batch) => (
-                    <div key={batch.id} className="group bg-white/[0.05] backdrop-blur-2xl hover:border-brand-accent/50 border border-white/10 p-6 md:p-8 rounded-[2rem] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 transition-all shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:shadow-lg relative overflow-hidden">
-                        
-                        <div className="absolute top-0 left-0 w-3 h-full bg-brand-accent opacity-80"></div>
+                <div className="space-y-6">
+                    {/* Multi-Business Quick Switcher Bar */}
+                    {businesses?.length > 1 && (
+                        <div className="bg-white/[0.04] backdrop-blur-2xl border border-white/10 p-4 md:p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-brand-accent/10 rounded-xl border border-brand-accent/20 text-brand-accent">
+                                    <Building2 size={20} />
+                                </div>
+                                <div>
+                                    <div className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">Current Business</div>
+                                    <div className="text-base font-extrabold text-white">{activeBusiness?.name || "Select Business"}</div>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider shrink-0">Switch Business:</label>
+                                <select 
+                                    value={activeBusiness?.id || ""} 
+                                    onChange={(e) => {
+                                        const selected = businesses.find(b => String(b.id) === String(e.target.value));
+                                        if (selected) openBusinessDetails(selected);
+                                    }}
+                                    className="bg-black/60 border border-white/20 rounded-xl px-4 py-2.5 text-sm text-white font-bold outline-none focus:border-brand-accent cursor-pointer shadow-inner appearance-none transition-all"
+                                >
+                                    {businesses.map((b) => (
+                                        <option key={b.id} value={b.id} className="bg-slate-900 text-white font-medium">
+                                            {b.name} ({b.category || 'General'})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    )}
 
-                        <div className="flex items-center gap-5 overflow-hidden w-full sm:w-auto pl-2 relative z-10">
-                            <div className="w-16 h-16 bg-black/20 rounded-2xl flex items-center justify-center p-3 border border-white/10 transition-colors shrink-0 shadow-inner">
-                                <img src={getImageUrl(batch.logo || activeBusiness?.logo)} onError={(e) => { e.target.src = '/logo.png'; }} alt="Logo" className="max-w-full max-h-full object-contain drop-shadow-md" />
+                    {batches?.length === 0 ? (
+                        <p className="text-center text-gray-400 py-16 bg-white/[0.02] backdrop-blur-xl rounded-[2rem] border border-white/10 shadow-sm text-lg font-bold">
+                            No batches available for {activeBusiness?.name || 'this business'} yet.
+                        </p>
+                    ) : (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {batches?.map((batch) => (
+                            <div key={batch.id} className="group bg-white/[0.05] backdrop-blur-2xl hover:border-brand-accent/50 border border-white/10 p-6 md:p-8 rounded-[2rem] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 transition-all shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:shadow-lg relative overflow-hidden">
+                                
+                                <div className="absolute top-0 left-0 w-3 h-full bg-brand-accent opacity-80"></div>
+
+                                <div className="flex items-center gap-5 overflow-hidden w-full sm:w-auto pl-2 relative z-10">
+                                    <div className="w-16 h-16 bg-black/20 rounded-2xl flex items-center justify-center p-3 border border-white/10 transition-colors shrink-0 shadow-inner">
+                                        <img src={getImageUrl(batch.logo || batch.business?.logo || activeBusiness?.logo)} onError={(e) => { e.target.src = '/logo.png'; }} alt="Logo" className="max-w-full max-h-full object-contain drop-shadow-md" />
+                                    </div>
+                                    <div className="flex-1 overflow-hidden pr-2">
+                                        <h3 className="text-xl font-extrabold text-white mb-2 truncate drop-shadow-sm" title={batch.name}>{batch.name}</h3>
+                                        <p className="text-[11px] text-brand-accent font-black uppercase tracking-widest bg-brand-accent/10 border border-brand-accent/20 px-3 py-1.5 rounded-md inline-block truncate max-w-full shadow-sm">{batch.groups?.length || 0} Groups Assigned</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3 w-full sm:w-auto mt-4 sm:mt-0 shrink-0 relative z-10">
+                                    {canManageBatches && (
+                                        <>
+                                            <button onClick={() => toggleBatchStatus(batch)} className={`p-3.5 rounded-xl border transition-colors outline-none shadow-sm ${batch.status === 1 ? 'text-green-400 bg-green-500/10 border-green-500/20 hover:bg-green-500 hover:text-white' : 'text-gray-400 bg-white/5 border-white/10 hover:bg-white/20 hover:text-white'}`} title={batch.status === 1 ? "Hide from Students" : "Show to Students"}>{batch.status === 1 ? <Eye size={20}/> : <EyeOff size={20}/>}</button>
+                                            <button onClick={() => { setEditData(batch); setEditMode(true); setSelectedLogoName(""); setShowBatchModal(true); }} className="text-blue-400 bg-blue-500/10 border border-transparent hover:border-blue-500/50 hover:bg-blue-500 hover:text-white p-3.5 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={20}/></button>
+                                            <button onClick={() => deleteItem('/admin/batch/delete', { batch_id: batch.id }, "Batch Deleted")} className="text-red-400 bg-red-500/10 border border-transparent hover:border-red-500/50 hover:bg-red-500 hover:text-white p-3.5 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={20}/></button>
+                                        </>
+                                    )}
+                                    <button onClick={() => openBatchDetails(batch)} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-6 py-3.5 rounded-xl text-sm font-extrabold flex justify-center items-center gap-2 transition-transform hover:scale-[1.02] sm:ml-2 shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none uppercase tracking-wide border border-transparent">Manage <ChevronRight size={18}/></button>
+                                </div>
                             </div>
-                            <div className="flex-1 overflow-hidden pr-2">
-                                <h3 className="text-xl font-extrabold text-white mb-2 truncate drop-shadow-sm" title={batch.name}>{batch.name}</h3>
-                                <p className="text-[11px] text-brand-accent font-black uppercase tracking-widest bg-brand-accent/10 border border-brand-accent/20 px-3 py-1.5 rounded-md inline-block truncate max-w-full shadow-sm">{batch.groups?.length || 0} Groups Assigned</p>
-                            </div>
+                        ))}
                         </div>
-                        <div className="flex items-center gap-3 w-full sm:w-auto mt-4 sm:mt-0 shrink-0 relative z-10">
-                            {canManageBatches && (
-                                <>
-                                    <button onClick={() => toggleBatchStatus(batch)} className={`p-3.5 rounded-xl border transition-colors outline-none shadow-sm ${batch.status === 1 ? 'text-green-400 bg-green-500/10 border-green-500/20 hover:bg-green-500 hover:text-white' : 'text-gray-400 bg-white/5 border-white/10 hover:bg-white/20 hover:text-white'}`} title={batch.status === 1 ? "Hide from Students" : "Show to Students"}>{batch.status === 1 ? <Eye size={20}/> : <EyeOff size={20}/>}</button>
-                                    <button onClick={() => { setEditData(batch); setEditMode(true); setSelectedLogoName(""); setShowBatchModal(true); }} className="text-blue-400 bg-blue-500/10 border border-transparent hover:border-blue-500/50 hover:bg-blue-500 hover:text-white p-3.5 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={20}/></button>
-                                    <button onClick={() => deleteItem('/admin/batch/delete', { batch_id: batch.id }, "Batch Deleted")} className="text-red-400 bg-red-500/10 border border-transparent hover:border-red-500/50 hover:bg-red-500 hover:text-white p-3.5 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={20}/></button>
-                                </>
-                            )}
-                            <button onClick={() => openBatchDetails(batch)} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-6 py-3.5 rounded-xl text-sm font-extrabold flex justify-center items-center gap-2 transition-transform hover:scale-[1.02] sm:ml-2 shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none uppercase tracking-wide border border-transparent">Manage <ChevronRight size={18}/></button>
-                        </div>
-                    </div>
-                ))}
+                    )}
                 </div>
             )}
 
@@ -144,30 +182,53 @@ export default function ContentHubViews({ state, actions }) {
                         {batchTab === 'groups' && (
                             activeBatch?.groups?.length === 0 ? <p className="text-center text-gray-400 py-16 bg-white/[0.02] backdrop-blur-xl rounded-3xl border border-white/10 shadow-sm text-lg font-bold">No payment groups created yet.</p> :
                             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {activeBatch?.groups?.map((group) => (
-                                <div key={group.id} className="bg-white/[0.05] backdrop-blur-2xl hover:border-brand-accent/40 border border-white/10 p-6 md:p-8 rounded-[2rem] flex flex-col justify-between gap-6 transition-all shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:shadow-lg relative overflow-hidden">
+                            {activeBatch?.groups?.map((group) => {
+                                const isMonthly = group.type === 1;
+                                return (
+                                <div key={group.id} className={`group bg-gradient-to-br from-white/[0.05] to-transparent backdrop-blur-3xl border border-white/10 p-6 md:p-8 rounded-[2rem] flex flex-col justify-between gap-6 transition-all duration-500 hover:shadow-[0_20px_50px_-10px_rgba(0,0,0,0.5)] hover:-translate-y-2 relative overflow-hidden ${isMonthly ? 'hover:border-blue-500/50' : 'hover:border-brand-accent/50'}`}>
+                                    {/* Background Subtle Gradient Glow */}
+                                    <div className={`absolute -top-32 -right-32 w-64 h-64 rounded-full blur-[100px] opacity-20 pointer-events-none transition-opacity duration-500 group-hover:opacity-60 ${isMonthly ? 'bg-blue-500' : 'bg-brand-accent'}`}></div>
+
                                     <div className="flex justify-between items-start relative z-10">
                                         <div className="overflow-hidden pr-4">
-                                            <h3 className="text-xl font-extrabold text-white mb-3 truncate drop-shadow-sm" title={group.name}>{group.name}</h3>
-                                            <span className="text-[10px] font-black uppercase tracking-widest bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/20 shadow-sm">{group.type === 1 ? 'Monthly Payment' : 'Full Payment'}</span>
+                                            <div className="flex items-center gap-4 mb-4">
+                                                <div className={`p-3 rounded-2xl shadow-inner border ${isMonthly ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-brand-accent/20 text-brand-accent border-brand-accent/30'}`}>
+                                                    <Layers size={24} />
+                                                </div>
+                                                <h3 className="text-2xl md:text-3xl font-black text-white truncate drop-shadow-md tracking-tight" title={group.name}>{group.name}</h3>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className={`text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl shadow-lg border ${isMonthly ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' : 'bg-brand-accent/20 text-brand-accent border-brand-accent/30'}`}>
+                                                    {isMonthly ? 'Monthly Payment' : 'Full Payment'}
+                                                </span>
+                                            </div>
                                         </div>
                                         {canManageGroupsAndSubjects && (
-                                            <div className="flex gap-2 shrink-0">
-                                                <button onClick={() => { setEditData(group); setEditMode(true); setDiscountRules(group.discount_rules ? JSON.parse(group.discount_rules) : []); setShowGroupModal(true); }} className="text-blue-400 bg-blue-500/10 border border-transparent hover:border-blue-500/50 hover:bg-blue-500 hover:text-white p-3 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={20}/></button>
-                                                <button onClick={() => deleteItem('/course-setup/group', { group_id: group.id }, "Group Deleted")} className="text-red-400 bg-red-500/10 border border-transparent hover:border-red-500/50 hover:bg-red-500 hover:text-white p-3 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={20}/></button>
+                                            <div className="flex flex-col sm:flex-row gap-2 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={() => { setEditData(group); setEditMode(true); setDiscountRules(group.discount_rules ? JSON.parse(group.discount_rules) : []); setShowGroupModal(true); }} className="text-gray-400 bg-white/5 border border-white/10 hover:border-blue-500/50 hover:bg-blue-500/20 hover:text-blue-400 p-2.5 rounded-xl transition-all outline-none shadow-sm flex items-center justify-center"><Edit3 size={18}/></button>
+                                                <button onClick={() => deleteItem('/course-setup/group', { group_id: group.id }, "Group Deleted")} className="text-gray-400 bg-white/5 border border-white/10 hover:border-red-500/50 hover:bg-red-500/20 hover:text-red-400 p-2.5 rounded-xl transition-all outline-none shadow-sm flex items-center justify-center"><Trash2 size={18}/></button>
                                             </div>
                                         )}
                                     </div>
                                     
                                     {group.type !== 1 && group.discount_rules && JSON.parse(group.discount_rules).length > 0 && (
-                                        <div className="flex flex-wrap gap-3 pt-5 border-t border-white/10 relative z-10">
-                                            {JSON.parse(group.discount_rules).map((rule, ridx) => (
-                                                <span key={ridx} className="text-[11px] font-bold uppercase tracking-wider bg-orange-500/10 text-orange-400 px-4 py-2 rounded-xl border border-orange-500/20 shadow-sm">Buy {rule.courseCount} @ Rs {rule.pricePerCourse}</span>
-                                            ))}
+                                        <div className="pt-5 border-t border-white/10 relative z-10 mt-auto">
+                                            <p className="text-[10px] text-gray-500 font-extrabold uppercase tracking-widest mb-3">Active Bundle Discounts</p>
+                                            <div className="flex flex-wrap gap-2">
+                                                {JSON.parse(group.discount_rules).map((rule, ridx) => {
+                                                    const hasFixed = rule.fixedDiscount && parseFloat(rule.fixedDiscount) > 0;
+                                                    const displayTxt = hasFixed ? `Get Rs ${rule.fixedDiscount} Off` : `@ Rs ${rule.pricePerCourse} /ea`;
+                                                    return (
+                                                        <span key={ridx} className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 px-3 py-2 rounded-xl border border-emerald-500/20 shadow-sm">
+                                                            <span className="bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md">Buy {rule.courseCount}+</span> {displayTxt}
+                                                        </span>
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
                                     )}
                                 </div>
-                            ))}
+                            )})}
                             </div>
                         )}
 
@@ -302,6 +363,22 @@ export default function ContentHubViews({ state, actions }) {
                             </button>
                         ))}
                     </div>
+
+                    {/* 🔥 STATS WIDGET: Display content allocation counts by Payment Group */}
+                    <div className="bg-black/30 border-b border-white/5 p-4 flex flex-wrap gap-4 items-center">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mr-2 flex items-center gap-2"><Layers size={14} className="text-brand-accent"/> Allocation Stats:</span>
+                        {activeSubject?.groupPrices?.map((gp, idx) => {
+                            // Count how many contents of the current tab are assigned to this courseId
+                            const count = subjectContents.filter(c => isMatchedType(c) && c.assignedCourses && c.assignedCourses.includes(gp.courseId)).length;
+                            const isMonthly = gp.groupType === 1;
+                            return (
+                                <div key={idx} className={`flex items-center gap-3 px-4 py-2 rounded-xl border shadow-inner ${isMonthly ? 'bg-blue-500/10 border-blue-500/20' : 'bg-brand-accent/10 border-brand-accent/20'}`}>
+                                    <span className="text-xs font-bold text-slate-300 uppercase">{gp.groupName}</span>
+                                    <span className={`text-sm font-black px-2 py-0.5 rounded-md ${isMonthly ? 'bg-blue-500/20 text-blue-400' : 'bg-brand-accent/20 text-brand-accent'}`}>{count}</span>
+                                </div>
+                            );
+                        })}
+                    </div>
                     
                     <div className="p-6 md:p-8 space-y-10 overflow-y-auto custom-scrollbar">
                         
@@ -323,7 +400,7 @@ export default function ContentHubViews({ state, actions }) {
                                             <div className="flex gap-2 items-center">
                                                 {canManageContent && (
                                                     <>
-                                                        <button onClick={(e) => { e.stopPropagation(); setContentType(contentTab); setPrefilledFolder(folder.id); setSelectedBatchesForContent([activeBatch.id]); setShowContentModal(true); setEditMode(false); }} className="bg-green-600/90 hover:bg-green-500 text-white px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider font-extrabold flex items-center gap-2 transition-colors shadow-[0_4px_15px_rgba(22,163,74,0.4)] mr-2 border border-transparent outline-none"><Plus size={16}/> Add Content</button>
+                                                        <button onClick={(e) => { e.stopPropagation(); setContentType(contentTab); setPrefilledFolder(folder.id); setSelectedBatchesForContent([activeBatch.id]); setMassAssignSubjects([activeSubject.id]); setShowContentModal(true); setEditMode(false); }} className="bg-green-600/90 hover:bg-green-500 text-white px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider font-extrabold flex items-center gap-2 transition-colors shadow-[0_4px_15px_rgba(22,163,74,0.4)] mr-2 border border-transparent outline-none"><Plus size={16}/> Add Content</button>
                                                         <button onClick={(e) => { e.stopPropagation(); setEditData(folder); setEditMode(true); setShowLessonGroupModal(true); }} className="text-blue-400 hover:bg-blue-500 hover:text-white bg-blue-500/10 border border-transparent hover:border-blue-500/50 p-2.5 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={18}/></button>
                                                         <button onClick={(e) => { e.stopPropagation(); deleteItem('/admin/content-group/delete', { contentGroupId: folder.id }, "Folder Deleted"); }} className="text-red-400 hover:bg-red-500 hover:text-white bg-red-500/10 border border-transparent hover:border-red-500/50 p-2.5 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={18}/></button>
                                                     </>
@@ -419,7 +496,7 @@ export default function ContentHubViews({ state, actions }) {
                             <div className="bg-white/[0.02] backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                                     {subjectContents
-                                        .filter(c => isMatchedType(c) && !getFolderId(c))
+                                        .filter(c => isMatchedType(c) && (!getFolderId(c) || !lessonGroups.some(f => String(f.id) === getFolderId(c))))
                                         .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1))
                                         .map((content) => (
                                         <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
@@ -482,7 +559,7 @@ export default function ContentHubViews({ state, actions }) {
                                         </div>
                                         ))}
                                 </div>
-                                {subjectContents.filter(c => isMatchedType(c) && !getFolderId(c)).length === 0 && <p className="text-sm text-gray-400 py-8 text-center font-bold bg-white/5 rounded-2xl border border-white/10 shadow-inner">No uncategorized items.</p>}
+                                {subjectContents.filter(c => isMatchedType(c) && (!getFolderId(c) || !lessonGroups.some(f => String(f.id) === getFolderId(c)))).length === 0 && <p className="text-sm text-gray-400 py-8 text-center font-bold bg-white/5 rounded-2xl border border-white/10 shadow-inner">No uncategorized items.</p>}
                             </div>
                         </div>
                     </div>

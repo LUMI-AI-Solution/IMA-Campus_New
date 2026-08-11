@@ -1,15 +1,14 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-async function run() {
-  const lrpCount = await prisma.leadRoundProgress.count();
-  const leadCount = await prisma.lead.count();
-  const assignedLeadCount = await prisma.lead.count({ where: { assignedTo: { not: null } } });
-  
-  console.log({
-    leadRoundProgressCount: lrpCount,
-    totalLeads: leadCount,
-    assignedLeads: assignedLeadCount
+async function check() {
+  const covered = await prisma.leadRoundProgress.count({
+    where: {
+      callStatus: { not: 'pending' },
+      campaignCategory: 'NEW_INQ'
+    }
   });
+  console.log('Covered New Inq Round Progresses:', covered);
+  process.exit(0);
 }
-run();
+check();

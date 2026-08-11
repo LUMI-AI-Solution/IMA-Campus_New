@@ -65,6 +65,7 @@ exports.getPendingDeliveries = async (req, res) => {
                 let lecturerName = course?.lecturerName || 'Lecturer';
                 let lecturerImage = 'default.png';
                 let tuteCover = 'default-tute.png';
+                let tuteCovers = null;
                 let actualTuteName = item.tuteName; 
 
                 if (course && course.groupPrices) {
@@ -86,11 +87,34 @@ exports.getPendingDeliveries = async (req, res) => {
                         if (!matchedGp) matchedGp = gpArr.find(g => g.tuteName === item.tuteName) || gpArr[0];
 
                         if (matchedGp) {
-                            if (matchedGp.lecturerImage) lecturerImage = matchedGp.lecturerImage;
-                            if (matchedGp.tuteCover) tuteCover = matchedGp.tuteCover;
+                            if (matchedGp.lecturerImage) {
+                                lecturerImage = matchedGp.lecturerImage;
+                            } else {
+                                const fallbackLec = gpArr.find(g => g.lecturerImage)?.lecturerImage;
+                                if (fallbackLec) lecturerImage = fallbackLec;
+                            }
+
+                            if (matchedGp.tuteCover) {
+                                tuteCover = matchedGp.tuteCover;
+                            } else {
+                                const fallbackCover = gpArr.find(g => g.tuteCover)?.tuteCover;
+                                if (fallbackCover) tuteCover = fallbackCover;
+                            }
+                            
+                            if (matchedGp.tuteCovers) {
+                                tuteCovers = matchedGp.tuteCovers;
+                            } else {
+                                const fallbackCovers = gpArr.find(g => g.tuteCovers)?.tuteCovers;
+                                if (fallbackCovers) tuteCovers = fallbackCovers;
+                            }
+
                             if (matchedGp.tuteName) actualTuteName = matchedGp.tuteName; 
                         }
                     } catch (e) {}
+                }
+
+                if (item.tuteImage) {
+                    tuteCover = item.tuteImage;
                 }
 
                 return {
@@ -99,7 +123,8 @@ exports.getPendingDeliveries = async (req, res) => {
                     courseName: course?.name || 'Subject',
                     lecturerName,
                     lecturerImage,
-                    tuteCover
+                    tuteCover,
+                    tuteCovers
                 };
             });
 
@@ -110,17 +135,24 @@ exports.getPendingDeliveries = async (req, res) => {
                     packedAt: lastDel.packedAt,
                     trackingNumber: lastDel.trackingNumber,
                     paymentMonth: lastDel.payment?.group?.name || 'No Group',
-                    paymentType: lastDel.paymentType
+                    paymentType: lastDel.paymentType,
+                    packRemark: lastDel.packRemark
                 };
             }
 
             return {
                 ...d,
-                studentName: finalName,
+                studentName: d.labelName || finalName,
                 studentNo: std.id ? `STU-${std.id}` : 'STU-000',
                 address: finalAddress,
-                labelAddress: finalLabelAddress,
-                phone: finalPhone, 
+                labelAddress: d.labelAddress || finalLabelAddress,
+                originalAddress: {
+                    houseNo: std.addressHouseNo || '',
+                    street: std.addressStreet || '',
+                    city: std.city || '',
+                    district: std.district || ''
+                },
+                phone: d.labelPhone || finalPhone, 
                 batchName: d.payment?.batch?.name || 'Batch Not Assigned', 
                 groupName: d.payment?.group?.name || 'No Group',
                 isUpgrade: isUpgrade,
@@ -187,10 +219,33 @@ exports.packDelivery = async (req, res) => {
                     where: { courseId: parseInt(item.courseId), tuteName: actualTuteName }
                 });
 
-                if (!stockItem) {
+                if (!stockItem && actualTuteName) {
+                    // Try to fall back to just courseId
                     stockItem = await tx.tuteStock.findFirst({
                         where: { courseId: parseInt(item.courseId) }
                     });
+
+                    // If completely missing, auto-create it with 0 balance
+                    if (!stockItem) {
+                        let gpCover = 'default-tute.png';
+                        try {
+                            const crs = await tx.course.findUnique({ where: { id: parseInt(item.courseId) } });
+                            if (crs && crs.groupPrices) {
+                                const gp = JSON.parse(crs.groupPrices);
+                                const mGp = gp.find(g => g.tuteName === actualTuteName) || gp[0];
+                                if (mGp && mGp.tuteCover) gpCover = mGp.tuteCover;
+                            }
+                        } catch(e){}
+
+                        stockItem = await tx.tuteStock.create({
+                            data: {
+                                courseId: parseInt(item.courseId),
+                                tuteName: actualTuteName,
+                                tuteImage: gpCover,
+                                availableQuantity: 0
+                            }
+                        });
+                    }
                 }
 
                 if (stockItem) {
@@ -213,7 +268,7 @@ exports.packDelivery = async (req, res) => {
                         }
                     });
                 } else {
-                    console.log(`⚠️ Stock Item Not Found for CourseID: ${item.courseId}, Tute: ${actualTuteName}`);
+                    console.log(`⚠️ Stock Item Not Found & Could Not Auto-Create for CourseID: ${item.courseId}, Tute: ${actualTuteName}`);
                 }
             }
         });
@@ -251,6 +306,7 @@ exports.getTuteStocks = async (req, res) => {
         res.status(500).json({ error: "Failed to fetch stock" });
     }
 };
+
 
 exports.addTuteStock = async (req, res) => {
     try {
@@ -300,16 +356,34 @@ exports.addCustomTute = async (req, res) => {
 
 exports.editTuteStock = async (req, res) => {
     try {
-        const { stockId, newQuantity, reason } = req.body;
-        const oldStock = await prisma.tuteStock.findUnique({ where: { id: parseInt(stockId) } });
+        const { stockId, newQuantity, reason, originalIds } = req.body;
+        const targetId = parseInt(stockId);
+        const parsedNewQty = parseInt(newQuantity);
+        
+        const oldStock = await prisma.tuteStock.findUnique({ where: { id: targetId } });
+        
+        // If originalIds is provided from frontend grouping, zero out the duplicates
+        if (originalIds && Array.isArray(originalIds) && originalIds.length > 1) {
+            const allIds = originalIds.map(id => parseInt(id));
+            const otherIds = allIds.filter(id => id !== targetId);
+            
+            if (otherIds.length > 0) {
+                await prisma.tuteStock.updateMany({
+                    where: { id: { in: otherIds } },
+                    data: { availableQuantity: 0 }
+                });
+            }
+        }
+        
         const updated = await prisma.tuteStock.update({
-            where: { id: parseInt(stockId) },
-            data: { availableQuantity: parseInt(newQuantity) }
+            where: { id: targetId },
+            data: { availableQuantity: parsedNewQty }
         });
+        
         await prisma.tuteStockHistory.create({
             data: {
                 stockId: updated.id, courseId: updated.courseId, tuteName: updated.tuteName,
-                action: oldStock.availableQuantity > newQuantity ? "REDUCED" : "EDITED",
+                action: oldStock.availableQuantity > parsedNewQty ? "REDUCED" : "EDITED",
                 oldQuantity: oldStock.availableQuantity, newQuantity: updated.availableQuantity, reason: reason
             }
         });
@@ -334,6 +408,17 @@ exports.deleteTuteStock = async (req, res) => {
         res.status(200).json({ message: "Stock item deleted" });
     } catch (error) {
         res.status(500).json({ error: "Failed to delete stock" });
+    }
+};
+
+exports.clearAllTuteStock = async (req, res) => {
+    try {
+        await prisma.tuteStock.deleteMany({});
+        await prisma.tuteStockHistory.deleteMany({});
+        res.status(200).json({ message: "All TuteStock records cleared successfully" });
+    } catch (error) {
+        console.error("Failed to clear tute stock:", error);
+        res.status(500).json({ error: "Failed to clear tute stock" });
     }
 };
 
@@ -373,14 +458,120 @@ exports.getStockHistory = async (req, res) => {
     }
 };
 
+exports.getStockAnalytics = async (req, res) => {
+    try {
+        const { startDate, endDate, businessId, batchName } = req.query;
+
+        // Base where clause for Course to filter by Business/Batch
+        let courseWhere = {};
+        
+        if (businessId && businessId !== 'All') {
+            courseWhere.group = {
+                batch: {
+                    businessId: parseInt(businessId)
+                }
+            };
+        }
+        
+        if (batchName && batchName !== 'All') {
+            if (!courseWhere.group) courseWhere.group = { batch: {} };
+            courseWhere.group.batch.name = batchName;
+        }
+
+        const stocks = await prisma.tuteStock.findMany({
+            where: { course: courseWhere },
+            include: {
+                course: {
+                    include: { group: { include: { batch: { include: { business: true } } } } }
+                }
+            }
+        });
+
+        // Date range filters
+        let dateFilter = {};
+        if (startDate && endDate) {
+            const start = new Date(startDate);
+            start.setHours(0, 0, 0, 0);
+            const end = new Date(endDate);
+            end.setHours(23, 59, 59, 999);
+            dateFilter = { gte: start, lte: end };
+        }
+
+        // Fetch deliveries in range for "Stock Issued/Auto Packed"
+        const deliveries = await prisma.delivery.findMany({
+            where: {
+                status: { notIn: ['Pending', 'Hold'] },
+                ...(dateFilter.gte ? { packedAt: dateFilter } : {})
+            },
+            include: { items: true }
+        });
+
+        // Fetch stock history in range for "Tutes Added"
+        const history = await prisma.tuteStockHistory.findMany({
+            where: {
+                ...(dateFilter.gte ? { createdAt: dateFilter } : {})
+            }
+        });
+
+        const analytics = stocks.map(stock => {
+            // Find additions for this stock
+            const stockHistory = history.filter(h => h.stockId === stock.id && (h.action === 'ADDED' || h.action === 'EDITED' || h.action === 'REDUCED'));
+            let addedCount = 0;
+            let editedCount = 0;
+            stockHistory.forEach(h => {
+                if (h.action === 'ADDED') addedCount += (h.newQuantity - h.oldQuantity);
+                if (h.action === 'EDITED' && h.newQuantity > h.oldQuantity) editedCount += (h.newQuantity - h.oldQuantity);
+                if (h.action === 'REDUCED' && h.oldQuantity > h.newQuantity) editedCount -= (h.oldQuantity - h.newQuantity);
+            });
+
+            // Find issues for this stock (DeliveryItems matching courseId and tuteName)
+            let issuedCount = 0;
+            let autoPackedCount = 0; // if packed automatically or no packRemark
+            deliveries.forEach(d => {
+                const item = d.items.find(i => i.courseId === stock.courseId && i.tuteName === stock.tuteName);
+                if (item) {
+                    issuedCount += item.quantity;
+                    if (!d.packRemark) autoPackedCount += item.quantity; // Heuristic for auto-packed
+                }
+            });
+
+            const bizName = stock.course?.group?.batch?.business?.name || 'Unknown Business';
+            const bName = stock.course?.group?.batch?.name || 'Unknown Batch';
+            const payGrp = stock.course?.group?.type === 1 ? 'MONTHLY' : (stock.course?.group?.type === 2 ? 'FULL' : 'UNKNOWN');
+
+            return {
+                id: stock.id,
+                businessBatch: `${bizName} - ${bName}`,
+                subjectPaymentGrp: `${stock.course?.name || 'Unknown'} - ${payGrp}`,
+                materialName: stock.tuteName,
+                tutesAdded: addedCount,
+                tutesEdited: editedCount,
+                totalDelivered: issuedCount,
+                autoPacked: autoPackedCount,
+                remainingStock: stock.availableQuantity
+            };
+        });
+
+        res.status(200).json(analytics);
+    } catch (error) {
+        console.error("Analytics Error:", error);
+        res.status(500).json({ error: "Failed to fetch analytics" });
+    }
+};
+
 exports.getGlobalStock = async (req, res) => {
     try {
+        // --- AUTO-SYNC LOGIC DISABLED ---
+        // We no longer sync from Course.groupPrices since tutes are managed directly in Delivery.
+        // --------------------------------
+
         const stocks = await prisma.tuteStock.findMany({
             include: { course: { include: { group: { include: { batch: { include: { business: true } } } } } } },
             orderBy: { availableQuantity: 'asc' }
         });
+        const masterData = await getMasterTutesData();
         const safeJson = (data) => JSON.parse(JSON.stringify(data, (k, v) => typeof v === 'bigint' ? v.toString() : v));
-        res.status(200).json(safeJson(stocks));
+        res.status(200).json({ stocks: safeJson(stocks), masterData: safeJson(masterData) });
     } catch (error) { res.status(500).json({ error: "Failed to fetch global stock" }); }
 };
 
@@ -565,7 +756,7 @@ exports.getDispatchDeliveries = async (req, res) => {
             include: {
                 items: true,
                 payment: { 
-                    include: { student: true, batch: true } 
+                    include: { student: true, batch: true, group: true } 
                 }
             },
             orderBy: { updatedAt: 'desc' }
@@ -587,17 +778,36 @@ exports.getDispatchDeliveries = async (req, res) => {
 
             return {
                 ...d,
-                studentName: std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown Student',
+                studentName: d.labelName || (std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown Student'),
                 address: addressParts.length > 0 ? addressParts.join(', ') : 'No Address Provided',
-                labelAddress: labelAddressParts.length > 0 ? labelAddressParts.join(', ') : 'No Address Provided',
-                phone: finalPhone, // 🔥 Updated Multiple Phones
+                labelAddress: d.labelAddress || (labelAddressParts.length > 0 ? labelAddressParts.join(', ') : 'No Address Provided'),
+                phone: d.labelPhone || finalPhone, // 🔥 Updated Multiple Phones
                 batchName: d.payment?.batch?.name || 'Batch Not Assigned',
+                groupName: d.payment?.group?.name || 'No Group',
                 items: d.items.map(item => {
                     const course = courses.find(c => c.id === item.courseId);
+                    let tuteCover = null;
+                    let lecturerImage = null;
+
+                    if (course && course.groupPrices && d.payment?.groupId) {
+                        try {
+                            const gps = JSON.parse(course.groupPrices);
+                            let matchedGp = gps.find(g => parseInt(g.groupId) === parseInt(d.payment.groupId));
+                            if (!matchedGp) matchedGp = gps.find(g => g.tuteName === item.tuteName);
+
+                            if (matchedGp) {
+                                if (matchedGp.tuteCover) tuteCover = matchedGp.tuteCover;
+                                if (matchedGp.lecturerImage) lecturerImage = matchedGp.lecturerImage;
+                            }
+                        } catch(e) {}
+                    }
+
                     return {
                         ...item,
                         courseName: course?.name || 'Subject',
-                        lecturerName: course?.lecturerName || 'Lecturer'
+                        lecturerName: course?.lecturerName || 'Lecturer',
+                        tuteCover: tuteCover,
+                        lecturerImage: lecturerImage
                     };
                 })
             };
@@ -610,10 +820,9 @@ exports.getDispatchDeliveries = async (req, res) => {
     }
 };
 
-// 🔥 Replace ONLY getAdvancedHistory in delivery.controller.js
 exports.getAdvancedHistory = async (req, res) => {
     try {
-        const { page = 1, limit = 15, search, businessId, batchId, paymentType, status, startDate, endDate } = req.query;
+        const { page = 1, limit = 15, search, businessId, batchId, paymentType, status, startDate, endDate, studentId } = req.query;
         
         let whereClause = {};
 
@@ -627,6 +836,7 @@ exports.getAdvancedHistory = async (req, res) => {
 
         if (businessId) whereClause.businessId = parseInt(businessId);
         if (paymentType) whereClause.paymentType = paymentType;
+        if (studentId) whereClause.studentId = String(studentId);
         
         if (startDate && endDate) {
             const start = new Date(startDate); start.setHours(0, 0, 0, 0);
@@ -658,7 +868,7 @@ exports.getAdvancedHistory = async (req, res) => {
             where: whereClause,
             include: {
                 items: true, 
-                payment: { include: { student: true, batch: true } }
+                payment: { include: { student: true, batch: true, group: true } }
             },
             orderBy: { updatedAt: 'desc' },
             skip: (parseInt(page) - 1) * parseInt(limit),
@@ -688,6 +898,9 @@ exports.getAdvancedHistory = async (req, res) => {
             const itemsWithDetails = d.items.map(item => {
                 const course = courses.find(c => c.id === item.courseId);
                 let actualTuteName = item.tuteName; // Default
+                let lecturerImage = 'default.png';
+                let tuteCover = 'default-tute.png';
+                let tuteCovers = null;
 
                 if (course && course.groupPrices) {
                     try {
@@ -707,24 +920,50 @@ exports.getAdvancedHistory = async (req, res) => {
                         
                         if (!matchedGp) matchedGp = gpArr.find(g => g.tuteName === item.tuteName) || gpArr[0];
 
-                        if (matchedGp && matchedGp.tuteName) {
-                            actualTuteName = matchedGp.tuteName;
+                        if (matchedGp) {
+                            if (matchedGp.lecturerImage) {
+                                lecturerImage = matchedGp.lecturerImage;
+                            } else {
+                                const fallbackLec = gpArr.find(g => g.lecturerImage)?.lecturerImage;
+                                if (fallbackLec) lecturerImage = fallbackLec;
+                            }
+
+                            if (matchedGp.tuteCover) {
+                                tuteCover = matchedGp.tuteCover;
+                            } else {
+                                const fallbackCover = gpArr.find(g => g.tuteCover)?.tuteCover;
+                                if (fallbackCover) tuteCover = fallbackCover;
+                            }
+                            
+                            if (matchedGp.tuteCovers) {
+                                tuteCovers = matchedGp.tuteCovers;
+                            } else {
+                                const fallbackCovers = gpArr.find(g => g.tuteCovers)?.tuteCovers;
+                                if (fallbackCovers) tuteCovers = fallbackCovers;
+                            }
+
+                            if (matchedGp.tuteName) actualTuteName = matchedGp.tuteName; 
                         }
                     } catch (e) {}
                 }
 
                 return {
                     ...item,
-                    tuteName: actualTuteName
+                    tuteName: actualTuteName,
+                    courseName: course?.name || 'Subject',
+                    lecturerName: course?.lecturerName || 'Unknown',
+                    lecturerImage,
+                    tuteCover,
+                    tuteCovers
                 };
             });
 
             return {
                 id: d.id,
-                studentName: std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown',
-                phone: finalPhone, // 🔥 Updated Multiple Phones
+                studentName: d.labelName || (std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown'),
+                phone: d.labelPhone || finalPhone, // 🔥 Updated Multiple Phones
                 address: fullAddress, 
-                labelAddress: fullLabelAddress,
+                labelAddress: d.labelAddress || fullLabelAddress,
                 businessName: bizName,
                 batchName: d.payment?.batch?.name || 'No Batch',
                 paymentType: d.paymentType,
@@ -832,6 +1071,19 @@ exports.getDeliveryStats = async (req, res) => {
             select: { id: true, name: true }
         });
 
+        const batches = await prisma.batch.findMany({ select: { id: true, name: true } });
+        
+        let lecturers = [];
+        try {
+            const setting = await prisma.appSetting.findUnique({ where: { key: 'MASTER_TUTES' } });
+            if (setting) {
+                const masterData = JSON.parse(setting.value);
+                lecturers = masterData.map(l => l.name);
+            }
+        } catch (e) {
+            console.error("Failed to fetch lecturers", e);
+        }
+
         const maxOrders = businessCounts[0]?._count.id || 1;
         const topBusinesses = businessCounts.map(bc => {
             const biz = businesses.find(b => b.id === bc.businessId);
@@ -870,7 +1122,8 @@ exports.getDeliveryStats = async (req, res) => {
 
         res.status(200).json({ 
             pending, onHold, dispatched, deliveredToday, lowStock, returned,
-            statusDistribution, weeklyTrend, topBusinesses, recentActivity
+            statusDistribution, weeklyTrend, topBusinesses, recentActivity,
+            businesses, batches, lecturers
         });
 
     } catch (error) {
@@ -881,12 +1134,13 @@ exports.getDeliveryStats = async (req, res) => {
 
 exports.getTuteDeliveryReport = async (req, res) => {
     try {
-        const { startDate, endDate, businessId, batchId, paymentType } = req.query;
+        const { startDate, endDate, lecturers, batchId, paymentType } = req.query;
 
         let whereClause = { status: { in: ['Packed', 'On the way', 'Received'] } };
 
-        if (businessId) whereClause.businessId = parseInt(businessId);
-        if (paymentType) whereClause.paymentType = paymentType;
+        if (paymentType && paymentType !== 'All') {
+            whereClause.paymentType = paymentType;
+        }
         
         if (startDate && endDate) {
             const start = new Date(startDate); start.setHours(0, 0, 0, 0);
@@ -897,31 +1151,42 @@ exports.getTuteDeliveryReport = async (req, res) => {
         const deliveries = await prisma.delivery.findMany({
             where: whereClause,
             include: {
-                items: true,
+                items: {
+                    include: { course: true }
+                },
                 payment: { include: { student: true, batch: true, group: true } }
             },
             orderBy: { updatedAt: 'desc' }
         });
 
-        const allBusinesses = await prisma.business.findMany({ select: { id: true, name: true } });
+        let selectedLecturers = [];
+        if (lecturers && lecturers !== 'All') {
+            try {
+                selectedLecturers = JSON.parse(lecturers);
+            } catch (e) {
+                selectedLecturers = [lecturers];
+            }
+        }
+
         const reportMap = {};
 
         deliveries.forEach(d => {
-            if (batchId && d.payment?.batchId !== parseInt(batchId)) return;
-
-            const biz = allBusinesses.find(b => b.id === d.businessId);
-            const bizName = biz ? biz.name : 'Unknown Business';
-            const bName = d.payment?.batch?.name || 'Unknown Batch';
             const payType = d.paymentType || 'Unknown';
 
             d.items.forEach(item => {
-                const key = `${bizName}-${bName}-${payType}-${item.courseId}-${item.tuteName}`;
+                const lecName = item.course?.lecturerName || 'Unknown Lecturer';
+                
+                if (selectedLecturers.length > 0 && !selectedLecturers.includes(lecName)) {
+                    return;
+                }
+
+                const key = `${lecName}-${payType}-${item.courseId}-${item.tuteName}`;
                 if (!reportMap[key]) {
                     reportMap[key] = { 
-                        businessName: bizName,
-                        batchName: bName,
+                        lecturerName: lecName,
                         paymentType: payType,
-                        courseId: item.courseId, 
+                        courseId: item.courseId,
+                        courseName: item.course?.name || 'Unknown Subject',
                         tuteName: item.tuteName, 
                         deliveredQty: 0 
                     };
@@ -931,19 +1196,14 @@ exports.getTuteDeliveryReport = async (req, res) => {
         });
 
         const courseIds = Object.values(reportMap).map(r => parseInt(r.courseId));
-        const [courses, stocks] = await Promise.all([
-            prisma.course.findMany({ where: { id: { in: courseIds } } }),
-            prisma.tuteStock.findMany({ where: { courseId: { in: courseIds } } })
-        ]);
+        const stocks = await prisma.tuteStock.findMany({ where: { courseId: { in: courseIds } } });
 
         const finalReport = Object.values(reportMap).map(r => {
-            const course = courses.find(c => c.id === r.courseId);
             const stockItem = stocks.find(s => s.courseId === r.courseId && s.tuteName === r.tuteName);
             return {
-                businessName: r.businessName,
-                batchName: r.batchName,
+                lecturerName: r.lecturerName,
                 paymentType: r.paymentType,
-                courseName: course?.name || 'Unknown Subject',
+                courseName: r.courseName,
                 tuteName: r.tuteName, 
                 deliveredQty: r.deliveredQty,
                 currentStock: stockItem?.availableQuantity || 0
@@ -1003,8 +1263,27 @@ exports.confirmDelivery = async (req, res) => {
 
         res.status(200).json({ message: `Delivery marked as ${status}`, data: updatedDelivery });
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ error: "Failed to update delivery status." });
+        console.error("Error confirming delivery:", error);
+        res.status(500).json({ error: "Failed to confirm delivery." });
+    }
+};
+
+exports.updateTracking = async (req, res) => {
+    try {
+        const { deliveryId } = req.params;
+        const { trackingNumber, packRemark } = req.body;
+        
+        const updatedDelivery = await prisma.delivery.update({
+            where: { id: parseInt(deliveryId) },
+            data: { 
+                trackingNumber: trackingNumber !== undefined ? trackingNumber : undefined,
+                packRemark: packRemark !== undefined ? packRemark : undefined
+            }
+        });
+        res.status(200).json({ message: `Tracking and remark updated`, data: updatedDelivery });
+    } catch (error) {
+        console.error("Error updating tracking:", error);
+        res.status(500).json({ error: "Failed to update tracking info." });
     }
 };
 
@@ -1026,7 +1305,7 @@ exports.getDeliveryPaymentDetails = async (req, res) => {
             where: whereClause,
             include: {
                 payment: {
-                    include: { student: true, batch: true }
+                    include: { student: true, batch: true, group: true }
                 }
             },
             orderBy: { createdAt: 'desc' }
@@ -1091,5 +1370,360 @@ exports.getDeliveryPaymentDetails = async (req, res) => {
     } catch (error) {
         console.error("Payment Details fetch error:", error);
         res.status(500).json({ error: "Failed to fetch payment details" });
+    }
+};
+
+// ================= MASTER TUTES (APP SETTING) =================
+
+const getMasterTutesData = async () => {
+    const setting = await prisma.appSetting.findUnique({ where: { key: 'MASTER_TUTES' } });
+    if (!setting) return [];
+    try { return JSON.parse(setting.value); } catch(e) { return []; }
+};
+
+const saveMasterTutesData = async (data) => {
+    await prisma.appSetting.upsert({
+        where: { key: 'MASTER_TUTES' },
+        update: { value: JSON.stringify(data) },
+        create: { key: 'MASTER_TUTES', value: JSON.stringify(data) }
+    });
+};
+
+exports.getMasterTutes = async (req, res) => {
+    try {
+        const data = await getMasterTutesData();
+        res.status(200).json(data);
+    } catch (error) {
+        res.status(500).json({ error: "Failed to fetch master tutes" });
+    }
+};
+
+exports.saveMasterLecturer = async (req, res) => {
+    try {
+        const { id, name } = req.body;
+        if (!name) return res.status(400).json({ error: "Lecturer name is required" });
+
+        let image = req.body.image || null;
+        if (req.files && req.files['image'] && req.files['image'][0]) {
+            image = req.files['image'][0].filename;
+        }
+
+        const data = await getMasterTutesData();
+        
+        if (id) {
+            const index = data.findIndex(l => l.id == id);
+            if (index !== -1) {
+                data[index].name = name;
+                if (image) data[index].image = image;
+            }
+        } else {
+            data.push({ id: Date.now(), name, image, tutes: [] });
+        }
+
+        await saveMasterTutesData(data);
+        res.status(200).json({ message: "Lecturer saved successfully", data });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to save lecturer" });
+    }
+};
+
+exports.deleteMasterLecturer = async (req, res) => {
+    try {
+        const { id } = req.params;
+        let data = await getMasterTutesData();
+        data = data.filter(l => l.id != id);
+        await saveMasterTutesData(data);
+        res.status(200).json({ message: "Lecturer deleted successfully", data });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to delete lecturer" });
+    }
+};
+
+exports.saveMasterTute = async (req, res) => {
+    try {
+        const { lecturerId, tuteId, name } = req.body;
+        if (!lecturerId || !name) return res.status(400).json({ error: "Lecturer ID and Tute name are required" });
+
+        let image = req.body.image || null;
+        if (req.files && req.files['image'] && req.files['image'][0]) {
+            image = req.files['image'][0].filename;
+        }
+
+        const data = await getMasterTutesData();
+        const lec = data.find(l => l.id == lecturerId);
+        if (!lec) return res.status(404).json({ error: "Lecturer not found" });
+
+        if (!lec.tutes) lec.tutes = [];
+
+        if (tuteId) {
+            const tIndex = lec.tutes.findIndex(t => t.id == tuteId);
+            if (tIndex !== -1) {
+                lec.tutes[tIndex].name = name;
+                if (image) lec.tutes[tIndex].image = image;
+            }
+        } else {
+            lec.tutes.push({ id: Date.now(), name, image });
+        }
+
+        await saveMasterTutesData(data);
+        res.status(200).json({ message: "Tute saved successfully", data });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to save tute" });
+    }
+};
+
+exports.deleteMasterTute = async (req, res) => {
+    try {
+        const { lecturerId, tuteId } = req.params;
+        const data = await getMasterTutesData();
+        const lec = data.find(l => l.id == lecturerId);
+        if (lec && lec.tutes) {
+            lec.tutes = lec.tutes.filter(t => t.id != tuteId);
+            await saveMasterTutesData(data);
+        }
+        res.status(200).json({ message: "Tute deleted successfully", data });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to delete tute" });
+    }
+};
+
+exports.updateDeliveryLabel = async (req, res) => {
+    try {
+        const deliveryId = parseInt(req.params.id);
+        const { labelName, labelPhone, houseNo, street, city, district } = req.body;
+
+        const delivery = await prisma.delivery.findUnique({
+            where: { id: deliveryId },
+            include: { payment: true }
+        });
+
+        if (!delivery) return res.status(404).json({ error: "Delivery not found" });
+
+        if (delivery.payment?.studentId) {
+            await prisma.user.update({
+                where: { id: delivery.payment.studentId },
+                data: {
+                    addressHouseNo: houseNo,
+                    addressStreet: street,
+                    city: city,
+                    district: district
+                }
+            });
+        }
+
+        const labelAddress = [houseNo, street, city, district].filter(Boolean).join(', ');
+
+        const updated = await prisma.delivery.update({
+            where: { id: deliveryId },
+            data: { labelName, labelPhone, labelAddress }
+        });
+
+        res.status(200).json({ success: true, delivery: updated });
+    } catch (error) {
+        console.error('Update Delivery Label Error:', error);
+        res.status(500).json({ error: 'Failed to update delivery label' });
+    }
+};
+// ================= NEW TUTE STOCK & LECTURER ENDPOINTS =================
+
+exports.createTuteStock = async (req, res) => {
+    try {
+        let { courseId, tuteName, itemOrder, lecturerName, paymentGroup } = req.body;
+        let actualLecturer = lecturerName;
+        
+        if (!courseId || courseId === 'undefined' || courseId === 'null') {
+            if (!lecturerName || !paymentGroup) return res.status(400).json({ error: "Missing required details to create material" });
+            const groupType = paymentGroup === 'Monthly' ? 1 : 2;
+            let course = await prisma.course.findFirst({ where: { lecturerName, group: { type: groupType } } });
+            if (!course) {
+                const batch = await prisma.batch.findFirst({ orderBy: { id: 'desc' }});
+                if (!batch) return res.status(400).json({ error: "No batches found to attach material." });
+                const group = await prisma.group.create({
+                    data: { name: `${lecturerName} - ${paymentGroup} Base Group`, type: groupType, batchId: batch.id }
+                });
+                course = await prisma.course.create({
+                    data: { name: `${lecturerName} - ${paymentGroup} General Materials`, lecturerName, groupId: group.id }
+                });
+            }
+            courseId = course.id;
+            actualLecturer = course.lecturerName;
+        } else {
+            const courseObj = await prisma.course.findUnique({ where: { id: parseInt(courseId) } });
+            actualLecturer = courseObj?.lecturerName || "Unknown Lecturer";
+        }
+
+        let tuteImage = 'default-tute.png';
+        let tuteImage2 = null;
+        if (req.files) {
+            if (req.files['tuteImage'] && req.files['tuteImage'][0]) tuteImage = req.files['tuteImage'][0].filename;
+            if (req.files['tuteImage2'] && req.files['tuteImage2'][0]) tuteImage2 = req.files['tuteImage2'][0].filename;
+        }
+
+        const newStock = await prisma.tuteStock.create({
+            data: {
+                courseId: parseInt(courseId),
+                tuteName,
+                tuteImage, tuteImage2, itemOrder: parseInt(itemOrder || 1)
+            }
+        });
+
+        // Sync with MASTER_TUTES for Content Hub
+        let masterData = await getMasterTutesData();
+        let lecIndex = masterData.findIndex(l => l.name === actualLecturer);
+        
+        const newTuteEntry = {
+            id: Date.now() + Math.random().toString(),
+            name: tuteName,
+            image: tuteImage
+        };
+
+        if (lecIndex !== -1) {
+            if (!masterData[lecIndex].tutes) masterData[lecIndex].tutes = [];
+            if (!masterData[lecIndex].tutes.some(t => t.name === tuteName)) {
+                masterData[lecIndex].tutes.push(newTuteEntry);
+                await saveMasterTutesData(masterData);
+            }
+        } else {
+            masterData.push({
+                id: Date.now().toString(),
+                name: actualLecturer,
+                image: null,
+                tutes: [newTuteEntry]
+            });
+            await saveMasterTutesData(masterData);
+        }
+
+        res.status(201).json(newStock);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to create tute stock" });
+    }
+};
+
+exports.updateTuteStock = async (req, res) => {
+    try {
+        const { id, tuteName, itemOrder } = req.body;
+        const oldStock = await prisma.tuteStock.findUnique({
+            where: { id: parseInt(id) },
+            include: { course: true }
+        });
+
+        let data = { tuteName, itemOrder: parseInt(itemOrder || 1) };
+        if (req.files) {
+            if (req.files['tuteImage'] && req.files['tuteImage'][0]) data.tuteImage = req.files['tuteImage'][0].filename;
+            if (req.files['tuteImage2'] && req.files['tuteImage2'][0]) data.tuteImage2 = req.files['tuteImage2'][0].filename;
+        }
+
+        const updated = await prisma.tuteStock.update({
+            where: { id: parseInt(id) },
+            data
+        });
+
+        // Sync with MASTER_TUTES
+        if (oldStock && oldStock.course?.lecturerName) {
+            let masterData = await getMasterTutesData();
+            let lecIndex = masterData.findIndex(l => l.name === oldStock.course.lecturerName);
+            if (lecIndex !== -1 && masterData[lecIndex].tutes) {
+                let tIndex = masterData[lecIndex].tutes.findIndex(t => t.name === oldStock.tuteName);
+                if (tIndex !== -1) {
+                    masterData[lecIndex].tutes[tIndex].name = tuteName;
+                    if (data.tuteImage) masterData[lecIndex].tutes[tIndex].image = data.tuteImage;
+                    await saveMasterTutesData(masterData);
+                }
+            }
+        }
+
+        res.status(200).json(updated);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to update tute stock" });
+    }
+};
+
+exports.deleteTuteStock = async (req, res) => {
+    try {
+        const stockId = parseInt(req.params.id);
+        const oldStock = await prisma.tuteStock.findUnique({
+            where: { id: stockId },
+            include: { course: true }
+        });
+
+        await prisma.tuteStock.delete({ where: { id: stockId } });
+
+        // If no remaining tute stock with this tuteName and lecturer, remove from MASTER_TUTES
+        if (oldStock && oldStock.course?.lecturerName) {
+            const remaining = await prisma.tuteStock.findFirst({
+                where: {
+                    tuteName: oldStock.tuteName,
+                    course: { lecturerName: oldStock.course.lecturerName }
+                }
+            });
+            if (!remaining) {
+                let masterData = await getMasterTutesData();
+                let lecIndex = masterData.findIndex(l => l.name === oldStock.course.lecturerName);
+                if (lecIndex !== -1 && masterData[lecIndex].tutes) {
+                    masterData[lecIndex].tutes = masterData[lecIndex].tutes.filter(t => t.name !== oldStock.tuteName);
+                    await saveMasterTutesData(masterData);
+                }
+            }
+        }
+
+        res.status(200).json({ message: "Deleted successfully" });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to delete tute stock" });
+    }
+};
+
+exports.updateLecturerInfo = async (req, res) => {
+    try {
+        const { oldName, newName } = req.body;
+        
+        let masterData = await getMasterTutesData();
+        let lecObj = masterData.find(l => l.name === oldName);
+        
+        let image = lecObj ? lecObj.image : null;
+        if (req.file) image = req.file.filename;
+
+        // Update Master Data
+        if (lecObj) {
+            lecObj.name = newName;
+            lecObj.image = image;
+        } else {
+            masterData.push({ id: Date.now().toString(), name: newName, image, tutes: [] });
+        }
+        await saveMasterTutesData(masterData);
+
+        // Update Course lecturerName
+        if (oldName !== newName) {
+            await prisma.course.updateMany({
+                where: { lecturerName: oldName },
+                data: { lecturerName: newName }
+            });
+        }
+        
+        res.status(200).json({ message: "Lecturer updated" });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ error: "Failed to update lecturer" });
+    }
+};
+
+exports.deleteLecturerGlobal = async (req, res) => {
+    try {
+        const { oldName } = req.params;
+        
+        let masterData = await getMasterTutesData();
+        masterData = masterData.filter(l => l.name !== oldName);
+        await saveMasterTutesData(masterData);
+
+        // Reset course lecturerName where it matches
+        await prisma.course.updateMany({
+            where: { lecturerName: oldName },
+            data: { lecturerName: "Unknown Lecturer" }
+        });
+        
+        res.status(200).json({ message: "Lecturer deleted" });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to delete lecturer" });
     }
 };

@@ -1,10 +1,9 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
-async function main() {
-    const p = await prisma.payment.findMany({ where: { slip_image: { not: null } }, orderBy: { created_at: 'desc' }, take: 200 });
-    console.log('Top 200 payments with slip_image, pending count:', p.filter(x => x.status === 0).length);
+
+async function run() {
+    const sId = 1;
+    const payments = await prisma.payment.findMany({ where: { studentId: sId } });
+    console.log(`Student ${sId} total payments in DB: ${payments.length}`);
 }
-main().finally(() => {
-    prisma.$disconnect();
-    process.exit(0);
-});
+run().catch(console.error).finally(() => prisma.$disconnect());

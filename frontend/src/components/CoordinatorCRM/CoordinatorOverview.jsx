@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { FaWhatsapp, FaHeadset, FaChartBar, FaEnvelopeOpen, FaPhoneAlt, FaFolderOpen, FaExchangeAlt, FaGraduationCap, FaCircle, FaSpinner } from 'react-icons/fa';
+import { FaWhatsapp, FaHeadset, FaChartBar, FaEnvelopeOpen, FaPhoneAlt, FaFolderOpen, FaExchangeAlt, FaGraduationCap, FaCircle, FaSpinner, FaCheckCircle } from 'react-icons/fa';
 import axios from '../../api/axios';
+import CoordinatorDailyTodo from './CoordinatorDailyTodo';
 
 export default function CoordinatorOverview({ loggedInUser, setActiveMode, selectedBusiness, selectedBatch }) {
     const [stats, setStats] = useState(null);
@@ -61,6 +62,14 @@ export default function CoordinatorOverview({ loggedInUser, setActiveMode, selec
                         {loggedInUser?.department || 'Coordination'}
                     </span>
                 </div>
+            </div>
+
+            {/* Daily To-Do Checklist */}
+            <div className="mb-8">
+                <h3 className="text-lg font-black text-white uppercase tracking-wider mb-4 flex items-center gap-2">
+                    <FaCheckCircle className="text-emerald-400" /> My Daily To-Do
+                </h3>
+                <CoordinatorDailyTodo staffId={loggedInUser?.id} />
             </div>
 
             {/* 🔥 Row 1: Unread WhatsApp Notifications 🔥 */}
@@ -126,143 +135,77 @@ export default function CoordinatorOverview({ loggedInUser, setActiveMode, selec
                 </div>
             </div>
 
-            {/* 🔥 Row 2: Campaign Follow-Up Stats checklist 🔥 */}
-            <h3 className="text-lg font-black text-white uppercase tracking-wider mb-2">My Call Campaigns Checklist</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                
-                {/* Free Seminar Leads */}
-                <CampaignOverviewCard 
-                    title="Free Seminar Leads"
-                    icon={<FaWhatsapp size={22} />}
-                    color="emerald"
-                    stats={campaigns.freeSeminar}
-                    onClick={() => setActiveMode('CRM')}
-                />
-
-                {/* Open Seminar Leads */}
-                <CampaignOverviewCard 
-                    title="Open Seminar Leads"
-                    icon={<FaPhoneAlt size={20} />}
-                    color="indigo"
-                    stats={campaigns.openSeminar}
-                    onClick={() => handleRedirectCampaign('/workspace/campaign/open-seminar')}
-                />
-
-                {/* New Inquiries */}
-                <CampaignOverviewCard 
-                    title="New Inquiries"
-                    icon={<FaFolderOpen size={20} />}
-                    color="blue"
-                    stats={campaigns.newInquiries}
-                    onClick={() => handleRedirectCampaign('/workspace/campaign/new-inquiries')}
-                />
-
-                {/* Bridge Transfers */}
-                <CampaignOverviewCard 
-                    title="Bridge Transfers"
-                    icon={<FaExchangeAlt size={20} />}
-                    color="amber"
-                    stats={campaigns.bridgeTransfers}
-                    onClick={() => handleRedirectCampaign('/workspace/campaign/bridge-transfers')}
-                />
-
-                {/* Enrolled Students */}
-                <CampaignOverviewCard 
-                    title="Enrolled (Paid)"
-                    icon={<FaGraduationCap size={22} />}
-                    color="pink"
-                    stats={campaigns.paidStudents}
-                    onClick={() => handleRedirectCampaign('/workspace/campaign/paid-students')}
-                />
-
-            </div>
-        </div>
-    );
-}
-
-// Sub-component for individual Campaign cards
-function CampaignOverviewCard({ title, icon, color, stats = { assigned: 0, covered: 0, pending: 0 }, onClick }) {
-    const rate = stats.assigned > 0 ? Math.round((stats.covered / stats.assigned) * 100) : 0;
-
-    const themeColors = {
-        emerald: {
-            border: 'border-emerald-500/20 hover:border-emerald-500/40',
-            glow: 'hover:shadow-emerald-500/10',
-            bg: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
-            progress: 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]',
-            text: 'text-emerald-400'
-        },
-        indigo: {
-            border: 'border-indigo-500/20 hover:border-indigo-500/40',
-            glow: 'hover:shadow-indigo-500/10',
-            bg: 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
-            progress: 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.5)]',
-            text: 'text-indigo-400'
-        },
-        blue: {
-            border: 'border-blue-500/20 hover:border-blue-500/40',
-            glow: 'hover:shadow-blue-500/10',
-            bg: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
-            progress: 'bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]',
-            text: 'text-blue-400'
-        },
-        amber: {
-            border: 'border-amber-500/20 hover:border-amber-500/40',
-            glow: 'hover:shadow-amber-500/10',
-            bg: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
-            progress: 'bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]',
-            text: 'text-amber-400'
-        },
-        pink: {
-            border: 'border-pink-500/20 hover:border-pink-500/40',
-            glow: 'hover:shadow-pink-500/10',
-            bg: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
-            progress: 'bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.5)]',
-            text: 'text-pink-400'
-        }
-    };
-
-    const currentStyle = themeColors[color] || themeColors['emerald'];
-
-    return (
-        <div 
-            onClick={onClick}
-            className={`cursor-pointer bg-black/20 border backdrop-blur-xl p-5 rounded-3xl shadow-md transition-all hover:bg-black/30 hover:-translate-y-1 group flex flex-col justify-between ${currentStyle.border} ${currentStyle.glow}`}
-        >
-            <div className="flex justify-between items-start mb-4">
-                <span className="text-[11px] font-black text-gray-400 uppercase tracking-widest">{title}</span>
-                <div className={`p-2.5 rounded-xl transition-all group-hover:scale-110 ${currentStyle.bg}`}>
-                    {icon}
-                </div>
-            </div>
-
-            {/* Counts segment */}
-            <div className="grid grid-cols-3 gap-2 py-3 border-b border-white/5 relative z-10 text-center">
-                <div>
-                    <p className="text-lg font-black text-white">{stats.assigned}</p>
-                    <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Assigned</p>
-                </div>
-                <div>
-                    <p className={`text-lg font-black ${currentStyle.text}`}>{stats.covered}</p>
-                    <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Covered</p>
-                </div>
-                <div>
-                    <p className="text-lg font-black text-rose-400">{stats.pending}</p>
-                    <p className="text-[9px] font-bold text-gray-500 uppercase tracking-wider">Pending</p>
-                </div>
-            </div>
-
-            {/* Progress bar conversion rate */}
-            <div className="mt-4 relative z-10">
-                <div className="flex justify-between items-center mb-1.5 text-[10px] font-extrabold text-gray-400">
-                    <span>CALL RESOLUTION RATIO</span>
-                    <span className="text-white">{rate}%</span>
-                </div>
-                <div className="w-full bg-black/40 border border-white/5 h-2 rounded-full overflow-hidden">
+            {/* 🔥 Open Seminar Call Campaign Details 🔥 */}
+            <div className="mt-8">
+                <h3 className="text-xl font-black text-white uppercase tracking-widest mb-6 flex items-center gap-3">
+                    <FaPhoneAlt className="text-indigo-400" /> Open Seminar Call Campaign
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    
+                    {/* Round 1 Stats */}
                     <div 
-                        className={`h-full rounded-full transition-all duration-1000 ${currentStyle.progress}`}
-                        style={{ width: `${rate}%` }}
-                    ></div>
+                        onClick={() => handleRedirectCampaign('/workspace/campaign/open-seminar')}
+                        className="cursor-pointer relative bg-[#0f172a]/80 border border-indigo-500/30 backdrop-blur-xl p-8 rounded-[2rem] shadow-2xl hover:bg-[#1e1b4b]/80 hover:border-indigo-400 hover:-translate-y-2 transition-all group overflow-hidden"
+                    >
+                        <div className="absolute -right-20 -top-20 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl group-hover:bg-indigo-500/30 transition-all duration-500"></div>
+                        
+                        <div className="flex justify-between items-start mb-8 relative z-10">
+                            <div>
+                                <span className="text-xs font-black text-indigo-400 uppercase tracking-widest bg-indigo-500/10 px-4 py-1.5 rounded-full border border-indigo-500/30 shadow-sm">Round 1</span>
+                                <h4 className="text-3xl font-black text-white mt-4">Initial Follow-up</h4>
+                                <p className="text-slate-400 text-sm font-medium mt-1">Within first 7 days</p>
+                            </div>
+                            <div className="p-4 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 shadow-[0_0_20px_rgba(99,102,241,0.2)] group-hover:scale-110 group-hover:rotate-3 transition-transform duration-300">
+                                <FaPhoneAlt size={28} />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6 relative z-10">
+                            <div className="bg-black/40 border border-indigo-500/20 p-6 rounded-3xl flex flex-col items-center justify-center relative shadow-inner">
+                                {stats?.openSeminarDetails?.r1Pending > 0 && <span className="absolute top-4 right-4 w-3 h-3 rounded-full bg-amber-400 animate-pulse shadow-[0_0_10px_rgba(251,191,36,0.8)]"></span>}
+                                <span className="text-5xl font-black text-amber-400 drop-shadow-md">{stats?.openSeminarDetails?.r1Pending || 0}</span>
+                                <span className="text-[10px] font-bold text-indigo-200/70 uppercase tracking-widest mt-2">Pending Calls</span>
+                            </div>
+                            <div className="bg-black/40 border border-indigo-500/20 p-6 rounded-3xl flex flex-col items-center justify-center relative shadow-inner">
+                                {stats?.openSeminarDetails?.r1Delayed > 0 && <span className="absolute top-4 right-4 w-3 h-3 rounded-full bg-rose-500 animate-ping shadow-[0_0_10px_rgba(244,63,94,0.8)]"></span>}
+                                <span className="text-5xl font-black text-rose-500 drop-shadow-md">{stats?.openSeminarDetails?.r1Delayed || 0}</span>
+                                <span className="text-[10px] font-bold text-indigo-200/70 uppercase tracking-widest mt-2">Delayed Calls</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Round 2 Stats */}
+                    <div 
+                        onClick={() => handleRedirectCampaign('/workspace/campaign/open-seminar')}
+                        className="cursor-pointer relative bg-[#0f172a]/80 border border-purple-500/30 backdrop-blur-xl p-8 rounded-[2rem] shadow-2xl hover:bg-[#2e1065]/80 hover:border-purple-400 hover:-translate-y-2 transition-all group overflow-hidden"
+                    >
+                        <div className="absolute -right-20 -top-20 w-64 h-64 bg-purple-500/20 rounded-full blur-3xl group-hover:bg-purple-500/30 transition-all duration-500"></div>
+                        
+                        <div className="flex justify-between items-start mb-8 relative z-10">
+                            <div>
+                                <span className="text-xs font-black text-purple-400 uppercase tracking-widest bg-purple-500/10 px-4 py-1.5 rounded-full border border-purple-500/30 shadow-sm">Round 2</span>
+                                <h4 className="text-3xl font-black text-white mt-4">Secondary Follow-up</h4>
+                                <p className="text-slate-400 text-sm font-medium mt-1">Within second 7 days</p>
+                            </div>
+                            <div className="p-4 rounded-2xl bg-purple-500/20 text-purple-300 border border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.2)] group-hover:scale-110 group-hover:-rotate-3 transition-transform duration-300">
+                                <FaPhoneAlt size={28} />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-6 relative z-10">
+                            <div className="bg-black/40 border border-purple-500/20 p-6 rounded-3xl flex flex-col items-center justify-center relative shadow-inner">
+                                {stats?.openSeminarDetails?.r2Pending > 0 && <span className="absolute top-4 right-4 w-3 h-3 rounded-full bg-amber-400 animate-pulse shadow-[0_0_10px_rgba(251,191,36,0.8)]"></span>}
+                                <span className="text-5xl font-black text-amber-400 drop-shadow-md">{stats?.openSeminarDetails?.r2Pending || 0}</span>
+                                <span className="text-[10px] font-bold text-purple-200/70 uppercase tracking-widest mt-2">Pending Calls</span>
+                            </div>
+                            <div className="bg-black/40 border border-purple-500/20 p-6 rounded-3xl flex flex-col items-center justify-center relative shadow-inner">
+                                {stats?.openSeminarDetails?.r2Delayed > 0 && <span className="absolute top-4 right-4 w-3 h-3 rounded-full bg-rose-500 animate-ping shadow-[0_0_10px_rgba(244,63,94,0.8)]"></span>}
+                                <span className="text-5xl font-black text-rose-500 drop-shadow-md">{stats?.openSeminarDetails?.r2Delayed || 0}</span>
+                                <span className="text-[10px] font-bold text-purple-200/70 uppercase tracking-widest mt-2">Delayed Calls</span>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
         </div>

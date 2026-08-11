@@ -7,7 +7,8 @@ export default function ContentHubModals({ state, actions }) {
         isSystemAdmin, businesses, managersList, batches, lessonGroups, postsList, showBusinessModal, showAssignModal, showBatchModal, showGroupModal,
         showCourseModal, showLessonGroupModal, showContentModal, showPostModal, showManagePostsModal, previewData, editMode, editData, selectedLogoName,
         selectedGroupPrices, discountRules, contentType, prefilledFolder, selectedBatchesForContent, massAssignSubjects, postBizId, postBatches, showInstallmentModal,
-        existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, activeBusiness, activeBatch, loading, showLecturerModal
+        existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, activeBusiness, activeBatch, loading, showLecturerModal, masterTutes,
+        hubBatchConfigs, hubActiveBatchTab
     } = state;
 
     const {
@@ -17,7 +18,7 @@ export default function ContentHubModals({ state, actions }) {
         getPostImageUrl, getEmbedUrl, deleteItem, fetchPosts, addDiscountRule, removeDiscountRule, handleDiscountRuleChange, addInstallmentStep, removeInstallmentStep,
         toggleGroupPrice, updateGroupData, toggleMassAssignSubject, getTypeInt, setPrefilledFolder, setSelectedBatchesForContent, setMassAssignSubjects,
         setShowInstallmentModal, handleEditInstallment, handleDeleteInstallment, handleInstallmentSubmit, setInstallmentSubjectCount, setInstallmentSteps, setEditInstallmentId, getBatchStreams,
-        setEditData, setDiscountRules, setSelectedGroupPrices, setShowLecturerModal, handleLecturerSubmit
+        setEditData, setDiscountRules, setSelectedGroupPrices, setShowLecturerModal, handleLecturerSubmit, setHubBatchConfigs, setHubActiveBatchTab
     } = actions;
 
     const getBaseUrl = () => {
@@ -26,6 +27,36 @@ export default function ContentHubModals({ state, actions }) {
             return url.endsWith('/') ? url.slice(0, -1) : url;
         }
         return 'https://imacampus.online/api';
+    };
+
+    const activeHubBatch = hubActiveBatchTab || (batches.length > 0 ? batches[0].id : null);
+    
+    const handleHubSubjectToggle = (batchId, subjectId, courseCode) => {
+        setHubBatchConfigs(prev => {
+            const batchConfig = prev[batchId] || {};
+            const subjectConfig = batchConfig[subjectId] || { isChecked: false, folderId: '', courseCode };
+            return {
+                ...prev,
+                [batchId]: {
+                    ...batchConfig,
+                    [subjectId]: { ...subjectConfig, isChecked: !subjectConfig.isChecked, courseCode }
+                }
+            };
+        });
+    };
+
+    const handleHubFolderChange = (batchId, subjectId, folderId, courseCode) => {
+        setHubBatchConfigs(prev => {
+            const batchConfig = prev[batchId] || {};
+            const subjectConfig = batchConfig[subjectId] || { isChecked: true, folderId: '', courseCode };
+            return {
+                ...prev,
+                [batchId]: {
+                    ...batchConfig,
+                    [subjectId]: { ...subjectConfig, folderId, courseCode }
+                }
+            };
+        });
     };
 
     return (
@@ -40,7 +71,7 @@ export default function ContentHubModals({ state, actions }) {
                         </div>
                         
                         <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
-                            <form onSubmit={handleMassAssignSubmit} className="space-y-8 max-w-6xl mx-auto">
+                            <form key={`form-${editMode ? editData?.id : 'new'}`} onSubmit={handleMassAssignSubmit} className="space-y-8 max-w-6xl mx-auto">
                                 <div className="flex flex-col md:flex-row gap-6">
                                     <div className="flex-1">
                                         <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Content Type *</label>
@@ -54,7 +85,7 @@ export default function ContentHubModals({ state, actions }) {
                                     {contentType && (
                                         <div className="flex-1 animate-in fade-in duration-300">
                                             <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Target Folder (Current Batch Only)</label>
-                                            <select name="contentGroupId" defaultValue={editMode ? (editData?.content_group_id || "") : prefilledFolder} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-white outline-none focus:border-green-500 shadow-inner cursor-pointer appearance-none">
+                                            <select name="contentGroupId" value={editMode ? (editData?.content_group_id || editData?.contentGroupId || "") : prefilledFolder} onChange={(e) => { if (editMode) { setEditData({...editData, contentGroupId: e.target.value}) } else { setPrefilledFolder(e.target.value) } }} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-white outline-none focus:border-green-500 shadow-inner cursor-pointer appearance-none">
                                                 <option value="" className="bg-slate-800 text-white">No Folder (Uncategorized)</option>
                                                 {lessonGroups.filter(g => parseInt(g.type) === getTypeInt(contentType)).map(folder => (
                                                     <option key={folder.id} value={folder.id} className="bg-slate-800 text-white">{folder.title || folder.name}</option>
@@ -77,9 +108,19 @@ export default function ContentHubModals({ state, actions }) {
                                             </div>
                                             
                                             {(contentType === 'live' || contentType === 'recording') && (
-                                                <div className="md:col-span-4">
-                                                    <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">URL Link *</label>
-                                                    <input type="url" name="link" defaultValue={editData?.link} required className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner transition-all" />
+                                                <div className="md:col-span-2 space-y-4">
+                                                    <div>
+                                                        <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">URL Link *</label>
+                                                        <input type="url" name="link" defaultValue={editData?.link} required className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner transition-all" />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">YouTube Link (Optional)</label>
+                                                        <input type="url" name="youtubeLink" defaultValue={editData?.youtubeLink} className="w-full bg-black/60 border border-white/10 focus:border-red-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner transition-all" placeholder="https://www.youtube.com/watch?v=..." />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Vimeo Link (Optional)</label>
+                                                        <input type="url" name="vimeoLink" defaultValue={editData?.vimeoLink} className="w-full bg-black/60 border border-white/10 focus:border-blue-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner transition-all" placeholder="https://vimeo.com/..." />
+                                                    </div>
                                                 </div>
                                             )}
 
@@ -90,7 +131,7 @@ export default function ContentHubModals({ state, actions }) {
                                                 </div>
                                             )}
 
-                                            {(contentType === 'live' || contentType === 'recording') && (
+                                            {(contentType === 'live' || contentType === 'recording' || contentType === 'document' || contentType === 'sPaper' || contentType === 'paper') && (
                                                 <div className="md:col-span-4">
                                                     <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Thumbnail Image (Optional) {editMode && <span className="text-green-400 font-normal ml-2 normal-case">(Leave empty to keep existing)</span>}</label>
                                                     <input type="file" name="thumbnail" accept="image/*" className="w-full bg-black/60 border border-white/10 rounded-xl p-2.5 text-gray-400 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:bg-white/10 file:text-white shadow-inner cursor-pointer" />
@@ -106,13 +147,26 @@ export default function ContentHubModals({ state, actions }) {
 
                                             <div className="md:col-span-4">
                                                 <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Date</label>
-                                                <input type={(contentType==='document'||contentType==='sPaper'||contentType==='paper') ? "month":"date"} name="date" defaultValue={editData?.date ? editData.date.split('T')[0] : ''} required className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner cursor-pointer transition-all appearance-none" />
+                                                <input type={(contentType==='document'||contentType==='sPaper'||contentType==='paper') ? "month":"date"} name="date" defaultValue={editData?.date ? ((contentType==='document'||contentType==='sPaper'||contentType==='paper') ? editData.date.substring(0, 7) : editData.date.split('T')[0]) : ''} required className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner cursor-pointer transition-all appearance-none" />
                                             </div>
 
                                             {contentType === 'live' && (
                                                 <>
                                                     <div className="md:col-span-2"><label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Start Time</label><input type="time" name="startTime" defaultValue={editData?.startTime} className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner cursor-pointer transition-all appearance-none" /></div>
                                                     <div className="md:col-span-2"><label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">End Time</label><input type="time" name="endTime" defaultValue={editData?.endTime} className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner cursor-pointer transition-all appearance-none" /></div>
+                                                    <div className="md:col-span-4 mt-2">
+                                                        <label className="flex items-center gap-4 cursor-pointer w-max group bg-white/5 p-4 rounded-2xl border border-white/10 hover:border-white/20 transition-all shadow-sm mb-4">
+                                                            <div className="relative flex items-center justify-center">
+                                                                <input type="checkbox" id="autoDeleteToggle" defaultChecked={!!editData?.autoDeleteHours} className="peer w-6 h-6 appearance-none bg-black/60 border-2 border-slate-500 rounded-lg checked:bg-green-500 checked:border-green-500 transition-colors" onChange={(e) => { document.getElementById('autoDeleteInputContainer').style.display = e.target.checked ? 'block' : 'none'; if(!e.target.checked) document.getElementById('autoDeleteHoursInput').value = ''; }} />
+                                                                <CheckCircle size={16} className="text-white absolute opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"/>
+                                                            </div>
+                                                            <span className="text-base font-bold text-slate-200">Enable Auto Delete Link</span>
+                                                        </label>
+                                                        <div id="autoDeleteInputContainer" style={{ display: editData?.autoDeleteHours ? 'block' : 'none' }}>
+                                                            <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Auto Delete (Hours after End Time)</label>
+                                                            <input type="number" step="0.1" id="autoDeleteHoursInput" name="autoDeleteHours" placeholder="e.g. 3 (Link deletes 3 hours after End Time)" defaultValue={editData?.autoDeleteHours} className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner transition-all appearance-none" />
+                                                        </div>
+                                                    </div>
                                                 </>
                                             )}
 
@@ -141,55 +195,145 @@ export default function ContentHubModals({ state, actions }) {
                                                 <h4 className="text-xl font-extrabold text-white flex items-center gap-3 drop-shadow-sm"><BookOpen size={24} className="text-blue-400"/> Assign to Subjects</h4>
                                             </div>
 
-                                            <div className="bg-black/30 p-6 md:p-8 rounded-[2rem] mb-6 border border-white/5 shadow-inner">
-                                                <label className="text-xs font-bold text-gray-400 mb-4 block uppercase tracking-wider">Share with multiple Batches (Merge Content):</label>
-                                                <div className="flex flex-wrap gap-4">
-                                                    {batches.map(b => (
-                                                        <label key={`b-sel-${b.id}`} className={`flex items-center gap-3 px-5 py-3 rounded-xl cursor-pointer transition-all border shadow-sm ${selectedBatchesForContent.includes(b.id) ? 'bg-blue-500/20 border-blue-500/50 text-white' : 'bg-black/50 border-white/10 text-gray-400 hover:bg-black/70 hover:text-gray-300'}`}>
-                                                            <input type="checkbox" className="hidden" 
-                                                                   checked={selectedBatchesForContent.includes(b.id)} 
-                                                                   onChange={(e) => {
-                                                                       if(e.target.checked) setSelectedBatchesForContent([...selectedBatchesForContent, b.id]);
-                                                                       else setSelectedBatchesForContent(selectedBatchesForContent.filter(id => id !== b.id));
-                                                                   }} 
-                                                            />
-                                                            <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-colors ${selectedBatchesForContent.includes(b.id) ? 'bg-blue-500 border-blue-500' : 'border-slate-500'}`}>
-                                                                {selectedBatchesForContent.includes(b.id) && <CheckCircle size={12} className="text-white"/>}
-                                                            </div>
-                                                            <span className="font-bold text-sm">{b.name}</span>
-                                                        </label>
-                                                    ))}
-                                                </div>
-                                            </div>
+                                            {editMode ? (
+                                                <>
+                                                    <div className="bg-black/30 p-6 md:p-8 rounded-[2rem] mb-6 border border-white/5 shadow-inner">
+                                                        <label className="text-xs font-bold text-gray-400 mb-4 block uppercase tracking-wider">Share with multiple Batches (Merge Content):</label>
+                                                        <div className="flex flex-wrap gap-4">
+                                                            {batches.map(b => (
+                                                                <label key={`b-sel-${b.id}`} className={`flex items-center gap-3 px-5 py-3 rounded-xl cursor-pointer transition-all border shadow-sm ${selectedBatchesForContent.includes(b.id) ? 'bg-blue-500/20 border-blue-500/50 text-white' : 'bg-black/50 border-white/10 text-gray-400 hover:bg-black/70 hover:text-gray-300'}`}>
+                                                                    <input type="checkbox" className="hidden" 
+                                                                        checked={selectedBatchesForContent.includes(b.id)} 
+                                                                        onChange={(e) => {
+                                                                            if(e.target.checked) setSelectedBatchesForContent([...selectedBatchesForContent, b.id]);
+                                                                            else setSelectedBatchesForContent(selectedBatchesForContent.filter(id => id !== b.id));
+                                                                        }} 
+                                                                    />
+                                                                    <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-colors ${selectedBatchesForContent.includes(b.id) ? 'bg-blue-500 border-blue-500' : 'border-slate-500'}`}>
+                                                                        {selectedBatchesForContent.includes(b.id) && <CheckCircle size={12} className="text-white"/>}
+                                                                    </div>
+                                                                    <span className="font-bold text-sm">{b.name}</span>
+                                                                </label>
+                                                            ))}
+                                                        </div>
+                                                    </div>
 
-                                            <div className="bg-black/30 rounded-[2rem] p-6 md:p-8 border border-white/5 space-y-8 shadow-inner">
-                                                {batches.filter(b => selectedBatchesForContent.includes(b.id)).map(selectedBatch => (
-                                                    <div key={`batch-group-${selectedBatch.id}`} className="mb-6">
-                                                        <h4 className="text-xl font-extrabold text-blue-400 mb-6 border-b border-white/10 pb-3 drop-shadow-sm">{selectedBatch.name}</h4>
-                                                        
-                                                        {selectedBatch.groups?.length === 0 && <p className="text-sm text-slate-500 font-medium">No groups in this batch.</p>}
-
-                                                        {selectedBatch.groups?.map((group, gIdx) => (
-                                                            <div key={`g-assign-${gIdx}`} className="mb-8 ml-2 md:ml-6">
-                                                                <h5 className="text-lg font-bold text-slate-200 mb-4">{group.name} <span className="text-[10px] font-bold text-slate-400 bg-white/10 px-3 py-1 rounded-lg ml-3 border border-white/10 uppercase tracking-wider shadow-inner">{group.type === 1 ? 'Monthly' : 'Full'}</span></h5>
+                                                    <div className="bg-black/30 rounded-[2rem] p-6 md:p-8 border border-white/5 space-y-8 shadow-inner">
+                                                        {batches.filter(b => selectedBatchesForContent.includes(b.id)).map(selectedBatch => (
+                                                            <div key={`batch-group-${selectedBatch.id}`} className="mb-6">
+                                                                <h4 className="text-xl font-extrabold text-blue-400 mb-6 border-b border-white/10 pb-3 drop-shadow-sm">{selectedBatch.name}</h4>
                                                                 
-                                                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                                                                    {group.courses?.map((course, cIdx) => (
-                                                                        <label key={`c-assign-${cIdx}`} className={`flex items-center gap-4 cursor-pointer p-4 rounded-2xl border transition-all shadow-sm group ${massAssignSubjects.includes(course.id) ? 'bg-blue-600/20 border-blue-500/50' : 'bg-black/50 border-white/10 hover:border-white/30 hover:bg-black/70'}`}>
-                                                                            <div className="relative flex items-center justify-center shrink-0">
-                                                                                <input type="checkbox" checked={massAssignSubjects.includes(course.id)} onChange={() => toggleMassAssignSubject(course.id)} className="peer w-6 h-6 appearance-none bg-black/60 border-2 border-slate-500 rounded-lg checked:bg-blue-500 checked:border-blue-500 transition-colors" />
-                                                                                <CheckCircle size={16} className="text-white absolute opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"/>
-                                                                            </div>
-                                                                            <span className={`text-sm font-bold truncate transition-colors ${massAssignSubjects.includes(course.id) ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>{course.name}</span>
-                                                                        </label>
-                                                                    ))}
-                                                                    {group.courses?.length === 0 && <p className="text-xs text-slate-500 font-medium">No subjects in this group.</p>}
-                                                                </div>
+                                                                {selectedBatch.groups?.length === 0 && <p className="text-sm text-slate-500 font-medium">No groups in this batch.</p>}
+
+                                                                {selectedBatch.groups?.map((group, gIdx) => (
+                                                                    <div key={`g-assign-${gIdx}`} className="mb-8 ml-2 md:ml-6">
+                                                                        <h5 className="text-lg font-bold text-slate-200 mb-4">{group.name} <span className="text-[10px] font-bold text-slate-400 bg-white/10 px-3 py-1 rounded-lg ml-3 border border-white/10 uppercase tracking-wider shadow-inner">{group.type === 1 ? 'Monthly' : 'Full'}</span></h5>
+                                                                        
+                                                                        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                                                            {group.courses?.map((course, cIdx) => (
+                                                                                <label key={`c-assign-${cIdx}`} className={`flex items-center gap-4 cursor-pointer p-4 rounded-2xl border transition-all shadow-sm group ${massAssignSubjects.includes(course.id) ? 'bg-blue-600/20 border-blue-500/50' : 'bg-black/50 border-white/10 hover:border-white/30 hover:bg-black/70'}`}>
+                                                                                    <div className="relative flex items-center justify-center shrink-0">
+                                                                                        <input type="checkbox" checked={massAssignSubjects.includes(course.id)} onChange={() => toggleMassAssignSubject(course.id)} className="peer w-6 h-6 appearance-none bg-black/60 border-2 border-slate-500 rounded-lg checked:bg-blue-500 checked:border-blue-500 transition-colors" />
+                                                                                        <CheckCircle size={16} className="text-white absolute opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"/>
+                                                                                    </div>
+                                                                                    <span className={`text-sm font-bold truncate transition-colors ${massAssignSubjects.includes(course.id) ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>{course.name}</span>
+                                                                                </label>
+                                                                            ))}
+                                                                            {group.courses?.length === 0 && <p className="text-xs text-slate-500 font-medium">No subjects in this group.</p>}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
                                                             </div>
                                                         ))}
                                                     </div>
-                                                ))}
-                                            </div>
+                                                </>
+                                            ) : (
+                                                <div className="bg-black/30 rounded-[2rem] p-6 md:p-8 border border-white/5 space-y-8 shadow-inner">
+                                                    {/* Batch Tabs */}
+                                                    <div className="flex flex-wrap gap-2 mb-6 border-b border-white/10 pb-4">
+                                                        {batches.map(b => (
+                                                            <button 
+                                                                key={`hub-tab-${b.id}`} 
+                                                                type="button"
+                                                                onClick={() => setHubActiveBatchTab(b.id)}
+                                                                className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all outline-none ${activeHubBatch === b.id ? 'bg-blue-600 text-white shadow-[0_4px_15px_rgba(37,99,235,0.4)]' : 'bg-black/40 text-gray-400 border border-white/10 hover:text-white hover:bg-black/60 hover:border-white/20'}`}
+                                                            >
+                                                                {b.name}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+
+                                                    {/* Active Batch Content */}
+                                                    {batches.map(batch => {
+                                                        if(batch.id !== activeHubBatch) return null;
+                                                        
+                                                        const bConfig = hubBatchConfigs[batch.id] || {};
+
+                                                        return (
+                                                            <div key={`hub-batch-view-${batch.id}`} className="space-y-6">
+                                                                {batch.groups?.length === 0 && <p className="text-sm text-slate-500 font-medium">No groups in this batch.</p>}
+
+                                                                {batch.groups?.map(group => (
+                                                                    <div key={`hub-group-${group.id}`} className="bg-white/5 border border-white/10 rounded-[1.5rem] p-5 shadow-sm">
+                                                                        <h5 className="text-lg font-bold text-white mb-4 flex items-center gap-3">
+                                                                            {group.name} 
+                                                                            <span className="text-[10px] font-bold text-slate-400 bg-black/60 px-3 py-1 rounded-lg border border-white/10 uppercase tracking-wider">{group.type === 1 ? 'Monthly' : 'Full'}</span>
+                                                                        </h5>
+                                                                        
+                                                                        <div className="space-y-4">
+                                                                            {group.courses?.map(course => {
+                                                                                const subjectConfig = bConfig[course.id] || { isChecked: false, folderId: '' };
+                                                                                const courseCode = course.code || `SUB_${course.id}`;
+                                                                                // Filter folders that have matching courseCode
+                                                                                const availableFolders = lessonGroups.filter(lg => 
+                                                                                    lg.courseCode === courseCode && 
+                                                                                    parseInt(lg.type) === getTypeInt(contentType)
+                                                                                );
+
+                                                                                return (
+                                                                                    <div key={`hub-subject-${course.id}`} className={`p-4 rounded-2xl border transition-all ${subjectConfig.isChecked ? 'bg-blue-600/10 border-blue-500/50' : 'bg-black/40 border-white/10 hover:border-white/30'}`}>
+                                                                                        <label className="flex items-center gap-4 cursor-pointer w-full group">
+                                                                                            <div className="relative flex items-center justify-center shrink-0">
+                                                                                                <input 
+                                                                                                    type="checkbox" 
+                                                                                                    checked={subjectConfig.isChecked}
+                                                                                                    onChange={() => handleHubSubjectToggle(batch.id, course.id, courseCode)}
+                                                                                                    className="peer w-6 h-6 appearance-none bg-black/60 border-2 border-slate-500 rounded-lg checked:bg-blue-500 checked:border-blue-500 transition-colors" 
+                                                                                                />
+                                                                                                <CheckCircle size={16} className="text-white absolute opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"/>
+                                                                                            </div>
+                                                                                            <span className={`text-sm font-bold truncate transition-colors ${subjectConfig.isChecked ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>{course.name}</span>
+                                                                                        </label>
+
+                                                                                        {subjectConfig.isChecked && (
+                                                                                            <div className="mt-4 ml-10 flex gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                                                                                                <select 
+                                                                                                    value={subjectConfig.folderId}
+                                                                                                    onChange={(e) => handleHubFolderChange(batch.id, course.id, e.target.value, courseCode)}
+                                                                                                    className="flex-1 bg-black/60 border border-white/10 rounded-xl px-4 py-2 text-white outline-none focus:border-blue-500 text-sm appearance-none"
+                                                                                                >
+                                                                                                    <option value="" className="bg-slate-900">Select Folder</option>
+                                                                                                    <option value="uncategorized" className="bg-slate-900 text-yellow-400 font-bold">No Folder (Uncategorized)</option>
+                                                                                                    {availableFolders.map(f => (
+                                                                                                        <option key={`hf-${f.id}`} value={f.id} className="bg-slate-900">{f.name || f.title}</option>
+                                                                                                    ))}
+                                                                                                </select>
+                                                                                                <button type="button" onClick={() => { setShowLessonGroupModal(true); setPrefilledFolder(courseCode); }} className="flex-shrink-0 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors border border-white/10 flex items-center gap-2 outline-none">
+                                                                                                    <Plus size={16}/> New
+                                                                                                </button>
+                                                                                            </div>
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            })}
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
                                         </div>
 
                                         <div className="pt-6 pb-4">
@@ -236,6 +380,20 @@ export default function ContentHubModals({ state, actions }) {
                                             <select name="medium" defaultValue={editData?.isEnglish ? 'English' : 'Sinhala'} required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent cursor-pointer shadow-inner appearance-none">
                                                 <option value="Sinhala" className="bg-slate-800 text-white">Sinhala Medium</option>
                                                 <option value="English" className="bg-slate-800 text-white">English Medium</option>
+                                            </select>
+                                        </div>
+                                        <div className="col-span-2">
+                                            <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Merchant ID (Payment Gateway)</label>
+                                            <select name="merchantId" defaultValue={editData?.merchantId || ""} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent cursor-pointer shadow-inner appearance-none">
+                                                <option value="" className="bg-slate-800 text-white">Default / Unassigned</option>
+                                                <option value="14008328" className="bg-slate-800 text-white">14008328 - IMA Arts New</option>
+                                                <option value="14008329" className="bg-slate-800 text-white">14008329 - IMA OL New</option>
+                                                <option value="14008330" className="bg-slate-800 text-white">14008330 - IMA Commerce New</option>
+                                                <option value="14008331" className="bg-slate-800 text-white">14008331 - IMA Tech New</option>
+                                                <option value="14008332" className="bg-slate-800 text-white">14008332 - IMA Education New</option>
+                                                <option value="14008333" className="bg-slate-800 text-white">14008333 - IMA English New</option>
+                                                <option value="14008334" className="bg-slate-800 text-white">14008334 - IMA Fast Track New</option>
+                                                <option value="14008335" className="bg-slate-800 text-white">14008335 - Iddamalgoda Media Academy New</option>
                                             </select>
                                         </div>
                                     </div>
@@ -344,6 +502,27 @@ export default function ContentHubModals({ state, actions }) {
                                     </select>
                                 </div>
                                 <div><label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Display Order</label><input type="number" name="itemOrder" defaultValue={editData?.itemOrder || "1"} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" /></div>
+                                
+                                {/* Start Month and End Month */}
+                                <div>
+                                    <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Start Month</label>
+                                    <select name="startMonth" defaultValue={editData?.startMonth || ""} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all appearance-none cursor-pointer">
+                                        <option value="" className="bg-slate-800 text-gray-400">Select Start Month</option>
+                                        {["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"].map(m => (
+                                            <option key={m} value={m} className="bg-slate-800 text-white">{m}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">End Month</label>
+                                    <select name="endMonth" defaultValue={editData?.endMonth || ""} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all appearance-none cursor-pointer">
+                                        <option value="" className="bg-slate-800 text-gray-400">Select End Month</option>
+                                        {["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"].map(m => (
+                                            <option key={m} value={m} className="bg-slate-800 text-white">{m}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
                                 <div className="md:col-span-2"><label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Description</label><textarea name="description" defaultValue={editData?.description} rows="3" className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 resize-none shadow-inner transition-all"></textarea></div>
                             </div>
                             <button type="submit" className="w-full bg-brand-accent/90 hover:bg-brand-accent text-white font-extrabold py-4 text-lg rounded-2xl shadow-[0_4px_15px_rgba(225,29,72,0.4)] mt-6 outline-none transition-transform hover:scale-[1.01] uppercase tracking-wider border border-transparent">{editMode ? 'Update Batch' : 'Create Batch'}</button>
@@ -372,7 +551,7 @@ export default function ContentHubModals({ state, actions }) {
                                 </div>
                             </div>
 
-                            <div id="discountRulesSection" style={{display: (editData?.type === 2 || (!editMode && discountRules.length > 0)) ? 'block' : 'none'}} className="bg-blue-500/10 border border-blue-500/20 p-6 md:p-8 rounded-[2rem] shadow-inner">
+                            <div id="discountRulesSection" style={{display: (editData?.type === 2 || !editMode) ? 'block' : 'none'}} className="bg-blue-500/10 border border-blue-500/20 p-6 md:p-8 rounded-[2rem] shadow-inner">
                                 <div className="flex justify-between items-center mb-6">
                                     <div><h4 className="text-lg font-extrabold text-blue-400 uppercase tracking-widest drop-shadow-sm">Bundle Discount Rules</h4></div>
                                     <button type="button" onClick={addDiscountRule} className="bg-blue-600/90 hover:bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 outline-none shadow-sm border border-transparent"><Plus size={18}/> Add Rule</button>
@@ -381,7 +560,8 @@ export default function ContentHubModals({ state, actions }) {
                                     {discountRules.map((rule, idx) => (
                                         <div key={idx} className="flex flex-col sm:flex-row gap-4 items-end bg-black/40 p-5 rounded-2xl border border-white/10 shadow-sm">
                                             <div className="flex-1 w-full"><label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Subject Count:</label><input type="number" value={rule.courseCount} onChange={(e) => handleDiscountRuleChange(idx, 'courseCount', e.target.value)} className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 shadow-inner transition-all" /></div>
-                                            <div className="flex-1 w-full"><label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Price/Subject:</label><input type="number" value={rule.pricePerCourse} onChange={(e) => handleDiscountRuleChange(idx, 'pricePerCourse', e.target.value)} className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 shadow-inner transition-all" /></div>
+                                            <div className="flex-1 w-full"><label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Price/Subject (Or):</label><input type="number" value={rule.pricePerCourse ?? ''} onChange={(e) => handleDiscountRuleChange(idx, 'pricePerCourse', e.target.value)} placeholder="e.g. 1500" className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 shadow-inner transition-all" /></div>
+                                            <div className="flex-1 w-full"><label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Fixed Total Discount:</label><input type="number" value={rule.fixedDiscount ?? ''} onChange={(e) => handleDiscountRuleChange(idx, 'fixedDiscount', e.target.value)} placeholder="e.g. 3000" className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500 shadow-inner transition-all" /></div>
                                             <button type="button" onClick={() => removeDiscountRule(idx)} className="bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500 hover:text-white p-3.5 rounded-xl transition-colors w-full sm:w-auto flex justify-center outline-none shadow-sm"><Trash2 size={20}/></button>
                                         </div>
                                     ))}
@@ -495,14 +675,14 @@ export default function ContentHubModals({ state, actions }) {
 
             {/* SUBJECT MODAL */}
             {showCourseModal && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-                    <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-6 md:p-8 w-full max-w-7xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] max-h-[95vh] overflow-y-auto custom-scrollbar flex flex-col backdrop-blur-3xl">
-                        <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-4 shrink-0"><h3 className="text-2xl font-extrabold text-white drop-shadow-sm">{editMode ? 'Edit Subject' : 'New Subject'}</h3><button onClick={() => setShowCourseModal(false)} className="text-gray-400 hover:text-white bg-white/5 p-2.5 rounded-xl border border-white/10 transition-colors hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={20}/></button></div>
-                        <form onSubmit={handleCourseSubmit} className="space-y-8 flex-1">
-                            <div className="flex flex-col xl:flex-row gap-10">
-                                <div className="w-full xl:w-[45%] space-y-6">
+                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4 animate-in fade-in duration-200">
+                    <div className="bg-[#090E17]/95 border border-white/10 rounded-3xl p-5 sm:p-6 md:p-8 w-full max-w-7xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] max-h-[95vh] overflow-y-auto custom-scrollbar flex flex-col backdrop-blur-3xl">
+                        <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4 shrink-0"><h3 className="text-xl sm:text-2xl font-extrabold text-white drop-shadow-sm">{editMode ? 'Edit Subject' : 'New Subject'}</h3><button onClick={() => setShowCourseModal(false)} className="text-gray-400 hover:text-white bg-white/5 p-2 rounded-xl border border-white/10 transition-colors hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={20}/></button></div>
+                        <form onSubmit={handleCourseSubmit} className="space-y-6 flex-1">
+                            <div className="flex flex-col xl:flex-row gap-6 xl:gap-8">
+                                <div className="w-full xl:w-[45%] space-y-5">
                                     {(activeBusiness?.category === 'Advance Level' || activeBusiness?.category === 'AL') && (
-                                        <div className="bg-blue-500/10 border border-blue-500/20 p-6 rounded-[2rem] shadow-inner">
+                                        <div className="bg-blue-500/10 border border-blue-500/20 p-5 rounded-3xl shadow-inner">
                                             <label className="text-xs font-bold text-blue-300 mb-4 block uppercase tracking-widest drop-shadow-sm">Select A/L Streams (Can select multiple) *</label>
                                             <div className="flex flex-wrap gap-4">
                                                 {getBatchStreams().map(s => (
@@ -513,13 +693,13 @@ export default function ContentHubModals({ state, actions }) {
                                             </div>
                                         </div>
                                     )}
-                                    <div className="grid grid-cols-1 gap-6">
-                                        <div><label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Subject Name *</label><input type="text" name="name" defaultValue={editData?.name} required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" /></div>
-                                        <div><label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Subject Code (Optional)</label><input type="text" name="code" defaultValue={editData?.code} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" /></div>
+                                    <div className="grid grid-cols-1 gap-5">
+                                        <div><label className="text-xs font-bold text-slate-300 mb-1.5 block uppercase tracking-wider">Subject Name *</label><input type="text" name="name" defaultValue={editData?.name} required className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" /></div>
+                                        <div><label className="text-xs font-bold text-slate-300 mb-1.5 block uppercase tracking-wider">Subject Code (Optional)</label><input type="text" name="code" defaultValue={editData?.code} className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" /></div>
                                         <div className="grid grid-cols-2 gap-4">
                                             <div>
-                                                <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Start Month</label>
-                                                <select name="startMonth" defaultValue={editData?.startMonth || ""} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all cursor-pointer">
+                                                <label className="text-xs font-bold text-slate-300 mb-1.5 block uppercase tracking-wider">Start Month</label>
+                                                <select name="startMonth" defaultValue={editData?.startMonth || ""} className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all cursor-pointer">
                                                     <option value="" className="bg-slate-800 text-white">Select Month</option>
                                                     {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map(m => (
                                                         <option key={m} value={m} className="bg-slate-800 text-white">{m}</option>
@@ -527,8 +707,8 @@ export default function ContentHubModals({ state, actions }) {
                                                 </select>
                                             </div>
                                             <div>
-                                                <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">End Month</label>
-                                                <select name="endMonth" defaultValue={editData?.endMonth || ""} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all cursor-pointer">
+                                                <label className="text-xs font-bold text-slate-300 mb-1.5 block uppercase tracking-wider">End Month</label>
+                                                <select name="endMonth" defaultValue={editData?.endMonth || ""} className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all cursor-pointer">
                                                     <option value="" className="bg-slate-800 text-white">Select Month</option>
                                                     {['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'].map(m => (
                                                         <option key={m} value={m} className="bg-slate-800 text-white">{m}</option>
@@ -536,7 +716,7 @@ export default function ContentHubModals({ state, actions }) {
                                                 </select>
                                             </div>
                                         </div>
-                                        <div><label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Description</label><textarea name="description" defaultValue={editData?.description} rows="4" className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 resize-none shadow-inner transition-all"></textarea></div>
+                                        <div><label className="text-xs font-bold text-slate-300 mb-1.5 block uppercase tracking-wider">Description</label><textarea name="description" defaultValue={editData?.description} rows="3" className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 resize-none shadow-inner transition-all"></textarea></div>
                                     </div>
                                     <div className="mt-4">
                                         <label className="flex items-start gap-4 cursor-pointer group bg-orange-500/10 p-5 rounded-2xl border border-orange-500/20 hover:bg-orange-500/20 transition-all shadow-sm">
@@ -549,16 +729,23 @@ export default function ContentHubModals({ state, actions }) {
                                     </div>
                                 </div>
 
-                                <div className="w-full xl:w-[55%] space-y-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-black/40 p-6 rounded-[2rem] border border-white/5 shadow-inner">
+                                <div className="w-full xl:w-[55%] space-y-5">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 bg-black/40 p-5 rounded-3xl border border-white/5 shadow-inner">
                                         <div>
-                                            <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Lecturer Name (Optional)</label>
-                                            <input type="text" list="lecturersList" name="lecturerName" defaultValue={editData?.lecturerName} placeholder="Select or type name..." className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent shadow-inner transition-all" />
-                                            <datalist id="lecturersList">
-                                                {activeBatch?.lecturers && JSON.parse(activeBatch.lecturers).map((m, i) => (
-                                                    <option key={i} value={m.name} />
+                                            <label className="text-xs font-bold text-slate-300 mb-1.5 block uppercase tracking-wider">Lecturer Name (Optional)</label>
+                                            <select name="lecturerName" defaultValue={editData?.lecturerName || ''} onChange={(e) => {
+                                                if (editMode) {
+                                                    setEditData(prev => ({ ...prev, lecturerName: e.target.value }));
+                                                }
+                                            }} className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 text-sm text-white outline-none focus:border-brand-accent shadow-inner transition-all cursor-pointer">
+                                                <option value="" className="bg-slate-800 text-white">Select Lecturer</option>
+                                                {editData?.lecturerName && !masterTutes?.some(l => l.name === editData.lecturerName) && (
+                                                    <option value={editData.lecturerName} className="bg-slate-800 text-yellow-400">{editData.lecturerName} (Legacy)</option>
+                                                )}
+                                                {masterTutes?.map((lec, i) => (
+                                                    <option key={i} value={lec.name} className="bg-slate-800 text-white">{lec.name}</option>
                                                 ))}
-                                            </datalist>
+                                            </select>
                                         </div>
                                         <div>
                                             <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Lecturer Image (Optional)</label>
@@ -575,44 +762,107 @@ export default function ContentHubModals({ state, actions }) {
                                         </div>
                                     </div>
 
-                                    <div className="bg-black/30 p-6 md:p-8 rounded-[2rem] border border-white/10 shadow-inner">
-                                        <h4 className="text-lg font-extrabold text-slate-200 mb-6 uppercase tracking-wider drop-shadow-sm">Assign to Groups & Pricing *</h4>
-                                        <div className="space-y-6">
+                                    <div className="bg-black/30 p-5 rounded-3xl border border-white/10 shadow-inner">
+                                        <h4 className="text-base font-extrabold text-slate-200 mb-4 uppercase tracking-wider drop-shadow-sm">Assign to Groups & Pricing *</h4>
+                                        <div className="space-y-4">
                                             {activeBatch?.groups?.length === 0 ? <p className="text-red-400 text-sm font-bold bg-red-500/10 p-4 rounded-xl border border-red-500/20 shadow-sm drop-shadow-sm">Create Groups first!</p> : 
                                             activeBatch?.groups?.map(g => (
-                                                <div key={g.id} className={`flex flex-col p-6 rounded-[2rem] border transition-all shadow-sm ${selectedGroupPrices[g.id] !== undefined ? 'bg-blue-500/10 border-blue-500/40' : 'bg-black/40 border-white/5 hover:border-white/20'}`}>
-                                                    <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5 w-full">
-                                                        <label className="flex items-center gap-4 cursor-pointer min-w-[200px] group">
+                                                <div key={g.id} className={`flex flex-col p-4 sm:p-5 rounded-2xl border transition-all shadow-sm ${selectedGroupPrices[g.id] !== undefined ? 'bg-blue-500/10 border-blue-500/40' : 'bg-black/40 border-white/5 hover:border-white/20'}`}>
+                                                    <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 w-full">
+                                                        <label className="flex items-center gap-3 cursor-pointer min-w-[200px] group">
                                                             <input type="checkbox" checked={selectedGroupPrices[g.id] !== undefined} onChange={() => toggleGroupPrice(g.id)} className="hidden" />
-                                                            <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-colors ${selectedGroupPrices[g.id] !== undefined ? 'bg-blue-500 border-blue-500' : 'border-slate-500 group-hover:border-slate-400'}`}>{selectedGroupPrices[g.id] !== undefined && <CheckCircle size={14} className="text-white"/>}</div>
-                                                            <span className="text-base font-extrabold text-slate-300 group-hover:text-white transition-colors drop-shadow-sm">{g.name}</span>
+                                                            <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-colors ${selectedGroupPrices[g.id] !== undefined ? 'bg-blue-500 border-blue-500' : 'border-slate-500 group-hover:border-slate-400'}`}>{selectedGroupPrices[g.id] !== undefined && <CheckCircle size={12} className="text-white"/>}</div>
+                                                            <span className="text-sm sm:text-base font-extrabold text-slate-300 group-hover:text-white transition-colors drop-shadow-sm">{g.name}</span>
                                                         </label>
                                                         
                                                         {selectedGroupPrices[g.id] !== undefined && (
-                                                            <div className="flex-1 w-full flex flex-col sm:flex-row items-center gap-4 animate-in fade-in duration-200">
-                                                                <input type="number" required placeholder={`Price (LKR)`} value={selectedGroupPrices[g.id].price} onChange={(e) => updateGroupData(g.id, 'price', e.target.value)} className="w-full sm:w-1/2 bg-black/60 border border-blue-500/50 rounded-xl p-3.5 text-sm text-white font-bold outline-none focus:border-blue-400 shadow-inner transition-all" />
+                                                            <div className="flex-1 w-full flex flex-col sm:flex-row items-center gap-3 animate-in fade-in duration-200">
+                                                                <input type="number" required placeholder={`Price (LKR)`} value={selectedGroupPrices[g.id].price} onChange={(e) => updateGroupData(g.id, 'price', e.target.value)} className="w-full sm:w-1/2 bg-black/60 border border-blue-500/50 rounded-xl p-3 text-sm text-white font-bold outline-none focus:border-blue-400 shadow-inner transition-all" />
                                                                 
-                                                                <label className="flex items-center justify-center gap-3 cursor-pointer bg-orange-500/10 border border-orange-500/30 px-5 py-3.5 rounded-xl hover:bg-orange-500/20 transition-colors w-full sm:w-1/2 h-full shadow-sm">
-                                                                    <input type="checkbox" checked={selectedGroupPrices[g.id].deliverTute} onChange={(e) => updateGroupData(g.id, 'deliverTute', e.target.checked)} className="accent-orange-500 w-5 h-5 transition-transform" />
-                                                                    <span className="text-[11px] font-extrabold text-orange-400 uppercase tracking-widest whitespace-nowrap drop-shadow-sm">Deliver Tute</span>
+                                                                <label className="flex items-center justify-center gap-2 cursor-pointer bg-orange-500/10 border border-orange-500/30 px-4 py-3 rounded-xl hover:bg-orange-500/20 transition-colors w-full sm:w-1/2 h-full shadow-sm">
+                                                                    <input type="checkbox" checked={selectedGroupPrices[g.id].deliverTute} onChange={(e) => updateGroupData(g.id, 'deliverTute', e.target.checked)} className="accent-orange-500 w-4 h-4 transition-transform" />
+                                                                    <span className="text-[10px] sm:text-[11px] font-extrabold text-orange-400 uppercase tracking-widest whitespace-nowrap drop-shadow-sm">Deliver Tute</span>
                                                                 </label>
                                                             </div>
                                                         )}
                                                     </div>
 
                                                     {selectedGroupPrices[g.id] !== undefined && selectedGroupPrices[g.id].deliverTute && (
-                                                        <div className="mt-6 pt-6 border-t border-blue-500/20 grid grid-cols-1 md:grid-cols-2 gap-5 animate-in fade-in slide-in-from-top-2">
-                                                            <div>
-                                                                <label className="text-[10px] text-slate-400 mb-1.5 block uppercase tracking-widest font-extrabold">Tute Name (Optional)</label>
-                                                                <input type="text" placeholder="e.g. Mechanics Part 1" value={selectedGroupPrices[g.id].tuteName} onChange={(e) => updateGroupData(g.id, 'tuteName', e.target.value)} className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-orange-500 shadow-inner transition-all" />
-                                                            </div>
-                                                            <div>
-                                                                <label className="text-[10px] text-slate-400 mb-1.5 block uppercase tracking-widest font-extrabold">Tute Cover (Optional)</label>
-                                                                {selectedGroupPrices[g.id]?.tuteCover && (
-                                                                    <p className="text-[10px] font-bold text-green-400 mb-1.5 bg-green-500/10 px-2 py-1 rounded inline-block border border-green-500/20 drop-shadow-sm">Current: {selectedGroupPrices[g.id].tuteCover}</p>
-                                                                )}
-                                                                <input type="file" accept="image/*" onChange={(e) => updateGroupData(g.id, 'tuteFile', e.target.files[0])} className="w-full bg-black/60 border border-white/10 rounded-xl p-2.5 text-sm text-gray-400 file:bg-white/10 file:text-white file:border-0 file:rounded-lg file:px-3 file:py-1.5 file:mr-3 cursor-pointer shadow-inner transition-all" />
-                                                            </div>
+                                                        <div className="mt-4 pt-4 border-t border-blue-500/20">
+                                                            <label className="text-[10px] font-bold text-slate-400 mb-2 block uppercase tracking-wider">Select Tute to Deliver</label>
+                                                            <select 
+                                                                value={selectedGroupPrices[g.id].tuteName || ''} 
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value;
+                                                                    updateGroupData(g.id, 'tuteName', val);
+                                                                    
+                                                                    // Auto set cover and lecturer image if found
+                                                                    const lecName = editData?.lecturerName || document.querySelector('select[name="lecturerName"]')?.value;
+                                                                    const mtd = masterTutes?.find(l => l.name === lecName);
+                                                                    if (mtd) {
+                                                                        const tuteData = mtd.tutes?.find(t => t.name === val);
+                                                                        if (tuteData) {
+                                                                            updateGroupData(g.id, 'tuteCover', tuteData.image || null);
+                                                                        }
+                                                                        updateGroupData(g.id, 'lecturerImage', mtd.image || null);
+                                                                    }
+                                                                }}
+                                                                className="w-full bg-black/60 border border-orange-500/30 rounded-xl p-3 text-sm text-white font-bold outline-none focus:border-orange-500 shadow-inner transition-all cursor-pointer"
+                                                            >
+                                                                <option value="" disabled className="bg-slate-800 text-slate-400">Select Tute</option>
+                                                                {(() => {
+                                                                    const currentVal = selectedGroupPrices[g.id].tuteName;
+                                                                    const currLecName = editData?.lecturerName || document.querySelector('select[name="lecturerName"]')?.value;
+                                                                    const lecData = masterTutes?.find(l => l.name === currLecName);
+                                                                    
+                                                                    const options = [];
+                                                                    let hasLegacy = false;
+
+                                                                    if (currentVal && (!lecData || !lecData.tutes?.some(t => t.name === currentVal))) {
+                                                                        hasLegacy = true;
+                                                                        options.push(<option key="legacy" value={currentVal} className="bg-slate-800 text-yellow-400">{currentVal} (Legacy)</option>);
+                                                                    }
+
+                                                                    if (!lecData || !lecData.tutes || lecData.tutes.length === 0) {
+                                                                        if (!hasLegacy) options.push(<option key="empty" value="" disabled className="bg-slate-800 text-red-400">No tutes found for selected lecturer</option>);
+                                                                    } else {
+                                                                        options.push(...lecData.tutes.map((t, idx) => (
+                                                                            <option key={idx} value={t.name} className="bg-slate-800 text-white">{t.name}</option>
+                                                                        )));
+                                                                    }
+                                                                    return options;
+                                                                })()}
+                                                            </select>
+                                                            {selectedGroupPrices[g.id].tuteName && (
+                                                                <div className="mt-4 p-4 bg-orange-500/10 border border-orange-500/40 rounded-xl flex flex-col sm:flex-row items-center gap-4 shadow-[0_4px_20px_rgba(249,115,22,0.15)] transition-all">
+                                                                    {selectedGroupPrices[g.id].tuteCover ? (
+                                                                        <img 
+                                                                            src={api.defaults.baseURL ? `${api.defaults.baseURL.replace('/api', '')}/storage/documents/${selectedGroupPrices[g.id].tuteCover}` : `https://imacampus.online/storage/documents/${selectedGroupPrices[g.id].tuteCover}`} 
+                                                                            onError={(e) => {
+                                                                                if (e.target.src.includes('/storage/documents/')) {
+                                                                                    e.target.src = e.target.src.replace('/storage/documents/', '/storage/images/');
+                                                                                } else if (e.target.src.includes('/storage/images/')) {
+                                                                                    e.target.src = e.target.src.replace('/storage/images/', '/storage/icons/');
+                                                                                } else {
+                                                                                    e.target.onerror = null;
+                                                                                    e.target.style.display = 'none';
+                                                                                }
+                                                                            }}
+                                                                            alt="Tute Cover" 
+                                                                            className="w-24 h-32 sm:w-28 sm:h-36 object-cover rounded-lg shadow-lg border-2 border-orange-500/50 bg-slate-900" 
+                                                                        />
+                                                                    ) : (
+                                                                        <div className="w-24 h-32 sm:w-28 sm:h-36 bg-slate-800/80 rounded-lg flex flex-col items-center justify-center border-2 border-dashed border-orange-500/30">
+                                                                            <svg className="w-8 h-8 text-slate-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                                                                            <span className="text-[10px] text-slate-400 font-bold tracking-wider">NO COVER</span>
+                                                                        </div>
+                                                                    )}
+                                                                    <div className="flex flex-col text-center sm:text-left mt-2 sm:mt-0">
+                                                                        <span className="text-[10px] text-orange-400 font-black uppercase tracking-[0.2em] mb-1 opacity-80">Selected Tute</span>
+                                                                        <span className="text-xl sm:text-2xl text-white font-black drop-shadow-md leading-tight">{selectedGroupPrices[g.id].tuteName}</span>
+                                                                    </div>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     )}
                                                 </div>
@@ -621,8 +871,8 @@ export default function ContentHubModals({ state, actions }) {
                                     </div>
                                 </div>
                             </div>
-                            <div className="pt-8 border-t border-white/10 mt-8 shrink-0">
-                                <button type="submit" className="w-full bg-brand-accent/90 hover:bg-brand-accent text-white font-extrabold py-4 text-lg rounded-2xl shadow-[0_4px_15px_rgba(225,29,72,0.4)] transition-transform hover:scale-[1.01] uppercase tracking-wide outline-none border border-transparent">
+                            <div className="pt-6 border-t border-white/10 mt-6 shrink-0">
+                                <button type="submit" className="w-full bg-brand-accent/90 hover:bg-brand-accent text-white font-extrabold py-3.5 text-base sm:text-lg rounded-2xl shadow-[0_4px_15px_rgba(225,29,72,0.4)] transition-transform hover:scale-[1.01] uppercase tracking-wide outline-none border border-transparent">
                                     {editMode ? 'Update Subject' : 'Save Subject'}
                                 </button>
                             </div>
@@ -647,6 +897,27 @@ export default function ContentHubModals({ state, actions }) {
                             <div>
                                 <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Display Order</label>
                                 <input type="number" name="order" defaultValue={editData?.itemOrder || "1"} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" />
+                            </div>
+                            
+                            <div>
+                                <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Share with other Batches (Optional)</label>
+                                <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar p-3 bg-black/40 border border-white/5 rounded-xl">
+                                    {batches.filter(b => b.id !== activeBatch?.id).map(b => (
+                                        <label key={`share-folder-b-${b.id}`} className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-white/5 transition-colors">
+                                            <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-colors ${selectedBatchesForContent.includes(b.id) ? 'bg-brand-accent border-brand-accent' : 'border-slate-500'}`}>
+                                                {selectedBatchesForContent.includes(b.id) && <CheckCircle size={12} className="text-white"/>}
+                                            </div>
+                                            <span className="text-sm text-gray-300">{b.name}</span>
+                                            <input type="checkbox" className="hidden" checked={selectedBatchesForContent.includes(b.id)} 
+                                                onChange={(e) => {
+                                                    if(e.target.checked) setSelectedBatchesForContent([...selectedBatchesForContent, b.id]);
+                                                    else setSelectedBatchesForContent(selectedBatchesForContent.filter(id => id !== b.id));
+                                                }}
+                                            />
+                                        </label>
+                                    ))}
+                                    {batches.filter(b => b.id !== activeBatch?.id).length === 0 && <span className="text-xs text-gray-500">No other batches available</span>}
+                                </div>
                             </div>
                             <button type="submit" className="w-full bg-brand-accent/90 hover:bg-brand-accent text-white font-extrabold py-4 text-lg rounded-2xl shadow-[0_4px_15px_rgba(225,29,72,0.4)] mt-6 outline-none transition-transform hover:scale-[1.01] uppercase tracking-wide border border-transparent">
                                 {editMode ? 'Update Folder' : 'Create Folder'}

@@ -1,19 +1,22 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { FaLock, FaUnlock, FaSave, FaCommentDots, FaArrowRight, FaChevronDown, FaChevronUp, FaExclamationTriangle, FaBell, FaTimes, FaCheckCircle, FaTrash, FaInfoCircle } from 'react-icons/fa';
+import { FaLock, FaUnlock, FaSave, FaCommentDots, FaArrowRight, FaChevronDown, FaChevronUp, FaExclamationTriangle, FaBell, FaTimes, FaCheckCircle, FaTrash, FaInfoCircle, FaPhoneAlt, FaWhatsapp } from 'react-icons/fa';
 import { Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from '../../../../api/axios';
+import { useCall } from '../../../../contexts/CallContext';
 
 export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, handleUpdateLocalLead, handleLocalCallStatusChange, handleRemarkTyping, handleSaveCallData, handlePushToNextRound, setChatModalLead, isManager, handleTempUnlock }) {
     
     // FIX: Lead එක undefined වෙලා ආවොත් Crash වෙන එක නවත්තන්න
     if (!lead) return null;
 
+    const { startOutboundCall } = useCall();
     const [isExpanded, setIsExpanded] = useState(lead?.callStatus === 'pending' || !lead?.callStatus);
     const currentRemark = drafts?.[lead?.id] !== undefined ? drafts[lead.id] : (lead?.feedback || '');
     const isLate = timer?.type === 'danger' && activeTab !== 'ENROLLED';
-    const isLocked = false; 
+    const isLocked = lead?.locked || false; 
+    const unlocksInDays = lead?.unlocksInDays || 0;
     const invalidPending = false;
     
     // 🔥 Local State එකක් හදමු Dropdown අගයන් Save එක එබෙනකම් තියාගන්න
@@ -134,8 +137,23 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
         }
     };
 
+    const handleSendCallRequest = async (e) => {
+        e.preventDefault();
+        const loadToast = toast.loading("Sending call request...");
+        try {
+            const token = localStorage.getItem('token');
+            await axios.post('/after-seminar-crm/leads/send-call-request', { leadId: lead.id }, { headers: { Authorization: `Bearer ${token}` } });
+            toast.success("Request sent successfully!", { id: loadToast });
+            if (typeof handleUpdateLocalLead === 'function') {
+                handleUpdateLocalLead(lead.id, 'waCallPermissionStatus', 'PENDING');
+            }
+        } catch (error) {
+            toast.error("Failed to send request.", { id: loadToast });
+        }
+    };
+
     return (
-        <div className={`bg-white/5 backdrop-blur-md rounded-xl overflow-hidden border ${lead?.enrollmentStatus === 'ENROLLED' ? 'border-emerald-500/30' : (isLate ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'border-white/10 hover:border-white/20')} transition-all duration-200 shadow-sm flex flex-col`}>
+        <div className={`bg-white/5 backdrop-blur-md rounded-xl overflow-hidden border ${((lead?.enrollmentStatus === 'ENROLLED' || lead?.enrollmentStatus === 'PAID' || (lead?.enrollmentStatus && lead?.enrollmentStatus.startsWith('ENROLLED_')))) ? 'border-emerald-500/30' : (isLate ? 'border-red-500/50 shadow-[0_0_10px_rgba(239,68,68,0.2)]' : 'border-white/10 hover:border-white/20')} transition-all duration-200 shadow-sm flex flex-col`}>
             
             <div onClick={() => setIsExpanded(!isExpanded)} className="p-3 flex justify-between items-start cursor-pointer relative bg-black/10 hover:bg-black/20 transition-colors">
                 <div className="flex gap-3 overflow-hidden">
@@ -144,7 +162,7 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
                     </div>
                     <div className="flex flex-col overflow-hidden">
                         <h4 className="font-black text-[15px] text-white flex items-center gap-1.5 truncate tracking-wide">
-                            {lead?.phone} {isLocked && <FaLock size={10} className="text-rose-500"/>}
+                            {lead?.phone} {isLocked && <div className="flex items-center gap-1 bg-rose-500/20 px-1.5 py-0.5 rounded text-[10px] font-bold text-rose-400 ml-2 border border-rose-500/30"><FaLock size={8}/> Frozen: {unlocksInDays} Days</div>}
                             {lead?.roundProgress && lead.roundProgress.length > 0 && (
                                 <div className="group relative flex items-center ml-1">
                                     <FaInfoCircle size={12} className="text-indigo-400 cursor-help" title={`Round History:\n${lead.roundProgress.map(rp => `Round ${rp.roundNum} (${rp.campaignCategory}): ${rp.callStatus?.toUpperCase() || 'N/A'}, Attempt ${rp.callAttempt || 1}, Remark: ${rp.feedback || 'None'}`).join('\n')}`} />
@@ -210,16 +228,48 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
                     </div>
 
                     <div className="flex-1 flex flex-col min-h-[70px]">
+                        {lead?.r1Feedback && lead.coordinationRound === 2 && (
+                            <div className="mb-2 p-2 bg-indigo-500/10 border border-indigo-500/20 rounded-md">
+                                <p className="text-[9px] font-bold text-indigo-400 uppercase mb-0.5">Round 1 Remark</p>
+                                <p className="text-xs text-slate-300 whitespace-pre-wrap">{lead.r1Feedback}</p>
+                            </div>
+                        )}
                         <label className="text-[10px] font-bold text-slate-400 mb-1 flex justify-between items-center">
-                            Remarks 
+                            {lead?.coordinationRound === 2 ? 'Round 2 Remarks' : 'Remarks'}
                             {typingMode === 'si-phonetic' && <span className="text-indigo-300 bg-indigo-500/20 px-1.5 py-0.5 rounded text-[9px]">SIN</span>}
                         </label>
                         <textarea 
                             disabled={isLocked}
                             value={currentRemark} onChange={(e) => handleRemarkTyping(lead.id, e.target.value)} 
                             placeholder="Add your notes..." 
-                            className={`flex-1 w-full bg-black/30 border border-white/10 focus:border-indigo-500 rounded-lg p-2 text-xs font-medium text-slate-200 outline-none resize-none custom-scrollbar transition-colors`} 
+                            className={`flex-1 w-full ${isLocked ? 'bg-black/50 opacity-60' : 'bg-black/30'} border border-white/10 focus:border-indigo-500 rounded-lg p-2 text-xs font-medium text-slate-200 outline-none resize-none custom-scrollbar transition-colors`} 
                         />
+                    </div>
+
+                    {/* Dual Call Buttons */}
+                    <div className="flex gap-2 w-full mt-3 mb-2">
+                        <button onClick={(e) => { e.preventDefault(); toast.error('Coming Soon', { icon: '🚧' }); }} className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg py-2 text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 transition-all border border-blue-500/30">
+                            <FaPhoneAlt size={12} /> Normal Call
+                        </button>
+
+                        {lead.waCallPermissionStatus === 'ALLOWED' && (!lead.waCallPermissionExpiry || new Date(lead.waCallPermissionExpiry) > new Date()) ? (
+                            <button onClick={() => {
+                                if (startOutboundCall) {
+                                    startOutboundCall({ lead, businessId: lead.batch?.businessId, campaignType: 'AFTER_SEMINAR' });
+                                } else if (typeof onInitiateCall === 'function') {
+                                    onInitiateCall(lead);
+                                } else if (onOpenChat) {
+                                    onOpenChat(lead);
+                                }
+                            }} className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white rounded-lg py-1.5 text-xs font-bold flex flex-col items-center justify-center shadow-md shadow-emerald-500/20 transition-all leading-none border border-emerald-500/30">
+                                <div className="flex items-center gap-1.5 mb-1">
+                                    <FaWhatsapp size={14} /> WhatsApp Call
+                                </div>
+                                <span className="text-[9px] font-mono text-emerald-100 bg-black/20 px-1.5 py-0.5 rounded">
+                                    {lead.waCallPermissionExpiry ? `Ends: ${Math.max(0, Math.ceil((new Date(lead.waCallPermissionExpiry) - new Date()) / (1000 * 60 * 60 * 24)))} Days` : 'Always Allowed'}
+                                </span>
+                            </button>
+                        ) : null}
                     </div>
 
                     <div className="flex flex-col gap-2 mt-auto">
@@ -231,8 +281,8 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
                         </select>
                         
                         <div className="flex gap-2 w-full">
-                            <button disabled={invalidPending} onClick={handleLocalSave} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 text-[11px] font-black uppercase tracking-wider transition-transform bg-indigo-600 hover:bg-indigo-500 text-white shadow-md hover:scale-[1.02]`}>
-                                <FaSave size={12}/> SAVE
+                            <button disabled={invalidPending || isLocked} onClick={handleLocalSave} className={`flex-1 py-2 rounded-lg flex items-center justify-center gap-1.5 text-[11px] font-black uppercase tracking-wider transition-transform ${isLocked ? 'bg-slate-600 text-slate-400 cursor-not-allowed opacity-50' : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md hover:scale-[1.02]'}`}>
+                                <FaSave size={12}/> {isLocked ? 'FROZEN' : 'SAVE'}
                             </button>
                             <button onClick={(e) => { e.preventDefault(); if(typeof setChatModalLead === 'function') setChatModalLead(lead); }} className="bg-white/10 hover:bg-white/20 border border-white/10 text-white px-3.5 rounded-lg flex items-center justify-center relative transition-colors shadow-sm">
                                 <FaCommentDots size={14}/>

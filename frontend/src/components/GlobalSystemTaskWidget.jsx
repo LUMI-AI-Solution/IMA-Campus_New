@@ -3,8 +3,9 @@ import { Wrench, X, Upload, Image, Loader2 } from 'lucide-react';
 import axios from '../api/axios';
 import toast from 'react-hot-toast';
 
-export default function GlobalSystemTaskWidget({ loggedInUser }) {
-    const [isOpen, setIsOpen] = useState(false);
+export default function GlobalSystemTaskWidget({ loggedInUser, asModal, onClose }) {
+    const [isOpen, setIsOpen] = useState(asModal ? true : false);
+
     const [topic, setTopic] = useState('');
     const [description, setDescription] = useState('');
     const [images, setImages] = useState([]);
@@ -103,14 +104,7 @@ export default function GlobalSystemTaskWidget({ loggedInUser }) {
             });
 
             toast.success("Issue submitted successfully!", { id: toastId });
-            
-            // Reset form
-            setTopic('');
-            setDescription('');
-            setImages([]);
-            imagePreviews.forEach(p => URL.revokeObjectURL(p));
-            setImagePreviews([]);
-            setIsOpen(false);
+            handleFormSuccess();
         } catch (error) {
             console.error("Failed to submit system task:", error);
             const errMsg = error.response?.data?.error || "Failed to submit. Try again.";
@@ -120,39 +114,49 @@ export default function GlobalSystemTaskWidget({ loggedInUser }) {
         }
     };
 
-    return (
-        <div className="fixed bottom-6 right-24 z-[9999]">
-            {/* Floating Action Button */}
-            <button 
-                onClick={() => setIsOpen(!isOpen)}
-                className={`bg-brand-accent hover:bg-brand-accent/90 text-white w-14 h-14 rounded-full flex justify-center items-center shadow-lg shadow-rose-500/30 transition-all hover:scale-110 relative border-2 border-white/20 ${pendingCount > 0 ? 'animate-[pulse_1.8s_infinite]' : ''}`}
-                title="Report System Issue / Request Help"
-            >
-                <Wrench size={22} className={isOpen ? 'rotate-45 transition-transform' : 'transition-transform'} />
-                {pendingCount > 0 && (
-                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black w-5 h-5 flex justify-center items-center rounded-full border-2 border-[#0B1120] animate-bounce shadow-md">
-                        {pendingCount}
-                    </span>
-                )}
-            </button>
+    const handleClose = () => {
+        if (asModal && onClose) onClose();
+        else setIsOpen(false);
+    };
 
-            {/* Glassmorphic Modal overlay */}
+    const handleFormSuccess = () => {
+        setTopic('');
+        setDescription('');
+        setImages([]);
+        imagePreviews.forEach(p => URL.revokeObjectURL(p));
+        setImagePreviews([]);
+        handleClose();
+    };
+
+    return (
+
+        <div className={asModal ? "" : "fixed bottom-6 right-24 z-[9999]"}>
+            {!asModal && (
+                <button 
+                    onClick={() => setIsOpen(!isOpen)}
+                    className={`bg-brand-accent hover:bg-brand-accent/90 text-white w-14 h-14 rounded-full flex justify-center items-center shadow-lg shadow-rose-500/30 transition-all hover:scale-110 relative border-2 border-white/20 ${pendingCount > 0 ? 'animate-[pulse_1.8s_infinite]' : ''}`}
+                    title="Report System Issue / Request Help"
+                >
+                    <Wrench size={22} className={isOpen ? 'rotate-45 transition-transform' : 'transition-transform'} />
+                    {pendingCount > 0 && (
+                        <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black w-5 h-5 flex justify-center items-center rounded-full border-2 border-[#0B1120] animate-bounce shadow-md">
+                            {pendingCount}
+                        </span>
+                    )}
+                </button>
+            )}
+
             {isOpen && (
-                <div className="absolute bottom-16 right-0 w-96 bg-[#0B1120]/95 border border-white/10 rounded-2xl shadow-2xl animate-fade-in-up flex flex-col max-h-[600px] overflow-hidden backdrop-blur-2xl">
-                    {/* Header */}
-                    <div className="p-4 bg-white/5 border-b border-white/10 rounded-t-2xl flex justify-between items-center shrink-0">
+                <div className={asModal ? "fixed bottom-24 right-6 w-96 max-h-[600px] h-[600px] z-[9999] bg-[#0B1120] border border-white/10 rounded-2xl shadow-2xl overflow-hidden animate-fade-in-up flex flex-col backdrop-blur-2xl" : "absolute bottom-16 right-0 w-96 bg-[#0B1120]/95 border border-white/10 rounded-2xl shadow-2xl animate-fade-in-up flex flex-col max-h-[600px] overflow-hidden backdrop-blur-2xl"}>
+                    <div className="p-4 bg-white/5 border-b border-white/10 flex justify-between items-center shrink-0">
                         <h3 className="text-white font-black flex items-center gap-2 text-sm">
                             <Wrench className="text-brand-accent w-4 h-4"/> 
                             Report Issue / Request Task
                         </h3>
-                        <button 
-                            onClick={() => setIsOpen(false)} 
-                            className="text-gray-400 hover:text-white transition-colors"
-                        >
+                        <button onClick={handleClose} className="text-gray-400 hover:text-white transition-colors">
                             <X size={18}/>
                         </button>
                     </div>
-
                     {/* Scrollable Form Body */}
                     <form onSubmit={handleSubmit} className="p-4 overflow-y-auto custom-scrollbar flex-1 space-y-4 text-left">
                         {/* Submitter details badge */}

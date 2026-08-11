@@ -7,7 +7,10 @@ import toast from 'react-hot-toast';
 
 export default function StudentDataCenter({ loggedInUser }) {
     const navigate = useNavigate();
-    const isAdmin = loggedInUser?.role?.toUpperCase() === 'SYSTEM_ADMIN' || loggedInUser?.role?.toUpperCase() === 'DIRECTOR';
+    const userRole = loggedInUser?.role ? String(loggedInUser.role).toUpperCase().replace(/[\s_-]+/g, '_') : '';
+    const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER_ADMIN', 'ADMIN'].includes(userRole);
+    const isManager = ['MANAGER', 'ASS_MANAGER', 'SUPER'].includes(userRole);
+    const canManageStudents = isAdmin || isManager;
     
     const [loading, setLoading] = useState(true);
     const [students, setStudents] = useState([]);
@@ -41,7 +44,7 @@ export default function StudentDataCenter({ loggedInUser }) {
         try {
             const res = await axios.get('/admin/students-data-center');
             setStudents(res.data || []);
-            if (isAdmin) {
+            if (canManageStudents) {
                 const bizRes = await axios.get('/admin/businesses');
                 setBusinesses(bizRes.data?.businesses || bizRes.data || []);
             }
@@ -53,7 +56,7 @@ export default function StudentDataCenter({ loggedInUser }) {
         }
     };
 
-    useEffect(() => { fetchData(); }, [isAdmin]);
+    useEffect(() => { fetchData(); }, [canManageStudents]);
 
     useEffect(() => {
         if (filterBusinessId === 'All') {
@@ -233,13 +236,13 @@ export default function StudentDataCenter({ loggedInUser }) {
             (student.id && `STU-${student.id}`.includes(searchQuery.toUpperCase()));
 
         let matchesBiz = true;
-        if (isAdmin && filterBusinessId !== 'All') {
+        if (canManageStudents && filterBusinessId !== 'All') {
             const selectedBiz = businesses.find(b => b.id.toString() === filterBusinessId);
             if (selectedBiz) matchesBiz = (student.enrolledBusinesses || []).includes(selectedBiz.name);
         }
 
         let matchesBatch = true;
-        if (isAdmin && filterBatch !== 'All') matchesBatch = (student.enrolledBatches || []).includes(filterBatch);
+        if (canManageStudents && filterBatch !== 'All') matchesBatch = (student.enrolledBatches || []).includes(filterBatch);
 
         return matchesSearch && matchesBiz && matchesBatch;
     });
@@ -366,7 +369,7 @@ const handleDeleteStudent = async (studentId, studentName) => {
                     />
                 </div>
                 
-                {isAdmin && (
+                {canManageStudents && (
                     <div className="flex flex-wrap gap-3 w-full md:w-auto">
                         <select 
                             value={filterBusinessId} 
@@ -402,7 +405,7 @@ const handleDeleteStudent = async (studentId, studentName) => {
                             
                             <div className="flex items-start gap-5 flex-1 min-w-0 w-full">
                                 <img 
-                                    src={student.image && student.image !== 'default.png' ? `http://72.62.249.211:5000/images/${student.image}` : '/logo.png'} 
+                                    src={student.image && student.image !== 'default.png' ? `${axios.defaults.baseURL.replace('/api', '')}/images/${student.image}` : '/logo.png'} 
                                     alt="Profile" 
                                     className="w-14 h-14 rounded-xl object-cover bg-black/50 border border-white/10 shrink-0 mt-1 transition-all group-hover:scale-105"
                                     onError={(e) => e.target.src = '/logo.png'}
@@ -457,7 +460,7 @@ const handleDeleteStudent = async (studentId, studentName) => {
                                 </button>
 
                                 {/* 🔥 DELETE BUTTON ADDED HERE 🔥 */}
-                                {isAdmin && (
+                                {canManageStudents && (
                                     <button onClick={() => handleDeleteStudent(student.id, student.firstName)} className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white font-bold py-2.5 px-4 rounded-xl transition-all text-xs border border-red-500/20 shadow-sm outline-none">
                                         <Trash2 size={16}/> DELETE
                                     </button>

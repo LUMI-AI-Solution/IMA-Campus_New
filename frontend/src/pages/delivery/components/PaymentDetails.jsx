@@ -14,7 +14,7 @@ export default function PaymentDetails({ isReadOnly }) {
     const [installmentNo, setInstallmentNo] = useState('All');
     const [selectedBatch, setSelectedBatch] = useState('All');
 
-    const getBizLogoUrl = (imageName) => (!imageName || imageName === 'default.png' || imageName === 'null') ? '/logo.png' : `${axios.defaults.baseURL.replace('/api', '')}/storage/icons/${imageName}`;
+    const getBizLogoUrl = (imageName) => (!imageName || imageName === 'default.png' || imageName === 'null') ? '/logo.png' : `${axios.defaults.baseURL}/storage/icons/${imageName}`;
 
     useEffect(() => {
         fetchBusinesses();

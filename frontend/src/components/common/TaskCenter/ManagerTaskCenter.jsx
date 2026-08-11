@@ -174,9 +174,9 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                     {businesses.length > 1 && (
                         <div className="flex items-center gap-3 bg-gray-50 dark:bg-transparent px-4 py-2.5 rounded-xl border border-gray-200 dark:border-slate-700/30 w-full md:w-1/3 focus-within:border-brand-accent dark:focus-within:border-brand-accent transition-colors">
                             <Filter size={16} className="text-gray-400 dark:text-slate-400 shrink-0" />
-                            <select value={selectedBiz} onChange={(e) => setSelectedBiz(e.target.value)} className="w-full bg-transparent text-gray-900 dark:text-slate-200 font-medium outline-none text-sm cursor-pointer transition-colors">
-                                <option value="" className="bg-white dark:bg-transparent">-- Select Business --</option>
-                                {businesses.map(b => <option key={b.id} value={b.id} className="bg-white dark:bg-transparent">{b.name}</option>)}
+                            <select value={selectedBiz} onChange={(e) => setSelectedBiz(e.target.value)} className="w-full bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-slate-200 font-medium outline-none text-sm cursor-pointer transition-colors">
+                                <option value="" className="bg-gray-100 dark:bg-slate-900 text-gray-900 dark:text-slate-200">-- Select Business --</option>
+                                {businesses.map(b => <option key={b.id} value={b.id} className="bg-gray-100 dark:bg-slate-900 text-gray-900 dark:text-slate-200">{b.name}</option>)}
                             </select>
                         </div>
                     )}
@@ -271,7 +271,7 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                                             <div className="bg-gray-50 dark:bg-transparent p-3.5 rounded-xl border border-gray-200 dark:border-slate-700/30 text-xs text-gray-600 dark:text-slate-400 space-y-2 mb-5 flex-1 transition-colors">
                                                 {task.taskType !== 'CUSTOM' && task.timetable ? (
                                                     <>
-                                                        <div className="flex justify-between items-center"><span>Class Date</span> <span className="font-bold text-gray-800 dark:text-slate-300 transition-colors">{task.timetable.date.split('T')[0]}</span></div>
+                                                        <div className="flex justify-between items-center"><span>Class Date</span> <span className="font-bold text-gray-800 dark:text-slate-300 transition-colors">{new Date(task.timetable.date).toLocaleDateString('en-CA')}</span></div>
                                                         <div className="flex justify-between items-center"><span>Time</span> <span className="font-bold text-gray-800 dark:text-slate-300 transition-colors">{task.timetable.startTime} - {task.timetable.endTime}</span></div>
                                                     </>
                                                 ) : null}
@@ -310,8 +310,10 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                                                     </div>
                                                 )}
 
-                                                {activeTab === 'pending' && selectedTaskIds.length === 0 && (
-                                                    <button onClick={(e) => { e.stopPropagation(); setSelectedTask(task); setShowAssignModal(true); }} className="flex-1 bg-brand-accent hover:bg-brand-accentHover text-white py-2 font-medium rounded-xl transition-colors text-sm shadow-[0_4px_15px_rgba(225,29,72,0.3)] outline-none">Assign Staff</button>
+                                                {(activeTab === 'pending' || activeTab === 'in_progress') && selectedTaskIds.length === 0 && (
+                                                    <button onClick={(e) => { e.stopPropagation(); setSelectedTask(task); setShowAssignModal(true); }} className="flex-1 bg-brand-accent hover:bg-brand-accentHover text-white py-2 font-medium rounded-xl transition-colors text-sm shadow-[0_4px_15px_rgba(225,29,72,0.3)] outline-none">
+                                                        {task.assignedUser ? 'Re-assign Staff' : 'Assign Staff'}
+                                                    </button>
                                                 )}
 
                                                 {activeTab === 'requests' && <button onClick={() => { setSelectedTask(task); setShowUnlockModal(true); }} className="flex-1 bg-orange-500 hover:bg-orange-600 text-white py-2 font-medium text-sm rounded-xl transition-colors shadow-[0_4px_15px_rgba(249,115,22,0.3)] outline-none">Review Request</button>}
@@ -346,9 +348,18 @@ export default function ManagerTaskCenter({ loggedInUser }) {
 
                         <form onSubmit={handleAssign}>
                             <label className="text-xs font-bold text-gray-500 dark:text-slate-400 mb-2 block transition-colors tracking-widest uppercase">Select Coordinator/Staff</label>
-                            <select name="staffId" required className="w-full bg-gray-50 dark:bg-transparent border border-gray-200 dark:border-slate-700/30 rounded-xl p-4 text-gray-900 dark:text-white text-sm font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent mb-6 cursor-pointer transition-colors shadow-sm appearance-none">
-                                <option value="" className="text-gray-400 dark:text-slate-500">Select a person...</option>
-                                {staffList.map(s => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
+                            <select name="staffId" required className="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700/30 rounded-xl p-4 text-gray-900 dark:text-white text-sm font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent mb-6 cursor-pointer transition-colors shadow-sm appearance-none">
+                                <option value="" className="bg-gray-100 dark:bg-slate-900 text-gray-400 dark:text-slate-500">Select a person...</option>
+                                {staffList
+                                    .filter(s => {
+                                        if (!selectedBiz) return true;
+                                        if (!s.businessType) return false;
+                                        const selectedBizObj = businesses.find(b => b.id.toString() === selectedBiz.toString());
+                                        const selectedBizName = selectedBizObj ? selectedBizObj.name : '';
+                                        const bizArray = String(s.businessType).split(',').map(str => str.trim());
+                                        return bizArray.includes(String(selectedBizName).trim());
+                                    })
+                                    .map(s => <option key={s.id} value={s.id} className="bg-gray-100 dark:bg-slate-900 text-gray-900 dark:text-slate-200">{s.firstName} {s.lastName}</option>)}
                             </select>
                             <button type="submit" className="w-full bg-brand-accent hover:bg-brand-accentHover text-white font-black py-4 rounded-xl transition-transform hover:scale-[1.02] flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(225,29,72,0.3)] uppercase tracking-wide outline-none border border-transparent">
                                 <Check size={18}/> Confirm Assignment
@@ -554,10 +565,12 @@ const ManagerTaskSettings = ({ businesses, staffList }) => {
             <div className="bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl p-6 md:p-8 rounded-3xl border border-gray-200 dark:border-slate-700/30 shadow-sm h-fit transition-colors">
                 <h3 className="text-xl font-black text-gray-900 dark:text-white mb-6 flex items-center gap-2 transition-colors"><Clock className="text-brand-accent" size={20}/> System Automation Timers</h3>
                 {businesses.length > 1 && (
-                    <select value={biz} onChange={e=>setBiz(e.target.value)} className="w-full bg-gray-50 dark:bg-transparent border border-gray-200 dark:border-slate-700/30 rounded-xl p-3 text-gray-900 dark:text-white text-sm font-bold mb-6 outline-none focus:border-brand-accent dark:focus:border-brand-accent cursor-pointer transition-colors shadow-sm">
-                        <option value="" className="text-gray-400 dark:text-slate-500">Select Business to Configure...</option>
-                        {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
+                    <div className="w-full bg-gray-50 dark:bg-transparent border border-gray-200 dark:border-slate-700/30 rounded-xl p-3 mb-6 focus-within:border-brand-accent dark:focus-within:border-brand-accent transition-colors shadow-sm">
+                        <select value={selectedBizForSettings} onChange={(e) => { setSelectedBizForSettings(e.target.value); setBiz(e.target.value); }} className="w-full bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-slate-200 font-medium outline-none text-sm cursor-pointer transition-colors appearance-none">
+                            <option value="" className="bg-gray-100 dark:bg-slate-900 text-gray-400 dark:text-slate-500">Select Business to Configure...</option>
+                            {businesses.map(b => <option key={b.id} value={b.id} className="bg-gray-100 dark:bg-slate-900 text-gray-900 dark:text-slate-200">{b.name}</option>)}
+                        </select>
+                    </div>
                 )}
 
                 <div className="space-y-3">
@@ -596,10 +609,21 @@ const ManagerTaskSettings = ({ businesses, staffList }) => {
                         </div>
                         <div>
                             <label className="text-[10px] uppercase tracking-widest font-bold text-gray-500 dark:text-slate-500 ml-1 mb-1.5 block transition-colors">Auto Assign To</label>
-                            <select name="autoAssignTo" value={ctForm.autoAssignTo} onChange={handleCtFormChange} className="w-full bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl border border-gray-200 dark:border-slate-700/30 rounded-xl p-4 text-gray-900 dark:text-slate-200 text-sm font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm cursor-pointer appearance-none">
-                                <option value="" className="text-gray-400 dark:text-slate-500">Select Staff...</option>
-                                {staffList.map(s => <option key={s.id} value={s.id}>{s.firstName} {s.lastName}</option>)}
-                            </select>
+                            <div className="w-full bg-white dark:bg-slate-900/40 dark:backdrop-blur-xl border border-gray-200 dark:border-slate-700/30 rounded-xl p-4 focus-within:border-brand-accent dark:focus-within:border-brand-accent transition-colors shadow-sm">
+                                <select value={editConfig.defaultAssignee} onChange={(e) => { setEditConfig({...editConfig, defaultAssignee: e.target.value}); setCtForm({...ctForm, autoAssignTo: e.target.value}); }} className="w-full bg-gray-50 dark:bg-slate-900 text-gray-900 dark:text-slate-200 font-medium outline-none text-sm cursor-pointer transition-colors appearance-none">
+                                    <option value="" className="bg-gray-100 dark:bg-slate-900 text-gray-400 dark:text-slate-500">No Default Assignee</option>
+                                    {staffList
+                                        .filter(s => {
+                                            if (!selectedBizForSettings) return true;
+                                            if (!s.businessType) return false;
+                                            const selectedBizObj = businesses.find(b => b.id.toString() === selectedBizForSettings.toString());
+                                            const selectedBizName = selectedBizObj ? selectedBizObj.name : '';
+                                            const bizArray = String(s.businessType).split(',').map(str => str.trim());
+                                            return bizArray.includes(String(selectedBizName).trim());
+                                        })
+                                        .map(s => <option key={s.id} value={s.id} className="bg-gray-100 dark:bg-slate-900 text-gray-900 dark:text-slate-200">{s.firstName} {s.lastName}</option>)}
+                                </select>
+                            </div>
                         </div>
                     </div>
 

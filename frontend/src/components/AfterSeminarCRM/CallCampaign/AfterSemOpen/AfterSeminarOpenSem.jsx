@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import axios from '../../../../api/axios';
-import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash, FaCheckCircle, FaExclamationCircle, FaUser, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaInfoCircle } from 'react-icons/fa';
-import { Target, PhoneCall, Check, Loader, BookOpen, Loader2 } from 'lucide-react';
+import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash, FaCheckCircle, FaExclamationCircle, FaUser, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaInfoCircle, FaFileExcel, FaPhoneAlt, FaWhatsapp } from 'react-icons/fa';
+import { Target, PhoneCall, Check, Loader, BookOpen, Loader2, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
+import * as XLSX from 'xlsx';
 
 export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts, setDrafts, handleUpdateLocalLead, handleSaveCallData, setChatModalLead, isManager, handleTempUnlock, externalSearch }) {
 
@@ -16,6 +17,30 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
     const [guidanceLang, setGuidanceLang] = useState('SI');
 
     const [currentTime, setCurrentTime] = useState(new Date().getTime());
+
+    const handleCopy = (text, label) => {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(() => {
+                toast.success(`${label} copied!`, { style: { background: '#0F172A', color: '#fff', border: '1px solid #334155' } });
+            }).catch(() => toast.error(`Failed to copy ${label}`));
+        } else {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            textArea.style.top = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                toast.success(`${label} copied!`, { style: { background: '#0F172A', color: '#fff', border: '1px solid #334155' } });
+            } catch (err) {
+                toast.error(`Failed to copy ${label}.`);
+            }
+            textArea.remove();
+        }
+    };
 
     useEffect(() => {
         const interval = setInterval(() => {
@@ -68,10 +93,10 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
 
     const ITEMS_PER_PAGE = 20;
 
-    const openSemLeads = Array.isArray(leads) ? leads.filter(l => l?.inquiryType === 'OPEN_SEMINAR' || l?.inquiryType === 'NORMAL') : [];
+    const openSemLeads = Array.isArray(leads) ? leads.filter(l => l?.inquiryType === 'OPEN_SEMINAR') : [];
 
     const isLeadDelayed = (l) => {
-        if (l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID') return false;
+        if (((((l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_')))) || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'))))) return false;
         if (l.isPast) return false;
 
         const startTime = new Date(l.assignedAt || l.createdAt).getTime();
@@ -95,7 +120,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
     };
 
     const isAutoPushedToNonEnrolled = (l) => {
-        if (l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID') return false;
+        if (((((l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))) || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_'))))) return false;
         if ((l.coordinationRound || 1) === 2) {
             const startTime = new Date(l.assignedAt || l.createdAt).getTime();
             const diffMs = new Date().getTime() - startTime;
@@ -133,10 +158,10 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
     const baseRoundLeads = useMemo(() => {
         let baseLeads = openSemLeads;
         if (activeRound === 'enrolled') {
-            baseLeads = baseLeads.filter(l => l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID');
+            baseLeads = baseLeads.filter(l => ((((l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))) || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))));
         } else if (activeRound === 'non_enrolled') {
             baseLeads = baseLeads.filter(l => {
-                if (l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID') return false;
+                if (((((l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))) || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_'))))) return false;
                 if (l?.coordinationRound === 3) return true;
                 if (isAutoPushedToNonEnrolled(l)) return true;
                 
@@ -144,7 +169,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
             });
         } else {
             baseLeads = baseLeads
-                .filter(l => l?.enrollmentStatus !== 'ENROLLED' && l?.enrollmentStatus !== 'PAID')
+                .filter(l => (!(((l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))) || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))))
                 .filter(l => {
                     if (isAutoPushedToNonEnrolled(l)) return false;
                     return true;
@@ -234,7 +259,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
         if (activeRound === 'r1') {
             totalAssigned = openSemLeads.length;
             
-            const r1CurrentLeads = openSemLeads.filter(l => (l?.coordinationRound || 1) === 1 && l?.enrollmentStatus !== 'ENROLLED');
+            const r1CurrentLeads = openSemLeads.filter(l => (l?.coordinationRound || 1) === 1 && (!(l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))));
             currentlyInRound = r1CurrentLeads.length;
             
             pending = r1CurrentLeads.filter(l => l.callStatus === 'pending' || !l.callStatus).length;
@@ -242,16 +267,16 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
             reject = r1CurrentLeads.filter(l => l.callStatus === 'reject').length;
             delayed = r1CurrentLeads.filter(l => isLeadDelayed(l)).length;
             
-            movedToR2 = openSemLeads.filter(l => (l?.coordinationRound || 1) > 1 && l?.enrollmentStatus !== 'ENROLLED').length;
+            movedToR2 = openSemLeads.filter(l => (l?.coordinationRound || 1) > 1 && (!(l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_'))))).length;
             
-            const enrolledCount = openSemLeads.filter(l => l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID').length;
+            const enrolledCount = openSemLeads.filter(l => ((((l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))) || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_'))))).length;
             responseRate = totalAssigned > 0 ? ((enrolledCount / totalAssigned) * 100).toFixed(1) : 0;
             
         } else if (activeRound === 'r2') {
             const r2ArrivedLeads = openSemLeads.filter(l => (l?.coordinationRound || 1) >= 2);
             totalAssigned = r2ArrivedLeads.length;
             
-            const r2CurrentLeads = r2ArrivedLeads.filter(l => (l?.coordinationRound || 1) === 2 && l?.enrollmentStatus !== 'ENROLLED' && !isAutoPushedToNonEnrolled(l));
+            const r2CurrentLeads = r2ArrivedLeads.filter(l => (l?.coordinationRound || 1) === 2 && (!(l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))) && !isAutoPushedToNonEnrolled(l));
             currentlyInRound = r2CurrentLeads.length;
             
             pending = r2CurrentLeads.filter(l => l.callStatus === 'pending' || !l.callStatus).length;
@@ -259,21 +284,21 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
             reject = r2CurrentLeads.filter(l => l.callStatus === 'reject').length;
             delayed = r2CurrentLeads.filter(l => isLeadDelayed(l)).length;
             
-            movedToNonEnrolled = r2ArrivedLeads.filter(l => (l?.coordinationRound === 3 || isAutoPushedToNonEnrolled(l)) && l?.enrollmentStatus !== 'ENROLLED').length;
-            movedToPaid = r2ArrivedLeads.filter(l => l?.enrollmentStatus === 'ENROLLED').length;
+            movedToNonEnrolled = r2ArrivedLeads.filter(l => (l?.coordinationRound === 3 || isAutoPushedToNonEnrolled(l)) && (!(l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_'))))).length;
+            movedToPaid = r2ArrivedLeads.filter(l => ((l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_'))))).length;
             
-            const r2EnrolledCount = r2ArrivedLeads.filter(l => l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID').length;
+            const r2EnrolledCount = r2ArrivedLeads.filter(l => ((((l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))) || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_'))))).length;
             responseRate = totalAssigned > 0 ? ((r2EnrolledCount / totalAssigned) * 100).toFixed(1) : 0;
             
         } else if (activeRound === 'non_enrolled') {
-            const nonEnrolledLeads = openSemLeads.filter(l => l?.enrollmentStatus !== 'ENROLLED' && (l?.coordinationRound === 3 || isAutoPushedToNonEnrolled(l)));
+            const nonEnrolledLeads = openSemLeads.filter(l => (!(l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))) && (l?.coordinationRound === 3 || isAutoPushedToNonEnrolled(l)));
             totalAssigned = nonEnrolledLeads.length;
             currentlyInRound = totalAssigned;
             pending = nonEnrolledLeads.filter(l => l.callStatus === 'pending' || !l.callStatus).length;
             reject = nonEnrolledLeads.filter(l => l.callStatus === 'reject').length;
             delayed = nonEnrolledLeads.filter(l => isLeadDelayed(l)).length;
         } else if (activeRound === 'enrolled') {
-            const enrolledLeads = openSemLeads.filter(l => l?.enrollmentStatus === 'ENROLLED');
+            const enrolledLeads = openSemLeads.filter(l => ((l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))));
             totalAssigned = enrolledLeads.length;
             currentlyInRound = totalAssigned;
         }
@@ -450,7 +475,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
 
     const getTimerDataText = (lead) => {
         if (!lead) return null;
-        if (lead.enrollmentStatus === 'ENROLLED' || lead.enrollmentStatus === 'PAID') return null;
+        if (((((lead.enrollmentStatus === 'ENROLLED' || lead.enrollmentStatus === 'PAID' || (lead.enrollmentStatus && lead.enrollmentStatus.startsWith('ENROLLED_')))) || lead.enrollmentStatus === 'PAID' || (lead.enrollmentStatus && lead.enrollmentStatus.startsWith('ENROLLED_'))))) return null;
         if (lead.isPast) return null;
 
         const startTime = new Date(lead.assignedAt || lead.createdAt).getTime();
@@ -496,8 +521,33 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                 return { text: `⚠️ 14-DAY LIMIT REACHED`, type: 'danger', isLate: true };
             }
         }
-        
         return null;
+    };
+
+    const exportToExcel = () => {
+        if (!filteredLeads || filteredLeads.length === 0) {
+            toast.error("No leads available to export.");
+            return;
+        }
+
+        const data = filteredLeads.map(l => {
+            return {
+                "Phone": l.phone || "-",
+                "Name": l.name || "-",
+                "Outcome": l.callStatus === 'answered' ? 'Answered' : l.callStatus === 'reject' ? 'Reject' : l.callStatus === 'no_answer' ? 'No Answer' : 'Pending',
+                "Attempt": l.callAttempt || 1,
+                "Method": l.callMethod || "-",
+                "Enrollment": l.enrollmentStatus || "-",
+                "Round 1 Remark": l.roundProgress?.find(r => r.roundNum === 1)?.feedback || "-",
+                "Round 2 Remark": l.roundProgress?.find(r => r.roundNum === 2)?.feedback || "-",
+                "Non-Enrolled Remarks": l.roundProgress?.find(r => r.roundNum === 3)?.feedback || l.coordinationRemark || "-"
+            };
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Non Enrolled Leads");
+        XLSX.writeFile(workbook, "Open_Seminar_Non_Enrolled_Leads.xlsx");
     };
 
     return (
@@ -631,6 +681,14 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                             </div>
 
                             <div className="relative flex gap-2">
+                                {activeRound === 'non_enrolled' && (
+                                    <button 
+                                        onClick={exportToExcel}
+                                        className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20 whitespace-nowrap"
+                                    >
+                                        <FaFileExcel size={14} /> EXPORT EXCEL
+                                    </button>
+                                )}
                                 <div className="relative flex-1">
                                     <FaSearch className="absolute left-3.5 top-3.5 text-slate-400 text-sm" />
                                     <input type="text" placeholder="Search leads by phone or name..." value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }} className="w-full bg-[#0F172A] border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-indigo-500 shadow-inner" />
@@ -733,17 +791,42 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                                         <div className="flex flex-col gap-0.5 mt-1">
                                                             <p className="text-slate-400 text-[10px] font-bold uppercase truncate max-w-[150px]">WA: {lead.name || 'Unknown'}</p>
                                                             {lead.registeredUser && (
-                                                                <p 
-                                                                    onMouseEnter={() => setStudentDetailsLead(lead)}
-                                                                    onMouseLeave={() => setStudentDetailsLead(null)}
-                                                                    className="text-emerald-400 text-[10px] font-bold uppercase leading-tight w-full break-words cursor-pointer hover:underline" 
-                                                                    title="View Details"
-                                                                >
-                                                                    WEB: {lead.registeredUser.firstName} {lead.registeredUser.lastName}
-                                                                </p>
-                                                            )}
-                                                            {lead.registeredUser?.optionalPhone && (
-                                                                <p className="text-indigo-300 text-[10px] font-bold truncate mt-0.5">Sec: {lead.registeredUser.optionalPhone}</p>
+                                                                <div className="flex flex-col gap-0.5">
+                                                                    <p 
+                                                                        onMouseEnter={() => setStudentDetailsLead(lead)}
+                                                                        onMouseLeave={() => setStudentDetailsLead(null)}
+                                                                        className="text-emerald-400 text-[10px] font-bold uppercase leading-tight w-full break-words cursor-pointer hover:underline" 
+                                                                        title="View Details"
+                                                                    >
+                                                                        WEB: {lead.registeredUser.firstName} {lead.registeredUser.lastName}
+                                                                    </p>
+                                                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+                                                                        {lead.registeredUser.phone && lead.phone?.split('_')[0].slice(-9) !== lead.registeredUser.phone.slice(-9) && (
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <p className="text-indigo-300 text-xs font-bold truncate">Web Pri: {lead.registeredUser.phone}</p>
+                                                                                <button 
+                                                                                    onClick={() => handleCopy(lead.registeredUser.phone, 'Web primary number')}
+                                                                                    className="text-indigo-400/50 hover:text-indigo-300 transition-colors"
+                                                                                    title="Copy Web Primary Number"
+                                                                                >
+                                                                                    <Copy size={14} />
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                        {lead.registeredUser.optionalPhone && (
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <p className="text-indigo-300 text-xs font-bold truncate">Web Sec: {lead.registeredUser.optionalPhone}</p>
+                                                                                <button 
+                                                                                    onClick={() => handleCopy(lead.registeredUser.optionalPhone, 'Web secondary number')}
+                                                                                    className="text-indigo-400/50 hover:text-indigo-300 transition-colors"
+                                                                                    title="Copy Web Secondary Number"
+                                                                                >
+                                                                                    <Copy size={14} />
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
                                                             )}
                                                             {timerData && (
                                                                 <span className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9.5px] font-mono font-bold tracking-widest uppercase shadow-sm border backdrop-blur-md transition-all
@@ -818,7 +901,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                                         disabled={true}
                                                         value={enrollmentValue}
                                                         onChange={(e) => handleEnrollmentChange(lead.id, e.target.value)}
-                                                        className={`w-full bg-[#312e81]/30 border border-indigo-500/20 rounded-xl px-2 py-2 text-xs font-bold outline-none appearance-none disabled:opacity-50 cursor-not-allowed ${lead.enrollmentStatus === 'ENROLLED' ? 'text-emerald-400 border-emerald-500/30' : 'text-indigo-200'}`}
+                                                        className={`w-full bg-[#312e81]/30 border border-indigo-500/20 rounded-xl px-2 py-2 text-xs font-bold outline-none appearance-none disabled:opacity-50 cursor-not-allowed ${((lead.enrollmentStatus === 'ENROLLED' || lead.enrollmentStatus === 'PAID' || (lead.enrollmentStatus && lead.enrollmentStatus.startsWith('ENROLLED_')))) ? 'text-emerald-400 border-emerald-500/30' : 'text-indigo-200'}`}
                                                     >
                                                         <option value="NON_ENROLLED" className="bg-[#0f172a]">Non-Enrolled</option>
                                                         <option value="ENROLLED_FULL" className="bg-[#0f172a]">Enrolled - Full</option>
@@ -861,6 +944,24 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                                     className="w-full flex-1 bg-[#312e81]/30 border border-indigo-500/20 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:border-indigo-500 resize-none placeholder-indigo-300/30 transition-colors custom-scrollbar disabled:opacity-50"
                                                 />
                                                 {isDraft && <span className="absolute -top-2 right-2 bg-yellow-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded border border-yellow-400 shadow-sm">DRAFT</span>}
+                                            </div>
+
+                                            {/* Dual Call Buttons */}
+                                            <div className="flex gap-2 w-full mb-3">
+                                                <button onClick={(e) => { e.preventDefault(); toast.error('Coming Soon', { icon: '🚧' }); }} className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg py-2 text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 transition-all border border-blue-500/30">
+                                                    <FaPhoneAlt size={12} /> Normal Call
+                                                </button>
+
+                                                {lead.waCallPermissionExpiry && new Date(lead.waCallPermissionExpiry) > new Date() ? (
+                                                    <button className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white rounded-lg py-1.5 text-xs font-bold flex flex-col items-center justify-center shadow-md shadow-emerald-500/20 transition-all leading-none border border-emerald-500/30">
+                                                        <div className="flex items-center gap-1.5 mb-1">
+                                                            <FaWhatsapp size={14} /> WhatsApp Call
+                                                        </div>
+                                                        <span className="text-[9px] font-mono text-emerald-100 bg-black/20 px-1.5 py-0.5 rounded">
+                                                            Ends: {Math.max(0, Math.ceil((new Date(lead.waCallPermissionExpiry) - new Date()) / (1000 * 60 * 60 * 24)))} Days
+                                                        </span>
+                                                    </button>
+                                                ) : null}
                                             </div>
 
                                             {/* Action Buttons */}
@@ -964,17 +1065,42 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                                             <div className="flex flex-col gap-0.5 mt-1">
                                                                 <p className="text-slate-400 text-[10px] font-bold uppercase truncate max-w-[150px]" title="WhatsApp Name">WA: {lead.name || 'Unknown'}</p>
                                                                 {lead.registeredUser && (
-                                                                    <p 
-                                                                        onMouseEnter={() => setStudentDetailsLead(lead)}
-                                                                        onMouseLeave={() => setStudentDetailsLead(null)}
-                                                                        className="text-emerald-400 text-[10px] font-bold uppercase leading-tight w-full break-words cursor-pointer hover:underline" 
-                                                                        title="View Details"
-                                                                    >
-                                                                        WEB: {lead.registeredUser.firstName} {lead.registeredUser.lastName}
-                                                                    </p>
-                                                                )}
-                                                                {lead.registeredUser?.optionalPhone && (
-                                                                    <p className="text-indigo-300 text-[10px] font-bold truncate mt-0.5">Sec: {lead.registeredUser.optionalPhone}</p>
+                                                                    <div className="flex flex-col gap-0.5">
+                                                                        <p 
+                                                                            onMouseEnter={() => setStudentDetailsLead(lead)}
+                                                                            onMouseLeave={() => setStudentDetailsLead(null)}
+                                                                            className="text-emerald-400 text-[10px] font-bold uppercase leading-tight w-full break-words cursor-pointer hover:underline" 
+                                                                            title="View Details"
+                                                                        >
+                                                                            WEB: {lead.registeredUser.firstName} {lead.registeredUser.lastName}
+                                                                        </p>
+                                                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+                                                                            {lead.registeredUser.phone && lead.phone?.split('_')[0].slice(-9) !== lead.registeredUser.phone.slice(-9) && (
+                                                                                <div className="flex items-center gap-1.5">
+                                                                                    <p className="text-indigo-300 text-xs font-bold truncate">Web Pri: {lead.registeredUser.phone}</p>
+                                                                                    <button 
+                                                                                        onClick={() => handleCopy(lead.registeredUser.phone, 'Web primary number')}
+                                                                                        className="text-indigo-400/50 hover:text-indigo-300 transition-colors"
+                                                                                        title="Copy Web Primary Number"
+                                                                                    >
+                                                                                        <Copy size={12} />
+                                                                                    </button>
+                                                                                </div>
+                                                                            )}
+                                                                            {lead.registeredUser.optionalPhone && (
+                                                                                <div className="flex items-center gap-1.5">
+                                                                                    <p className="text-indigo-300 text-xs font-bold truncate">Web Sec: {lead.registeredUser.optionalPhone}</p>
+                                                                                    <button 
+                                                                                        onClick={() => handleCopy(lead.registeredUser.optionalPhone, 'Web secondary number')}
+                                                                                        className="text-indigo-400/50 hover:text-indigo-300 transition-colors"
+                                                                                        title="Copy Web Secondary Number"
+                                                                                    >
+                                                                                        <Copy size={12} />
+                                                                                    </button>
+                                                                                </div>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
                                                                 )}
                                                                 {timerData && (
                                                                     <span className="mt-1 inline-block w-max px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-slate-800 text-slate-300">
@@ -1025,7 +1151,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                                                     disabled={true}
                                                                     value={enrollmentValue}
                                                                     onChange={(e) => handleEnrollmentChange(lead.id, e.target.value)}
-                                                                    className={`w-full bg-[#312e81]/30 border border-indigo-500/20 rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none disabled:opacity-50 cursor-not-allowed ${lead.enrollmentStatus === 'ENROLLED' ? 'text-emerald-400 border-emerald-500/30' : 'text-indigo-200'}`}
+                                                                    className={`w-full bg-[#312e81]/30 border border-indigo-500/20 rounded-lg px-2 py-1.5 text-[10px] font-bold outline-none disabled:opacity-50 cursor-not-allowed ${((lead.enrollmentStatus === 'ENROLLED' || lead.enrollmentStatus === 'PAID' || (lead.enrollmentStatus && lead.enrollmentStatus.startsWith('ENROLLED_')))) ? 'text-emerald-400 border-emerald-500/30' : 'text-indigo-200'}`}
                                                                 >
                                                                     <option value="NON_ENROLLED" className="bg-[#0f172a]">Non-Enrolled</option>
                                                                     <option value="ENROLLED_FULL" className="bg-[#0f172a]">Full</option>

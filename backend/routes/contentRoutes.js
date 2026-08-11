@@ -3,6 +3,8 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const verifyToken = require('../middlewares/authMiddleware');
+const { PrismaClient } = require('@prisma/client');
+const prisma = new PrismaClient();
 
 const controller = require('../controllers/contentController'); 
 
@@ -29,6 +31,7 @@ const uploadPost = multer({ storage: postStorage });
 
 // Content Hub
 router.post('/admin/manager/content-group/add', verifyToken, controller.addContentGroup);
+router.put('/admin/content-group/update', verifyToken, controller.updateContentGroup);
 router.delete('/admin/content-group/delete', verifyToken, controller.deleteContentGroup);
 router.post('/admin/manager/contents/mass-assign', verifyToken, uploadDoc.fields([
     { name: 'file', maxCount: 1 }, 
@@ -59,11 +62,16 @@ router.get('/admin/manager/batches-full', verifyToken, controller.getBatchesFull
 // Get Batches by Business ID
 router.get('/admin/batches/:bizId', async (req, res) => {
     try {
-        const { PrismaClient } = require('@prisma/client');
-        const prisma = new PrismaClient();
         const batches = await prisma.batch.findMany({
             where: { businessId: parseInt(req.params.bizId) },
-            include: { groups: { include: { courses: true } } }
+            include: { 
+                groups: { include: { courses: true } },
+                business: true
+            },
+            orderBy: [
+                { itemOrder: 'asc' },
+                { id: 'asc' }
+            ]
         });
         const safeData = JSON.parse(JSON.stringify(batches, (k, v) => typeof v === 'bigint' ? v.toString() : v));
         res.status(200).json({ batches: safeData });
@@ -101,12 +109,17 @@ router.put('/course-setup/batch/toggle-status', controller.toggleBatchStatus);
 // ================= ZOOM DYNAMIC DOWNLOAD ROUTE =================
 // 🔥 NEW: Zoom API එක හරහා fresh MP4 ලින්ක් එකක් අරන් App එකට JSON එකක් විදිහට දෙන Route එක 🔥
 // මෙතන controller.getZoomDirectLinkJson කියලා දාන්න
-router.get('/mobile/zoom-direct-link/:meetingId', controller.getZoomDirectLinkJson);
+router.get('/mobile/zoom-direct-link/:contentId', controller.getZoomDirectLinkJson);
 
 // ================= APP EVENTS (ANIMATIONS) =================
 // 🔥 Admin Panel එකෙන් Animation එක Set කරන්න සහ බලන්න 🔥
 router.get('/admin/settings/app-event', controller.getAppEvent);
 router.put('/admin/settings/app-event', controller.setAppEvent);
+
+// ================= SYSTEM MAINTENANCE MODE =================
+// 🔥 Admin Panel එකෙන් System Update Banner එක Set කරන්න සහ බලන්න 🔥
+router.get('/admin/settings/maintenance-mode', controller.getMaintenanceMode);
+router.put('/admin/settings/maintenance-mode', controller.setMaintenanceMode);
 
 // 🔥 Mobile App එකෙන් Active Animation එක මොකක්ද කියලා අහන්න 🔥
 router.get('/mobile/app-event', controller.getAppEvent);

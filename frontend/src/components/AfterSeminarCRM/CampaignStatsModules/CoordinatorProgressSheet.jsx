@@ -7,6 +7,7 @@ import {
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
+import CoordinatorDailyTodo from '../../CoordinatorCRM/CoordinatorDailyTodo';
 
 export default function CoordinatorProgressSheet({ filters = {} }) {
     const [loading, setLoading] = useState(true);
@@ -93,6 +94,12 @@ export default function CoordinatorProgressSheet({ filters = {} }) {
                 >
                     <FaDownload /> Export Full Data Sheet
                 </button>
+            </div>
+
+            {/* Master To-Do Checklist Grid for Managers */}
+            <div className="mb-8">
+                <h3 className="text-white font-black text-lg uppercase tracking-widest mb-4">Team Pending To-Do Checklist</h3>
+                <CoordinatorDailyTodo isManager={true} />
             </div>
 
             {(!stats.coordinators || stats.coordinators.length === 0) ? (

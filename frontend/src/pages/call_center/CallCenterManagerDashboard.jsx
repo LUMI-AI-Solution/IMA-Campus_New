@@ -248,7 +248,15 @@ export default function CallCenterManagerDashboard() {
     else setCheckedLeads(activeList.map(l => l.id));
   };
 
-  const getLevel1List = () => pendingRequests.length > 0 ? pendingRequests : unassignedLeads;
+  const getLevel1List = () => {
+    const uniqueIds = new Set();
+    const combined = [...pendingRequests, ...unassignedLeads].filter(l => {
+      if (uniqueIds.has(l.id)) return false;
+      uniqueIds.add(l.id);
+      return true;
+    });
+    return combined;
+  };
 
   const getFilteredDetailedLeads = () => {
     let list = detailedLeads;
@@ -427,15 +435,15 @@ export default function CallCenterManagerDashboard() {
                             <h3 className="text-5xl font-black text-white">{detailedLeads.filter(l => selectedBatch === 'All' || l.batchId === parseInt(selectedBatch)).length}</h3>
                           </div>
                           <div className="bg-red-500/10 border border-red-500/30 p-8 rounded-3xl text-center shadow-lg shadow-red-500/5">
-                            <p className="text-red-400 font-bold uppercase text-xs tracking-wider mb-2">{activeTab === 'handovers' ? 'Pending Action' : 'Needs Assignment'}</p>
+                            <p className="text-red-400 font-bold uppercase text-xs tracking-wider mb-2">Needs Assignment</p>
                             <h3 className="text-5xl font-black text-red-300">
-                              {detailedLeads.filter(l => (selectedBatch === 'All' || l.batchId === parseInt(selectedBatch)) && (l.callCenterRequestStatus === 'REQUESTED')).length}
+                              {detailedLeads.filter(l => (selectedBatch === 'All' || l.batchId === parseInt(selectedBatch)) && (l.callCenterRequestStatus === 'APPROVED' && l.assignedTo === null)).length}
                             </h3>
                           </div>
                           <div className="bg-emerald-500/10 border border-emerald-500/30 p-8 rounded-3xl text-center shadow-lg shadow-emerald-500/5">
                             <p className="text-emerald-400 font-bold uppercase text-xs tracking-wider mb-2">Actively Managed</p>
                             <h3 className="text-5xl font-black text-emerald-300">
-                              {detailedLeads.filter(l => (selectedBatch === 'All' || l.batchId === parseInt(selectedBatch)) && (l.assignedTo !== null || l.callCenterRequestStatus === 'APPROVED')).length}
+                              {detailedLeads.filter(l => (selectedBatch === 'All' || l.batchId === parseInt(selectedBatch)) && (l.callCenterRequestStatus === 'APPROVED' && l.assignedTo !== null)).length}
                             </h3>
                           </div>
                         </div>

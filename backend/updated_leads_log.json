@@ -1,0 +1,50 @@
+[
+  {
+    "id": 29110,
+    "phone": "94742325180_BIZ_1_BATCH_40",
+    "callStatus": "pending",
+    "feedback": "21/06 answer / channel akata join vela inne",
+    "assignedTo": 49,
+    "assignedUser": {
+      "firstName": "Harshani",
+      "lastName": "Maduwanthi"
+    },
+    "updatedAt": "2026-07-28T04:17:51.372Z"
+  },
+  {
+    "id": 52413,
+    "phone": "94701593640_BIZ_17_BATCH_36",
+    "callStatus": "REJECT",
+    "feedback": "no al student",
+    "assignedTo": 1485,
+    "assignedUser": {
+      "firstName": "Nipunika ",
+      "lastName": "Madushani"
+    },
+    "updatedAt": "2026-07-28T04:17:20.001Z"
+  },
+  {
+    "id": 53847,
+    "phone": "94776782079_BIZ_17_BATCH_36",
+    "callStatus": "NO_ANSWER",
+    "feedback": "",
+    "assignedTo": 1452,
+    "assignedUser": {
+      "firstName": "Anushika",
+      "lastName": "Lakmali"
+    },
+    "updatedAt": "2026-07-28T04:17:25.979Z"
+  },
+  {
+    "id": 54245,
+    "phone": "94750914529_BIZ_4_BATCH_38",
+    "callStatus": "pending",
+    "feedback": "ds",
+    "assignedTo": 28,
+    "assignedUser": {
+      "firstName": "Vishaka ",
+      "lastName": "Kumarapeli"
+    },
+    "updatedAt": "2026-07-28T04:17:29.869Z"
+  }
+]

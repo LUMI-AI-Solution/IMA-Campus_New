@@ -1,24 +1,18 @@
-const { PrismaClient } = require('@prisma/client');
-const prisma = new PrismaClient();
 const { google } = require('googleapis');
+const path = require('path');
 
 async function test() {
-    const configSetting = await prisma.appSetting.findUnique({ where: { key: 'GSHEET_CONFIGS' } });
-    const configs = JSON.parse(configSetting.value);
-    
-    // get the first statementMonth
-    const statementMonth = Object.keys(configs)[0];
-    const spreadsheetId = configs[statementMonth].spreadsheetId;
-    
-    const apiKey = 'AIzaSyDUfpDVy946hS3mxESKmgByMpS3UoZk6nw';
-    const sheets = google.sheets({ version: 'v4', auth: apiKey });
-
-    const response = await sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: 'A1:Z10',
-    });
-
-    console.log("Headers:", response.data.values[0]);
-    console.log("Row 2:", response.data.values[1]);
+    try {
+        const auth = new google.auth.GoogleAuth({
+            keyFile: path.join(__dirname, 'gsheet-service-account.json'),
+            scopes: ['https://www.googleapis.com/auth/spreadsheets']
+        });
+        const sheets = google.sheets({ version: 'v4', auth });
+        const spreadsheetId = '1S5t21smvLm2wcV5QnJ1fDfTD4my2ceYVpa-iTBwm3bE';
+        const res = await sheets.spreadsheets.get({ spreadsheetId });
+        console.log("SUCCESS! Sheet title:", res.data.properties.title);
+    } catch(e) {
+        console.error("ERROR:", e.message);
+    }
 }
-test().catch(console.error).finally(() => prisma.$disconnect());
+test();

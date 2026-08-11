@@ -1,32 +1,31 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios from '../../api/axios';
-import { Database, Filter, AlertTriangle, LayoutDashboard, Target } from 'lucide-react';
-import ModuleOneMatrix from './ModuleOneMatrix';
-import ModuleTwoAnalytics from './ModuleTwoAnalytics'; // 🔥 අලුත් එක Import කළා
+import { Database, Filter, AlertTriangle, LayoutDashboard, GitCompare, Lock } from 'lucide-react';
+import ModuleOneRetention from './ModuleOneRetention';
+import ModuleTwoComparison from './ModuleTwoComparison';
+import ModuleCoordinatorKPI from './ModuleCoordinatorKPI';
+import { ArrowLeft } from 'lucide-react';
 
 export default function DataExportDashboard() {
+    const navigate = useNavigate();
     const [businesses, setBusinesses] = useState([]);
+    const [batches, setBatches] = useState([]);
     const [selectedBusiness, setSelectedBusiness] = useState('');
     const [selectedBatch, setSelectedBatch] = useState('');
     const [hasError, setHasError] = useState(false);
     
     // 🔥 State for Tab Switching 🔥
-    const [activeModule, setActiveModule] = useState('module1');
+    const [activeModule, setActiveModule] = useState('');
 
     useEffect(() => {
-        const fetchData = async () => {
+        const fetchBusinesses = async () => {
             try {
                 const token = localStorage.getItem('token');
-                const res = await axios.get('/student/available-enrollments', {
+                const res = await axios.get('/admin/businesses', {
                     headers: { Authorization: `Bearer ${token}` }
                 });
-                
-                let fetchedBiz = [];
-                if (res.data && res.data.businesses) {
-                    fetchedBiz = res.data.businesses;
-                } else if (Array.isArray(res.data)) {
-                    fetchedBiz = res.data;
-                }
+                const fetchedBiz = Array.isArray(res.data) ? res.data : (res.data.businesses || []);
                 setBusinesses(fetchedBiz);
                 if (fetchedBiz.length === 1) {
                     setSelectedBusiness(fetchedBiz[0].id.toString());
@@ -36,8 +35,27 @@ export default function DataExportDashboard() {
                 setHasError(true);
             }
         };
-        fetchData();
+        fetchBusinesses();
     }, []);
+
+    useEffect(() => {
+        const fetchBatches = async () => {
+            if (!selectedBusiness) {
+                setBatches([]);
+                return;
+            }
+            try {
+                const token = localStorage.getItem('token');
+                const res = await axios.get(`/admin/batches/${selectedBusiness}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                setBatches(res.data.batches || res.data || []);
+            } catch (err) {
+                console.error(err);
+            }
+        };
+        fetchBatches();
+    }, [selectedBusiness]);
 
     if (hasError) {
         return (
@@ -50,48 +68,65 @@ export default function DataExportDashboard() {
     }
 
     const selectedBizObj = businesses.find(b => String(b.id) === String(selectedBusiness));
-    const batches = selectedBizObj && selectedBizObj.batches ? selectedBizObj.batches : [];
+
+    const renderTabButton = (id, label, Icon, activeColor, comingSoon) => (
+        <button 
+            key={id}
+            onClick={() => !comingSoon && setActiveModule(id)}
+            disabled={comingSoon}
+            className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${
+                comingSoon 
+                ? 'opacity-40 cursor-not-allowed text-slate-500 bg-transparent' 
+                : activeModule === id 
+                    ? `${activeColor} text-white shadow-md` 
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+            }`}
+        >
+            <Icon size={14} /> 
+            <span className="hidden xl:inline">{label}</span>
+            <span className="xl:hidden">{label.split(':')[0]}</span>
+        </button>
+    );
 
     return (
         <div className="flex flex-col gap-6 font-sans text-slate-200 p-2 animate-fade-in h-full">
             
             {/* Top Filter Section */}
-            <div className="bg-[#1e293b] p-5 rounded-[2rem] border border-slate-700/50 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 shrink-0">
+            <div className="bg-[#1e293b] p-5 rounded-[2rem] border border-slate-700/50 shadow-xl flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4 shrink-0">
                 <div className="flex items-center gap-3">
-                    <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl border border-indigo-500/20">
-                        <Database size={24} />
-                    </div>
+                    {activeModule ? (
+                        <button 
+                            onClick={() => setActiveModule('')}
+                            className="p-3 bg-white/5 hover:bg-white/10 text-white rounded-2xl border border-white/10 transition-all"
+                            title="Back to Dashboard"
+                        >
+                            <ArrowLeft size={24} />
+                        </button>
+                    ) : (
+                        <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl border border-indigo-500/20">
+                            <Database size={24} />
+                        </div>
+                    )}
                     <div>
-                        <h2 className="text-xl font-black text-white uppercase tracking-wider">Campaign Master Analytics</h2>
+                        <h2 className="text-xl font-black text-white uppercase tracking-wider">
+                            {activeModule === 'module1' ? 'Drop & Growth Analytics' : 
+                             activeModule === 'module2' ? 'Coordinator KPI Matrix' : 
+                             activeModule === 'module3' ? 'Batch Comparison' : 
+                             'Campaign Master Analytics'}
+                        </h2>
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Select filters to generate reports</p>
                     </div>
                 </div>
 
-                {/* 🔥 TAB SWITCHER BUTTONS 🔥 */}
-                <div className="hidden lg:flex bg-black/40 p-1.5 rounded-2xl border border-white/5 shadow-inner">
-                    <button 
-                        onClick={() => setActiveModule('module1')}
-                        className={`flex items-center gap-2 px-6 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${activeModule === 'module1' ? 'bg-indigo-500 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                    >
-                        <LayoutDashboard size={14} /> Module 01: Retention
-                    </button>
-                    <button 
-                        onClick={() => setActiveModule('module2')}
-                        className={`flex items-center gap-2 px-6 py-2 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${activeModule === 'module2' ? 'bg-purple-500 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-                    >
-                        <Target size={14} /> Module 02: Drop & Dist.
-                    </button>
-                </div>
-
-                <div className="flex items-center gap-3 w-full md:w-auto">
-                    <div className="flex items-center gap-2 bg-black/40 border border-slate-700/50 p-2 rounded-2xl w-full md:w-auto shadow-inner">
-                        <Filter size={16} className="text-slate-500 ml-2" />
+                <div className="flex items-center gap-3 w-full xl:w-auto">
+                    <div className="flex flex-col sm:flex-row items-center gap-2 bg-black/40 border border-slate-700/50 p-2 rounded-2xl w-full xl:w-auto shadow-inner">
+                        <Filter size={16} className="text-slate-500 ml-2 hidden sm:block" />
                         
                         {businesses.length > 1 && (
                             <select 
                                 value={selectedBusiness} 
                                 onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }}
-                                className="bg-transparent text-xs font-bold text-white outline-none py-1.5 px-2 cursor-pointer w-full md:w-48 border-r border-slate-700"
+                                className="bg-transparent text-xs font-bold text-white outline-none py-2 sm:py-1.5 px-2 cursor-pointer w-full sm:w-48 border-b sm:border-b-0 sm:border-r border-slate-700"
                             >
                                 <option value="" className="bg-slate-900">Select Campaign</option>
                                 {businesses.map(b => (
@@ -103,31 +138,76 @@ export default function DataExportDashboard() {
                         <select 
                             value={selectedBatch} 
                             onChange={(e) => setSelectedBatch(e.target.value)}
-                            disabled={!selectedBusiness}
-                            className="bg-transparent text-xs font-bold text-white outline-none py-1.5 px-2 cursor-pointer w-full md:w-48 disabled:opacity-50"
+                            disabled={!selectedBusiness || activeModule === 'module3'}
+                            className="bg-transparent text-xs font-bold text-white outline-none py-2 sm:py-1.5 px-2 cursor-pointer w-full sm:w-48 disabled:opacity-50"
                         >
-                            <option value="" className="bg-slate-900">Select Batch (All)</option>
+                            <option value="" className="bg-slate-900">
+                                {activeModule === 'module3' ? 'Use Module Controls' : 'Select Batch (All)'}
+                            </option>
                             {batches.map(b => (
                                 <option key={b.id} value={b.id} className="bg-slate-900">{b.name}</option>
                             ))}
                         </select>
+
+                        <button 
+                            onClick={() => navigate('/admin/test-injector')}
+                            className="bg-indigo-600/50 hover:bg-indigo-500 text-indigo-100 font-bold p-2 sm:px-4 sm:py-1.5 rounded-xl ml-2 text-xs transition-all shadow-md border border-indigo-500/30 whitespace-nowrap flex items-center gap-2"
+                            title="Open Test Data Injector"
+                        >
+                            <Database size={14} />
+                            <span className="hidden sm:inline">Mock Data</span>
+                        </button>
                     </div>
                 </div>
             </div>
 
-            {/* Mobile Tab Switcher */}
-            <div className="lg:hidden flex bg-black/40 p-1.5 rounded-2xl border border-white/5 shadow-inner">
-                <button onClick={() => setActiveModule('module1')} className={`flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${activeModule === 'module1' ? 'bg-indigo-500 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>M-01</button>
-                <button onClick={() => setActiveModule('module2')} className={`flex-1 flex justify-center items-center gap-2 px-4 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all ${activeModule === 'module2' ? 'bg-purple-500 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}>M-02</button>
-            </div>
-
             {/* Dynamic Rendering based on Tab */}
             <div className="flex-1 min-h-0">
-                {activeModule === 'module1' ? (
-                    <ModuleOneMatrix filters={{ selectedBusiness, selectedBatch }} />
-                ) : (
-                    <ModuleTwoAnalytics filters={{ selectedBusiness, selectedBatch }} />
-                )}
+                {!activeModule ? (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10 p-4">
+                        <div 
+                            onClick={() => setActiveModule('module1')}
+                            className="relative group cursor-pointer rounded-[2rem] overflow-hidden border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] transition-all duration-500 hover:scale-[1.02] hover:border-indigo-500/50 hover:shadow-indigo-500/20 aspect-[4/3] bg-black/40"
+                        >
+                            <img src="/img/analytics/drop_growth.png" alt="Drop and Growth" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity duration-700 mix-blend-screen" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] via-[#0f172a]/80 to-transparent pointer-events-none"></div>
+                            <div className="absolute bottom-0 left-0 right-0 p-8">
+                                <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 mb-2 uppercase tracking-widest drop-shadow-md">Drop & Growth</h3>
+                                <p className="text-slate-400 text-sm font-semibold">Analyze student retention, drop rates, and monthly growth across your campaigns.</p>
+                            </div>
+                        </div>
+
+                        <div 
+                            onClick={() => setActiveModule('module2')}
+                            className="relative group cursor-pointer rounded-[2rem] overflow-hidden border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] transition-all duration-500 hover:scale-[1.02] hover:border-emerald-500/50 hover:shadow-emerald-500/20 aspect-[4/3] bg-black/40"
+                        >
+                            <img src="/img/analytics/coordinator_kpi.png" alt="Coordinator KPI" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity duration-700 mix-blend-screen" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] via-[#0f172a]/80 to-transparent pointer-events-none"></div>
+                            <div className="absolute bottom-0 left-0 right-0 p-8">
+                                <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 mb-2 uppercase tracking-widest drop-shadow-md">Coordinator KPI</h3>
+                                <p className="text-slate-400 text-sm font-semibold">Track coordinator performance, conversion rates, and individual lead breakdowns.</p>
+                            </div>
+                        </div>
+
+                        <div 
+                            onClick={() => setActiveModule('module3')}
+                            className="relative group cursor-pointer rounded-[2rem] overflow-hidden border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] transition-all duration-500 hover:scale-[1.02] hover:border-amber-500/50 hover:shadow-amber-500/20 aspect-[4/3] bg-black/40"
+                        >
+                            <img src="/img/analytics/batch_compare.png" alt="Batch Compare" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity duration-700 mix-blend-screen" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] via-[#0f172a]/80 to-transparent pointer-events-none"></div>
+                            <div className="absolute bottom-0 left-0 right-0 p-8">
+                                <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-rose-400 mb-2 uppercase tracking-widest drop-shadow-md">Batch Compare</h3>
+                                <p className="text-slate-400 text-sm font-semibold">Compare multiple datasets side-by-side to identify trends and performance disparities.</p>
+                            </div>
+                        </div>
+                    </div>
+                ) : activeModule === 'module1' ? (
+                    <ModuleOneRetention filters={{ selectedBusiness, selectedBatch }} />
+                ) : activeModule === 'module2' ? (
+                    <ModuleCoordinatorKPI filters={{ selectedBusiness, selectedBatch }} />
+                ) : activeModule === 'module3' ? (
+                    <ModuleTwoComparison businesses={businesses} selectedBusiness={selectedBusiness} />
+                ) : null}
             </div>
 
         </div>

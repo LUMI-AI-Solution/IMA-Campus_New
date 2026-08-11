@@ -12,7 +12,7 @@ const Sidebar = ({ activeTab, setActiveTab, sidebarOpen, setSidebarOpen, handleL
         { id: 'profile', label: 'Profile Settings', icon: Settings },
     ];
 
-    const themes = ['/student-bg.jpg', '/bg1.jpg', '/bg2.jpg', '/bg3.jpg'];
+    const themes = ['/student-bg.jpg', '/bg2.jpg', '/bg3.jpg'];
 
     return (
         <>
@@ -34,7 +34,7 @@ const Sidebar = ({ activeTab, setActiveTab, sidebarOpen, setSidebarOpen, handleL
 
                 {/* Nav Links */}
                 <nav className="flex-1 overflow-y-auto py-8 px-5 space-y-2 custom-scrollbar">
-                    <p className="text-[11px] font-bold text-white/50 uppercase tracking-widest mb-4 px-3">Main Menu</p>
+                    <p className="text-[11px] font-bold text-white/80 uppercase tracking-widest mb-4 px-3">Main Menu</p>
                     
                     {menuItems.map((item) => (
                         <button
@@ -44,10 +44,10 @@ const Sidebar = ({ activeTab, setActiveTab, sidebarOpen, setSidebarOpen, handleL
                             className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl font-bold transition-colors duration-200 ${
                                 activeTab === item.id 
                                 ? 'bg-gradient-to-r from-red-600/20 to-red-800/20 text-white border border-red-500/30 shadow-[0_0_15px_rgba(239,68,68,0.15)]' 
-                                : 'text-white/70 hover:bg-white/5 hover:text-white border border-transparent'
+                                : 'text-white/70 hover:bg-black/20 hover:text-white border border-transparent'
                             }`}
                         >
-                            <item.icon size={22} className={activeTab === item.id ? 'text-red-500' : 'text-white/50'} strokeWidth={activeTab === item.id ? 2.5 : 2} />
+                            <item.icon size={22} className={activeTab === item.id ? 'text-red-500' : 'text-white/80'} strokeWidth={activeTab === item.id ? 2.5 : 2} />
                             {item.label}
                         </button>
                     ))}
@@ -56,7 +56,7 @@ const Sidebar = ({ activeTab, setActiveTab, sidebarOpen, setSidebarOpen, handleL
                 {/* Footer Section */}
                 <div className="p-6 border-t border-white/10 shrink-0">
                     <div className="mb-4">
-                        <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-2 flex items-center justify-center gap-1.5">
+                        <p className="text-[10px] font-bold text-white/80 uppercase tracking-widest mb-2 flex items-center justify-center gap-1.5">
                             <ImageIcon size={12}/> Wallpaper
                         </p>
                         <div className="flex justify-center gap-2">

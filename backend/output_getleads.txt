@@ -1,0 +1,504 @@
+exports.getLeads = async (req, res) => {
+    try {
+        const userId = req.user?.id || req.query.loggedUserId || 1;
+        const userRoleRaw = req.user?.role || req.query.loggedUserRole || 'STAFF'; 
+        const userRole = String(userRoleRaw).toUpperCase().replace(/ /g, '_');
+
+        const { tab, subTab, staffPhase, status, staffId, batchId, businessId, paymentGroup, enrollmentStatus, inquiryType, round, phase, excludeColdBridge, searchQuery, page, limit, unassignedOnly } = req.query; 
+        const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER'].includes(userRole);
+
+        let whereClause = { campaignType: 'AFTER_SEMINAR', source: { not: 'system' }, AND: [] };
+
+        if (businessId && businessId !== '') {
+            whereClause.AND.push({
+                OR: [
+                    { phone: { endsWith: `BIZ_${businessId}` } },
+                    { phone: { endsWith: `BIZ_${businessId}_AS` } },
+                    { phone: { contains: `BIZ_${businessId}_BATCH_` } },
+                    { phone: { contains: `BIZ_${businessId}_ROUND_` } },
+                    { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
+                ]
+            });
+        }
+
+        if (searchQuery && searchQuery.trim() !== '') {
+            const q = searchQuery.trim();
+            whereClause.AND.push({
+                OR: [
+                    { phone: { contains: q } },
+                    { name: { contains: q } }
+                ]
+            });
+        }
+
+        if (excludeColdBridge === 'true') {
+            whereClause.AND.push({
+                NOT: {
+                    AND: [
+                        { source: 'bridge_transfer' },
+                        { lastMessage: null }
+                    ]
+                }
+            });
+        }
+
+        if (whereClause.AND.length === 0) {
+            delete whereClause.AND;
+        }
+
+        if (batchId === 'UNASSIGNED') {
+            whereClause.batchId = null;
+        } else if (batchId && batchId !== '') {
+            whereClause.batchId = parseInt(batchId);
+        }
+        if (paymentGroup && paymentGroup !== '') whereClause.paymentIntention = paymentGroup;
+        if (enrollmentStatus && enrollmentStatus !== '') whereClause.enrollmentStatus = enrollmentStatus;
+        if (inquiryType && inquiryType !== '') {
+            if (inquiryType.includes(',')) {
+                whereClause.inquiryType = { in: inquiryType.split(',') };
+            } else {
+                whereClause.inquiryType = inquiryType; 
+            }
+        }
+
+        if (tab === 'NEW') {
+            if (isManager) whereClause.assignedTo = null; 
+            else whereClause.assignedTo = parseInt(userId);
+
+            if (subTab) {
+                if (subTab.includes(',')) {
+                    whereClause.inquiryType = { in: subTab.split(',') };
+                } else if (subTab === 'OPEN_SEMINAR') {
+                    whereClause.inquiryType = { in: ['OPEN_SEMINAR', 'NORMAL'] };
+                } else {
+                    whereClause.inquiryType = subTab;
+                }
+            }
+        } else if (tab === 'ASSIGNED') {
+            whereClause.assignedTo = { not: null }; 
+            
+            // 1. Staff Filter
+            if (staffId && staffId !== '') whereClause.assignedTo = parseInt(staffId);
+            else if (!isManager) whereClause.assignedTo = parseInt(userId);
+            
+            // 2. Status Filter
+            if (status && status !== '') whereClause.callStatus = status;
+            
+            // 3. Round Filter
+            if (round && round !== '') whereClause.coordinationRound = parseInt(round);
+            
+            // 4. Phase Filter
+            if (phase && phase !== '') {
+                whereClause.phase = parseInt(phase);
+            } else if (staffPhase && staffPhase !== '') {
+                whereClause.phase = parseInt(staffPhase);
+            }
+        } else if (tab === 'ALL' && String(unassignedOnly) === 'true') {
+            whereClause.assignedTo = null;
+        }
+
+        const pageNum = page ? parseInt(page) : 1;
+        const limitNum = limit ? parseInt(limit) : 50;
+        const skipNum = (pageNum - 1) * limitNum;
+
+        console.log("DEBUG whereClause:", JSON.stringify(whereClause, null, 2));
+        console.log("DEBUG tab:", tab, "unassignedOnly:", unassignedOnly);
+
+        if (req.query.fetchAllIds === 'true') {
+            const allIds = await prisma.lead.findMany({
+                where: whereClause,
+                select: { id: true }
+            });
+            return res.status(200).json({ ids: allIds.map(a => a.id) });
+        }
+
+        let leads = await prisma.lead.findMany({
+            where: whereClause, 
+            orderBy: [ { unreadCount: 'desc' }, { lastMessageAt: 'desc' }, { updatedAt: 'desc' } ], 
+            include: { 
+                assignedUser: { select: { firstName: true, lastName: true, businessType: true } }, 
+                batch: { select: { id: true, name: true, businessId: true } },
+                roundProgress: true
+            },
+            skip: skipNum,
+            take: limitNum
+        });
+
+        const [totalMatching, totalUnreadMatching] = await Promise.all([
+            prisma.lead.count({ where: whereClause }),
+            prisma.lead.count({ where: { ...whereClause, unreadCount: { gt: 0 } } })
+        ]);
+
+        let newInqMatching = 0;
+        let openSemMatching = 0;
+        let newInqUnreadMatching = 0;
+        let openSemUnreadMatching = 0;
+        if (tab === 'NEW' || tab === 'ALL') {
+            const baseSubTabWhere = { ...whereClause };
+            delete baseSubTabWhere.inquiryType;
+
+            const [newInq, openSem, newInqU, openSemU] = await Promise.all([
+                prisma.lead.count({ where: { ...baseSubTabWhere, inquiryType: 'NEW_INQ' } }),
+                prisma.lead.count({ where: { ...baseSubTabWhere, inquiryType: 'OPEN_SEMINAR' } }),
+                prisma.lead.count({ where: { ...baseSubTabWhere, inquiryType: 'NEW_INQ', unreadCount: { gt: 0 } } }),
+                prisma.lead.count({ where: { ...baseSubTabWhere, inquiryType: 'OPEN_SEMINAR', unreadCount: { gt: 0 } } })
+            ]);
+            newInqMatching = newInq;
+            openSemMatching = openSem;
+            newInqUnreadMatching = newInqU;
+            openSemUnreadMatching = openSemU;
+        }
+
+        let phoneVariants = [];
+        leads.forEach(l => {
+            if (!l.phone) return;
+            const rawPhone = l.phone.split('_')[0].replace(/[^0-9]/g, '');
+            if (rawPhone.length >= 9) {
+                const suffix = rawPhone.slice(-9);
+                phoneVariants.push(`0${suffix}`, `94${suffix}`, `+94${suffix}`, `${suffix}`);
+            }
+        });
+        phoneVariants = [...new Set(phoneVariants)];
+
+        const registeredUsers = await prisma.user.findMany({
+            where: {
+                OR: [
+                    { phone: { in: phoneVariants } },
+                    { whatsapp: { in: phoneVariants } }
+                ]
+            },
+            select: { phone: true, whatsapp: true, firstName: true, lastName: true, optionalPhone: true }
+        });
+
+        const now = new Date();
+
+        await Promise.all(leads.map(async (l, i) => {
+            if (l.phone) {
+                const rawPhone = l.phone.split('_')[0].replace(/[^0-9]/g, '');
+                if (rawPhone.length >= 9) {
+                    const suffix = rawPhone.slice(-9);
+                    const rUser = registeredUsers.find(u => 
+                        (u.phone && u.phone.endsWith(suffix)) || 
+                        (u.whatsapp && u.whatsapp.endsWith(suffix))
+                    );
+                    if (rUser) leads[i].registeredUser = rUser;
+                }
+            }
+
+            if (['NEW_INQ', 'OPEN_SEMINAR', 'NORMAL'].includes(l.inquiryType)) {
+                
+                const assignedTime = new Date(l.assignedAt || l.createdAt);
+                const assignedDaysPassed = (now - assignedTime) / (1000 * 60 * 60 * 24);
+
+                const referenceTime = new Date(l.newInqTimestamp || l.updatedAt || l.createdAt);
+                const hoursPassed = (now - referenceTime) / (1000 * 60 * 60);
+                const daysPassed = hoursPassed / 24;
+
+                // 24 Hour Delay Check
+                if (hoursPassed >= 24 && l.phase === 1 && (!l.callStatus || l.callStatus === 'pending')) {
+                    if (l.inquiryType !== 'NEW_INQ' && l.inquiryType !== 'OPEN_SEMINAR') {
+                        leads[i].isLocked = true; 
+                    } else {
+                        leads[i].isLocked = false;
+                    }
+                } else {
+                    leads[i].isLocked = false;
+                }
+
+                // --- NEW CALL CAMPAIGN ROUND LOGIC ---
+                if (l.inquiryType === 'OPEN_SEMINAR') {
+                    leads[i].isDelayed = false;
+                    leads[i].isWaitingForRound2 = false;
+                    
+                    if (l.enrollmentStatus === 'PAID' || l.enrollmentStatus === 'ENROLLED') {
+                        // Bypass all delays and locks if paid/enrolled
+                        leads[i].isDelayed = false;
+                        leads[i].isLocked = false;
+                        leads[i].isWaitingForRound2 = false;
+                    } else {
+                        // Strict 14-Day Limit
+                        if (assignedDaysPassed >= 14) {
+                            leads[i].isDelayed = true;
+                        }
+
+                        if (l.coordinationRound === 1) {
+                            // Round 1 Delay Check (after 7 days)
+                            if (assignedDaysPassed >= 7) {
+                                leads[i].isDelayed = true;
+                            }
+                        } else if (l.coordinationRound === 2) {
+                            // Round 2 Waiting Rule (starts at 7 days)
+                            if (assignedDaysPassed < 7) {
+                                leads[i].isWaitingForRound2 = true;
+                                leads[i].isLocked = true; // Lock the lead until 7 days have passed
+                            } else if (assignedDaysPassed >= 14) {
+                                leads[i].isDelayed = true;
+                            }
+                        }
+                    }
+                }
+
+                if (l.inquiryType === 'NEW_INQ') {
+                    leads[i].isDelayed = false;
+                    leads[i].isWaitingForRound2 = false;
+                    
+                    if (l.enrollmentStatus === 'PAID' || l.enrollmentStatus === 'ENROLLED') {
+                        leads[i].isDelayed = false;
+                        leads[i].isLocked = false;
+                        leads[i].isWaitingForRound2 = false;
+                    } else {
+                        const assignedTimeNew = new Date(l.assignedAt || l.createdAt);
+                        const assignedDaysPassedNew = (now - assignedTimeNew) / (1000 * 60 * 60 * 24);
+                        const hoursPassedNew = assignedDaysPassedNew * 24;
+
+                        if (l.coordinationRound === 1) {
+                            if (hoursPassedNew >= 24 && (!l.callStatus || l.callStatus === 'pending')) {
+                                leads[i].isDelayed = true;
+                            }
+                        } else if (l.coordinationRound === 2) {
+                            if (assignedDaysPassedNew < 6) {
+                                leads[i].isWaitingForRound2 = true;
+                                leads[i].isLocked = true;
+                            } else {
+                                const round2HoursPassed = (assignedDaysPassedNew - 6) * 24;
+                                if (round2HoursPassed >= 24 && (!l.callStatus || l.callStatus === 'pending')) {
+                                    leads[i].isDelayed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Legacy checks
+                if (daysPassed >= 5) leads[i].needs5DayCall = true; 
+                else leads[i].needs5DayCall = false;
+
+                if (daysPassed >= 10 && l.enrollmentStatus === 'NON_ENROLLED') leads[i].needs10DayCall = true; 
+                else leads[i].needs10DayCall = false;
+            }
+
+            /* 🔴 DISABLED REAL-TIME SYNC FOR PERFORMANCE 🔴
+            // Sync with actual student payments
+            const bizMatch = l.phone ? l.phone.match(/_BIZ_(\d+)/) : null;
+            const extractedBizId = bizMatch ? parseInt(bizMatch[1]) : null;
+
+            if (extractedBizId) {
+                let rawPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
+                if (rawPhone.length >= 9) {
+                    const phoneSuffix = rawPhone.slice(-9); 
+                    
+                    const student = await prisma.user.findFirst({
+                        where: { phone: { endsWith: phoneSuffix } },
+                        include: {
+                            payments: {
+                                where: { 
+                                    businessId: extractedBizId,
+                                    status: { in: [1, 4] } // 1 = Approved, 4 = Post Pay
+                                },
+                                orderBy: { created_at: 'desc' },
+                                include: { batch: true }
+                            }
+                        }
+                    });
+
+                    if (student && student.payments && student.payments.length > 0) {
+                        const latestPayment = student.payments[0];
+                        
+                        let actualIntention = 'NOT_DECIDED';
+                        if (latestPayment.payment_type === 1) actualIntention = 'MONTHLY';
+                        else if (latestPayment.payment_type === 2) actualIntention = 'INSTALLMENT';
+                        else if (latestPayment.payment_type === 3) actualIntention = 'FULL';
+
+                        let updateData = {};
+                        let needsUpdate = false;
+
+                        if (l.enrollmentStatus !== 'ENROLLED' || l.paymentIntention !== actualIntention) {
+                            updateData.enrollmentStatus = 'ENROLLED';
+                            updateData.paymentIntention = actualIntention;
+                            updateData.isLocked = false; 
+                            needsUpdate = true;
+                        }
+
+                        // 🔥 FIX: Only assign batch if the batch belongs to the same business!
+                        if (!l.batchId && latestPayment.batchId && latestPayment.batch?.businessId === extractedBizId) {
+                            updateData.batchId = latestPayment.batchId;
+                            needsUpdate = true;
+                        }
+
+                        if (needsUpdate) {
+                            await prisma.lead.update({
+                                where: { id: l.id },
+                                data: updateData
+                            });
+                            leads[i] = { ...leads[i], ...updateData };
+                        }
+                    } else {
+                        // 🔥 මේක තමා අලුතෙන් දැම්මේ (STRICT SYNC) 🔥
+                        // සල්ලි ගෙවලා නැත්නම්, හැබැයි Coordinator 'ENROLLED' කියලා දාලා තිබ්බොත් ඒක Auto අයින් වෙනවා
+                        if (l.enrollmentStatus === 'ENROLLED') {
+                            await prisma.lead.update({
+                                where: { id: l.id },
+                                data: { enrollmentStatus: 'NON_ENROLLED', paymentIntention: 'NOT_DECIDED' }
+                            });
+                            leads[i] = { ...leads[i], enrollmentStatus: 'NON_ENROLLED', paymentIntention: 'NOT_DECIDED' };
+                        }
+                    }
+                }
+            }
+            */
+
+            leads[i].rawPhone = l.phone;
+            leads[i].businessId = l.batch?.businessId || (l.phone && l.phone.includes('_BIZ_') ? parseInt(l.phone.split('_BIZ_')[1]?.split('_')[0]) : null);
+            leads[i].phone = l.phone ? l.phone.split('_BIZ')[0] : '';
+        }));
+
+        // Map the correct campaign fields back to the base properties for frontend compatibility
+        const mappedLeads = leads.map(l => {
+            const isNewInq = tab === 'NEW' ? req.query.subTab === 'NEW_INQ' : req.query.inquiryType?.includes('NEW_INQ');
+            const isOpenSem = tab === 'NEW' ? req.query.subTab === 'OPEN_SEMINAR' : req.query.inquiryType?.includes('OPEN_SEMINAR');
+            
+            if (isOpenSem || l.inquiryType === 'OPEN_SEMINAR') {
+                return {
+                    ...l,
+                    phase: l.openSemPhase || 1,
+                    callStatus: l.openSemCallStatus || 'pending',
+                    coordinationRound: l.openSemRound || 1,
+                    feedback: l.openSemFeedback || '',
+                    callMethod: l.openSemCallMethod || null,
+                    callAttempt: l.openSemCallAttempt || 1
+                };
+            }
+            if (isNewInq || l.inquiryType === 'NEW_INQ') {
+                return {
+                    ...l,
+                    phase: l.newInqPhase || 1,
+                    callStatus: l.newInqCallStatus || 'pending',
+                    coordinationRound: l.newInqRound || 1,
+                    feedback: l.newInqFeedback || '',
+                    callMethod: l.newInqCallMethod || null,
+                    callAttempt: l.newInqCallAttempt || 1
+                };
+            }
+            return l;
+        });
+
+        // --- Calculate Counts ---
+        let countWhere = { campaignType: 'AFTER_SEMINAR', source: { not: 'system' }, AND: [] }; 
+
+        if (businessId && businessId !== '') {
+            countWhere.AND.push({
+                OR: [
+                    { phone: { endsWith: `BIZ_${businessId}` } },
+                    { phone: { endsWith: `BIZ_${businessId}_AS` } },
+                    { phone: { contains: `BIZ_${businessId}_BATCH_` } },
+                    { phone: { contains: `BIZ_${businessId}_ROUND_` } },
+                    { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
+                ]
+            });
+        }
+
+        if (excludeColdBridge === 'true') {
+            countWhere.AND.push({
+                NOT: {
+                    AND: [
+                        { source: 'bridge_transfer' },
+                        { lastMessage: null }
+                    ]
+                }
+            });
+        }
+
+        if (countWhere.AND.length === 0) {
+            delete countWhere.AND;
+        }
+
+        if (batchId === 'UNASSIGNED') {
+            countWhere.batchId = null;
+        } else if (batchId && batchId !== '') {
+            countWhere.batchId = parseInt(batchId);
+        }
+
+        // 🔥 We need the true system-wide count for ALL, so we fetch it before applying manager restriction
+        const trueAllLeadsCount = await prisma.lead.count({ where: countWhere });
+        const trueAllUnreadCount = await prisma.lead.count({ where: { ...countWhere, unreadCount: { gt: 0 } } });
+
+        if (!isManager) {
+            if (!countWhere.AND) countWhere.AND = [];
+            countWhere.AND.push({
+                OR: [
+                    { assignedTo: null },
+                    { assignedTo: parseInt(userId) }
+                ]
+            });
+        }
+
+
+        const [
+            allLeadsForCounts,
+            allUnreadCount,
+            assignedCount,
+            assignedUnread,
+            importedCount,
+            importedUnread,
+            newCount,
+            newUnread,
+            newInqCount,
+            newInqUnread,
+            openSemCount,
+            openSemUnread,
+            fullCount,
+            monthlyCount,
+            installmentCount,
+            notDecidedCount
+        ] = await Promise.all([
+            prisma.lead.count({ where: countWhere }),
+            prisma.lead.count({ where: { ...countWhere, unreadCount: { gt: 0 } } }),
+            prisma.lead.count({ where: { ...countWhere, assignedTo: { not: null } } }),
+            prisma.lead.count({ where: { ...countWhere, assignedTo: { not: null }, unreadCount: { gt: 0 } } }),
+            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { in: ['import', 'bulk_import'] } } }),
+            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { in: ['import', 'bulk_import'] }, unreadCount: { gt: 0 } } }),
+            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: 'OPEN_SEMINAR' } }),
+            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: 'OPEN_SEMINAR', unreadCount: { gt: 0 } } }),
+            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: 'NEW_INQ' } }),
+            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: 'NEW_INQ', unreadCount: { gt: 0 } } }),
+            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: 'OPEN_SEMINAR' } }),
+            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: 'OPEN_SEMINAR', unreadCount: { gt: 0 } } }),
+            prisma.lead.count({ where: { ...countWhere, paymentIntention: 'FULL' } }),
+            prisma.lead.count({ where: { ...countWhere, paymentIntention: 'MONTHLY' } }),
+            prisma.lead.count({ where: { ...countWhere, paymentIntention: 'INSTALLMENT' } }),
+            prisma.lead.count({ where: { ...countWhere, paymentIntention: 'NOT_DECIDED' } })
+        ]);
+
+        const counts = { 
+            ALL: trueAllLeadsCount,
+            ASSIGNED: assignedCount, 
+            IMPORTED: importedCount, 
+            NEW: openSemCount + newInqCount, 
+            NEW_INQ: newInqCount, 
+            OPEN_SEMINAR: openSemCount,
+            FULL: fullCount, 
+            MONTHLY: monthlyCount, 
+            INSTALLMENT: installmentCount, 
+            NOT_DECIDED: notDecidedCount 
+        };
+
+        const unreadCounts = { 
+            ALL: trueAllUnreadCount,
+            ASSIGNED: assignedUnread,
+            IMPORTED: importedUnread,
+            NEW: openSemUnread + newInqUnread, 
+            NEW_INQ: newInqUnread, 
+            OPEN_SEMINAR: openSemUnread
+        };
+        let totalUnread = trueAllUnreadCount;
+
+        if (String(unassignedOnly) === 'true') {
+            counts.ALL = totalMatching;
+        }
+
+        res.status(200).json({ leads: mappedLeads, counts, unreadCounts, totalUnread, totalMatching, totalUnreadMatching, newInqMatching, openSemMatching, newInqUnreadMatching, openSemUnreadMatching });
+    } catch (error) { 
+        console.error("Auto Sync Engine Error:", error);
+        res.status(500).json({ error: "Failed to fetch leads" }); 
+    }
+};

@@ -1,0 +1,8 @@
+[1m[90m[TAILING] Tailing last 50 lines for [ima-backend] process (change the value with --lines option)[39m[22m
+[90m/root/.pm2/logs/ima-backend-error.log last 50 lines:[39m
+[90m/root/.pm2/logs/ima-backend-out.log last 50 lines:[39m
+[32m0|ima-back | [39m◇ injected env (17) from .env // tip: ⌘ override existing { override: true }
+[32m0|ima-back | [39m[GSheet Cache] Updating Google Sheets Cache...
+[32m0|ima-back | [39m🚀 Backend Server is running cleanly on port 5000
+[32m0|ima-back | [39m[GSheet Cache] Cache updated. Loaded 0 sheets.
+

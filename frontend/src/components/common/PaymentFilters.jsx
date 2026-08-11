@@ -1,15 +1,28 @@
-import React from 'react';
-import { Search, Users, Activity, CheckCircle, Clock, XCircle, Gift, Tag, Download } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Search, Users, Activity, CheckCircle, Clock, XCircle, Gift, Tag, Download, ChevronDown, Check } from 'lucide-react';
 
 export default function PaymentFilters({ 
-    isAdmin, filters, setFilters, businesses, batches, groups, subjects, stats, onOpenStaffStats, onOpenExport 
+    isAdmin, isSystemAdmin, filters, setFilters, businesses, batches, groups, subjects, stats, onOpenStaffStats, onOpenExport
 }) {
+    const [isSubjectDropdownOpen, setIsSubjectDropdownOpen] = useState(false);
+    const dropdownRef = useRef(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+                setIsSubjectDropdownOpen(false);
+            }
+        };
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
+
     const handleChange = (field, value) => {
         setFilters(prev => ({ ...prev, [field]: value }));
     };
 
     return (
-        <div className="mb-8 font-sans transition-all duration-300">
+        <div className="mb-8 font-sans transition-all duration-300 relative z-[60]">
             {/* Top Stats Cards */}
             <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
                 <div className="bg-white/5 backdrop-blur-md border border-white/10 p-5 rounded-2xl flex flex-col justify-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] hover:shadow-[0_0_20px_rgba(234,179,8,0.12)] hover:border-yellow-500/30 hover:-translate-y-1 transition-all duration-300">
@@ -28,18 +41,20 @@ export default function PaymentFilters({
                     <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-2"><Tag size={14} className="text-blue-400"/> Discounts</p>
                     <h3 className="text-3xl font-black text-white">{stats.discounts}</h3>
                 </div>
-                <div className="bg-white/5 backdrop-blur-md border border-white/10 p-5 rounded-2xl flex flex-col justify-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] cursor-pointer hover:bg-white/10 hover:shadow-[0_0_20px_rgba(168,85,247,0.12)] hover:border-purple-500/30 hover:-translate-y-1 transition-all duration-300" onClick={onOpenStaffStats}>
-                    <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-2"><Users size={14} className="text-purple-400"/> Staff Stats</p>
-                    <h3 className="text-sm font-extrabold text-purple-400 mt-1 uppercase tracking-widest">Click to View</h3>
-                </div>
+                {isSystemAdmin && (
+                    <div className="bg-white/5 backdrop-blur-md border border-white/10 p-5 rounded-2xl flex flex-col justify-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] cursor-pointer hover:bg-white/10 hover:shadow-[0_0_20px_rgba(168,85,247,0.12)] hover:border-purple-500/30 hover:-translate-y-1 transition-all duration-300" onClick={onOpenStaffStats}>
+                        <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-2"><Users size={14} className="text-purple-400"/> Staff Stats</p>
+                        <h3 className="text-sm font-extrabold text-purple-400 mt-1 uppercase tracking-widest">Click to View</h3>
+                    </div>
+                )}
                 
                 {/* Export Button (Dynamic Themed) */}
-                {isAdmin && (
+                {isSystemAdmin && (
                     <div className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 p-5 rounded-2xl flex flex-col justify-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] cursor-pointer hover:bg-emerald-500/20 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] hover:border-emerald-500/40 hover:-translate-y-1 transition-all duration-300 group" onClick={onOpenExport}>
                         <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-2 group-hover:text-emerald-300 transition-colors">
-                            <Download size={14} className="text-emerald-400 group-hover:text-emerald-300 transition-colors"/> Export
+                            <Download size={14} className="text-emerald-400 group-hover:text-emerald-300 transition-colors"/> View
                         </p>
-                        <h3 className="text-sm font-extrabold text-emerald-400 mt-1 uppercase tracking-widest group-hover:text-emerald-300 transition-colors">Generate Report</h3>
+                        <h3 className="text-[13px] font-extrabold text-emerald-400 mt-1 uppercase tracking-widest group-hover:text-emerald-300 transition-colors">Financial Dashboard</h3>
                     </div>
                 )}
             </div>
@@ -85,18 +100,62 @@ export default function PaymentFilters({
                         onChange={e => handleChange('groupId', e.target.value)} 
                         className="w-full bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm truncate"
                     >
-                        <option value="All" className="bg-slate-900 text-white">All Groups</option>
+                        <option value="All" className="bg-slate-900 text-white">All Monthly Groups</option>
                         {groups.map(g => <option key={g.id} value={g.id} className="bg-slate-900 text-white">{g.name}</option>)}
                     </select>
 
-                    <select 
-                        value={filters.subjectId} 
-                        onChange={e => handleChange('subjectId', e.target.value)} 
-                        className="w-full bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm truncate"
-                    >
-                        <option value="All" className="bg-slate-900 text-white">All Subjects</option>
-                        {subjects.map(s => <option key={s.id} value={s.id} className="bg-slate-900 text-white">{s.name} ({s.code})</option>)}
-                    </select>
+                    <div className="relative" ref={dropdownRef}>
+                        <div 
+                            onClick={() => setIsSubjectDropdownOpen(!isSubjectDropdownOpen)}
+                            className="w-full bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm flex justify-between items-center"
+                        >
+                            <span className="truncate">
+                                {!filters.subjectId || filters.subjectId.length === 0 
+                                    ? "All Subjects" 
+                                    : `${filters.subjectId.length} Subject(s) Selected`}
+                            </span>
+                            <ChevronDown size={16} className={`transition-transform duration-200 ${isSubjectDropdownOpen ? 'rotate-180' : ''}`} />
+                        </div>
+
+                        {isSubjectDropdownOpen && (
+                            <div className="absolute z-50 top-full mt-2 w-full max-h-60 overflow-y-auto bg-slate-900 border border-white/10 rounded-xl shadow-xl p-2 flex flex-col gap-1 backdrop-blur-md">
+                                <div 
+                                    className="flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-lg cursor-pointer text-sm text-slate-200 font-medium transition-colors"
+                                    onClick={() => {
+                                        handleChange('subjectId', []);
+                                        setIsSubjectDropdownOpen(false);
+                                    }}
+                                >
+                                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${(!filters.subjectId || filters.subjectId.length === 0) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-500'}`}>
+                                        {(!filters.subjectId || filters.subjectId.length === 0) && <Check size={12} className="text-white" />}
+                                    </div>
+                                    <span>All Subjects</span>
+                                </div>
+                                {subjects.map(s => {
+                                    const isSelected = filters.subjectId && filters.subjectId.includes(s.id);
+                                    return (
+                                        <div 
+                                            key={s.id}
+                                            className="flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-lg cursor-pointer text-sm text-slate-200 font-medium transition-colors"
+                                            onClick={() => {
+                                                const current = Array.isArray(filters.subjectId) ? filters.subjectId : [];
+                                                if (isSelected) {
+                                                    handleChange('subjectId', current.filter(id => id !== s.id));
+                                                } else {
+                                                    handleChange('subjectId', [...current, s.id]);
+                                                }
+                                            }}
+                                        >
+                                            <div className={`w-4 h-4 shrink-0 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-indigo-500 border-indigo-500' : 'border-slate-500'}`}>
+                                                {isSelected && <Check size={12} className="text-white" />}
+                                            </div>
+                                            <span className="truncate">{s.name} ({s.code})</span>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
 
                     <select 
                         value={filters.method} 

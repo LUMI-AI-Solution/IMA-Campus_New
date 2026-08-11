@@ -25,8 +25,20 @@ cron.schedule('* * * * *', async () => {
 
             // --- 1. 15-Minute Reminder Logic ---
             if (!cls.reminderSent && cls.startTime) {
-                const [hours, minutes] = cls.startTime.split(':');
-                const formattedStartTime = `${hours.padStart(2, '0')}:${minutes || '00'}`;
+                const timeMatch = cls.startTime.trim().match(/(\d+):(\d+)\s*(AM|PM)?/i);
+                let hoursStr = "00", minutesStr = "00";
+                if (timeMatch) {
+                    let hours = parseInt(timeMatch[1], 10);
+                    let minutes = parseInt(timeMatch[2], 10);
+                    const ampm = timeMatch[3]?.toUpperCase();
+
+                    if (ampm === 'PM' && hours < 12) hours += 12;
+                    if (ampm === 'AM' && hours === 12) hours = 0;
+
+                    hoursStr = hours.toString().padStart(2, '0');
+                    minutesStr = minutes.toString().padStart(2, '0');
+                }
+                const formattedStartTime = `${hoursStr}:${minutesStr}`;
                 const startDateTime = new Date(`${dateStr}T${formattedStartTime}:00+05:30`);
                 
                 const diffMins = (startDateTime - now) / (1000 * 60);
@@ -51,9 +63,12 @@ cron.schedule('* * * * *', async () => {
                                     title: `🔴 Live Class Reminder!`,
                                     body: `${cls.title} will start in ${Math.round(diffMins)} minutes.`
                                 },
+                                data: {
+                                    type: 'live_class',
+                                    class_id: String(cls.id)
+                                },
                                 android: {
-                                    priority: 'high',
-                                    notification: { channelId: 'default', sound: 'default' }
+                                    priority: 'high'
                                 },
                                 apns: {
                                     payload: { aps: { 'content-available': 1, sound: 'default' } }
@@ -81,7 +96,21 @@ cron.schedule('* * * * *', async () => {
 
             // --- 2. Auto Delete Logic ---
             if (cls.autoDeleteHours !== null && cls.endTime) {
-                const endDateTime = new Date(`${dateStr}T${cls.endTime}:00+05:30`);
+                const endMatch = cls.endTime.trim().match(/(\d+):(\d+)\s*(AM|PM)?/i);
+                let eHoursStr = "00", eMinutesStr = "00";
+                if (endMatch) {
+                    let hours = parseInt(endMatch[1], 10);
+                    let minutes = parseInt(endMatch[2], 10);
+                    const ampm = endMatch[3]?.toUpperCase();
+
+                    if (ampm === 'PM' && hours < 12) hours += 12;
+                    if (ampm === 'AM' && hours === 12) hours = 0;
+
+                    eHoursStr = hours.toString().padStart(2, '0');
+                    eMinutesStr = minutes.toString().padStart(2, '0');
+                }
+                const formattedEndTime = `${eHoursStr}:${eMinutesStr}`;
+                const endDateTime = new Date(`${dateStr}T${formattedEndTime}:00+05:30`);
                 // Calculate when it should be deleted
                 const deleteTime = new Date(endDateTime.getTime() + cls.autoDeleteHours * 60 * 60 * 1000);
 

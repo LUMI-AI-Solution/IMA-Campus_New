@@ -3,8 +3,10 @@ import axios from '../../api/axios';
 import { Loader2, AlertCircle, ChevronDown, TrendingUp, ChevronLeft, ChevronRight, Search, Download } from 'lucide-react';
 
 export default function FinanceMatrix({ loggedInUser }) {
-    const isSystemAdmin = loggedInUser?.role?.toUpperCase() === 'SYSTEM_ADMIN' || loggedInUser?.role?.toUpperCase() === 'System Admin' || loggedInUser?.role?.toUpperCase() === 'DIRECTOR';
-    const isFinanceDept = loggedInUser?.department === 'Finance';
+    const roleUpper = loggedInUser?.role ? String(loggedInUser.role).toUpperCase().replace(/[\s_-]+/g, '_') : '';
+    const deptUpper = loggedInUser?.department ? String(loggedInUser.department).toUpperCase().replace(/[\s_-]+/g, '_') : '';
+    const isSystemAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER_ADMIN', 'ADMIN'].includes(roleUpper);
+    const isFinanceDept = deptUpper === 'FINANCE' || roleUpper === 'FINANCE';
     const canSeeAllBusinesses = isSystemAdmin || isFinanceDept;
 
     const [businesses, setBusinesses] = useState([]);

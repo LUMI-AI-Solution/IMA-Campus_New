@@ -3,8 +3,10 @@ import { createPortal } from 'react-dom';
 import axios from '../../../api/axios';
 import { FaPhoneAlt, FaCheckCircle, FaTimesCircle, FaUserSecret, FaKey, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaTimes, FaArrowsAlt, FaChevronRight, FaChevronLeft, FaLayerGroup } from 'react-icons/fa';
 import toast from 'react-hot-toast';
+import { useCall } from '../../../contexts/CallContext';
 
-export default function RightSidePanel({ selectedLead, activeMode, activeBusinessId }) {
+export default function RightSidePanel({ selectedLead, activeMode, activeBusinessId, onBatchAssigned }) {
+  const { startOutboundCall } = useCall();
   const [studentDetails, setStudentDetails] = useState(null);
   const [loading, setLoading] = useState(false);
   const [showResetModal, setShowResetModal] = useState(false);
@@ -26,9 +28,11 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
   useEffect(() => {
     if (selectedLead?.phone) {
       fetchStudentData();
-      setSelectedBatchToAssign(selectedLead.batchId || '');
+      setSelectedBatchToAssign(selectedLead.batchId?.toString() || '');
+    } else {
+      setSelectedBatchToAssign('');
     }
-  }, [selectedLead]);
+  }, [selectedLead, selectedLead?.batchId]);
 
   useEffect(() => {
     const fetchBatches = async () => {
@@ -64,6 +68,9 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
       }, { headers: { Authorization: `Bearer ${token}` } });
       
       toast.success("Batch successfully assigned!");
+      if (onBatchAssigned) {
+        onBatchAssigned(selectedLead.id, selectedBatchToAssign);
+      }
     } catch (error) {
       toast.error("Failed to assign batch.");
     } finally {
@@ -199,6 +206,14 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
             <div className="flex items-center gap-2 mt-2 text-xs bg-[#0b141a] px-3 py-1.5 rounded-full border border-slate-700 text-emerald-400">
               <FaPhoneAlt size={10} /> {selectedLead.phone}
             </div>
+            {selectedLead?.waCallPermissionStatus === 'ALLOWED' && (
+              <button 
+                onClick={() => startOutboundCall && startOutboundCall({ lead: selectedLead, businessId: selectedLead?.batch?.businessId, campaignType: selectedLead?.campaignType || 'AFTER_SEMINAR' })}
+                className="w-full mt-3 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/40 transition-all hover:scale-[1.02]"
+              >
+                <FaPhoneAlt size={11} /> Call via WhatsApp (Allowed)
+              </button>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-[#23303f]">
@@ -279,27 +294,42 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
                             <span className="text-slate-300">{studentDetails.student.addressHouseNo}, {studentDetails.student.addressStreet}, {studentDetails.student.city}</span>
                         </div>
                         
-                        {studentDetails.student.payments?.[0] && (
-                            <>
-                                <div className="text-xs mt-3 pt-3 border-t border-slate-700">
-                                    <span className="text-slate-500 block mb-0.5"><FaGraduationCap className="inline mr-1"/> Enrollment</span>
-                                    <span className="text-blue-300 font-bold block">{studentDetails.student.payments[0].business?.name}</span>
-                                    <span className="text-slate-400 block">{studentDetails.student.payments[0].batch?.name}</span>
-                                </div>
-                                <div className="text-xs mt-2">
-                                    <span className="text-slate-500 block mb-0.5">Enrolled Subjects</span>
-                                    <div className="flex flex-wrap gap-1 mt-1">
-                                        {studentDetails.enrolledCourses?.map(c => (
-                                            <span key={c.id} className="bg-slate-800 px-2 py-1 rounded text-[10px] text-slate-300 border border-slate-700">{c.name}</span>
-                                        ))}
+                        {(() => {
+                            const uniqueEnrollments = studentDetails.student.payments?.reduce((acc, p) => {
+                                const key = `${p.businessId}_${p.batchId}`;
+                                if (!acc[key]) {
+                                    acc[key] = { ...p, courses: p.courses ? [...p.courses] : [] };
+                                } else {
+                                    if(p.courses) {
+                                        const existingCourseIds = acc[key].courses.map(c => c.id);
+                                        const newCourses = p.courses.filter(c => !existingCourseIds.includes(c.id));
+                                        acc[key].courses = [...acc[key].courses, ...newCourses];
+                                    }
+                                }
+                                return acc;
+                            }, {});
+                            return uniqueEnrollments ? Object.values(uniqueEnrollments).map((payment, idx) => (
+                                <div key={idx} className={idx > 0 ? "mt-4" : ""}>
+                                    <div className="text-xs mt-3 pt-3 border-t border-slate-700">
+                                        <span className="text-slate-500 block mb-0.5"><FaGraduationCap className="inline mr-1"/> Enrollment</span>
+                                        <span className="text-blue-300 font-bold block">{payment.business?.name}</span>
+                                        <span className="text-slate-400 block">{payment.batch?.name}</span>
+                                    </div>
+                                    <div className="text-xs mt-2">
+                                        <span className="text-slate-500 block mb-0.5">Enrolled Subjects</span>
+                                        <div className="flex flex-wrap gap-1 mt-1">
+                                            {payment.courses?.map(c => (
+                                                <span key={c.id} className="bg-slate-800 px-2 py-1 rounded text-[10px] text-slate-300 border border-slate-700">{c.name}</span>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="text-xs mt-3">
+                                        <span className="text-slate-500 block mb-0.5"><FaCreditCard className="inline mr-1"/> Payment Option</span>
+                                        <span className="text-emerald-400 font-semibold">{getPaymentOption(payment)}</span>
                                     </div>
                                 </div>
-                                <div className="text-xs mt-3">
-                                    <span className="text-slate-500 block mb-0.5"><FaCreditCard className="inline mr-1"/> Payment Option</span>
-                                    <span className="text-emerald-400 font-semibold">{getPaymentOption(studentDetails.student.payments[0])}</span>
-                                </div>
-                            </>
-                        )}
+                            )) : null;
+                        })()}
                     </div>
 
                     <div className="pt-4 mt-2 border-t border-slate-700 space-y-2">
@@ -344,8 +374,8 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
                   style={{
                       left: `${iframePos.x}px`,
                       top: `${iframePos.y}px`,
-                      width: '900px',
-                      height: '600px',
+                      width: '1100px',
+                      height: '700px',
                       resize: 'both',
                       minWidth: '400px',
                       minHeight: '300px'

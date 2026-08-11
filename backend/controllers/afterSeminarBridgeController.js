@@ -33,7 +33,7 @@ exports.getPendingBridgeLeads = async (req, res) => {
         if (batchId && batchId !== '' && batchId !== 'ALL') {
             const targetBatchId = parseInt(batchId);
             freeSeminarLeads = freeSeminarLeads.filter(l => 
-                l.batchId === targetBatchId || l.phone.includes(`_BATCH_${targetBatchId}`)
+                l.batchId === targetBatchId || l.phone.endsWith(`_BATCH_${targetBatchId}`) || l.phone.includes(`_BATCH_${targetBatchId}_`)
             );
         }
 
@@ -187,7 +187,7 @@ exports.revertPendingBridgeLeads = async (req, res) => {
         let finalLeadsToRevert = leadsToRevert;
         if (batchId && batchId !== '') {
             const targetBatchId = parseInt(batchId);
-            finalLeadsToRevert = leadsToRevert.filter(l => l.phone.includes(`_BATCH_${targetBatchId}`));
+            finalLeadsToRevert = leadsToRevert.filter(l => l.phone.endsWith(`_BATCH_${targetBatchId}`) || l.phone.includes(`_BATCH_${targetBatchId}_`));
         }
 
         const leadIdsToDelete = finalLeadsToRevert.map(l => l.id);

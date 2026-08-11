@@ -1,95 +1,99 @@
 import React from 'react';
-import { Users, BookOpen, Clock, Activity, Building, MapPin } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Building, Calendar, UserPlus, Users, Activity } from 'lucide-react';
 
 export default function OverviewTab() {
-  
-  const stats = [
-    { title: 'Total Walk-ins Today', value: '124', icon: Users, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-    { title: 'Active Physical Classes', value: '18', icon: BookOpen, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-    { title: 'Pending Inquiries', value: '45', icon: Clock, color: 'text-orange-400', bg: 'bg-orange-500/10' },
-    { title: 'Overall Attendance', value: '89%', icon: Activity, color: 'text-purple-400', bg: 'bg-purple-500/10' }
+  const navigate = useNavigate();
+
+  const actionCards = [
+    { 
+      title: 'Class Timetable', 
+      image: '/card_timetable.png',
+      path: '/physical/dashboard/timetable', 
+      color: 'text-pink-400', 
+      bg: 'bg-pink-400/20',
+      border: 'hover:border-pink-400/50',
+      shadow: 'hover:shadow-pink-400/20'
+    },
+    { 
+      title: 'Student Registration', 
+      image: '/card_registration.png',
+      path: '/physical/dashboard/registration', 
+      color: 'text-emerald-400', 
+      bg: 'bg-emerald-400/20',
+      border: 'hover:border-emerald-400/50',
+      shadow: 'hover:shadow-emerald-400/20'
+    },
+    { 
+      title: 'Teachers & Classes', 
+      image: '/card_staff.png',
+      path: '/physical/dashboard/staff', 
+      color: 'text-blue-400', 
+      bg: 'bg-blue-400/20',
+      border: 'hover:border-blue-400/50',
+      shadow: 'hover:shadow-blue-400/20'
+    },
+    { 
+      title: 'Student Portal', 
+      image: '/card_attendance.png',
+      path: '/physical/dashboard/attendance', 
+      color: 'text-amber-400', 
+      bg: 'bg-amber-400/20',
+      border: 'hover:border-amber-400/50',
+      shadow: 'hover:shadow-amber-400/20'
+    },
+    { 
+      title: 'Cash Flow Portal', 
+      image: '/card_finance.png',
+      path: '/physical/dashboard/finance', 
+      color: 'text-indigo-400', 
+      bg: 'bg-indigo-400/20',
+      border: 'hover:border-indigo-400/50',
+      shadow: 'hover:shadow-indigo-400/20'
+    }
   ];
 
   return (
-    <div className="animate-fade-in w-full h-full">
+    <div className="animate-fade-in w-full min-h-full pb-10">
       <div className="flex items-center gap-3 mb-8">
         <div className="bg-brand-accent/20 p-3 rounded-xl border border-brand-accent/30 shadow-[0_0_15px_rgba(225,29,72,0.3)]">
            <Building className="text-brand-accent" size={24} />
         </div>
         <div>
-          <h2 className="text-2xl font-extrabold text-white">Physical CRM Overview</h2>
-          <p className="text-gray-400 text-sm">Real-time statistics for all physical branches and walk-ins.</p>
+          <h2 className="text-2xl font-extrabold text-white">Physical Hub Overview</h2>
+          <p className="text-gray-400 text-sm">Select an application below to manage physical operations.</p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {stats.map((s, idx) => (
-          <div key={idx} className="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-md shadow-lg hover:bg-white/10 transition-all group">
-            <div className="flex items-center justify-between mb-4">
-              <div className={`p-3 rounded-xl ${s.bg} border border-white/5`}>
-                <s.icon size={20} className={s.color} />
+      {/* Quick Action Cards (Glassmorphism, Large Centered Icons) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 lg:gap-6">
+        {actionCards.map((card, idx) => (
+          <button
+            key={idx}
+            onClick={() => card.path ? navigate(card.path) : null}
+            className={`relative overflow-hidden group bg-white/5 backdrop-blur-xl border border-white/10 ${card.border} rounded-3xl p-5 flex flex-col items-center justify-center text-center transition-all duration-300 ${card.path ? 'cursor-pointer hover:-translate-y-1 ' + card.shadow : 'cursor-default'}`}
+          >
+            {/* Background Glow */}
+            <div className={`absolute -top-20 -right-20 w-40 h-40 ${card.bg} rounded-full blur-3xl group-hover:scale-150 transition-transform duration-500`}></div>
+            <div className={`absolute -bottom-20 -left-20 w-40 h-40 ${card.bg} rounded-full blur-3xl group-hover:scale-150 transition-transform duration-500`}></div>
+            
+            {card.image ? (
+              <div className="w-full h-32 mb-4 relative z-10 rounded-2xl overflow-hidden shadow-lg border border-white/20 group-hover:scale-105 transition-transform duration-300">
+                <img src={card.image} alt={card.title} className="w-full h-full object-cover" />
               </div>
-              <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Today</span>
+            ) : (
+              <div className={`p-4 rounded-3xl ${card.bg} border border-white/10 mb-4 relative z-10 group-hover:scale-110 transition-transform duration-300`}>
+                <card.icon size={36} className={card.color} />
+              </div>
+            )}
+            
+            <div className="relative z-10 w-full">
+              <h3 className="text-base font-bold text-white drop-shadow-md">{card.title}</h3>
             </div>
-            <h3 className="text-gray-400 text-sm font-medium mb-1">{s.title}</h3>
-            <p className="text-3xl font-black text-white group-hover:scale-105 transition-transform origin-left drop-shadow-md">{s.value}</p>
-          </div>
+          </button>
         ))}
       </div>
 
-      {/* Branch Activity Section */}
-      <div className="bg-white/5 border border-white/10 rounded-2xl p-6 backdrop-blur-md shadow-lg">
-        <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2">
-            <MapPin className="text-rose-400" size={18} /> Branch Activity
-        </h3>
-        
-        <div className="space-y-4">
-            <div className="bg-black/20 rounded-xl p-4 border border-white/5 flex items-center justify-between hover:bg-black/30 transition-all cursor-pointer">
-                <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-md">
-                        CM
-                    </div>
-                    <div>
-                        <h4 className="text-white font-bold">Colombo Main Branch</h4>
-                        <p className="text-xs text-gray-400">8 Active Classes • 45 Walk-ins</p>
-                    </div>
-                </div>
-                <div className="text-right">
-                    <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border border-emerald-500/30">Active</span>
-                </div>
-            </div>
-
-            <div className="bg-black/20 rounded-xl p-4 border border-white/5 flex items-center justify-between hover:bg-black/30 transition-all cursor-pointer">
-                <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-rose-500 to-orange-600 flex items-center justify-center text-white font-bold shadow-md">
-                        GL
-                    </div>
-                    <div>
-                        <h4 className="text-white font-bold">Galle Branch</h4>
-                        <p className="text-xs text-gray-400">5 Active Classes • 22 Walk-ins</p>
-                    </div>
-                </div>
-                <div className="text-right">
-                    <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border border-emerald-500/30">Active</span>
-                </div>
-            </div>
-
-             <div className="bg-black/20 rounded-xl p-4 border border-white/5 flex items-center justify-between hover:bg-black/30 transition-all cursor-pointer">
-                <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-600 flex items-center justify-center text-white font-bold shadow-md">
-                        KD
-                    </div>
-                    <div>
-                        <h4 className="text-white font-bold">Kandy Branch</h4>
-                        <p className="text-xs text-gray-400">12 Active Classes • 57 Walk-ins</p>
-                    </div>
-                </div>
-                <div className="text-right">
-                    <span className="bg-emerald-500/20 text-emerald-400 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border border-emerald-500/30">Active</span>
-                </div>
-            </div>
-        </div>
-      </div>
     </div>
   );
 }

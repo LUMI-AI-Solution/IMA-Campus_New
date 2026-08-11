@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LUMI Caller Animation Preview</title>
+    <style>
+        /* ඔයාගේ සිස්ටම් එකේ තියෙනවා වගේ Background එකක් */
+        body {
+            background-color: #1e1b4b;
+            /* තද නිල්/දම් පාට */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        /* Menu Container එක */
+        .sidebar-menu {
+            list-style: none;
+            padding: 0;
+            width: 250px;
+            background-color: #2e2a5c;
+            /* Menu එකේ පාට */
+            border-radius: 10px;
+            padding: 10px 0;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Container එකේ ස්ටයිල් */
+        .lumi-animated-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 20px;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .lumi-animated-item:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        /* Icon එක Glow වෙන Animation එක */
+        .lumi-icon {
+            font-size: 18px;
+            margin-right: 15px;
+            color: #00e5ff;
+            animation: lumi-pulse 1.5s infinite alternate;
+        }
+
+        /* Text එකේ ලස්සන Gradient පාට */
+        .lumi-text {
+            font-size: 15px;
+            font-weight: 600;
+            background: linear-gradient(90deg, #00e5ff, #b122e5, #00e5ff);
+            background-size: 200% auto;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            animation: text-shine 3s linear infinite;
+        }
+
+        /* AI Badge එක */
+        .lumi-badge {
+            margin-left: auto;
+            background-color: #b122e5;
+            color: white;
+            font-size: 11px;
+            padding: 3px 7px;
+            border-radius: 12px;
+            font-weight: bold;
+            box-shadow: 0 0 10px rgba(177, 34, 229, 0.5);
+            animation: lumi-pulse 1.5s infinite alternate;
+        }
+
+        /* --- Animations --- */
+
+        /* Glow වෙන Animation එක */
+        @keyframes lumi-pulse {
+            0% {
+                text-shadow: 0 0 5px rgba(0, 229, 255, 0.5);
+                transform: scale(1);
+                box-shadow: 0 0 5px rgba(177, 34, 229, 0.4);
+            }
+
+            100% {
+                text-shadow: 0 0 15px rgba(0, 229, 255, 1), 0 0 20px rgba(177, 34, 229, 0.8);
+                transform: scale(1.05);
+                box-shadow: 0 0 15px rgba(177, 34, 229, 0.8);
+            }
+        }
+
+        /* Text එක දිගේ පාට යන Animation එක */
+        @keyframes text-shine {
+            to {
+                background-position: 200% center;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <ul class="sidebar-menu">
+        <li class="lumi-animated-item">
+            <span class="lumi-icon">✨</span>
+            <span class="lumi-text">LUMI Caller</span>
+            <span class="lumi-badge">AI</span>
+        </li>
+    </ul>
+
+</body>
+
+</html>

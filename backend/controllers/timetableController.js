@@ -16,24 +16,67 @@ const parseSLTDate = (dateStr, timeStr = "00:00") => {
 
 exports.getSchedule = async (req, res) => {
     try {
-        const { batchId, year, month } = req.query;
+        const { batchId, businessId, year, month } = req.query;
         // මාසෙ මුල සහ අග ලංකාවේ වෙලාවටම ගන්නවා
         const startDate = parseSLTDate(`${year}-${String(month).padStart(2, '0')}-01`);
         const nextMonth = new Date(Date.UTC(year, month, 0)); 
         const endDate = parseSLTDate(`${year}-${String(month).padStart(2, '0')}-${nextMonth.getUTCDate()}`, "23:59");
 
+        let whereClause = {
+            date: {
+                gte: startDate,
+                lte: endDate,
+            }
+        };
+        if (businessId) whereClause.businessId = parseInt(businessId);
+        else if (batchId) whereClause.batchId = parseInt(batchId);
+
         const schedule = await prisma.timetable.findMany({
-            where: {
-                batchId: parseInt(batchId),
-                date: {
-                    gte: startDate,
-                    lte: endDate,
-                }
-            },
-            include: { hall: true },
+            where: whereClause,
+            include: { hall: true, batch: true },
             orderBy: { startTime: 'asc' }
         });
-        res.status(200).json(schedule);
+
+        let contentWhereClause = {
+            contentType: { in: ['live', '1'] },
+            date: {
+                gte: startDate,
+                lte: endDate,
+            }
+        };
+        if (businessId) {
+            const bizBatches = await prisma.batch.findMany({ where: { businessId: parseInt(businessId) } });
+            contentWhereClause.batchId = { in: bizBatches.map(b => b.id) };
+        } else if (batchId) {
+            contentWhereClause.batchId = parseInt(batchId);
+        }
+
+        const contentClasses = await prisma.content.findMany({
+            where: contentWhereClause,
+            include: { group: true }
+        });
+
+        const mappedContentClasses = contentClasses.map(c => ({
+            id: `content_${c.id}`,
+            businessId: businessId ? parseInt(businessId) : 0,
+            batchId: c.batchId,
+            date: c.date,
+            subjectName: c.title,
+            title: 'Content Hub Live Class',
+            startTime: c.startTime || '00:00',
+            endTime: c.endTime || '00:00',
+            lecturerName: 'Content Hub',
+            hall: null,
+            deliveryStatus: c.link || c.meetingId ? 'DELIVERED' : 'PENDING',
+            isFromContentHub: true
+        }));
+
+        const mergedSchedule = [...schedule, ...mappedContentClasses].sort((a, b) => {
+            if (!a.startTime || !b.startTime) return 0;
+            return a.startTime.localeCompare(b.startTime);
+        });
+
+        res.status(200).json(mergedSchedule);
     } catch (error) {
         res.status(500).json({ error: "Failed to load schedule" });
     }
@@ -41,8 +84,18 @@ exports.getSchedule = async (req, res) => {
 
 exports.createSchedule = async (req, res) => {
     try {
-        const { businessId, batchId, date, subjectName, title, startTime, endTime, lecturerName, optionalMCQ, optionalPaper } = req.body;
+        const { businessId, batchId, batchIds, date, subjectName, title, startTime, endTime, lecturerName, optionalMCQ, optionalPaper } = req.body;
         
+        let primaryBatchId = batchId ? parseInt(batchId) : null;
+        let additionalBatchIds = null;
+
+        if (batchIds && Array.isArray(batchIds) && batchIds.length > 0) {
+            primaryBatchId = parseInt(batchIds[0]);
+            if (batchIds.length > 1) {
+                additionalBatchIds = JSON.stringify(batchIds.slice(1).map(id => parseInt(id)));
+            }
+        }
+
         const userId = req.user.userId || req.user.id;
         const userRole = req.user.role;
         const businessType = req.user.businessType;
@@ -68,6 +121,10 @@ exports.createSchedule = async (req, res) => {
             }
         }
         
+        if (!primaryBatchId) {
+            return res.status(400).json({ error: "At least one batch must be selected." });
+        }
+
         // 100% ක් නිවැරදි ලංකාවේ වෙලාවන් (SLT Timestamps)
         const classDateSLT = parseSLTDate(date, "00:00");
         const classStartDateTime = parseSLTDate(date, startTime);
@@ -76,7 +133,8 @@ exports.createSchedule = async (req, res) => {
         const newClass = await prisma.timetable.create({
             data: {
                 businessId: parseInt(businessId),
-                batchId: parseInt(batchId),
+                batchId: primaryBatchId,
+                additionalBatchIds: additionalBatchIds,
                 date: classDateSLT,
                 subjectName,
                 title,
@@ -126,7 +184,8 @@ exports.createSchedule = async (req, res) => {
 
                 tasksToCreate.push({ 
                     businessId: parseInt(businessId), 
-                    batchId: parseInt(batchId), 
+                    batchId: primaryBatchId, 
+                    additionalBatchIds: additionalBatchIds,
                     timetableId: newClass.id, 
                     taskType: template.taskType, 
                     deadline: deadline 
@@ -148,7 +207,7 @@ exports.createSchedule = async (req, res) => {
 
                 const mainCtTask = await prisma.task.create({
                     data: {
-                        businessId: parseInt(businessId), batchId: parseInt(batchId), timetableId: newClass.id,
+                        businessId: parseInt(businessId), batchId: primaryBatchId, additionalBatchIds: additionalBatchIds, timetableId: newClass.id,
                         taskType: "CUSTOM", customTitle: ct.title, customDesc: ct.description,
                         assignedTo: ct.autoAssignTo || null, status: ct.autoAssignTo ? "IN_PROGRESS" : "PENDING",
                         deadline: customDeadline
@@ -159,7 +218,7 @@ exports.createSchedule = async (req, res) => {
                     const subTasksArray = typeof ct.subTasks === 'string' ? JSON.parse(ct.subTasks) : ct.subTasks;
                     if (Array.isArray(subTasksArray) && subTasksArray.length > 0) {
                         const subsData = subTasksArray.map(sub => ({
-                            businessId: parseInt(businessId), batchId: parseInt(batchId), timetableId: newClass.id,
+                            businessId: parseInt(businessId), batchId: primaryBatchId, additionalBatchIds: additionalBatchIds, timetableId: newClass.id,
                             taskType: "CUSTOM", customTitle: sub.title, parentId: mainCtTask.id,
                             deadline: parseSLTDate(date, sub.endTime), status: "PENDING"
                         }));

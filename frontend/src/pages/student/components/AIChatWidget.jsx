@@ -8,7 +8,7 @@ export default function AIChatWidget() {
         <div className="fixed bottom-6 right-6 z-[100] flex flex-col items-end">
             {isChatOpen && (
                 /* 🔥 Coming Soon Popup Card 🔥 */
-                <div className="mb-4 w-[calc(100vw-3rem)] sm:w-[320px] bg-[#0a0f1c] rounded-[2rem] flex flex-col overflow-hidden animate-fade-in shadow-[0_20px_50px_rgba(0,0,0,0.8)] border border-slate-700/50 p-6 md:p-8 text-center relative">
+                <div className="mb-4 w-[calc(100vw-3rem)] sm:w-[320px] bg-[#0a0f1c] rounded-[2rem] flex flex-col overflow-hidden animate-fade-in shadow-[0_20px_50px_rgba(0,0,0,0.8)] border border-white/20 p-6 md:p-8 text-center relative">
                     
                     <button onClick={() => setIsChatOpen(false)} className="absolute top-4 right-4 text-slate-400 hover:bg-slate-800 hover:text-red-400 p-2 rounded-xl transition-colors">
                         <X size={18} strokeWidth={2.5}/>
@@ -26,7 +26,7 @@ export default function AIChatWidget() {
                         Your intelligent AI Campus Assistant is currently in training. Get ready for a smarter way to learn!
                     </p>
 
-                    <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-3 text-[11px] font-bold text-orange-400 uppercase tracking-widest shadow-inner">
+                    <div className="bg-slate-800/50 border border-white/20 rounded-xl p-3 text-[11px] font-bold text-orange-400 uppercase tracking-widest shadow-inner">
                         Stay Tuned
                     </div>
                 </div>

@@ -2,7 +2,7 @@ import React from 'react';
 import ManagerCampaignStats from './ManagerCampaignStats';
 import StaffCampaignExecution from './StaffCampaignExecution';
 
-export default function CallCampaignModule({ loggedInUser, filters, setActiveMode, setSelectedLead, forceStatsView }) {
+export default function CallCampaignModule({ loggedInUser, filters, setActiveMode, setSelectedLead, forceStatsView, redirectLead }) {
     
     // 1. Role eka ganna logic eka (poddak thawath strong kara)
     let rawRole = '';
@@ -34,6 +34,7 @@ export default function CallCampaignModule({ loggedInUser, filters, setActiveMod
                     filters={filters} 
                     setActiveMode={setActiveMode} 
                     setSelectedLead={setSelectedLead} 
+                    redirectLead={redirectLead}
                 />
             )}
         </div>

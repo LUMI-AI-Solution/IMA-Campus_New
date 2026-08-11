@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const studentController = require('../controllers/studentController'); // 🔥 මේක විතරයි දැන් ඕනේ
+const paycorpController = require('../controllers/paycorpController');
 const multer = require('multer');
 const path = require('path');
 
@@ -30,6 +31,10 @@ router.get('/available-enrollments', verifyToken, studentController.getAvailable
 router.get('/my-enrolled-subjects', verifyToken, studentController.getMyEnrolledSubjects);
 
 router.post('/payhere-hash', verifyToken, studentController.generatePayHereHash);
+
+// Paycorp test routes
+router.post('/paycorp-init', verifyToken, paycorpController.initPayment);
+router.post('/paycorp-complete', verifyToken, paycorpController.completePayment);
 
 // Slips upload (Web එකෙන්)
 router.post('/enroll-with-slip', verifyToken, uploadDocument.array('slipImages', 4), studentController.enrollStudent);

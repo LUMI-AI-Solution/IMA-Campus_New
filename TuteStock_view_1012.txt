@@ -1,0 +1,39 @@
+Created At: 2026-07-09T06:06:59Z
+Completed At: 2026-07-09T06:06:59Z
+File Path: `file:///root/IMA-Campus/frontend/src/pages/delivery/components/TuteStock.jsx`
+Total Lines: 854
+Total Bytes: 67779
+Showing lines 120 to 150
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+120:                 lecs.get(lecName).businesses.add(bizName);
+121:                 lecs.get(lecName).subjects.add(subName);
+122:             }
+123:         });
+124: 
+125:         // Merge from MasterTutes
+126:         masterTutes.forEach(mt => {
+127:             if (lecs.has(mt.name)) {
+128:                 const existing = lecs.get(mt.name);
+129:                 existing.masterId = mt.id;
+130:                 if (!existing.image || existing.image === 'null' || existing.image === 'default.png') {
+131:                     existing.image = mt.image;
+132:                 }
+133:             } else {
+134:                 lecs.set(mt.name, {
+135:                     name: mt.name,
+136:                     image: mt.image,
+137:                     businesses: new Set(),
+138:                     subjects: new Set(),
+139:                     masterId: mt.id
+140:                 });
+141:             }
+142:         });
+143:         
+144:         return Array.from(lecs.values()).map(l => ({
+145:             ...l,
+146:             businessText: Array.from(l.businesses).join(', '),
+147:             subjectText: Array.from(l.subjects).join(', ')
+148:         })).sort((a, b) => a.name.localeCompare(b.name));
+149:     }, [globalStock, masterTutes]);
+150: 
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

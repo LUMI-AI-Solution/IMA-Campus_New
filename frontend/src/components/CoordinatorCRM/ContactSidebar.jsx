@@ -1,27 +1,45 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import axios from '../../api/axios'; 
-import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaClock, FaLock, FaUserCheck, FaHeadset } from 'react-icons/fa';
+import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaClock, FaLock, FaUserCheck, FaHeadset, FaHistory, FaCommentDots, FaLayerGroup, FaFilter, FaChartBar, FaWhatsapp } from 'react-icons/fa';
+import { FiPhoneIncoming, FiPhoneOutgoing, FiPhoneMissed } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import CustomSelect from '../common/CustomSelect';
 import BusinessBadge from '../common/BusinessBadge';
+import InboundMissedCallsReportModal from '../common/InboundMissedCallsReportModal';
+import CallPermissionsWidget from '../common/CallPermissionsWidget';
+import { useCall } from '../../contexts/CallContext';
 
-export default function ContactSidebar({ activeMode, selectedLead, setSelectedLead, filters }) {
+export default function ContactSidebar({ activeMode, selectedLead, setSelectedLead, filters, onRedirectToCampaign }) {
+  const { socket } = useCall?.() || {};
   const rawRole = JSON.parse(localStorage.getItem('user'))?.role || '';
   const userRole = rawRole.toUpperCase().replace(' ', '_');
   const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER'].includes(userRole);
   const currentUserId = JSON.parse(localStorage.getItem('user'))?.id;
 
   const [activeTab, setActiveTab] = useState(isManager ? 'NEW' : 'ASSIGNED');
+  const [callHistoryMode, setCallHistoryMode] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+  const [activeCallTab, setActiveCallTab] = useState('INBOUND');
+  const [availableBatches, setAvailableBatches] = useState([]);
+  const [callBatchFilter, setCallBatchFilter] = useState(filters?.selectedBatch || '');
   const [leads, setLeads] = useState([]);
+  const [calls, setCalls] = useState([]);
+  const [callsLoading, setCallsLoading] = useState(false);
+  const [callTabCounts, setCallTabCounts] = useState({ INBOUND: 0, OUTBOUND: 0, MISSED: 0, NEW_INQUIRY: 0 });
   const [tabCounts, setTabCounts] = useState({ NEW: 0, IMPORTED: 0, ASSIGNED: 0, ALL: 0 });
   const [unreadCounts, setUnreadCounts] = useState({ NEW: 0, IMPORTED: 0, ASSIGNED: 0, ALL: 0 });
   const [totalUnread, setTotalUnread] = useState(0);
   const [loading, setLoading] = useState(false); 
   const [coordinators, setCoordinators] = useState([]);
+  const [quickAssignStaffId, setQuickAssignStaffId] = useState('');
+  const [assignTargetBatchId, setAssignTargetBatchId] = useState('');
   
   const [checkedLeads, setCheckedLeads] = useState([]);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [manualAssignStaffId, setManualAssignStaffId] = useState('');
   
   const [staffFilter, setStaffFilter] = useState('');
   const [phaseFilter, setPhaseFilter] = useState('');
@@ -31,7 +49,120 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
   const [masterToggle, setMasterToggle] = useState(true);
   const [csvFile, setCsvFile] = useState(null);
 
+  const displayBatches = useMemo(() => {
+      if (!availableBatches || !Array.isArray(availableBatches)) return [];
+      if (filters?.selectedBusiness) {
+          return availableBatches.filter(b => String(b.businessId) === String(filters.selectedBusiness));
+      }
+      return availableBatches;
+  }, [availableBatches, filters?.selectedBusiness]);
+
+  const location = useLocation();
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+
+  useEffect(() => {
+    if (filters?.selectedBatch !== undefined) {
+      setCallBatchFilter(filters.selectedBatch || '');
+    }
+  }, [filters?.selectedBatch]);
+
+  useEffect(() => {
+    if (filters?.selectedBusiness) {
+      const fetchBatches = async () => {
+        try {
+          const res = await axios.get(`/admin/batches/${filters.selectedBusiness}`);
+          const batchList = Array.isArray(res.data) ? res.data : (res.data?.batches || []);
+          setAvailableBatches(batchList);
+        } catch (e) {
+          try {
+            const res2 = await axios.get('/admin/manager/batches-full');
+            const filtered = (res2.data || []).filter(b => b.businessId === parseInt(filters.selectedBusiness));
+            setAvailableBatches(filtered);
+          } catch(err) {}
+        }
+      };
+      fetchBatches();
+    }
+  }, [filters?.selectedBusiness]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const searchVal = params.get('search');
+    if (searchVal && searchVal !== searchQuery) {
+      setSearchQuery(searchVal);
+      setDebouncedSearchQuery(searchVal);
+    }
+  }, [location.search]);
+
+  const formatDate = (dateString) => {
+      if (!dateString) return '';
+      const d = new Date(dateString);
+      return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) + ', ' + 
+             d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+  };
+
+  const formatDuration = (seconds) => {
+      if (!seconds) return '0s';
+      if (seconds < 60) return `${seconds}s`;
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return `${mins}m ${secs}s`;
+  };
+
+  const fetchCalls = React.useCallback(async (silent = false) => {
+      if (!filters?.selectedBusiness) return;
+      if (!silent) setCallsLoading(true);
+      try {
+          const res = await axios.get('/admin/whatsapp-call/logs', { 
+              params: { 
+                  businessId: filters.selectedBusiness, 
+                  batchId: callBatchFilter || filters?.selectedBatch || undefined,
+                  callTab: activeCallTab 
+              } 
+          });
+          if (res.data && res.data.logs) {
+              setCalls(res.data.logs || []);
+              if (res.data.counts) {
+                  setCallTabCounts(res.data.counts);
+              }
+          } else if (Array.isArray(res.data)) {
+              setCalls(res.data);
+          }
+      } catch (error) {
+          if (!silent) toast.error("Failed to fetch call history");
+      } finally {
+          if (!silent) setCallsLoading(false);
+      }
+  }, [filters?.selectedBusiness, callBatchFilter, filters?.selectedBatch, activeCallTab]);
+
+  useEffect(() => {
+    if (callHistoryMode && filters?.selectedBusiness) {
+        fetchCalls(false);
+
+        const interval = setInterval(() => {
+            fetchCalls(true);
+        }, 8000);
+
+        if (socket) {
+            const handleUpdate = () => fetchCalls(true);
+            socket.on('call_history_updated', handleUpdate);
+            socket.on('whatsapp_call_disconnected', handleUpdate);
+            socket.on('incoming_wa_call', handleUpdate);
+            socket.on('whatsapp_call_answered_by_other', handleUpdate);
+
+            return () => {
+                clearInterval(interval);
+                socket.off('call_history_updated', handleUpdate);
+                socket.off('whatsapp_call_disconnected', handleUpdate);
+                socket.off('incoming_wa_call', handleUpdate);
+                socket.off('whatsapp_call_answered_by_other', handleUpdate);
+            };
+        }
+
+        return () => clearInterval(interval);
+    }
+  }, [callHistoryMode, fetchCalls, socket, filters?.selectedBusiness]);
   const [assigneeGroup, setAssigneeGroup] = useState('COORDINATOR');
   const [ccStatus, setCcStatus] = useState('PENDING');
   const [ccStaff, setCcStaff] = useState([]);
@@ -51,7 +182,14 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
   // 🔥 Reset visible count when tab or search changes 🔥
   useEffect(() => {
     setVisibleCount(50);
-  }, [activeTab, searchQuery]);
+  }, [activeTab, debouncedSearchQuery]);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+        setDebouncedSearchQuery(searchQuery);
+    }, 500);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
 
   const fetchLeads = async (showLoading = true) => {
     // 🔥 STRICT BLOCKER: Business eka thoranakam backend ekata call yanne na 🔥
@@ -73,11 +211,10 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                 staffPhase: phaseFilter, 
                 status: statusFilter, 
                 staffId: staffFilter,
-                loggedUserId: currentUserId, 
                 loggedUserRole: rawRole,
                 businessId: isManager ? (filters?.selectedBusiness || '') : '', 
-                batchId: isManager ? (filters?.selectedBatch || '') : '',
-                searchQuery: searchQuery,
+                batchId: filters?.selectedBatch || '',
+                searchQuery: debouncedSearchQuery,
                 assigneeGroup,
                 ccStatus
             }
@@ -128,7 +265,7 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
       setCcStaff(ccStaffRes.data || []);
       
       let coords = staffRes.data.filter(s => 
-          s.role && ['COORDINATOR', 'CALLER', 'STAFF', 'MANAGER'].includes(s.role.toUpperCase())
+          s?.role && ['COORDINATOR', 'CALLER', 'STAFF', 'MANAGER'].includes(s?.role.toUpperCase())
       );
           
       if (filters?.selectedBusiness) {
@@ -136,8 +273,7 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
           const bizName = selectedBizObj ? selectedBizObj.name : '';
 
           coords = coords.filter(c => {
-              if (!c.businessType) return false;
-              const cBizList = String(c.businessType).toLowerCase().split(',').map(b => b.trim());
+              const cBizList = String(c.businessType || '').toLowerCase().split(',').map(b => b.trim());
               const selBizId = String(filters.selectedBusiness).toLowerCase().trim();
               const selBizName = String(bizName).toLowerCase().trim();
               
@@ -157,37 +293,37 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
 
   useEffect(() => { fetchCoordinatorsAndQuotas(); }, [filters?.selectedBusiness, filters?.selectedBatch]);
 
-  // 🔥 Debounced search API call 🔥
-  useEffect(() => {
-      const delayDebounceFn = setTimeout(() => {
-          fetchLeads(false); 
-          setCheckedLeads([]);
-      }, 500);
-      return () => clearTimeout(delayDebounceFn);
-  }, [searchQuery]);
 
   useEffect(() => { 
       fetchLeads(true); 
       setCheckedLeads([]); 
-      const interval = setInterval(() => { fetchLeads(false); }, 10000);
+      const interval = setInterval(() => { fetchLeads(false); }, 60000);
       return () => clearInterval(interval);
-  }, [activeTab, staffFilter, phaseFilter, statusFilter, filters?.selectedBusiness, filters?.selectedBatch, assigneeGroup, ccStatus]);
+  }, [activeTab, staffFilter, phaseFilter, statusFilter, filters?.selectedBusiness, filters?.selectedBatch, assigneeGroup, ccStatus, debouncedSearchQuery]);
 
   const handleSelectAll = () => {
     if (checkedLeads.length === leads.length) setCheckedLeads([]); else setCheckedLeads(leads.map(l => l.id));
   };
 
   // 🔥 ACTION DISPATCHERS 🔥
-  const handleBulkAction = async (action, assignStaffId = null, specificLeads = null) => {
+  const handleBulkAction = async (action, assignStaffId = null, specificLeads = null, targetBatchId = null) => {
     const leadsToProcess = specificLeads || checkedLeads;
     if (leadsToProcess.length === 0) return;
     try {
       const token = localStorage.getItem('token');
-      await axios.post('/coordinator-crm/leads/bulk-action', { action, leadIds: leadsToProcess, staffId: assignStaffId }, { headers: { Authorization: `Bearer ${token}` } });
+      await axios.post('/coordinator-crm/leads/bulk-action', { 
+          action, 
+          leadIds: leadsToProcess, 
+          staffId: assignStaffId,
+          batchId: targetBatchId 
+      }, { headers: { Authorization: `Bearer ${token}` } });
       toast.success("Action applied successfully!");
-      if (!specificLeads) setCheckedLeads([]); 
+      if (!specificLeads) {
+          setCheckedLeads([]);
+          setQuickAssignStaffId('');
+      }
       fetchLeads(true);
-    } catch (e) { toast.error("Action failed"); }
+    } catch (e) { toast.error(e.response?.data?.error || "Action failed"); }
   };
 
   const handleHandOverToCallCenter = async () => {
@@ -209,19 +345,22 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
     try {
       const token = localStorage.getItem('token');
       if (type === 'bulk') {
+        if (!manualAssignStaffId) return toast.error("Please select a staff member to assign");
         await axios.post('/coordinator-crm/leads/assign', { 
             type: 'bulk', 
             count: e.target.count.value, 
             sort: e.target.sort.value, 
-            staffId: e.target.staffId.value,
-            batchId: filters?.selectedBatch,
+            staffId: manualAssignStaffId,
+            batchId: assignTargetBatchId || filters?.selectedBatch,
             businessId: filters?.selectedBusiness
         }, { headers: { Authorization: `Bearer ${token}` } });
       } else {
         await axios.post('/coordinator-crm/leads/assign', { type: 'auto', autoAssignConfig: autoAssignData }, { headers: { Authorization: `Bearer ${token}` } });
       }
       toast.success("Assignment rules saved!");
-      setShowAssignModal(false); fetchLeads(true);
+      setShowAssignModal(false); 
+      setAssignTargetBatchId('');
+      fetchLeads(true);
     } catch (error) { toast.error(error.response?.data?.error || "Assignment Failed"); }
   };
 
@@ -290,6 +429,12 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
       return currentLeads;
   }, [leads, searchQuery, selectedLead]);
 
+  useEffect(() => {
+      if (searchQuery && filteredLeads.length === 1 && (!selectedLead || selectedLead.id !== filteredLeads[0].id)) {
+          setSelectedLead(filteredLeads[0]);
+      }
+  }, [searchQuery, filteredLeads, selectedLead]);
+
   // 🔥 LOAD MORE LOGIC 🔥
   const displayedLeads = filteredLeads.slice(0, visibleCount);
 
@@ -300,137 +445,343 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
     { id: 'ALL', label: 'All', total: tabCounts.ALL, unread: unreadCounts.ALL }
   ];
 
+  const callTabs = [
+    { id: 'INBOUND', label: 'Inbound', count: callTabCounts.INBOUND },
+    { id: 'OUTBOUND', label: 'Outbound', count: callTabCounts.OUTBOUND },
+    { id: 'MISSED', label: 'Missed', count: callTabCounts.MISSED },
+    { id: 'NEW_INQUIRY', label: 'New Inq', count: callTabCounts.NEW_INQUIRY }
+  ];
+
+  const getStatusIcon = (status, direction) => {
+      if (status === 'MISSED' || status === 'REJECTED' || status === 'NO_ANSWER') {
+          return <div className="p-2 bg-red-500/20 text-red-400 rounded-lg"><FiPhoneMissed size={16} /></div>;
+      }
+      if (direction === 'INBOUND') {
+          return <div className="p-2 bg-emerald-500/20 text-emerald-400 rounded-lg"><FiPhoneIncoming size={16} /></div>;
+      }
+      return <div className="p-2 bg-blue-500/20 text-blue-400 rounded-lg"><FiPhoneOutgoing size={16} /></div>;
+  };
+
+  const displayedCalls = useMemo(() => {
+    if (!searchQuery) return calls;
+    const q = searchQuery.toLowerCase().trim();
+    return calls.filter(c => {
+      const phoneMatch = c.leadPhone && String(c.leadPhone).toLowerCase().includes(q);
+      const nameMatch = c.leadName && String(c.leadName).toLowerCase().includes(q);
+      const batchMatch = c.batchName && String(c.batchName).toLowerCase().includes(q);
+      return phoneMatch || nameMatch || batchMatch;
+    });
+  }, [calls, searchQuery]);
+
+  const handleOpenChat = async (call) => {
+      try {
+          let phoneRaw = call.leadPhone || '';
+          let cleanPhone = phoneRaw.replace(/[^0-9]/g, '');
+          let localPhone = cleanPhone.startsWith('94') ? '0' + cleanPhone.substring(2) : cleanPhone;
+
+          let targetLead = call.lead;
+
+          // If lead object isn't already populated with an id, resolve or create it via backend
+          if (!targetLead || !targetLead.id) {
+              const token = localStorage.getItem('token');
+              const res = await axios.post('/coordinator-crm/leads/resolve', {
+                  phone: phoneRaw,
+                  name: call.leadName || 'Inquiry Contact',
+                  businessId: filters?.selectedBusiness || call.businessId,
+                  batchId: filters?.selectedBatch || call.batchId,
+                  campaignType: call.campaignType || (call.isNewInquiry ? 'NEW_INQ' : 'FREE_SEMINAR')
+              }, { headers: { Authorization: `Bearer ${token}` } });
+
+              if (res.data?.success && res.data.lead) {
+                  targetLead = res.data.lead;
+              }
+          }
+
+          if (targetLead) {
+              // Ensure lead exists in our local leads array
+              setLeads(prev => {
+                  const exists = prev.some(l => l.id === targetLead.id);
+                  if (exists) {
+                      return prev.map(l => l.id === targetLead.id ? { ...l, ...targetLead } : l);
+                  }
+                  return [targetLead, ...prev];
+              });
+
+              // Switch directly to contacts view, clear search filter, and select the lead to open chat
+              setCallHistoryMode(false);
+              setSearchQuery('');
+              setSelectedLead(targetLead);
+              toast.success(`Chat opened with ${targetLead.name || targetLead.phone || localPhone}`);
+          }
+      } catch (error) {
+          console.error("Error opening chat from call history:", error);
+          toast.error("Failed to open chat");
+      }
+  };
+
   return (
-    <div className="w-[380px] xl:w-[440px] bg-[#1a2430] rounded-2xl flex flex-col overflow-hidden shrink-0 border border-white/10 shadow-xl relative">
-      {checkedLeads.length > 0 ? (() => {
-        const selectedAreCallCenter = checkedLeads.some(id => {
-            const l = leads.find(lead => lead.id === id);
-            return l && (l.callCenterRequestStatus === 'REQUESTED' || l.callCenterRequestStatus === 'APPROVED');
-        });
-
-        return (
-          <div className="p-4 bg-emerald-900/90 border-b border-emerald-500/50 flex flex-col gap-3">
-            <div className="flex justify-between items-center text-white">
-              <span className="font-bold">{checkedLeads.length} Selected</span>
-              <button onClick={() => setCheckedLeads([])} className="text-white/60 hover:text-white"><FaTimes/></button>
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-               <button onClick={handleSelectAll} title="Select All" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaCheckSquare/></button>
-               <button onClick={() => handleBulkAction('MARK_READ')} title="Mark Read" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaEnvelopeOpenText/></button>
-               <button onClick={() => handleBulkAction('MARK_UNREAD')} title="Mark Unread" className="p-2 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-all"><FaEnvelope/></button>
-               
-               {!selectedAreCallCenter && (
-                 <>
-                   <button onClick={() => handleBulkAction('ASSIGN', currentUserId)} title="Assign To Me" className="p-2 bg-emerald-500/30 hover:bg-emerald-500 rounded-lg text-emerald-200 hover:text-white transition-all"><FaUserCheck/></button>
-                   
-                   <button onClick={handleHandOverToCallCenter} title="Hand Over to Call Center" className="p-2 bg-purple-500/30 hover:bg-purple-500 rounded-lg text-purple-200 hover:text-white transition-all flex items-center gap-1 shadow-md shadow-purple-500/20 border border-purple-500/30">
-                     <FaHeadset/> <span className="text-[10px] font-bold uppercase tracking-wider hidden xl:block">Call Center</span>
-                   </button>
-
-                   {isManager && <button onClick={() => handleBulkAction('UNASSIGN')} title="Unassign Leads" className="p-2 bg-red-500/20 hover:bg-red-500 rounded-lg text-red-300 hover:text-white transition-all"><FaUserMinus/></button>}
-                   {isManager && (
-                      <CustomSelect 
-                        value=""
-                        onChange={(e) => handleBulkAction('ASSIGN', e.target.value)} 
-                        className="flex-1 min-w-[120px]"
-                        placeholder="Assign To..."
-                        options={[
-                            ...coordinators.map(c => ({
-                                value: c.id, 
-                                label: <div className="flex items-center gap-1.5">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'}) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
-                            }))
-                        ]}
-                      />
-                   )}
-                 </>
-               )}
-               
-               {isManager && selectedAreCallCenter && assigneeGroup === 'CALL_CENTER' && ccStatus === 'APPROVED' && (
-                  <button onClick={() => handleBulkAction('RETURN_FROM_CALL_CENTER')} title="Return from Call Center" className="p-2 bg-orange-500/30 hover:bg-orange-500 rounded-lg text-orange-200 hover:text-white transition-all flex items-center gap-1 shadow-md shadow-orange-500/20 border border-orange-500/30">
-                    <FaTimes/> <span className="text-[10px] font-bold uppercase tracking-wider hidden xl:block">Return</span>
-                  </button>
-               )}
+    <div className="w-[380px] xl:w-[440px] bg-[#1a2430] rounded-3xl flex flex-col overflow-hidden shrink-0 border border-white/10 shadow-2xl relative">
+      {checkedLeads.length > 0 ? (
+        <div className="p-3.5 bg-[#082015] border-b border-emerald-500/40 flex flex-col gap-2.5 relative z-30 shadow-lg">
+          <div className="flex justify-between items-center text-white">
+            <span className="font-bold text-xs text-emerald-300 flex items-center gap-1.5">
+              <FaCheckSquare className="text-emerald-400" /> {checkedLeads.length} Lead{checkedLeads.length > 1 ? 's' : ''} Selected
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button 
+                onClick={handleSelectAll} 
+                title="Select All" 
+                className="px-2 py-1 bg-white/10 hover:bg-white/20 rounded-md text-white text-[10px] font-bold transition-all flex items-center gap-1"
+              >
+                <FaCheckSquare size={10} /> Select All
+              </button>
+              <button 
+                onClick={() => setCheckedLeads([])} 
+                title="Clear Selection"
+                className="p-1 bg-white/10 hover:bg-red-500/80 rounded-md text-white/80 hover:text-white transition-all"
+              >
+                <FaTimes size={12} />
+              </button>
             </div>
           </div>
-        );
-      })() : (
-        <div className="p-5 bg-[#121a24] border-b border-white/5">
-          <div className="flex justify-between items-center mb-5">
-            <h3 className="text-lg font-black text-slate-200 tracking-wider uppercase flex items-center gap-2">
-              Contacts
-            </h3>
-            <div className="flex gap-2">
-              <button onClick={() => setShowImportModal(true)} className="p-2.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white rounded-lg border border-blue-500/30 transition-all"><FaFileImport size={16}/></button>
-              {isManager && <button onClick={() => setShowAssignModal(true)} className="p-2.5 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white rounded-lg border border-emerald-500/30 transition-all"><FaUserPlus size={16}/></button>}
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+             <button 
+               onClick={() => handleBulkAction('MARK_READ')} 
+               title="Mark as Read" 
+               className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white text-xs transition-all"
+             >
+               <FaEnvelopeOpenText size={12} />
+             </button>
+             <button 
+               onClick={() => handleBulkAction('MARK_UNREAD')} 
+               title="Mark as Unread" 
+               className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white text-xs transition-all"
+             >
+               <FaEnvelope size={12} />
+             </button>
+
+             <button 
+               onClick={handleHandOverToCallCenter} 
+               title="Allocate / Handover to Call Center" 
+               className="px-2.5 py-1.5 bg-orange-600/80 hover:bg-orange-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 shadow transition-all"
+             >
+               <FaHeadset size={11} /> Call Center
+             </button>
+
+             {isManager && (
+                <>
+                   <button 
+                     onClick={() => setShowAssignModal(true)} 
+                     title="Open Bulk Assign Modal" 
+                     className="px-2.5 py-1.5 bg-blue-600/80 hover:bg-blue-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 shadow transition-all"
+                   >
+                      <FaUserPlus size={11} /> Bulk Modal
+                   </button>
+                   <button 
+                     onClick={() => handleBulkAction('UNASSIGN')} 
+                     title="Unassign Leads" 
+                     className="p-1.5 bg-red-500/20 hover:bg-red-500 rounded-lg text-red-300 hover:text-white text-xs transition-all"
+                   >
+                     <FaUserMinus size={12} />
+                   </button>
+                </>
+             )}
+          </div>
+
+          {/* Quick Staff Assign & Batch Allocation for Selected Leads */}
+          {isManager && (
+            <div className="grid grid-cols-2 gap-2 pt-1 border-t border-emerald-500/20">
+              <div className="w-full">
+                <CustomSelect 
+                    value={quickAssignStaffId}
+                    onChange={(e) => {
+                        const staffVal = e.target.value;
+                        setQuickAssignStaffId(staffVal);
+                        if (staffVal) {
+                            handleBulkAction('ASSIGN', staffVal);
+                        }
+                    }}
+                    className="w-full text-xs"
+                    placeholder="Assign to Staff..."
+                    options={[
+                        { value: '', label: 'Assign to Staff...' },
+                        ...coordinators.filter(c => c).map(c => ({
+                            value: c.id, 
+                            label: <div className="flex items-center gap-1 text-[11px]">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'}) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                        })),
+                        ...ccStaff.filter(c => c).map(c => ({
+                            value: c.id,
+                            label: <div className="flex items-center gap-1 text-[11px]">{c.firstName} (Call Center) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                        }))
+                    ]}
+                />
+              </div>
+
+              <div>
+                <select 
+                    value=""
+                    onChange={(e) => {
+                        const targetBatch = e.target.value;
+                        if (targetBatch) {
+                            handleBulkAction('ASSIGN_BATCH', null, null, targetBatch);
+                        }
+                    }}
+                    className="w-full bg-[#0f172a] border border-slate-700 hover:border-emerald-500 text-slate-300 rounded-xl p-2 text-xs outline-none focus:border-emerald-500 font-medium transition-colors"
+                >
+                    <option value="">Allocate to Batch...</option>
+                    {displayBatches.map(b => (
+                        <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                </select>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="p-4 border-b border-white/10 bg-[#161f2c]">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-black text-white tracking-wide flex items-center gap-2">
+              {callHistoryMode ? (
+                <>
+                  <FaHistory className="text-indigo-400" /> CALL HISTORY
+                </>
+              ) : (
+                'CONTACTS'
+              )}
+            </h2>
+            <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => setShowReportModal(true)} 
+                  title="CRM Call & Permission Analytics Report"
+                  className="p-2.5 rounded-xl border transition-all bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white border-emerald-500/30"
+                >
+                  <FaChartBar size={16}/>
+                </button>
+                <button 
+                  onClick={() => setCallHistoryMode(!callHistoryMode)} 
+                  title={callHistoryMode ? "Switch to Contacts" : "Switch to Call History"}
+                  className={`p-2.5 rounded-xl border transition-all ${
+                    callHistoryMode 
+                      ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-500/20' 
+                      : 'bg-indigo-600/20 text-indigo-400 hover:bg-indigo-600 hover:text-white border-indigo-500/30'
+                  }`}
+                >
+                  <FaHistory size={16}/>
+                </button>
+                <button onClick={() => setShowImportModal(true)} className="p-2.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white rounded-lg border border-blue-500/30 transition-all"><FaFileImport size={16}/></button>
+              
+              {isManager && (
+                 <button onClick={() => setShowAssignModal(true)} className="p-2.5 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white rounded-lg border border-emerald-500/30 transition-all"><FaUserPlus size={16}/></button>
+              )}
             </div>
           </div>
           
-          <div className="relative mb-4">
+          <div className="relative mb-3">
             <FaSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
             <input 
                 type="text" 
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search by number or name..." 
-                className="w-full bg-[#0f172a] border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-base text-slate-200 focus:outline-none focus:border-emerald-600 placeholder-slate-600 shadow-inner" 
+                placeholder={callHistoryMode ? "Search calls by number, name or batch..." : "Search by number or name..."} 
+                className="w-full bg-[#0f172a] border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-sm text-slate-200 focus:outline-none focus:border-indigo-500 placeholder-slate-600 shadow-inner" 
             />
           </div>
           
           <div className="flex justify-between items-center bg-[#0f172a] p-1 rounded-xl border border-slate-800 gap-1">
-            {tabs.map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`relative flex-1 flex flex-col items-center justify-center py-1.5 rounded-lg transition-all ${activeTab === tab.id ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>
-                <span className="text-[11px] font-bold tracking-widest uppercase">{tab.label}</span>
-                <span className="text-[9px] font-medium opacity-60 mt-0.5">Total: {tab.total || 0}</span>
-                {tab.unread > 0 && <span className="absolute -top-2 -right-1 bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full shadow-md">{tab.unread}</span>}
-              </button>
-            ))}
+            {callHistoryMode ? (
+              callTabs.map(tab => (
+                <button key={tab.id} onClick={() => setActiveCallTab(tab.id)} className={`relative flex-1 flex flex-col items-center justify-center py-1.5 rounded-lg transition-all ${activeCallTab === tab.id ? 'bg-indigo-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>
+                  <span className="text-[11px] font-bold tracking-widest uppercase">{tab.label}</span>
+                  <span className="text-[9px] font-medium opacity-70 mt-0.5">Total: {tab.count ?? 0}</span>
+                </button>
+              ))
+            ) : (
+              tabs.map(tab => (
+                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`relative flex-1 flex flex-col items-center justify-center py-1.5 rounded-lg transition-all ${activeTab === tab.id ? 'bg-emerald-600 text-white shadow-md' : 'text-slate-500 hover:text-slate-300'}`}>
+                  <span className="text-[11px] font-bold tracking-widest uppercase">{tab.label}</span>
+                  <span className="text-[9px] font-medium opacity-60 mt-0.5">Total: {tab.total || 0}</span>
+                  {tab.unread > 0 && <span className="absolute -top-2 -right-1 bg-red-500 text-white text-[9px] px-1.5 py-0.5 rounded-full shadow-md">{tab.unread}</span>}
+                </button>
+              ))
+            )}
           </div>
 
-          {activeTab === 'ASSIGNED' && (
+          {!callHistoryMode && activeTab === 'ASSIGNED' && (
             <div className="mt-4 flex flex-col gap-3">
               <div className="flex bg-[#0f172a] p-1 rounded-xl border border-slate-800 gap-1">
                 <button onClick={() => setAssigneeGroup('COORDINATOR')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${assigneeGroup === 'COORDINATOR' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Coordinators</button>
                 <button onClick={() => setAssigneeGroup('CALL_CENTER')} className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${assigneeGroup === 'CALL_CENTER' ? 'bg-purple-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Call Center</button>
               </div>
-              
-              {assigneeGroup === 'CALL_CENTER' && (
-                <div className="flex bg-[#0f172a] p-1 rounded-xl border border-slate-800 gap-1">
-                  <button onClick={() => setCcStatus('PENDING')} className={`flex-1 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all ${ccStatus === 'PENDING' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Pending Approval ({ccCounts.PENDING})</button>
-                  <button onClick={() => setCcStatus('APPROVED')} className={`flex-1 py-1 rounded-lg text-[9px] font-bold uppercase tracking-wider transition-all ${ccStatus === 'APPROVED' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Assigned / Approved ({ccCounts.APPROVED})</button>
+
+              {assigneeGroup === 'COORDINATOR' && isManager && (
+                <div className="grid grid-cols-3 gap-2">
+                  <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} className="bg-[#0f172a] border border-slate-700 rounded-lg p-2 text-[11px] text-slate-300 focus:outline-none focus:border-blue-500">
+                    <option value="">Staff: All</option>
+                    {coordinators.map(c => <option key={c.id} value={c.id}>{c.firstName}</option>)}
+                  </select>
+                  <select value={phaseFilter} onChange={(e) => setPhaseFilter(e.target.value)} className="bg-[#0f172a] border border-slate-700 rounded-lg p-2 text-[11px] text-slate-300 focus:outline-none focus:border-blue-500">
+                    <option value="">Phase: All</option>
+                    <option value="1">Phase 1</option>
+                    <option value="2">Phase 2</option>
+                  </select>
+                  <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-[#0f172a] border border-slate-700 rounded-lg p-2 text-[11px] text-slate-300 focus:outline-none focus:border-blue-500">
+                    <option value="">Status: All</option>
+                    <option value="pending">Pending</option>
+                    <option value="answered">Answered</option>
+                    <option value="no_answer">No Answer</option>
+                  </select>
                 </div>
               )}
 
-              <div className="flex gap-2">
-                <CustomSelect 
-                    value={staffFilter}
-                    onChange={e=>setStaffFilter(e.target.value)} 
-                    className="flex-[1.5]"
-                    placeholder="All Staff"
-                    options={[
-                        { value: '', label: 'All Staff' },
-                        ...(assigneeGroup === 'CALL_CENTER' ? ccStaff : coordinators)
-                           .map(c => ({
-                            value: c.id, 
-                            label: <div className="flex items-center gap-1.5">{c.firstName} {c.lastName} <BusinessBadge businessType={c.businessType} role={assigneeGroup === 'CALL_CENTER' ? 'CALL CENTER' : c.role} /></div>
-                        }))
-                    ]}
-                />
-                {assigneeGroup === 'COORDINATOR' && (
-                  <>
-                    <select onChange={e=>setPhaseFilter(e.target.value)} className="flex-1 bg-[#0f172a] text-slate-300 text-[10px] font-bold uppercase rounded-lg px-2 py-2 border border-slate-700 outline-none">
-                      <option value="">Phases</option>
-                      <option value="1">Phase 1</option>
-                      <option value="2">Phase 2</option>
-                      <option value="3">Phase 3</option>
-                    </select>
-                    <select onChange={e=>setStatusFilter(e.target.value)} className="flex-1 bg-[#0f172a] text-slate-300 text-[10px] font-bold uppercase rounded-lg px-2 py-2 border border-slate-700 outline-none">
-                      <option value="">Status</option>
-                      <option value="pending">Pending</option>
-                      <option value="answered">Answered</option>
-                      <option value="no_answer">No Answer</option>
-                    </select>
-                  </>
-                )}
+              {assigneeGroup === 'CALL_CENTER' && (
+                <>
+                  <div className="flex bg-[#0f172a] p-1 rounded-xl border border-slate-800 gap-1">
+                    <button onClick={() => setCcStatus('PENDING')} className={`flex-1 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${ccStatus === 'PENDING' ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+                      Pending ({ccCounts.PENDING})
+                    </button>
+                    <button onClick={() => setCcStatus('APPROVED')} className={`flex-1 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-all ${ccStatus === 'APPROVED' ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+                      Approved ({ccCounts.APPROVED})
+                    </button>
+                  </div>
+                  {isManager && (
+                    <div className="grid grid-cols-3 gap-2">
+                      <select value={staffFilter} onChange={(e) => setStaffFilter(e.target.value)} className="bg-[#0f172a] border border-slate-700 rounded-lg p-2 text-[11px] text-slate-300 focus:outline-none focus:border-purple-500">
+                        <option value="">Staff: All</option>
+                        {ccStaff.map(s => <option key={s.id} value={s.id}>{s.firstName}</option>)}
+                      </select>
+                      <select value={phaseFilter} onChange={(e) => setPhaseFilter(e.target.value)} className="bg-[#0f172a] border border-slate-700 rounded-lg p-2 text-[11px] text-slate-300 focus:outline-none focus:border-purple-500">
+                        <option value="">Phase: All</option>
+                        <option value="1">Phase 1</option>
+                        <option value="2">Phase 2</option>
+                      </select>
+                      <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-[#0f172a] border border-slate-700 rounded-lg p-2 text-[11px] text-slate-300 focus:outline-none focus:border-purple-500">
+                        <option value="">Status: All</option>
+                        <option value="pending">Pending</option>
+                        <option value="answered">Answered</option>
+                        <option value="no_answer">No Answer</option>
+                      </select>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
+          {!callHistoryMode && activeTab === 'NEW' && isManager && (
+            <div className="mt-4 flex flex-col gap-2">
+              <div className="grid grid-cols-2 gap-2">
+                <select value={phaseFilter} onChange={(e) => setPhaseFilter(e.target.value)} className="bg-[#0f172a] border border-slate-700 rounded-lg p-2 text-[11px] text-slate-300 focus:outline-none focus:border-emerald-500">
+                  <option value="">Phase: All</option>
+                  <option value="1">Phase 1</option>
+                  <option value="2">Phase 2</option>
+                </select>
+                <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-[#0f172a] border border-slate-700 rounded-lg p-2 text-[11px] text-slate-300 focus:outline-none focus:border-emerald-500">
+                  <option value="">Status: All</option>
+                  <option value="pending">Pending</option>
+                  <option value="answered">Answered</option>
+                  <option value="no_answer">No Answer</option>
+                </select>
               </div>
             </div>
           )}
@@ -438,10 +789,91 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
       )}
 
       {/* LEAD LIST */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-3 bg-[#1a2430]">
-        {loading && leads.length === 0 ? ( <div className="flex justify-center mt-10"><div className="animate-spin h-8 w-8 border-4 border-emerald-600 border-t-transparent rounded-full"></div></div> ) 
-        : filteredLeads.length === 0 ? ( <div className="text-center text-slate-600 text-sm mt-10 font-medium">No contacts found.</div> ) : (
-          <>
+      <div className="flex-1 overflow-y-auto custom-scrollbar relative p-3">
+        {loading || callsLoading ? (
+           <div className="flex justify-center items-center py-10">
+             <div className="w-8 h-8 border-4 border-slate-700 border-t-emerald-500 rounded-full animate-spin"></div>
+           </div>
+        ) : callHistoryMode ? (
+           displayedCalls.length === 0 ? ( <div className="text-center text-slate-600 text-sm mt-10 font-medium">No calls found in the history.</div> ) : (
+             <div className="space-y-2.5">
+                 {displayedCalls.map(call => {
+                     const clean = (call.leadPhone || '').replace(/[^0-9]/g, '');
+                     const formattedPhone = clean.startsWith('94') ? '0' + clean.substring(2) : clean;
+                     return (
+                         <div 
+                             key={call.id} 
+                             onClick={() => handleOpenChat(call)}
+                             className="group flex flex-col p-3 bg-[#121a24] hover:bg-[#1e293b] rounded-2xl border border-white/5 hover:border-indigo-500/50 transition-all cursor-pointer shadow-md hover:shadow-indigo-500/10 relative overflow-hidden"
+                         >
+                             <div className="flex items-start justify-between gap-2 mb-2">
+                                 <div className="flex items-center gap-2.5 min-w-0">
+                                     {getStatusIcon(call.status, call.direction)}
+                                     <div className="min-w-0">
+                                         {call.leadName ? (
+                                             <h4 className="font-bold text-[14px] text-white truncate group-hover:text-indigo-300 transition-colors">
+                                                 {call.leadName}
+                                             </h4>
+                                         ) : null}
+                                         <div className="font-bold text-slate-300 text-[13px] tracking-wide flex items-center gap-1.5">
+                                             <span>{formattedPhone}</span>
+                                         </div>
+                                     </div>
+                                 </div>
+                                 
+                                 <div className="flex flex-col items-end shrink-0 gap-1">
+                                     <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                                         call.status === 'COMPLETED' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                                         call.status === 'MISSED' ? 'bg-red-500/20 text-red-400 border border-red-500/30' :
+                                         'bg-slate-500/20 text-slate-400 border border-slate-500/30'
+                                     }`}>
+                                         {call.status}
+                                     </span>
+                                     {call.duration > 0 && (
+                                         <span className="text-[9px] font-semibold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                             {formatDuration(call.duration)}
+                                         </span>
+                                     )}
+                                 </div>
+                             </div>
+
+                             {/* Date & Time Row */}
+                             <div className="flex items-center justify-between text-[11px] text-slate-400 font-medium mb-2 bg-[#090d12]/60 px-2.5 py-1 rounded-lg border border-white/5">
+                                 <div className="flex items-center gap-1.5 text-slate-300 text-[11px]">
+                                     <FaClock size={11} className="text-slate-400" />
+                                     <span>{formatDate(call.createdAt)}</span>
+                                 </div>
+                                 {call.agent?.firstName && (
+                                     <span className="text-[10px] text-indigo-300 font-semibold truncate max-w-[120px]">
+                                         👤 {call.agent.firstName}
+                                     </span>
+                                 )}
+                             </div>
+
+                             <div className="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
+                                 <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                     {call.batchName ? (
+                                         <span className="bg-indigo-950/70 text-indigo-300 border border-indigo-500/30 text-[10px] font-bold px-2 py-0.5 rounded-md truncate max-w-[160px] flex items-center gap-1">
+                                             <FaLayerGroup size={10} className="shrink-0 text-indigo-400" />
+                                             <span className="truncate">{call.batchName}</span>
+                                         </span>
+                                     ) : (
+                                         <span className="text-[10px] text-slate-500 italic">No Batch</span>
+                                     )}
+                                 </div>
+                                 
+                                 <div className="flex items-center gap-1 text-[11px] font-bold text-indigo-400 group-hover:text-indigo-300 transition-colors shrink-0 bg-indigo-500/10 hover:bg-indigo-500/20 px-2.5 py-0.5 rounded-lg border border-indigo-500/20">
+                                     <FaCommentDots size={13}/>
+                                     <span>Open Chat</span>
+                                 </div>
+                             </div>
+                         </div>
+                     );
+                 })}
+             </div>
+           )
+        ) : filteredLeads.length === 0 ? ( <div className="text-center text-slate-600 text-sm mt-10 font-medium">No contacts found.</div> ) : (
+          <div className="space-y-2">
             {displayedLeads.map(lead => {
                 
               // 🔥 24-Hour Active Window Logic 🔥
@@ -509,12 +941,18 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                               <span className="text-[10px] text-emerald-500 font-bold block mb-0.5">{new Date(lead.lastMessageAt || lead.updatedAt).toLocaleDateString('en-GB')}</span>
                               <span className="text-[9px] text-slate-500 block">{new Date(lead.lastMessageAt || lead.updatedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                           </div>
+                          {onRedirectToCampaign && (
+                              <button 
+                                onClick={(e) => { e.stopPropagation(); onRedirectToCampaign(lead); }}
+                                className="mt-1 text-[10px] bg-blue-500/20 hover:bg-blue-500 hover:text-white text-blue-400 border border-blue-500/30 px-2 py-1 rounded-md transition-all flex items-center gap-1 font-bold shadow-md"
+                                title="Open in Campaign"
+                              >
+                                  <FaHeadset size={10} /> Campaign
+                              </button>
+                          )}
                       </div>
                     </div>
 
-                    {lead.isLocked && (
-                       <div className="text-[9px] text-red-400 font-black mt-1 mb-1 flex items-center gap-1 bg-red-500/10 w-max px-2 py-0.5 rounded"><FaLock/> 24H LOCKED</div>
-                    )}
 
                     <div className="flex justify-between items-end mt-1">
                       <p className="text-[11px] font-medium text-slate-500 truncate w-[60%]">{lead.lastMessage || 'No messages'}</p>
@@ -538,7 +976,7 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                     </button>
                 </div>
             )}
-          </>
+          </div>
         )}
       </div>
 
@@ -554,26 +992,52 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                <form onSubmit={(e) => handleAssignSubmit(e, 'bulk')} className="bg-[#121a24] p-4 rounded-xl border border-slate-800 mb-4">
                   <h4 className="text-sm font-bold text-slate-300 mb-3 uppercase tracking-widest">Manual Assign</h4>
                   <div className="grid grid-cols-2 gap-2 mb-3">
-                     <select name="sort" required className="bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none">
-                        <option value="newest">Newest First</option>
-                        <option value="oldest">Oldest First</option>
-                     </select>
-                     <input name="count" type="number" placeholder="Lead Count" required className="bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none" />
+                     <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Sort Order</label>
+                        <select name="sort" required className="w-full bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none">
+                           <option value="newest">Newest First</option>
+                           <option value="oldest">Oldest First</option>
+                        </select>
+                     </div>
+                     <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Lead Count</label>
+                        <input name="count" type="number" placeholder="Lead Count" required className="w-full bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none" />
+                     </div>
+                     <div className="col-span-2">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Target Batch (Optional)</label>
+                        <select 
+                             value={assignTargetBatchId} 
+                             onChange={(e) => setAssignTargetBatchId(e.target.value)}
+                             className="w-full bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none focus:border-emerald-500"
+                         >
+                             <option value="">Filter/Assign by Batch (Optional)...</option>
+                             {displayBatches.map(b => (
+                                 <option key={b.id} value={b.id}>{b.name}</option>
+                             ))}
+                         </select>
+                     </div>
                   </div>
-                  <CustomSelect 
-                      value=""
-                      onChange={() => {}} // Form submission relies on the hidden input
-                      className="w-full mb-3"
-                      placeholder="Select Coordinator / Team..."
-                      options={[
-                          { value: '', label: 'Select Coordinator / Team...' },
-                          ...coordinators.map(c => ({
-                              value: c.id, 
-                              label: <div className="flex items-center gap-1.5">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'}) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
-                          }))
-                      ]}
-                  />
-                  <button type="submit" className="w-full bg-emerald-600 text-white font-bold py-2 rounded-lg text-xs uppercase tracking-widest">Assign Selected Leads</button>
+                  <div className="mb-3">
+                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Coordinator / Call Center Staff</label>
+                     <CustomSelect 
+                         value={manualAssignStaffId}
+                         onChange={(e) => setManualAssignStaffId(e.target.value)}
+                         className="w-full"
+                         placeholder="Select Coordinator / Team..."
+                         options={[
+                             { value: '', label: 'Select Coordinator / Team...' },
+                             ...coordinators.filter(c => c).map(c => ({
+                                 value: c.id, 
+                                 label: <div className="flex items-center gap-1.5">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'}) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                             })),
+                             ...ccStaff.filter(c => c).map(c => ({
+                                 value: c.id,
+                                 label: <div className="flex items-center gap-1.5">{c.firstName} (Call Center) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                             }))
+                         ]}
+                     />
+                  </div>
+                  <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2.5 rounded-lg text-xs uppercase tracking-widest transition-colors">Assign Selected Leads</button>
                </form>
 
                <form onSubmit={(e) => handleAssignSubmit(e, 'auto')} className="bg-[#121a24] p-4 rounded-xl border border-slate-800">
@@ -646,6 +1110,20 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                </div>
              </div>
          </div>
+      )}
+
+      {showReportModal && (
+          <InboundMissedCallsReportModal 
+              isOpen={showReportModal} 
+              onClose={() => setShowReportModal(false)} 
+          />
+      )}
+
+      {showPermissionsModal && (
+          <CallPermissionsWidget 
+              asModal={true}
+              onClose={() => setShowPermissionsModal(false)} 
+          />
       )}
     </div>
   );

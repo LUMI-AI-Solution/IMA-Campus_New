@@ -23,4 +23,9 @@ router.get('/courses', paymentController.getAllCourses);
 // Update payment details (subjects list & amount)
 router.post('/update-details', paymentController.updatePaymentDetails);
 
+// Get staff verification stats report
+router.get('/staff-stats-report', paymentController.getStaffStatsReport);
+
 module.exports = router;
+// Permanent delete payment
+// router.delete('/:id', paymentController.permanentDelete);

@@ -11,6 +11,13 @@ export default function Login({ setLoggedInUser }) {
   const [showPassword, setShowPassword] = useState(false);
   const navigate = useNavigate();
 
+  const handleUsernameChange = (e) => {
+    // Only allow numbers and the + sign (no spaces, no letters)
+    let val = e.target.value.replace(/[^0-9+]/g, '');
+    // Allow any length for international numbers
+    setUsername(val);
+  };
+
   const handleLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -41,7 +48,7 @@ export default function Login({ setLoggedInUser }) {
         }
       }
     } catch (error) {
-      toast.error(error.response?.data?.message || 'Login failed. Please check credentials.');
+      toast.error('ඔබගේ මුරපදය හෝ දුරකථන අංකය වැරදියි.');
       setLoading(false);
     }
   };
@@ -72,7 +79,7 @@ export default function Login({ setLoggedInUser }) {
               <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
                 <User size={18} className="text-white/40 group-focus-within:text-white transition-colors" />
               </div>
-              <input type="text" required value={username} onChange={(e) => setUsername(e.target.value)}
+              <input type="tel" required value={username} onChange={handleUsernameChange}
                 className="w-full bg-black/40 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-white placeholder-white/30 focus:border-red-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner"
                 placeholder="Enter your username"
               />

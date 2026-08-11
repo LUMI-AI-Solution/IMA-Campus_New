@@ -199,7 +199,7 @@ export default function Overview() {
             </div>
             
             {/* Custom Tailwind animation for progress bar shimmer */}
-            <style jsx>{`
+            <style>{`
                 @keyframes shimmer {
                     100% { transform: translateX(100%); }
                 }

@@ -23,11 +23,11 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
     const [submitting, setSubmitting] = useState(false);
     const [selectedUpgradeMethod, setSelectedUpgradeMethod] = useState('full'); // 'full' or 'installment'
     const [selectedSubjects, setSelectedSubjects] = useState([]);
+    const [paycorpIframeUrl, setPaycorpIframeUrl] = useState(null);
+    const [agreedToTerms, setAgreedToTerms] = useState(false);
     const submitLock = useRef(false);
 
-    const backendBaseUrl = window.location.protocol === 'https:'
-        ? 'https://imacampus.online'
-        : 'http://72.62.249.211:5000';
+    const backendBaseUrl = axios.defaults.baseURL.replace('/api', '');
 
     const getImageUrl = (imageName) => (!imageName || imageName === 'default.png' || imageName === 'null')
         ? null
@@ -223,11 +223,7 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
     };
 
     const handleFinalSubmit = async () => {
-        if (submitting || submitLock.current) return;
-        if (paymentMethod === 'slip' && slipFiles.length === 0) {
-            return toast.error("Please upload your bank transaction receipt / slip.");
-        }
-
+        if (submitLock.current) return;
         try {
             submitLock.current = true;
             setSubmitting(true);
@@ -240,54 +236,30 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
 
             const orderId = `UPG-${Date.now()}`;
 
-            // 🔥 PAYHERE ONLINE PAYMENT
-            if (paymentMethod === 'payhere') {
-                if (typeof window.payhere === 'undefined') {
-                    toast.error("PayHere integration is missing! Please refresh the page.");
-                    throw new Error("window.payhere is undefined.");
+            // 🔥 PAYCORP / SAMPATH IPG PAYMENT
+            if (paymentMethod === 'paycorp') {
+                if (!agreedToTerms) {
+                    toast.error("Please agree to the Terms & Conditions before proceeding.");
+                    setSubmitting(false);
+                    submitLock.current = false;
+                    return;
                 }
 
-                const hashRes = await axios.post('/student/payhere-hash', { amount: activeBalance.toFixed(2), orderId: orderId, currency: "LKR" });
-                const isSandbox = import.meta.env.VITE_PAYHERE_ENV === 'sandbox';
+                const targetBusinessId = data?.batches?.[0]?.businessId || localStorage.getItem('businessId');
+                const initRes = await axios.post('/student/paycorp-init', {
+                    amount: activeBalance,
+                    orderId: orderId,
+                    businessId: targetBusinessId
+                });
 
-                const payment = {
-                    sandbox: isSandbox,
-                    merchant_id: import.meta.env.VITE_PAYHERE_MERCHANT_ID,
-                    return_url: window.location.origin + "/student/dashboard",
-                    cancel_url: window.location.origin + "/student/dashboard",
-                    notify_url: `${backendBaseUrl}/api/student/payhere-notify`,
-                    order_id: orderId,
-                    items: "Course Upgrade",
-                    amount: activeBalance.toFixed(2),
-                    currency: "LKR",
-                    hash: hashRes.data.hash || "",
-                    first_name: "Student",
-                    last_name: "Name",
-                    email: "student@imacampus.lk",
-                    phone: "0770000000",
-                    address: "Sri Lanka",
-                    city: "Colombo",
-                    country: "Sri Lanka"
-                };
-
-                window.payhere.onCompleted = async function onCompleted(orderId) {
-                    toast.success("Payment successful! Processing upgrade...");
-                    await submitUpgradeToBackend('payhere', orderId, activeBalance, pMethodChosen);
-                };
-
-                window.payhere.onDismissed = function onDismissed() {
-                    toast.error("Payment dismissed.");
+                if (initRes.data && initRes.data.success && initRes.data.paymentUrl) {
+                    setShowPaymentModal(false);
+                    setPaycorpIframeUrl(initRes.data.paymentUrl);
+                } else {
+                    toast.error(initRes.data?.message || "Failed to initialize Sampath IPG.");
                     setSubmitting(false);
                     submitLock.current = false;
-                };
-
-                window.payhere.onError = function onError(error) {
-                    toast.error("Payment Error: " + error);
-                    setSubmitting(false);
-                    submitLock.current = false;
-                };
-
-                window.payhere.startPayment(payment);
+                }
             }
             // 🔥 MANUAL SLIP PAYMENT
             else {
@@ -301,7 +273,7 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
         }
     };
 
-    const submitUpgradeToBackend = async (method, payhereOrderId, activeBalance, pMethodChosen) => {
+    const submitUpgradeToBackend = async (method, paycorpReqId, activeBalance, pMethodChosen) => {
         try {
             const upgradesPayload = [];
             data.batches.forEach(batch => {
@@ -388,7 +360,7 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
             formData.append('upgrades', JSON.stringify(upgradesPayload));
             formData.append('method', method);
             formData.append('amount', activeBalance.toFixed(2));
-            if (payhereOrderId) formData.append('orderId', payhereOrderId);
+            if (paycorpReqId) formData.append('orderId', paycorpReqId);
 
             if (upgradesPayload.length > 0) {
                 formData.append('businessId', upgradesPayload[0].businessId);
@@ -414,6 +386,7 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
                 setRemark('');
 
                 await fetchUpgradeDetails();
+                window.dispatchEvent(new Event('refreshPayments'));
                 if (onClose) onClose();
             }
         } catch (error) {
@@ -438,10 +411,10 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
                     {/* Premium Header Banner */}
                     <div className="relative h-32 rounded-2xl bg-gradient-to-tr from-amber-400 via-rose-600 to-[#7b2cbf] overflow-hidden flex items-center p-5 shadow-lg border border-white/10 group-hover:shadow-rose-500/10 transition-all">
                         <div className="absolute inset-0 bg-black/10 mix-blend-overlay"></div>
-                        <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-white/5 rounded-full blur-md"></div>
+                        <div className="absolute -right-6 -bottom-6 w-24 h-24 bg-black/20 rounded-full blur-md"></div>
                         
                         <div className="relative z-10 space-y-1.5">
-                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/20 text-[9px] font-black uppercase tracking-widest text-yellow-200 border border-white/20 animate-pulse">
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-[9px] font-black uppercase tracking-widest text-yellow-200 border border-white/20 animate-pulse">
                                 <Sparkles size={8} className="fill-yellow-200" /> Special Offer
                             </span>
                             <h4 className="text-base font-black text-white uppercase tracking-wider drop-shadow-md">Monthly to FULL Card</h4>
@@ -475,7 +448,7 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
                             </div>
                             <div>
                                 <span className="block text-xs font-black text-amber-400 uppercase tracking-widest">Upgrade Verification Pending</span>
-                                <span className="block text-[10px] text-white/50 font-semibold mt-1">Our coordinators are validating your payment slip.</span>
+                                <span className="block text-[10px] text-white/80 font-semibold mt-1">Our coordinators are validating your payment slip.</span>
                             </div>
                         </div>
                     ) : (
@@ -518,7 +491,7 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
                 <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/90 backdrop-blur-lg p-2 md:p-6 overflow-hidden animate-in fade-in duration-300">
                     <div className="bg-[#0f0e1a] border border-white/10 rounded-[2rem] w-full max-w-6xl relative h-full max-h-[90vh] shadow-2xl flex flex-col overflow-hidden text-white transition-all duration-300">
 
-                        <button onClick={dismissModal} className="absolute top-4 right-4 md:top-6 md:right-6 text-white/50 hover:text-white bg-white/5 hover:bg-white/10 p-2 rounded-xl transition-all z-20 active:scale-95 border border-white/5">
+                        <button onClick={dismissModal} className="absolute top-4 right-4 md:top-6 md:right-6 text-white/80 hover:text-white bg-black/20 hover:bg-white/10 p-2 rounded-xl transition-all z-20 active:scale-95 border border-white/5">
                             <X size={20} />
                         </button>
 
@@ -564,7 +537,7 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
 
                                     <div>
                                         <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-3 pl-1">
-                                            <h4 className="text-xs md:text-sm font-bold text-white/50 uppercase tracking-wider">Select Subjects to Upgrade</h4>
+                                            <h4 className="text-xs md:text-sm font-bold text-white/80 uppercase tracking-wider">Select Subjects to Upgrade</h4>
                                             <span className="text-[10px] text-rose-400 font-bold uppercase tracking-widest bg-rose-500/10 px-2.5 py-1 rounded-lg border border-rose-500/20">
                                                 {selectedSubjects.length} of {data.batches.reduce((sum, b) => sum + (b.subjectDetails?.length || 0), 0)} Selected
                                             </span>
@@ -625,7 +598,7 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
                                                                             {lecturerImg ? (
                                                                                 <img src={lecturerImg} alt="Lecturer" className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover border-2 border-white/10 shrink-0" />
                                                                             ) : (
-                                                                                <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-white/5 flex items-center justify-center border border-white/10 shrink-0 text-white/50 text-xs">TBA</div>
+                                                                                <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-black/20 flex items-center justify-center border border-white/10 shrink-0 text-white/80 text-xs">TBA</div>
                                                                             )}
                                                                             <div className="flex flex-col min-w-0">
                                                                                 <span className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Lecturer</span>
@@ -653,16 +626,16 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
                                         <h4 className="text-sm font-extrabold text-white mb-4 uppercase tracking-widest border-b border-white/10 pb-3 flex items-center gap-2"><Wallet size={16} className="text-rose-500" /> Order Summary</h4>
 
                                         <div className="space-y-2 text-xs text-white/70 mb-5 font-medium">
-                                            <div className="flex justify-between items-center bg-white/5 p-2.5 rounded-xl border border-white/5">
+                                            <div className="flex justify-between items-center bg-black/20 p-2.5 rounded-xl border border-white/5">
                                                 <span>Plan:</span>
                                                 <span className="font-bold text-white bg-rose-600 px-2 py-1 rounded">Upgrade to Full</span>
                                             </div>
-                                            <div className="flex justify-between items-center bg-white/5 p-2.5 rounded-xl border border-white/5">
+                                            <div className="flex justify-between items-center bg-black/20 p-2.5 rounded-xl border border-white/5">
                                                 <span>Subjects Selected:</span>
                                                 <span className="font-bold text-white bg-white/10 px-2 py-1 rounded">{selectedSubjects.length}</span>
                                             </div>
 
-                                            <div className="flex justify-between items-center bg-white/5 p-2.5 rounded-xl border border-white/5 mt-2">
+                                            <div className="flex justify-between items-center bg-black/20 p-2.5 rounded-xl border border-white/5 mt-2">
                                                 <span>Upgrade Subtotal:</span>
                                                 <span className="font-bold text-white">{formatPrice(pricingResult.subtotal)}</span>
                                             </div>
@@ -684,7 +657,7 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
 
                                         <div className="flex flex-col gap-4">
                                             <div>
-                                                <span className="block text-[9px] text-white/50 uppercase font-bold tracking-widest mb-0.5 text-center">Net Upgrade Balance</span>
+                                                <span className="block text-[9px] text-white/80 uppercase font-bold tracking-widest mb-0.5 text-center">Net Upgrade Balance</span>
                                                 <span className="block text-2xl text-white font-black text-center mb-1">{formatPrice(pricingResult.balanceToPay)}</span>
                                             </div>
                                             <button onClick={handleProceed} className="bg-gradient-to-r from-red-600 to-red-800 hover:from-red-500 hover:to-red-700 text-white font-black py-3.5 rounded-xl flex justify-center items-center transition-colors text-xs uppercase tracking-widest border border-red-500/50 shadow-lg shadow-red-500/20">
@@ -704,22 +677,22 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
             {showInstallmentPrompt && createPortal(
                 <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/90 backdrop-blur-md p-4 overflow-hidden">
                     <div className="bg-slate-900 border border-white/10 rounded-[2rem] p-6 max-w-sm w-full relative shadow-2xl animate-in zoom-in-95 duration-200">
-                        <button onClick={() => setShowInstallmentPrompt(false)} className="absolute top-4 right-4 text-white/50 hover:text-white bg-white/10 p-2 rounded-xl"><X size={18} /></button>
+                        <button onClick={() => setShowInstallmentPrompt(false)} className="absolute top-4 right-4 text-white/80 hover:text-white bg-white/10 p-2 rounded-xl"><X size={18} /></button>
                         <h2 className="text-xl font-extrabold text-white mb-2">Payment Options</h2>
-                        <p className="text-white/60 text-xs mb-6 font-medium">Pay the full upgrade balance now or choose installments.</p>
+                        <p className="text-white/90 text-xs mb-6 font-medium">Pay the full upgrade balance now or choose installments.</p>
 
                         <div className="flex flex-col gap-3">
                             <button onClick={() => { setSelectedUpgradeMethod('full'); setShowInstallmentPrompt(false); setShowPaymentModal(true); }}
-                                className="w-full bg-white/5 hover:bg-rose-600/20 border border-white/10 hover:border-rose-500/50 text-left p-4 rounded-2xl transition-colors group">
-                                <span className="block text-[10px] text-white/40 mb-1 uppercase tracking-widest font-bold group-hover:text-rose-400">Option 1</span>
+                                className="w-full bg-black/20 hover:bg-rose-600/20 border border-white/10 hover:border-rose-500/50 text-left p-4 rounded-2xl transition-colors group">
+                                <span className="block text-[10px] text-white/80 mb-1 uppercase tracking-widest font-bold group-hover:text-rose-400">Option 1</span>
                                 <span className="block text-sm text-white font-extrabold mb-1">Pay Full Amount</span>
                                 <span className="block text-xl text-rose-500 font-black">{formatPrice(pricingResult.balanceToPay)}</span>
                             </button>
 
                             <button onClick={() => { setSelectedUpgradeMethod('installment'); setShowInstallmentPrompt(false); setShowPaymentModal(true); }}
-                                className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-left p-4 rounded-2xl transition-colors group">
+                                className="w-full bg-black/20 hover:bg-white/10 border border-white/10 text-left p-4 rounded-2xl transition-colors group">
                                 <div className="flex justify-between items-start mb-1">
-                                    <span className="block text-[10px] text-white/40 uppercase tracking-widest font-bold">Option 2</span>
+                                    <span className="block text-[10px] text-white/80 uppercase tracking-widest font-bold">Option 2</span>
                                     <span className="bg-yellow-500/20 text-yellow-400 text-[9px] px-2 py-0.5 rounded font-bold uppercase tracking-widest border border-yellow-500/30">Available</span>
                                 </div>
                                 <span className="block text-sm text-white font-extrabold mb-3">Pay via Installments</span>
@@ -728,7 +701,7 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
                                     {pricingResult.installments.map((step, idx) => (
                                         <div key={idx} className="flex justify-between text-xs font-medium text-white/70">
                                             <span>Part {step.installmentNum}:</span>
-                                            <span className="text-white font-bold bg-white/5 px-2 rounded border border-white/10">{formatPrice(step.amount)}</span>
+                                            <span className="text-white font-bold bg-black/20 px-2 rounded border border-white/10">{formatPrice(step.amount)}</span>
                                         </div>
                                     ))}
                                 </div>
@@ -749,52 +722,52 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
                         <div className="flex justify-between items-center mb-6">
                             <div>
                                 <h2 className="text-xl font-extrabold text-white mb-1">Submit Payment</h2>
-                                <p className="text-white/60 font-medium text-xs">Choose how you want to pay the upgrade amount.</p>
+                                <p className="text-white/90 font-medium text-xs">Choose how you want to pay the upgrade amount.</p>
                             </div>
-                            <button onClick={() => setShowPaymentModal(false)} className="text-white/50 hover:text-white bg-white/10 p-2 rounded-xl shrink-0"><X size={18} /></button>
+                            <button onClick={() => setShowPaymentModal(false)} className="text-white/80 hover:text-white bg-white/10 p-2 rounded-xl shrink-0"><X size={18} /></button>
                         </div>
 
                         <div className="bg-black/40 border border-white/10 rounded-2xl p-4 text-center mb-6 shadow-inner shrink-0">
-                            <span className="block text-[10px] text-white/50 uppercase font-bold tracking-widest mb-1">Amount to Pay Now</span>
+                            <span className="block text-[10px] text-white/80 uppercase font-bold tracking-widest mb-1">Amount to Pay Now</span>
                             <span className="block text-3xl text-rose-500 font-black">
                                 {selectedUpgradeMethod === 'installment' ? formatPrice(pricingResult.installments[0]?.amount) : formatPrice(pricingResult.balanceToPay)}
                             </span>
                         </div>
 
                         {/* 🔥 Payment Method Tabs 🔥 */}
-                        <div className="flex gap-2 bg-black/30 p-1 rounded-2xl border border-white/10 mb-6 shrink-0">
-                            <button onClick={() => setPaymentMethod('slip')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors ${paymentMethod === 'slip' ? 'bg-white/20 text-white border border-white/10 shadow' : 'text-white/40 hover:text-white/80'}`}>Bank Slip</button>
-                            <button onClick={() => setPaymentMethod('payhere')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors ${paymentMethod === 'payhere' ? 'bg-white/20 text-white border border-white/10 shadow' : 'text-white/40 hover:text-white/80'}`}>Online / Card</button>
+                        <div className="flex gap-2 bg-black/40 p-1 rounded-2xl border border-white/10 mb-6 shrink-0">
+                            <button onClick={() => setPaymentMethod('slip')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors ${paymentMethod === 'slip' ? 'bg-white/10 text-white border border-white/10 shadow' : 'text-white/80 hover:text-white/80'}`}>Bank Slip</button>
+                            <button onClick={() => setPaymentMethod('paycorp')} className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-colors ${paymentMethod === 'paycorp' ? 'bg-emerald-600/30 text-emerald-400 border border-emerald-500/50 shadow' : 'text-emerald-500/70 hover:text-emerald-400'}`}>Sampath IPG</button>
                         </div>
 
                         <div className="flex-1 overflow-y-auto pr-1 mb-4 custom-scrollbar">
                             {paymentMethod === 'slip' ? (
                                 <>
-                                    <div className="border-2 border-dashed border-white/20 bg-white/5 rounded-[1.5rem] p-6 text-center hover:border-rose-500/50 hover:bg-rose-500/5 transition-colors cursor-pointer mb-4 group relative" onClick={() => document.getElementById('upgrade-slip-upload')?.click()}>
+                                    <div className="border-2 border-dashed border-white/20 bg-black/20 rounded-[1.5rem] p-6 text-center hover:border-rose-500/50 hover:bg-rose-500/5 transition-colors cursor-pointer mb-4 group relative" onClick={() => document.getElementById('upgrade-slip-upload')?.click()}>
                                         <div className="absolute top-3 right-3 bg-blue-500 text-white p-1 rounded-full"><Info size={14} /></div>
                                         <input type="file" id="upgrade-slip-upload" className="hidden" multiple accept="image/*,application/pdf" capture="environment" onChange={handleFileChange} />
                                         <div className="flex flex-col items-center w-full">
-                                            <div className="flex gap-3 mb-3 text-white/30 group-hover:text-rose-500 transition-colors">
+                                            <div className="flex gap-3 mb-3 text-white/70 group-hover:text-rose-500 transition-colors">
                                                 <UploadCloud size={32} />
                                                 <Camera size={32} />
                                             </div>
                                             <span className="text-white font-bold text-sm mb-1">
                                                 {slipFiles.length > 0 ? `${slipFiles.length} File(s) Selected` : 'Click to Upload Slip'}
                                             </span>
-                                            <span className="text-[10px] text-white/50 font-medium">Max 4 slips. PNG, JPG, PDF</span>
+                                            <span className="text-[10px] text-white/80 font-medium">Max 4 slips. PNG, JPG, PDF</span>
                                         </div>
                                     </div>
 
                                     {slipFiles.length > 0 && (
-                                        <div className="mb-4 bg-black/30 p-3 rounded-xl border border-white/5 space-y-1.5">
+                                        <div className="mb-4 bg-black/40 p-3 rounded-xl border border-white/5 space-y-1.5">
                                             {slipFiles.map((file, i) => (
                                                 <div key={i} className="flex justify-between items-center text-xs">
                                                     <div className="flex items-center gap-2 truncate pr-3">
-                                                        <Paperclip size={12} className="text-white/40 shrink-0" />
+                                                        <Paperclip size={12} className="text-white/80 shrink-0" />
                                                         <span className="text-white truncate">{file.name}</span>
                                                     </div>
                                                     <div className="flex items-center gap-3 shrink-0">
-                                                        <span className="text-white/40">{(file.size / 1024 / 1024).toFixed(1)}MB</span>
+                                                        <span className="text-white/80">{(file.size / 1024 / 1024).toFixed(1)}MB</span>
                                                         <button onClick={(e) => { e.stopPropagation(); removeFile(i); }} className="text-rose-400 hover:text-rose-300"><X size={14} /></button>
                                                     </div>
                                                 </div>
@@ -803,22 +776,73 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
                                     )}
 
                                     <div>
-                                        <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-1 block">Remark (Optional)</label>
+                                        <label className="text-[10px] font-bold text-white/80 uppercase tracking-widest mb-1 block">Remark (Optional)</label>
                                         <textarea value={remark} onChange={(e) => setRemark(e.target.value)} placeholder="Type any message..." rows="2" className="w-full bg-black/40 border border-white/10 rounded-xl p-3 text-xs text-white outline-none focus:border-rose-500 transition-colors resize-none"></textarea>
                                     </div>
                                 </>
                             ) : (
-                                <div className="bg-white/10 rounded-[1.5rem] p-6 flex flex-col justify-center items-center h-full min-h-[120px] border border-white/20">
-                                    <span className="text-white font-black text-2xl tracking-wider">Pay<span className="text-blue-500">Here</span></span>
-                                    <span className="text-[9px] text-white/40 uppercase mt-2 font-bold tracking-widest">Secured by Monid</span>
+                                <div className="space-y-4">
+                                    <div className="bg-emerald-900/20 backdrop-blur-xl rounded-[1.5rem] p-6 flex flex-col justify-center items-center h-full min-h-[120px] border border-emerald-500/30 shadow-lg shadow-emerald-950/20">
+                                        <div className="flex items-center gap-3">
+                                            <div className="bg-white p-1.5 rounded-full shadow-lg">
+                                                <img src="/sampath-logo.png" alt="Sampath" className="w-7 h-7 object-contain" onError={(e) => { e.target.style.display = 'none'; }} />
+                                            </div>
+                                            <span className="text-white font-black text-2xl tracking-wider uppercase">Sampath Bank</span>
+                                        </div>
+                                        <span className="text-[9px] text-emerald-400 uppercase mt-3 font-bold tracking-widest">Paycorp IPG • Visa / Master / Amex</span>
+                                    </div>
+
+                                    <label className="flex items-start gap-3 p-3 bg-black/20 rounded-xl border border-white/10 cursor-pointer hover:bg-black/40 transition">
+                                        <input 
+                                            type="checkbox" 
+                                            className="mt-0.5 w-4 h-4 rounded border-gray-600 text-emerald-500 focus:ring-emerald-500 bg-gray-900 cursor-pointer" 
+                                            checked={agreedToTerms}
+                                            onChange={(e) => setAgreedToTerms(e.target.checked)}
+                                        />
+                                        <span className="text-xs text-white/80 leading-snug">
+                                            මා <a href="/terms" target="_blank" onClick={(e) => e.stopPropagation()} className="text-blue-400 font-bold hover:underline">නියමයන් සහ කොන්දේසි</a> කියවා ඊට එකඟ වෙමි. අන්තර්ජාලය හරහා කරන සියලුම ගෙවීම් ආපසු ලබා නොදෙන බව මම තේරුම් ගතිමි.
+                                        </span>
+                                    </label>
                                 </div>
                             )}
                         </div>
 
-                        <button onClick={handleFinalSubmit} disabled={submitting || (paymentMethod === 'slip' && slipFiles.length === 0)}
+                        <button onClick={handleFinalSubmit} disabled={submitting || (paymentMethod === 'slip' && slipFiles.length === 0) || (paymentMethod === 'paycorp' && !agreedToTerms)}
                             className="w-full shrink-0 bg-gradient-to-r from-red-600 to-red-800 text-white font-black py-3.5 rounded-xl transition-colors hover:from-red-500 hover:to-red-700 disabled:opacity-50 text-xs uppercase tracking-widest border border-red-500/50 shadow-lg mt-2">
-                            {submitting ? 'Processing...' : 'Confirm Upgrade Payment'}
+                            {submitting ? 'Processing...' : (paymentMethod === 'paycorp' ? 'Pay via Sampath IPG' : 'Confirm Upgrade Payment')}
                         </button>
+                    </div>
+                </div>,
+                document.body
+            )}
+
+            {/* 🔥 PAYCORP IFRAME POPUP 🔥 */}
+            {paycorpIframeUrl && createPortal(
+                <div className="fixed inset-0 z-[999999] flex flex-col items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in duration-200 p-2 md:p-8">
+                    <div className="bg-white rounded-2xl w-full max-w-4xl h-[90vh] md:h-full relative overflow-hidden flex flex-col shadow-2xl">
+                        <div className="bg-[#1a1f2e] text-white p-3 flex justify-between items-center shrink-0">
+                            <div className="flex items-center gap-2">
+                                <Wallet size={18} className="text-emerald-400" />
+                                <h3 className="font-bold text-sm md:text-base">Sampath Bank Secure Payment</h3>
+                            </div>
+                            <button 
+                                onClick={() => {
+                                    setPaycorpIframeUrl(null);
+                                    setSubmitting(false);
+                                    submitLock.current = false;
+                                }} 
+                                className="bg-red-500 hover:bg-red-600 text-white p-1.5 rounded-lg transition-colors"
+                                title="Cancel Payment"
+                            >
+                                <X size={18}/>
+                            </button>
+                        </div>
+                        <iframe 
+                            src={paycorpIframeUrl} 
+                            className="w-full flex-1 border-none bg-white" 
+                            title="Sampath Payment Gateway"
+                            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-top-navigation"
+                        />
                     </div>
                 </div>,
                 document.body

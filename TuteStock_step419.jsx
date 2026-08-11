@@ -1,0 +1,4 @@
+- [ ] Step 1: Revert all incorrect changes from the previous attempt (TuteStock.jsx, DeliveryController, ContentHubModals).
+- [ ] Step 2: Create backend API endpoints for Master Lecturers & Tutes using `AppSetting` in `deliveryController.js`.
+- [ ] Step 3: Build the `MasterTuteManager` UI inside the Delivery Department's `TuteStock.jsx`.
+- [ ] Step 4: Update `ContentHubModals.jsx` to replace the Lecturer Name text input with a Dropdown, and add the Tute Select Dropdown for the 'Deliver Tute' checkbox.

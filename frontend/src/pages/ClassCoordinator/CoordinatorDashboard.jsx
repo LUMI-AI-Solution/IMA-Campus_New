@@ -6,12 +6,15 @@ import RightSidePanel from '../../components/CoordinatorCRM/RightSidePanel';
 import CallCampaignModule from '../../components/CoordinatorCRM/CallCampaignModule';
 import CoordinatorOverview from '../../components/CoordinatorCRM/CoordinatorOverview';
 import DedicatedCoordinatorOverview from '../../components/CoordinatorCRM/DedicatedCoordinatorOverview';
+import AgentStatusDropdown from '../../components/CoordinatorCRM/AgentStatusDropdown';
+import WhatsAppBusinessNumberBadge from '../../components/common/WhatsAppBusinessNumberBadge';
 import { FaWhatsapp, FaHeadset, FaFilter, FaChartBar, FaRobot, FaPowerOff } from 'react-icons/fa';
 import { LayoutDashboard } from 'lucide-react';
 import axios from '../../api/axios';
 import toast from 'react-hot-toast';
+import useLocalStorageState from '../../hooks/useLocalStorageState';
 
-export default function CoordinatorDashboard() {
+export default function CoordinatorDashboard({ loggedInUser }) {
   const location = useLocation();
   const [user, setUser] = useState(null);
   
@@ -37,12 +40,18 @@ export default function CoordinatorDashboard() {
   }, [location.pathname, location.search]);
 
   const [selectedLead, setSelectedLead] = useState(null);
+  const [redirectLead, setRedirectLead] = useState(null);
+  
+  const handleRedirectToCampaign = (lead) => {
+    setRedirectLead(lead);
+    setActiveMode('CALL_CAMPAIGN');
+  };
   
   const [businesses, setBusinesses] = useState([]);
   const [batches, setBatches] = useState([]);
   
-  const [selectedBusiness, setSelectedBusiness] = useState('');
-  const [selectedBatch, setSelectedBatch] = useState('');
+  const [selectedBusiness, setSelectedBusiness] = useLocalStorageState('freeSem_selectedBusiness', '');
+  const [selectedBatch, setSelectedBatch] = useLocalStorageState('freeSem_selectedBatch', '');
 
   const [isFollowUpOn, setIsFollowUpOn] = useState(false);
 
@@ -105,32 +114,35 @@ export default function CoordinatorDashboard() {
 
   const displayBusinesses = React.useMemo(() => {
     if (isAdmin) return businesses;
-    if (isManager) {
-      return businesses.filter(biz => {
-        const isManagerOf = biz.head_manager_id === user?.id || biz.ass_manager_id === user?.id;
-        const matchesBizType = user?.businessType && (
-          String(biz.id) === String(user.businessType).trim() ||
-          biz.name.toLowerCase().trim() === String(user.businessType).toLowerCase().trim() ||
-          biz.name.toLowerCase().includes(String(user.businessType).toLowerCase().trim()) ||
-          String(user.businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
-        );
-        return isManagerOf || matchesBizType;
-      });
-    }
-    return [];
-  }, [businesses, isAdmin, isManager, user]);
+    return businesses.filter(biz => {
+      const isManagerOf = biz.head_manager_id === user?.id || biz.ass_manager_id === user?.id;
+      const matchesBizType = user?.businessType && (
+        String(biz.id) === String(user.businessType).trim() ||
+        biz.name.toLowerCase().trim() === String(user.businessType).toLowerCase().trim() ||
+        biz.name.toLowerCase().includes(String(user.businessType).toLowerCase().trim()) ||
+        String(user.businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+      );
+      return isManagerOf || matchesBizType;
+    });
+  }, [businesses, isAdmin, user]);
 
   useEffect(() => {
-    if (isManager && !isAdmin && displayBusinesses.length > 0 && !selectedBusiness) {
-      setSelectedBusiness(String(displayBusinesses[0].id));
+    if (!isAdmin) {
+      if (displayBusinesses.length > 0) {
+        const isValid = displayBusinesses.some(b => String(b.id) === String(selectedBusiness));
+        if (!selectedBusiness || !isValid) {
+          setSelectedBusiness(String(displayBusinesses[0].id));
+        }
+      } else if (selectedBusiness !== '') {
+        setSelectedBusiness('');
+      }
     }
-  }, [displayBusinesses, isManager, isAdmin, selectedBusiness]);
+  }, [displayBusinesses, isAdmin, selectedBusiness, setSelectedBusiness]);
 
   const displayBatches = selectedBusiness 
     ? batches.filter(b => b.businessId === parseInt(selectedBusiness))
     : batches;
 
-  // 🔥 FIX: Business eka select nokara data penna bari wenna constraint ekak damma 🔥
   const needsToSelectBusiness = (isAdmin || isManager) && !selectedBusiness;
 
   const isCrm = activeMode === 'CRM';
@@ -138,24 +150,20 @@ export default function CoordinatorDashboard() {
   return (
     <div className="h-full flex flex-col gap-4 animate-fade-in-up text-slate-300">
       
-      {!(activeMode === 'CALL_CAMPAIGN' && !isAdmin && !isManager) && (
-        <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-[#23303f] p-4 rounded-2xl shadow-lg border border-white/5">
+      {true && (
+        <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-white/5 backdrop-blur-lg p-3 rounded-2xl border border-white/10 shadow-xl shrink-0 relative z-50">
         
-        <div className="flex items-center gap-3 w-full xl:w-auto">
-          <div className={`p-2.5 rounded-xl ${isCrm ? 'bg-emerald-500/10 text-emerald-400' : activeMode === 'STATS' ? 'bg-blue-500/10 text-blue-400' : 'bg-rose-500/10 text-rose-400'} border border-white/5`}>
-            {isCrm ? <FaWhatsapp className="text-2xl" /> : <FaChartBar className="text-2xl" />}
+        <div className="flex items-center gap-3 text-lg font-black tracking-wide text-white uppercase px-2">
+          <div className="flex items-center gap-2">
+            {isCrm ? <FaWhatsapp className="text-emerald-400" size={24} /> : <FaChartBar className="text-blue-400" size={24} />}
+            {isCrm ? 'FREE SEMINAR CRM' : activeMode === 'STATS' ? 'FREE SEM CAMPAIGN STATS' : 'COORDINATOR DASHBOARD'}
           </div>
-          <div>
-            <h1 className="text-lg font-bold text-white tracking-wide">
-              {isCrm ? 'Free Seminar CRM Workspace' : activeMode === 'STATS' ? 'Free Seminar Campaign Stats' : 'Class Coordinator Dashboard'}
-            </h1>
-            <p className="text-xs text-slate-400">
-              {isCrm ? 'Manage and follow up with free seminar student leads' : activeMode === 'STATS' ? 'Real-time campaign statistics and performance' : 'Your personal operational stats and follow-up campaigns'}
-            </p>
-          </div>
+          {selectedBusiness && (
+            <WhatsAppBusinessNumberBadge businessId={selectedBusiness} campaignType="FREE_SEMINAR" />
+          )}
         </div>
 
-        <div className="flex items-center gap-3 w-full xl:w-auto overflow-x-auto justify-end">
+        <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-end relative">
           
           {(isAdmin || isManager) && activeMode === 'CRM' && (
             <button 
@@ -164,42 +172,32 @@ export default function CoordinatorDashboard() {
             >
               <LayoutDashboard size={16} className="text-blue-400" /> ADMIN DASHBOARD
             </button>
-          )} {(isAdmin || isManager) && (
-            <button 
-              onClick={handleToggleFollowUp}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs transition-all shadow-md border whitespace-nowrap ${
-                isFollowUpOn 
-                  ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50 hover:bg-emerald-500/30' 
-                  : 'bg-red-500/20 text-red-400 border-red-500/50 hover:bg-red-500/30'
-              }`}
-            >
-              {isFollowUpOn ? <FaRobot className="animate-pulse" /> : <FaPowerOff />}
-              {isFollowUpOn ? 'FOLLOW-UP: ON' : 'FOLLOW-UP: OFF'}
-            </button>
-          )}
+          )} 
+          
+          <AgentStatusDropdown />
 
-          <div className="w-px h-6 bg-slate-600 mx-1 hidden xl:block"></div>
+          <div className="w-px h-6 bg-white/10 mx-1 hidden xl:block"></div>
 
-          {(isAdmin || isManager) && (
+          {true && (
             <div className="flex items-center gap-3">
               <FaFilter className="text-slate-500 shrink-0" />
-              {(isAdmin || (isManager && activeMode !== 'STATS' && displayBusinesses.length > 1)) && (
+              {(isAdmin || (activeMode !== 'STATS' && displayBusinesses.length > 1)) && (
                 <select 
                   value={selectedBusiness}
                   onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }}
-                  className="bg-[#1a2430] border border-white/10 text-slate-300 text-sm rounded-lg px-3 py-2 outline-none focus:border-emerald-600"
+                  className="bg-black/40 border border-white/10 text-slate-300 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-brand-accent transition-all cursor-pointer"
                 >
                   <option value="">Select Business</option>
-                  {displayBusinesses.map(biz => <option key={biz.id} value={biz.id}>{biz.name}</option>)}
+                  {displayBusinesses.map(biz => <option key={biz.id} value={biz.id} className="bg-slate-900">{biz.name}</option>)}
                 </select>
               )}
               <select 
                 value={selectedBatch}
                 onChange={(e) => setSelectedBatch(e.target.value)}
-                className="bg-[#1a2430] border border-white/10 text-slate-300 text-sm rounded-lg px-3 py-2 outline-none focus:border-emerald-600"
+                className="bg-black/40 border border-white/10 text-slate-300 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-brand-accent transition-all cursor-pointer"
               >
                 <option value="">Select Batch</option>
-                {displayBatches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                {displayBatches.map(b => <option key={b.id} value={b.id} className="bg-slate-900">{b.name}</option>)}
               </select>
             </div>
           )}
@@ -234,12 +232,13 @@ export default function CoordinatorDashboard() {
             selectedLead={selectedLead} 
             setSelectedLead={setSelectedLead}
             filters={{ selectedBusiness, selectedBatch }}
+            onRedirectToCampaign={handleRedirectToCampaign}
           />
 
           {selectedLead ? (
             <>
-              <ChatArea selectedLead={selectedLead} />
-              <RightSidePanel selectedLead={selectedLead} activeMode={activeMode} />
+              <ChatArea selectedLead={selectedLead} businessId={selectedBusiness} />
+              <RightSidePanel selectedLead={selectedLead} activeMode={activeMode} selectedBusiness={selectedBusiness} />
             </>
           ) : (
             <div className="flex-1 bg-[#23303f] rounded-2xl flex flex-col items-center justify-center text-slate-500 shadow-xl border border-white/5">
@@ -250,13 +249,14 @@ export default function CoordinatorDashboard() {
           )}
         </div>
       ) : (
-        <div className="flex-1 bg-[#1a2430] rounded-2xl border border-white/5 overflow-hidden shadow-xl">
+        <div className="flex-1 overflow-hidden">
             <CallCampaignModule 
                 loggedInUser={user} 
                 filters={{ selectedBusiness, selectedBatch }} 
                 setActiveMode={setActiveMode}
                 setSelectedLead={setSelectedLead}
                 forceStatsView={activeMode === 'STATS'}
+                redirectLead={redirectLead}
             />
         </div>
       )}

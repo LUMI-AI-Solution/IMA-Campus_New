@@ -13,18 +13,20 @@ export default function StaffManagement({ loggedInUser }) {
   const [editMode, setEditMode] = useState(false);
   const [editId, setEditId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
+  const [roleFilter, setRoleFilter] = useState('');
 
   const userRole = loggedInUser?.role || '';
   const isAdmin = userRole === 'System Admin' || userRole === 'Director' || userRole === 'SYSTEM_ADMIN';
 
-  const allDepts = ['Class Coordination', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical'];
-  const staffDepts = ['Finance', 'Technical', 'Call Center', 'Delivery', 'Physical']; 
+  const allDepts = ['Class Coordination', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media'];
+  const staffDepts = ['Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media']; 
   
-  const allRoles = ['System Admin', 'Director', 'Manager', 'Ass Manager', 'Coordinator', 'Caller', 'Call Center Agent', 'Staff'];
+  const allRoles = ['System Admin', 'Director', 'Manager', 'Ass Manager', 'Coordinator', 'Caller', 'Call Center Agent', 'Staff', 'Social Media Manager', 'Social Media Staff'];
   
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', phone: '', nic: '', password: '', 
-    role: isAdmin ? 'Manager' : 'Coordinator', 
+    role: isAdmin ? 'Manager' : (loggedInUser?.department === 'Class Coordination' ? 'Coordinator' : (loggedInUser?.department === 'Social Media' ? 'Social Media Staff' : 'Staff')), 
     department: isAdmin ? 'Class Coordination' : loggedInUser?.department,
     businessType: ''
   });
@@ -88,6 +90,8 @@ export default function StaffManagement({ loggedInUser }) {
         newDept = 'Class Coordination';
     } else if (newRole === 'Caller' || newRole === 'Call Center Agent') {
         newDept = 'Call Center';
+    } else if (newRole === 'Social Media Manager' || newRole === 'Social Media Staff') {
+        newDept = 'Social Media';
     } else if (newRole === 'Staff') {
         newDept = staffDepts.includes(newDept) ? newDept : staffDepts[0];
     } else if ((newRole === 'Manager' || newRole === 'Ass Manager') && !newDept) {
@@ -96,15 +100,30 @@ export default function StaffManagement({ loggedInUser }) {
     setFormData({ ...formData, role: newRole, department: newDept });
   };
 
-    const handleDeptChange = (newDept) => {
+  const handleBusinessToggle = (bizName) => {
+    const safeBiz = bizName.trim();
+    let current = formData.businessType ? String(formData.businessType).split(',').map(b => b.trim()).filter(Boolean) : [];
+    if (current.includes(safeBiz)) {
+        current = current.filter(b => b !== safeBiz);
+    } else {
+        current.push(safeBiz);
+    }
+    setFormData({ ...formData, businessType: current.join(', ') });
+  };
+
+  const handleDeptChange = (newDept) => {
     let newRole = formData.role;
     if (newDept === 'Class Coordination' && (newRole === 'Staff' || newRole === 'Caller')) {
         newRole = 'Coordinator';
     } else if (newDept === 'Call Center' && (newRole === 'Staff' || newRole === 'Coordinator')) {
         newRole = 'Call Center Agent';
+    } else if (newDept === 'Social Media' && (newRole !== 'Social Media Manager' && newRole !== 'Social Media Staff')) {
+        newRole = 'Social Media Staff';
     } else if (newDept !== 'Class Coordination' && newRole === 'Coordinator') {
         newRole = 'Staff';
     } else if (newDept !== 'Call Center' && (newRole === 'Caller' || newRole === 'Call Center Agent')) {
+        newRole = 'Staff';
+    } else if (newDept !== 'Social Media' && (newRole === 'Social Media Manager' || newRole === 'Social Media Staff')) {
         newRole = 'Staff';
     }
     setFormData({ ...formData, department: newDept, role: newRole });
@@ -162,15 +181,18 @@ export default function StaffManagement({ loggedInUser }) {
       setEditId(null);
       setFormData({ 
         firstName: '', lastName: '', phone: '', nic: '', password: '', 
-        role: isAdmin ? 'Manager' : (loggedInUser?.department === 'Class Coordination' ? 'Coordinator' : 'Staff'), 
+        role: isAdmin ? 'Manager' : (loggedInUser?.department === 'Class Coordination' ? 'Coordinator' : (loggedInUser?.department === 'Social Media' ? 'Social Media Staff' : 'Staff')), 
         department: isAdmin ? 'Class Coordination' : loggedInUser?.department,
         businessType: isAdmin ? (businesses[0]?.name || '') : loggedInUser?.businessType
       });
   };
 
-  const filteredStaff = staffList.filter(s => 
-    (s.firstName + " " + s.lastName).toLowerCase().includes(searchQuery.toLowerCase()) || s.phone.includes(searchQuery)
-  );
+  const filteredStaff = staffList.filter(s => {
+    const matchesSearch = (s.firstName + " " + s.lastName).toLowerCase().includes(searchQuery.toLowerCase()) || s.phone.includes(searchQuery);
+    const matchesDept = deptFilter ? s.department === deptFilter : true;
+    const matchesRole = roleFilter ? s.role === roleFilter : true;
+    return matchesSearch && matchesDept && matchesRole;
+  });
 
   const topLevelStaff = filteredStaff.filter(s => s.role === 'System Admin' || s.role === 'Director');
   
@@ -207,18 +229,43 @@ export default function StaffManagement({ loggedInUser }) {
           </p>
         </div>
         
-        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto">
+        <div className="flex flex-col xl:flex-row gap-3 w-full lg:w-auto items-center">
           <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400" size={16} />
             <input 
               type="text" 
               placeholder="Search staff..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-white/5 border border-white/10 backdrop-blur-md rounded-lg py-2.5 pl-9 pr-4 text-sm text-white focus:outline-none focus:border-brand-accent focus:bg-white/10 transition-all shadow-sm placeholder:text-gray-400"
+              className="w-full bg-[#0F172A]/80 border border-white/10 backdrop-blur-md rounded-xl py-2.5 pl-9 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-emerald-500 focus:bg-[#0F172A] transition-all shadow-inner placeholder-slate-500"
             />
           </div>
-          <button onClick={() => { resetForm(); setShowModal(true); }} className="w-full sm:w-auto bg-brand-accent/90 hover:bg-brand-accent backdrop-blur-md text-white px-5 py-2.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none border border-transparent">
+          
+          <div className="relative w-full sm:w-48">
+            <Layers className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400" size={16} />
+            <select 
+              value={deptFilter} 
+              onChange={(e) => setDeptFilter(e.target.value)}
+              className="w-full bg-[#0F172A]/80 border border-white/10 backdrop-blur-md rounded-xl py-2.5 pl-9 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-blue-500 focus:bg-[#0F172A] transition-all shadow-inner appearance-none cursor-pointer"
+            >
+               <option value="" className="bg-[#0F172A] text-slate-200">All Departments</option>
+               {allDepts.map(d => <option key={d} value={d} className="bg-[#0F172A] text-slate-200">{d}</option>)}
+            </select>
+          </div>
+
+          <div className="relative w-full sm:w-48">
+            <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-400" size={16} />
+            <select 
+              value={roleFilter} 
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="w-full bg-[#0F172A]/80 border border-white/10 backdrop-blur-md rounded-xl py-2.5 pl-9 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-purple-500 focus:bg-[#0F172A] transition-all shadow-inner appearance-none cursor-pointer"
+            >
+               <option value="" className="bg-[#0F172A] text-slate-200">All Positions</option>
+               {allRoles.map(r => <option key={r} value={r} className="bg-[#0F172A] text-slate-200">{r}</option>)}
+            </select>
+          </div>
+
+          <button onClick={() => { resetForm(); setShowModal(true); }} className="w-full sm:w-auto bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white px-6 py-2.5 rounded-xl font-black uppercase tracking-wider text-xs flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_25px_rgba(16,185,129,0.5)] outline-none border border-transparent shrink-0">
             <UserPlus size={16}/> Add Staff
           </button>
         </div>
@@ -327,7 +374,7 @@ export default function StaffManagement({ loggedInUser }) {
                 {formData.role !== 'System Admin' && formData.role !== 'Director' && (
                   <div className="col-span-1">
                     <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Department</label>
-                    <select disabled={!isAdmin || formData.role === 'Coordinator' || formData.role === 'Caller' || formData.role === 'Call Center Agent'} value={formData.department} onChange={e => handleDeptChange(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
+                    <select disabled={!isAdmin || formData.role === 'Coordinator' || formData.role === 'Caller' || formData.role === 'Call Center Agent' || formData.role === 'Social Media Manager' || formData.role === 'Social Media Staff'} value={formData.department} onChange={e => handleDeptChange(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
                       {isAdmin 
                           ? (formData.role === 'Staff' 
                               ? staffDepts.map(d => <option key={d} value={d} className="bg-slate-800 text-white">{d}</option>) 
@@ -340,13 +387,28 @@ export default function StaffManagement({ loggedInUser }) {
 
                 {formData.department === 'Class Coordination' && formData.role !== 'System Admin' && formData.role !== 'Director' && (
                   <div className="col-span-2">
-                    <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Business Assignment</label>
-                    <select disabled={!isAdmin} required value={formData.businessType} onChange={e => setFormData({...formData, businessType: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
-                      {isAdmin 
-                          ? (businesses.length > 0 ? businesses.map(b => <option key={b.id} value={b.name} className="bg-slate-800 text-white">{b.name}</option>) : <option value="" className="bg-slate-800 text-white">No businesses available</option>)
-                          : <option value={formData.businessType} className="bg-slate-800 text-white">{formData.businessType}</option>
-                      }
-                    </select>
+                    <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Business Assignment(s)</label>
+                    <div className="flex flex-wrap gap-2">
+                        {isAdmin ? (
+                            businesses.length > 0 ? businesses.map(b => {
+                                const isSelected = (formData.businessType || '').split(',').map(x => x.trim()).includes(b.name.trim());
+                                return (
+                                    <button 
+                                        key={b.id} 
+                                        type="button"
+                                        onClick={() => handleBusinessToggle(b.name)}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${isSelected ? 'bg-brand-accent/20 text-brand-accent border-brand-accent/50' : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'}`}
+                                    >
+                                        {b.name}
+                                    </button>
+                                );
+                            }) : <span className="text-xs text-slate-500">No businesses available</span>
+                        ) : (
+                            (formData.businessType || '').split(',').map(b => b.trim()).filter(Boolean).map((b, i) => (
+                                <span key={i} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-brand-accent/20 text-brand-accent border border-brand-accent/50">{b}</span>
+                            ))
+                        )}
+                    </div>
                   </div>
                 )}
               </div>
@@ -384,58 +446,68 @@ function MinimalStaffCard({ staff, openEditModal, handleDelete, handleGhostLogin
   };
 
   return (
-    <div className="bg-white/5 border border-white/10 rounded-2xl p-5 hover:bg-white/10 hover:border-brand-accent/50 transition-all duration-300 flex flex-col h-full group relative overflow-hidden backdrop-blur-xl shadow-[0_4px_24px_rgba(0,0,0,0.1)]">
+    <div className="relative bg-[#0F172A]/40 hover:bg-[#0F172A]/80 border border-white/5 hover:border-white/20 rounded-3xl p-6 transition-all duration-500 flex flex-col h-full group overflow-hidden shadow-lg hover:shadow-2xl hover:-translate-y-1 backdrop-blur-sm">
       
       {/* Ghost Background Accent - Subtle glow */}
-      <div className={`absolute top-0 right-0 w-24 h-24 blur-[50px] opacity-20 pointer-events-none rounded-full ${color === 'purple' ? 'bg-purple-500' : color === 'blue' ? 'bg-blue-500' : 'bg-emerald-500'}`}></div>
+      <div className={`absolute -top-10 -right-10 w-32 h-32 blur-[60px] opacity-20 group-hover:opacity-40 transition-opacity duration-500 pointer-events-none rounded-full ${color === 'purple' ? 'bg-purple-500' : color === 'blue' ? 'bg-blue-500' : 'bg-emerald-500'}`}></div>
 
-      <div className="flex justify-between items-start mb-4 relative z-10">
-        <div>
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-extrabold text-white tracking-wide truncate drop-shadow-sm" title={`${staff.firstName} ${staff.lastName}`}>
-               {staff.firstName} {staff.lastName}
-            </h3>
-            <BusinessBadge businessType={staff.businessType} role={staff.role} />
+      <div className="flex justify-between items-start mb-5 relative z-10">
+        <div className="flex items-center gap-3">
+          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-inner font-black text-lg ${color === 'purple' ? 'bg-gradient-to-br from-purple-500/80 to-indigo-600/80 shadow-purple-500/20' : color === 'blue' ? 'bg-gradient-to-br from-blue-500/80 to-cyan-600/80 shadow-blue-500/20' : 'bg-gradient-to-br from-emerald-500/80 to-teal-600/80 shadow-emerald-500/20'}`}>
+            {staff.firstName.charAt(0)}{staff.lastName.charAt(0)}
           </div>
-          <p className="text-[11px] text-gray-400 font-mono mt-1 font-medium">{staff.phone}</p>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-base font-black text-slate-100 tracking-wide drop-shadow-sm" title={`${staff.firstName} ${staff.lastName}`}>
+                 {staff.firstName} {staff.lastName}
+              </h3>
+              <BusinessBadge businessType={staff.businessType} role={staff.role} />
+            </div>
+            <p className="text-[11px] text-slate-400 font-mono mt-0.5 font-bold tracking-widest">{staff.phone}</p>
+          </div>
         </div>
-        <span className={`px-2 py-0.5 rounded text-[10px] font-black uppercase tracking-wider whitespace-nowrap border ${roleBadgeColors[color]}`}>
-          {staff.role}
-        </span>
       </div>
 
-      <div className="flex flex-col gap-1.5 mb-6 relative z-10">
+      <div className="mb-6 relative z-10 space-y-2">
+         <div className="flex items-center justify-between">
+           <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Position</span>
+           <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-wider border ${roleBadgeColors[color]}`}>
+             {staff.role}
+           </span>
+         </div>
          {staff.department && (
-            <div className="flex items-center gap-2 text-[11px] font-bold text-gray-400">
-               <Briefcase size={12} className="opacity-80 text-brand-accent"/> {staff.department}
+            <div className="flex items-center justify-between">
+               <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Department</span>
+               <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5"><Briefcase size={10} className="opacity-80"/> {staff.department}</span>
             </div>
          )}
          {staff.businessType && (
-            <div className="flex items-center gap-2 text-[11px] font-bold text-gray-400">
-               <Layers size={12} className="opacity-80 text-brand-accent"/> {staff.businessType}
+            <div className="flex items-center justify-between">
+               <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Business</span>
+               <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5"><Layers size={10} className="opacity-80"/> {staff.businessType}</span>
             </div>
          )}
       </div>
 
       {canEdit && (
-        <div className="mt-auto grid grid-cols-3 gap-2 opacity-100 sm:opacity-0 sm:translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300 relative z-10">
+        <div className="mt-auto grid grid-cols-3 gap-3 opacity-100 sm:opacity-0 sm:translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-500 relative z-10 pt-4 border-t border-white/5">
             <button 
                 onClick={() => handleGhostLogin(staff.id)} 
                 title="Impersonate User"
-                className="bg-white/5 border border-white/10 hover:border-purple-400 hover:bg-purple-500/20 text-gray-400 hover:text-purple-300 py-1.5 rounded-lg flex justify-center items-center transition-all text-sm outline-none shadow-sm">
-                <Ghost size={14}/>
+                className="bg-white/5 border border-white/10 hover:border-purple-500 hover:bg-purple-500/20 text-slate-400 hover:text-purple-300 py-2 rounded-xl flex justify-center items-center transition-all text-sm outline-none shadow-sm group/btn">
+                <Ghost size={16} className="group-hover/btn:scale-110 transition-transform"/>
             </button>
             <button 
                 onClick={() => openEditModal(staff)} 
                 title="Edit Details"
-                className="bg-white/5 border border-white/10 hover:border-blue-400 hover:bg-blue-500/20 text-gray-400 hover:text-blue-300 py-1.5 rounded-lg flex justify-center items-center transition-all text-sm outline-none shadow-sm">
-                <Edit3 size={14}/>
+                className="bg-white/5 border border-white/10 hover:border-blue-500 hover:bg-blue-500/20 text-slate-400 hover:text-blue-300 py-2 rounded-xl flex justify-center items-center transition-all text-sm outline-none shadow-sm group/btn">
+                <Edit3 size={16} className="group-hover/btn:scale-110 transition-transform"/>
             </button>
             <button 
                 onClick={() => handleDelete(staff.id)} 
                 title="Delete User"
-                className="bg-white/5 border border-white/10 hover:border-rose-400 hover:bg-rose-500/20 text-gray-400 hover:text-rose-300 py-1.5 rounded-lg flex justify-center items-center transition-all text-sm outline-none shadow-sm">
-                <Trash2 size={14}/>
+                className="bg-white/5 border border-white/10 hover:border-rose-500 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 py-2 rounded-xl flex justify-center items-center transition-all text-sm outline-none shadow-sm group/btn">
+                <Trash2 size={16} className="group-hover/btn:scale-110 transition-transform"/>
             </button>
         </div>
       )}

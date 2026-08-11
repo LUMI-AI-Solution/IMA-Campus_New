@@ -162,13 +162,13 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
 
                 {activeTab === 'BRIDGE' && (
                     <div className="animate-fade-in-up h-full">
-                        <BridgeStaffExecution filters={filters} setChatModalLead={setSelectedLead} externalSearch={campaignSearchPhone} />
+                        <BridgeStaffExecution filters={filters} setChatModalLead={setSelectedLead} externalSearch={campaignSearchPhone} onLeadsLoaded={onLeadsLoaded} />
                     </div>
                 )}
 
                 {activeTab === 'PAID' && (
                     <div className="animate-fade-in-up h-full">
-                        <AfterSeminarPaidCampaign filters={filters} setChatModalLead={setSelectedLead} externalSearch={campaignSearchPhone} />
+                        <AfterSeminarPaidCampaign filters={filters} setChatModalLead={setSelectedLead} externalSearch={campaignSearchPhone} onLeadsLoaded={onLeadsLoaded} />
                     </div>
                 )}
             </div>

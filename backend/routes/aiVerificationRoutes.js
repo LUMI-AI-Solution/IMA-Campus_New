@@ -41,6 +41,14 @@ router.post('/process-verification', verifyToken, aiVerificationController.proce
 router.get('/transactions', verifyToken, aiVerificationController.getBankTransactions);
 router.get('/months', verifyToken, aiVerificationController.getBankStatementMonths);
 router.get('/pending-slips', verifyToken, aiVerificationController.getPendingSlips);
+
+// Bulk Auto-Verification
+router.post('/bulk-start', verifyToken, aiVerificationController.startBulkVerification);
+router.get('/bulk-status', verifyToken, aiVerificationController.getBulkStatus);
+router.post('/bulk-stop', verifyToken, aiVerificationController.stopBulkVerification);
+router.get('/history', verifyToken, aiVerificationController.getHistory);
+router.post('/schedule', verifyToken, aiVerificationController.toggleSchedule);
+
 router.get('/settings', verifyToken, aiVerificationController.getSettings);
 router.post('/settings', verifyToken, aiVerificationController.saveSettings);
 
@@ -49,6 +57,8 @@ router.post('/verify-password', verifyToken, aiVerificationController.verifyPass
 router.post('/change-password', verifyToken, aiVerificationController.changePassword);
 router.get('/config', verifyToken, aiVerificationController.getConfig);
 router.post('/config', verifyToken, aiVerificationController.saveConfig);
+router.get('/schedule-config', verifyToken, aiVerificationController.getScheduleConfig);
+router.post('/schedule-config', verifyToken, aiVerificationController.saveScheduleConfig);
 router.post('/settings-active', verifyToken, aiVerificationController.saveActiveSettings);
 router.post('/upload-ref-slip', verifyToken, uploadDocument.single('refSlipFile'), aiVerificationController.uploadRefSlip);
 router.post('/verify-single', verifyToken, aiVerificationController.verifySinglePayment);

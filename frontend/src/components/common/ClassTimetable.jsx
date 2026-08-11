@@ -19,9 +19,8 @@ export default function ClassTimetable() {
     const [businesses, setBusinesses] = useState([]);
     const [batches, setBatches] = useState([]);
     const [selectedBiz, setSelectedBiz] = useState('');
-    const [selectedBatch, setSelectedBatch] = useState(null);
 
-    // Content Hub Data
+    // Content Hub Data (combined for all batches in biz)
     const [subjects, setSubjects] = useState([]);
     const [lecturers, setLecturers] = useState([]);
 
@@ -30,17 +29,20 @@ export default function ClassTimetable() {
     const [showViewModal, setShowViewModal] = useState(false);
     const [selectedDay, setSelectedDay] = useState(null);
     const [selectedEvent, setSelectedEvent] = useState(null);
+    
+    // Form State (New Class)
+    const [selectedBatchesForNew, setSelectedBatchesForNew] = useState([]);
 
     useEffect(() => {
         fetchInitialData();
     }, []);
 
     useEffect(() => {
-        if (selectedBatch) {
+        if (selectedBiz) {
             fetchSchedule();
-            extractBatchData(selectedBatch);
+            extractAllBatchData();
         }
-    }, [selectedBatch, currentDate]);
+    }, [selectedBiz, currentDate, batches]);
 
     const fetchInitialData = async () => {
         try {
@@ -61,7 +63,6 @@ export default function ClassTimetable() {
     const handleBusinessChange = async (e) => {
         const bizId = e.target.value;
         setSelectedBiz(bizId);
-        setSelectedBatch(null);
         setSchedule([]);
         if (bizId) {
             try {
@@ -73,30 +74,38 @@ export default function ClassTimetable() {
         }
     };
 
-    const extractBatchData = (batch) => {
+    const extractAllBatchData = () => {
         let subs = [];
-        batch?.groups?.forEach(g => {
-            g.courses?.forEach(c => {
-                if (!subs.find(s => s.name === c.name)) subs.push(c);
-            });
-        });
-        setSubjects(subs);
+        let allLecturers = [];
 
-        try {
-            if (batch.lecturers) {
-                setLecturers(JSON.parse(batch.lecturers));
-            } else {
-                setLecturers([]);
-            }
-        } catch (e) { setLecturers([]); }
+        batches.forEach(batch => {
+            batch?.groups?.forEach(g => {
+                g.courses?.forEach(c => {
+                    if (!subs.find(s => s.name === c.name)) subs.push(c);
+                });
+            });
+
+            try {
+                if (batch.lecturers) {
+                    const parsed = JSON.parse(batch.lecturers);
+                    parsed.forEach(l => {
+                        if (!allLecturers.find(ex => ex.name === l.name)) allLecturers.push(l);
+                    });
+                }
+            } catch (e) {}
+        });
+
+        setSubjects(subs);
+        setLecturers(allLecturers);
     };
 
     const fetchSchedule = async () => {
+        if (!selectedBiz) return;
         setLoading(true);
         try {
             const year = currentDate.getFullYear();
             const month = currentDate.getMonth() + 1;
-            const res = await api.get(`/admin/timetable?batchId=${selectedBatch.id}&year=${year}&month=${month}`);
+            const res = await api.get(`/admin/timetable?businessId=${selectedBiz}&year=${year}&month=${month}`);
             setSchedule(res.data || []);
         } catch (e) {
             toast.error("Failed to load schedule");
@@ -124,10 +133,16 @@ export default function ClassTimetable() {
 
     const handleAddSubmit = async (e) => {
         e.preventDefault();
+        
+        if (selectedBatchesForNew.length === 0) {
+            toast.error("Please select at least one batch!");
+            return;
+        }
+
         const formData = new FormData(e.target);
         const payload = {
             businessId: selectedBiz,
-            batchId: selectedBatch.id,
+            batchIds: selectedBatchesForNew,
             date: `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`,
             subjectName: formData.get('subjectName'),
             title: formData.get('title'),
@@ -142,6 +157,7 @@ export default function ClassTimetable() {
             await api.post('/admin/timetable', payload);
             toast.success("Class Scheduled!");
             setShowAddModal(false);
+            setSelectedBatchesForNew([]);
             fetchSchedule();
         } catch (error) {
             toast.error("Failed to schedule class");
@@ -202,37 +218,21 @@ export default function ClassTimetable() {
                                     {businesses.map(b => <option key={b.id} value={b.id} className="bg-white dark:bg-brand-darkCard text-gray-700 dark:text-white">{b.name}</option>)}
                                 </select>
                             </div>
-                            <div className="hidden sm:block w-px bg-gray-200 dark:bg-brand-darkBorder my-2 transition-colors"></div>
                         </>
                     )}
-                    <div className="relative flex-1 sm:w-64">
-                        <Layers size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 transition-colors" />
-                        <select 
-                            value={selectedBatch?.id || ''} 
-                            onChange={(e) => {
-                                const batch = batches.find(b => b.id.toString() === e.target.value);
-                                setSelectedBatch(batch);
-                            }} 
-                            disabled={!selectedBiz}
-                            className="w-full bg-transparent border-none text-sm font-bold text-gray-700 dark:text-white outline-none focus:ring-0 appearance-none pl-11 pr-4 py-3 disabled:opacity-50 cursor-pointer transition-colors"
-                        >
-                            <option value="" className="bg-white dark:bg-brand-darkCard text-gray-700 dark:text-white">-- Select Batch --</option>
-                            {batches.map(b => <option key={b.id} value={b.id} className="bg-white dark:bg-brand-darkCard text-gray-700 dark:text-white">{b.name}</option>)}
-                        </select>
-                    </div>
                 </div>
             </div>
 
-            {/* DYNAMIC BATCH HEADER */}
-            {selectedBiz && selectedBatch && (
+            {/* DYNAMIC BIZ HEADER */}
+            {selectedBiz && (
                 <div className="mb-6 bg-brand-accentLight border border-brand-accent/20 p-5 md:p-6 rounded-3xl flex items-center justify-between shadow-sm transition-colors">
                    <div>
-                       <h3 className="text-brand-accent font-bold text-xs uppercase tracking-widest mb-1 transition-colors">{getBusinessName()}</h3>
-                       <h2 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white transition-colors">{selectedBatch.name}</h2>
+                       <h3 className="text-brand-accent font-bold text-xs uppercase tracking-widest mb-1 transition-colors">Business Calendar</h3>
+                       <h2 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white transition-colors">{getBusinessName()}</h2>
                    </div>
                    <div className="hidden md:flex items-center gap-3">
                       <div className="bg-white dark:bg-brand-darkCard px-4 py-2 rounded-xl border border-brand-accent/20 shadow-sm transition-colors">
-                        <span className="text-brand-accent text-xs font-bold uppercase block text-center transition-colors">Total Classes</span>
+                        <span className="text-brand-accent text-xs font-bold uppercase block text-center transition-colors">Scheduled Classes</span>
                         <span className="text-gray-900 dark:text-white text-lg font-black block text-center transition-colors">{schedule.length}</span>
                       </div>
                    </div>
@@ -240,7 +240,7 @@ export default function ClassTimetable() {
             )}
 
             {/* CALENDAR SECTION */}
-            {selectedBatch ? (
+            {selectedBiz ? (
                 <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder p-4 md:p-8 rounded-3xl shadow-sm transition-colors">
                     
                     {/* Calendar Header */}
@@ -283,7 +283,7 @@ export default function ClassTimetable() {
                             return (
                                 <div 
                                     key={day} 
-                                    onClick={() => { if(canEdit) { setSelectedDay(day); setShowAddModal(true); } }}
+                                    onClick={() => { if(canEdit) { setSelectedDay(day); setSelectedBatchesForNew([]); setShowAddModal(true); } }}
                                     className={`min-h-[110px] md:min-h-[140px] p-2 md:p-3 rounded-2xl border transition-all relative flex flex-col group overflow-hidden ${
                                         canEdit ? 'cursor-pointer hover:border-brand-accent/50 dark:hover:border-brand-accent/50 hover:bg-gray-50 dark:hover:bg-brand-darkHover/40 hover:shadow-md' : ''
                                     } ${isToday ? 'bg-brand-accentLight/50 dark:bg-brand-accentLight border-brand-accent/40 shadow-[inset_0_0_20px_var(--theme-light)]' : 'bg-white dark:bg-brand-darkBg border-gray-200 dark:border-brand-darkBorder shadow-sm'}`}
@@ -310,9 +310,14 @@ export default function ClassTimetable() {
                                             <div 
                                                 key={event.id} 
                                                 onClick={(e) => { e.stopPropagation(); setSelectedEvent(event); setShowViewModal(true); }}
-                                                className="bg-gray-50 dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder hover:border-brand-accent/50 dark:hover:border-brand-accent/50 hover:bg-brand-accentLight dark:hover:bg-brand-accentLight p-2 md:p-2.5 rounded-xl cursor-pointer transition-all shadow-sm"
+                                                className="bg-gray-50 dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder hover:border-brand-accent/50 dark:hover:border-brand-accent/50 hover:bg-brand-accentLight dark:hover:bg-brand-accentLight p-2 md:p-2.5 rounded-xl cursor-pointer transition-all shadow-sm flex flex-col gap-1.5"
                                             >
-                                                <h4 className="font-bold text-gray-900 dark:text-white text-[10px] md:text-xs truncate leading-tight transition-colors" title={event.subjectName}>{event.subjectName}</h4>
+                                                <div className="flex justify-between items-start">
+                                                    <h4 className="font-bold text-gray-900 dark:text-white text-[10px] md:text-xs truncate leading-tight transition-colors" title={event.subjectName}>{event.subjectName}</h4>
+                                                    <span className="text-[8px] bg-brand-accent/10 text-brand-accent border border-brand-accent/20 px-1 py-0.5 rounded font-bold uppercase shrink-0" title={event.batch?.name}>
+                                                        {event.batch?.name?.substring(0, 4) || 'BATCH'}
+                                                    </span>
+                                                </div>
                                                 
                                                 {/* TECH DEPT STATUS BADGES */}
                                                 <div className="flex gap-1 mt-1 flex-wrap">
@@ -361,8 +366,8 @@ export default function ClassTimetable() {
                     <div className="w-20 h-20 bg-gray-50 dark:bg-brand-darkBg rounded-full flex items-center justify-center mb-4 border border-gray-200 dark:border-brand-darkBorder shadow-sm transition-colors">
                         <Calendar size={40} className="text-gray-400 dark:text-slate-500 transition-colors" />
                     </div>
-                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2 transition-colors">No Timetable Selected</h3>
-                    <p className="text-gray-500 dark:text-slate-400 font-medium text-sm text-center px-4 max-w-md transition-colors">Please select a Business and a Batch from the filters above to view or manage the class schedule.</p>
+                    <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2 transition-colors">No Business Selected</h3>
+                    <p className="text-gray-500 dark:text-slate-400 font-medium text-sm text-center px-4 max-w-md transition-colors">Please select a Business from the filters above to view or manage the class schedule.</p>
                 </div>
             )}
 
@@ -383,6 +388,27 @@ export default function ClassTimetable() {
                         </div>
 
                         <form onSubmit={handleAddSubmit} className="space-y-5">
+                            {/* MULTI-BATCH SELECTION */}
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Allocate to Batches *</label>
+                                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar p-1">
+                                    {batches.map(b => (
+                                        <label key={b.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${selectedBatchesForNew.includes(b.id) ? 'bg-brand-accentLight border-brand-accent/40 shadow-sm' : 'bg-gray-50 dark:bg-brand-darkBg border-gray-200 dark:border-brand-darkBorder hover:border-gray-300 dark:hover:border-slate-500'}`}>
+                                            <input 
+                                                type="checkbox" 
+                                                className="w-4 h-4 accent-brand-accent"
+                                                checked={selectedBatchesForNew.includes(b.id)}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) setSelectedBatchesForNew([...selectedBatchesForNew, b.id]);
+                                                    else setSelectedBatchesForNew(selectedBatchesForNew.filter(id => id !== b.id));
+                                                }}
+                                            />
+                                            <span className="text-sm font-bold text-gray-700 dark:text-white">{b.name}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
                             <div>
                                 <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Subject *</label>
                                 <select name="subjectName" required className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors cursor-pointer shadow-sm">
@@ -471,6 +497,18 @@ export default function ClassTimetable() {
                                 <div className="flex-1">
                                     <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-0.5 transition-colors">Technical Department Status</p>
                                     <div className="flex gap-2 mt-1">
+                                        {selectedEvent.batch ? (
+                                            <span className="text-xs bg-brand-accent/10 text-brand-accent border border-brand-accent/20 px-2 py-1 rounded-md font-bold">
+                                                📚 {selectedEvent.batch.name}
+                                                {selectedEvent.additionalBatchIds && (() => {
+                                                    try {
+                                                        const p = JSON.parse(selectedEvent.additionalBatchIds);
+                                                        return p.length > 0 ? ` + ${p.length} more` : '';
+                                                    } catch(e){return '';}
+                                                })()}
+                                            </span>
+                                        ) : null}
+
                                         {selectedEvent.hall ? (
                                             <span className="text-xs bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 px-2 py-1 rounded-md font-bold">
                                                 📍 {selectedEvent.hall.name}

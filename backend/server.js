@@ -39,72 +39,52 @@ admin.initializeApp({
 
 // ================= MIDDLEWARES =================
 
+const isAllowedOrigin = (origin) => {
+    if (!origin) return true;
+    if (origin.includes('72.62.249.211') || origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('imacampus.online')) return true;
+    if (origin.startsWith('http://10.') || origin.startsWith('http://192.168.') || origin.startsWith('http://172.')) return true;
+    if (origin.startsWith('chrome-extension://')) return true;
+    return true;
+};
+
 const corsOptions = {
     origin: function (origin, callback) {
-        const allowedOrigins = [
-            'http://72.62.249.211:5175',
-            'http://localhost:5175',
-            'http://localhost:5173',
-            'http://localhost:5174',
-            'http://localhost:3000',
-            'https://imacampus.online',
-            'https://www.imacampus.online'
-        ];
-
-        // Dynamically allow local LAN IPs (10.x.x.x, 192.168.x.x, 172.16-31.x.x) and localhost variants
-        const isLocalIp = origin && (
-            origin.startsWith('http://10.') ||
-            origin.startsWith('http://192.168.') ||
-            origin.startsWith('http://172.') ||
-            origin.startsWith('http://localhost') ||
-            origin.startsWith('http://127.0.0.1')
-        );
-
-        // Dynamically allow all subdomains and domain variations of imacampus.online
-        const isImaCampus = origin && origin.includes('imacampus.online');
-
-        if (!origin || allowedOrigins.includes(origin) || isLocalIp || isImaCampus) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
-        }
+        callback(null, true);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control'],
+    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control', 'Pragma', 'Expires'],
     credentials: true
 };
 
 app.use(cors(corsOptions));
 
-// 🔥 EXPRESS ALUTH UPDATE EKA NISA CRASH WENNE NATHI WENNA, 
-// MANUAL WIDIYATA PREFLIGHT (OPTIONS) HANDLE KARANA KALLA 🔥
+// Preflight OPTIONS handler
 app.use((req, res, next) => {
     if (req.method === 'OPTIONS') {
         const origin = req.headers.origin;
-        const allowedOrigins = [
-            'http://72.62.249.211:5175',
-            'http://localhost:5175',
-            'http://localhost:5173',
-            'http://localhost:5174',
-            'http://localhost:3000',
-            'https://imacampus.online',
-            'https://www.imacampus.online'
-        ];
-
-        if (allowedOrigins.includes(origin) || !origin) {
-            res.header('Access-Control-Allow-Origin', origin || '*');
-        }
+        res.header('Access-Control-Allow-Origin', origin || '*');
         res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control');
+        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, Pragma, Expires');
         res.header('Access-Control-Allow-Credentials', 'true');
-
-        // Options request ekata 200 OK kiyala yawanawa route walata yanna kalin
         return res.status(200).end();
     }
     next();
 });
 
-app.use(express.json());
+// 🔥 API CACHE DISABLE MIDDLEWARE (Forces Mobile App to refresh data)
+app.use((req, res, next) => {
+    // Prevent caching for all API routes except storage and documents
+    if (req.originalUrl.startsWith('/api/') && !req.originalUrl.startsWith('/api/storage') && !req.originalUrl.startsWith('/api/documents')) {
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Surrogate-Control', 'no-store');
+    }
+    next();
+});
+
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 const coordinatorCrmRoutes = require('./routes/coordinatorCrmRoutes');
 const afterSeminarCrmRoutes = require('./routes/afterSeminarCrmRoutes');
@@ -117,6 +97,7 @@ app.use('/api/documents', express.static(path.join(__dirname, 'documents')));
 app.use('/storage/icons', express.static(path.join(__dirname, 'storage/icons')));
 app.use('/storage/posts', express.static(path.join(__dirname, 'storage/posts')));
 app.use('/storage/images', express.static(path.join(__dirname, 'storage/images')));
+app.use('/api/storage/images', express.static(path.join(__dirname, 'storage/images')));
 app.use('/images', express.static(path.join(__dirname, 'storage/images')));
 app.use('/storage/documents', express.static(path.join(__dirname, 'storage/documents')));
 
@@ -124,32 +105,58 @@ app.use('/storage/documents', express.static(path.join(__dirname, 'storage/docum
 app.use('/api/storage/documents', express.static(path.join(__dirname, 'storage/documents')));
 app.use('/api/storage/icons', express.static(path.join(__dirname, 'storage/icons')));
 app.use('/api/storage/posts', express.static(path.join(__dirname, 'storage/posts')));
-app.use('/api/storage/images', express.static(path.join(__dirname, 'storage/images')));
+app.use('/storage/images', express.static(path.join(__dirname, 'storage/images')));
+app.use('/storage/ringtone', express.static(path.join(__dirname, '../storage/ringtone')));
+app.use('/api/storage/ringtone', express.static(path.join(__dirname, '../storage/ringtone')));
+app.use('/storage/users', express.static(path.join(__dirname, 'storage/users')));
+app.use('/api/storage/users', express.static(path.join(__dirname, 'storage/users')));
+app.use('/storage/users', express.static(path.join(__dirname, '../storage/users')));
+app.use('/api/storage/users', express.static(path.join(__dirname, '../storage/users')));
+app.use('/storage/recordings', express.static(path.join(__dirname, '../storage/recordings')));
+app.use('/api/storage/recordings', express.static(path.join(__dirname, '../storage/recordings')));
+
+// Public Audio Route for WhatsApp Call recordings (bypass auth)
+app.get('/api/public/whatsapp-recording/:filename', require('./controllers/whatsappCallController').getRecording);
 
 
-// ================= MODULAR ROUTES =================
+// ================= GLOBAL AUDIT TRAIL =================
+const auditMiddleware = require('./middlewares/auditMiddleware');
+app.use(auditMiddleware);
+
+// ================= ROUTES =================
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/student', require('./routes/studentRoutes'));
+app.use('/api/web-inquiry', require('./routes/webInquiryRoutes'));
 app.use('/api', require('./routes/contentRoutes'));
+// DEBUG: Moved up here
+app.use('/api/admin/data-export', require('./routes/dataExportRoutes'));
 app.use('/api/admin', require('./routes/timetableRoutes'));
 app.use('/api/admin', require('./routes/taskRoutes'));
-app.use('/api/admin/staff', require('./routes/staffRoutes'));
 app.use('/api', require('./routes/businessRoutes'));
+app.use('/api', require('./routes/tuteStockRoutes'));
 app.use('/api/public', require('./routes/publicRoutes'));
-app.use('/api/admin/delivery', require('./routes/deliveryRoutes'));
-app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/admin/payments', require('./routes/paymentRoutes'));
+app.use('/api/admin/delivery', require('./routes/deliveryRoutes'));
+app.use('/api/admin/staff', require('./routes/staffRoutes'));
 app.use('/api/admin/crm', require('./routes/crmRoutes'));
+app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/reminders', require('./routes/reminderRoutes'));
 app.use('/api/system-tasks', require('./routes/systemTaskRoutes'));
 app.use('/api/upgrade-pricing', require('./routes/upgradePricingRoutes'));
 app.use('/api/zoom-accounts', require('./routes/zoomAccountRoutes'));
 app.use('/api/technical', require('./routes/technicalRoutes'));
-
+app.use('/api/notes', require('./routes/noteRoutes'));
+app.use('/api/admin/whatsapp-call', require('./routes/whatsappCallRoutes'));
+app.use('/api/admin/call-campaign-audit', require('./routes/callCampaignAuditRoutes'));
 
 
 // 🔥 NEW: Add Data Export Route here 🔥
-app.use('/api/admin/data-export', require('./routes/dataExportRoutes')); // Mekath hadanna ona
+// app.use('/api/admin/data-export', require('./routes/dataExportRoutes')); // Mekath hadanna ona
+
+const physicalStudentRoutes = require('./routes/physicalStudentRoutes');
+app.use('/api/physical-students', physicalStudentRoutes);
+app.use('/api/physical-crm', require('./routes/physicalCrmRoutes'));
+app.use('/api/physical-finance', require('./routes/physicalFinanceRoutes'));
 
 app.use('/api/coordinator-crm', coordinatorCrmRoutes);
 app.use('/api/after-seminar-crm', afterSeminarCrmRoutes);
@@ -157,9 +164,16 @@ app.use('/api/team', teamRoutes);
 
 // 🔥🔥🔥 MOBILE APP ROUTES 🔥🔥🔥
 app.use('/api/mobile', require('./routes/mobile/mobileRoutes'));
+app.use('/api/mobile/chat', require('./routes/mobile/chatRoutes'));
 
-// AI Verification Routes
+// AI Verification
 app.use('/api/ai-verification', require('./routes/aiVerificationRoutes'));
+
+// AI Database Agent
+app.use('/api/admin/ai-agent', require('./routes/aiAgentRoutes'));
+app.use('/api/admin/test-injector', require('./routes/testRoutes'));
+app.use('/api/social-media', require('./routes/socialMediaRoutes'));
+app.use('/uploads/social-media', express.static(path.join(__dirname, 'public/uploads/social-media')));
 
 const rosterRoutes = require('./routes/rosterRoutes');
 app.use('/api/roster', rosterRoutes);
@@ -182,18 +196,57 @@ const { initCacheJob } = require('./utils/gsheetCache');
 initCacheJob();
 
 // ================= SERVER START =================
+const http = require('http');
+const server = http.createServer(app);
+
+// Increase timeouts for long-running AI transcription & video processing uploads
+server.timeout = 300000; // 5 minutes
+server.headersTimeout = 305000; // 5 minutes + 5s
+server.keepAliveTimeout = 65000;
+
+// Initialize Socket.io Chat
+const { initSocket } = require('./controllers/chatController');
+initSocket(server);
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
     console.log(`🚀 Backend Server is running cleanly on port ${PORT}`);
+});
+
+
+// ==========================================================
+// 🔥 DAILY AUTO ASSIGN QUOTA RESET (CRON JOB) 🔥
+// ==========================================================
+// හැමදාම පාන්දර 12:00 ට Auto Assign එකට අදාලව දීපු ගාන (assigned count) 0 කරනවා
+const cron = require('node-cron');
+require('./services/liveClassCronService');
+const { PrismaClient } = require('@prisma/client');
+const prismaTaskGen = new PrismaClient();
+const { generateYoutubeCookies } = require('./utils/youtubeCookieManager');
+
+// Run cookie generator at midnight every day
+cron.schedule('0 0 * * *', async () => {
+    console.log("⏰ Running Daily YouTube Cookie Generator...");
+    await generateYoutubeCookies();
+});
+
+cron.schedule('0 0 * * *', async () => {
+    console.log("⏰ Running Daily Auto Assign Quota Reset...");
+    try {
+        const result = await prismaTaskGen.autoAssignQuota.updateMany({
+            data: { assigned: 0 }
+        });
+        console.log(`🎉 Successfully reset quotas for ${result.count} staff members!`);
+    } catch (error) {
+        console.error("❌ Error in Auto Assign Quota Reset:", error);
+    }
 });
 
 
 // ==========================================================
 // 🔥 DAILY CUSTOM TASK GENERATOR (CRON JOB) 🔥
 // ==========================================================
-const cron = require('node-cron');
-const { PrismaClient } = require('@prisma/client');
-const prismaTaskGen = new PrismaClient();
+
 
 // හැමදාම පාන්දර 12:05 ට මේක Auto Run වෙනවා ('5 0 * * *')
 cron.schedule('5 0 * * *', async () => {
@@ -293,10 +346,11 @@ cron.schedule('10 0 * * *', async () => {
         const fiveDaysAgo = new Date(now.getTime() - (5 * 24 * 60 * 60 * 1000));
         const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
 
+        /*
         const leadsToPush = await prismaTaskGen.lead.findMany({
             where: {
                 campaignType: 'AFTER_SEMINAR',
-                inquiryType: { in: ['NEW_INQ', 'OPEN_SEMINAR'] },
+                inquiryType: 'NEW_INQ', // ONLY NEW_INQ (Open Sem uses 14-day absolute rule)
                 enrollmentStatus: { not: 'ENROLLED' },
                 coordinationRound: { in: [1, 2] },
                 OR: [
@@ -307,7 +361,11 @@ cron.schedule('10 0 * * *', async () => {
                 updatedAt: { lte: fiveDaysAgo } // දවස් 5ක් පැනපු ඔක්කොම ගන්නවා
             }
         });
+        */
 
+        /*
+        // ❌ REMOVED AUTO ROUND PUSH FOR NEW_INQ BY USER REQUEST ❌
+        // New Inquiries should only be manually pushed by coordinators to change rounds.
         if (leadsToPush.length === 0) {
             console.log("✅ No leads found for Auto Round Push today.");
             return;
@@ -351,6 +409,11 @@ cron.schedule('10 0 * * *', async () => {
                         callAttempt: 1,
                         isLocked: false,
                         feedback: 'Auto pushed from Round 1',
+                        newInqRound: isNewInq ? 2 : lead.newInqRound,
+                        newInqPhase: isNewInq ? 1 : lead.newInqPhase,
+                        newInqCallStatus: isNewInq ? 'pending' : lead.newInqCallStatus,
+                        newInqCallAttempt: isNewInq ? 1 : lead.newInqCallAttempt,
+                        newInqFeedback: isNewInq ? 'Auto pushed from Round 1' : lead.newInqFeedback,
                         updatedAt: new Date()
                     }
                 });
@@ -366,6 +429,12 @@ cron.schedule('10 0 * * *', async () => {
                         callAttempt: 1,
                         isLocked: false,
                         feedback: `Auto pushed from Round 2 to Non-${isNewInq ? 'Enrolled' : 'Paid'}`,
+                        newInqRound: isNewInq ? 3 : lead.newInqRound, // Mark as round 3 (moved out) if new inq
+                        openSemRound: 1, // Start Open Sem at round 1
+                        openSemPhase: 1,
+                        openSemCallStatus: 'pending',
+                        openSemCallAttempt: 1,
+                        openSemFeedback: `Auto pushed from Round 2 to Non-${isNewInq ? 'Enrolled' : 'Paid'}`,
                         updatedAt: new Date()
                     }
                 });
@@ -373,8 +442,145 @@ cron.schedule('10 0 * * *', async () => {
             updatedCount++;
         }
 
-        console.log(`🎉 Successfully Pushed ${updatedCount} Leads to the Next Round!`);
+        console.log(`🎉 Successfully Pushed ${updatedCount} NEW_INQ Leads to the Next Round!`);
+        */
+
+        // ==========================================================
+        // 🔥 14-DAY LIMIT RULE FOR OPEN_SEMINAR 🔥
+        // ==========================================================
+        const fourteenDaysAgo = new Date(now.getTime() - (14 * 24 * 60 * 60 * 1000));
+        const openSemLeadsToPush = await prismaTaskGen.lead.findMany({
+            where: {
+                campaignType: 'AFTER_SEMINAR',
+                inquiryType: 'OPEN_SEMINAR',
+                enrollmentStatus: { not: 'ENROLLED' },
+                assignedAt: { lte: fourteenDaysAgo }
+            }
+        });
+
+        if (openSemLeadsToPush.length > 0) {
+            let openSemUpdatedCount = 0;
+            for (const lead of openSemLeadsToPush) {
+                let combinedFeedback = lead.feedback || 'Auto pushed to Non-Enrolled after 14 days delay';
+                
+                if (lead.coordinationRound === 2) {
+                    const round1Progress = await prismaTaskGen.leadRoundProgress.findFirst({
+                        where: { leadId: lead.id, roundNum: 1 },
+                        orderBy: { createdAt: 'desc' }
+                    });
+                    if (round1Progress && round1Progress.feedback) {
+                        combinedFeedback = `[Round 1]: ${round1Progress.feedback} | [Round 2]: ${lead.feedback || ''}`;
+                    }
+                }
+
+                await prismaTaskGen.leadRoundProgress.upsert({
+                    where: { 
+                        leadId_roundNum_campaignCategory: { 
+                            leadId: lead.id, 
+                            roundNum: lead.coordinationRound || 1,
+                            campaignCategory: 'OPEN_SEM'
+                        } 
+                    },
+                    update: {
+                        callStatus: lead.callStatus || 'pending',
+                        callMethod: lead.callMethod || 'direct',
+                        callAttempt: lead.callAttempt || 1,
+                        feedback: '14-Day Limit Reached. Pushed to Non-Enrolled.'
+                    },
+                    create: {
+                        leadId: lead.id,
+                        roundNum: lead.coordinationRound || 1,
+                        campaignCategory: 'OPEN_SEM',
+                        callStatus: lead.callStatus || 'pending',
+                        callMethod: lead.callMethod || 'direct',
+                        callAttempt: lead.callAttempt || 1,
+                        feedback: '14-Day Limit Reached. Pushed to Non-Enrolled.'
+                    }
+                });
+
+                await prismaTaskGen.lead.update({
+                    where: { id: lead.id },
+                    data: {
+                        // inquiryType: 'NORMAL', // Keep it as OPEN_SEMINAR so it stays in Open Sem Dashboard
+                        coordinationRound: 3,  // Round 3 represents Non-Enrolled in Open Sem
+                        phase: 1,
+                        callStatus: 'pending',
+                        callAttempt: 1,
+                        isLocked: false,
+                        feedback: combinedFeedback,
+                        updatedAt: new Date()
+                    }
+                });
+                openSemUpdatedCount++;
+            }
+            console.log(`🎉 Successfully Pushed ${openSemUpdatedCount} OPEN_SEMINAR Leads to Non-Enrolled (14-day limit)!`);
+        }
+
     } catch (error) {
         console.error("❌ Error in Auto Round Push Generator:", error);
+    }
+});
+// ==========================================================
+// 🔥 AI SLIP VERIFICATION AUTO-SCHEDULE 🔥
+// ==========================================================
+let lastAiVerificationRunMinute = -1;
+
+cron.schedule('* * * * *', async () => {
+    try {
+        const { PrismaClient } = require('@prisma/client');
+        const prismaLocal = new PrismaClient();
+        
+        const configSetting = await prismaLocal.appSetting.findUnique({ where: { key: 'AI_SLIP_VERIFICATION_SCHEDULE' } });
+        if (!configSetting || !configSetting.value) {
+            await prismaLocal.$disconnect();
+            return;
+        }
+        
+        const scheduleConfig = JSON.parse(configSetting.value);
+        if (!scheduleConfig || typeof scheduleConfig !== 'object') {
+            await prismaLocal.$disconnect();
+            return;
+        }
+        
+        const now = new Date();
+        const formatter = new Intl.DateTimeFormat('en-GB', {
+            timeZone: 'Asia/Colombo',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+        });
+        const currentTimeStr = formatter.format(now); // Produces HH:mm in Colombo time
+
+        const currentMinuteNum = parseInt(currentTimeStr.split(':')[1], 10);
+        if (lastAiVerificationRunMinute === currentMinuteNum) {
+            await prismaLocal.$disconnect();
+            return;
+        }
+
+        const aiVerificationController = require('./controllers/aiVerificationController');
+
+        let ran = false;
+        // Check mainQueue
+        if (scheduleConfig.mainQueue && scheduleConfig.mainQueue.active && scheduleConfig.mainQueue.times) {
+            if (scheduleConfig.mainQueue.times.includes(currentTimeStr)) {
+                console.log(`⏰ [AI-Scheduler] Triggering MAIN QUEUE bulk verification at ${currentTimeStr}`);
+                lastAiVerificationRunMinute = currentMinuteNum;
+                ran = true;
+                await aiVerificationController.startScheduledBulkVerification('mainQueue');
+            }
+        }
+
+        // Check noMatch
+        if (!ran && scheduleConfig.noMatch && scheduleConfig.noMatch.active && scheduleConfig.noMatch.times) {
+            if (scheduleConfig.noMatch.times.includes(currentTimeStr)) {
+                console.log(`⏰ [AI-Scheduler] Triggering NO MATCH retry verification at ${currentTimeStr}`);
+                lastAiVerificationRunMinute = currentMinuteNum;
+                await aiVerificationController.startScheduledBulkVerification('noMatch');
+            }
+        }
+
+        await prismaLocal.$disconnect();
+    } catch (err) {
+        console.error("❌ Error in AI Schedule Cron:", err);
     }
 });

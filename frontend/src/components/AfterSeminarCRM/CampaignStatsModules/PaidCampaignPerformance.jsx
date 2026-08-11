@@ -99,9 +99,9 @@ export default function PaidCampaignPerformance({ filters }) {
         const m2 = targetIdx >= 2 ? monthlyGroups[targetIdx - 2] : null;
 
         const monthStats = {
-            m0: { name: m0?.name || 'Selected Month', total: 0, full: 0, monthly: 0, drops: 0, expected: 0, newJoins: 0 },
-            m1: { name: m1?.name || 'Previous Month 1', total: 0, full: 0, monthly: 0, drops: 0, expected: 0, newJoins: 0 },
-            m2: { name: m2?.name || 'Previous Month 2', total: 0, full: 0, monthly: 0, drops: 0, expected: 0, newJoins: 0 }
+            m0: { name: m0?.name || 'Selected Month', total: 0, full: 0, upgrade: 0, monthly: 0, drops: 0, expected: 0, newJoins: 0 },
+            m1: { name: m1?.name || 'Previous Month 1', total: 0, full: 0, upgrade: 0, monthly: 0, drops: 0, expected: 0, newJoins: 0 },
+            m2: { name: m2?.name || 'Previous Month 2', total: 0, full: 0, upgrade: 0, monthly: 0, drops: 0, expected: 0, newJoins: 0 }
         };
 
         let staffMap = {};
@@ -123,8 +123,11 @@ export default function PaidCampaignPerformance({ filters }) {
                 { key: 'm2', group: m2, prevGroup: targetIdx >= 3 ? monthlyGroups[targetIdx - 3] : null }
             ].forEach(({ key, group, prevGroup }) => {
                 if (!group) return;
-                if (intention === 'FULL' && l.enrollmentStatus === 'ENROLLED') {
+                if (intention === 'FULL' && ((l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'))))) {
                     monthStats[key].full++;
+                    monthStats[key].total++;
+                } else if (intention === 'UPGRADE' && ((l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'))))) {
+                    monthStats[key].upgrade++;
                     monthStats[key].total++;
                 } else if (intention === 'MONTHLY' || intention === 'INSTALLMENT') {
                     const paidThisMonth = enrolledGroupIds.some(id => group.ids.includes(id));
@@ -158,6 +161,7 @@ export default function PaidCampaignPerformance({ filters }) {
                         name: sName, businessType: l.assignedUser?.businessType, role: l.assignedUser?.role, assigned: 0,
                         categories: {
                             full: { pending: 0, covered: 0 },
+                            upgrade: { pending: 0, covered: 0 },
                             monthly: { pending: 0, covered: 0 },
                             installment: { pending: 0, covered: 0 },
                             nonEnrolled: { pending: 0, covered: 0 },
@@ -168,7 +172,7 @@ export default function PaidCampaignPerformance({ filters }) {
                 const s = staffMap[sName];
                 s.assigned++;
 
-                const isEnrolled = l.enrollmentStatus === 'ENROLLED';
+                const isEnrolled = ((l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'))));
                 let unpaidCount = 0;
                 if (targetIdx >= 0 && intention !== 'FULL') {
                     for (let i = 0; i <= targetIdx; i++) {
@@ -180,6 +184,7 @@ export default function PaidCampaignPerformance({ filters }) {
 
                 let catKey = '';
                 if (isEnrolled && intention === 'FULL') catKey = 'full';
+                else if (isEnrolled && intention === 'UPGRADE') catKey = 'upgrade';
                 else if (isEnrolled && intention === 'MONTHLY') catKey = 'monthly';
                 else if (isEnrolled && intention === 'INSTALLMENT') catKey = 'installment';
                 else if (!isEnrolled && unpaidCount > 2) catKey = 'twoMonthDrop';
@@ -221,10 +226,14 @@ export default function PaidCampaignPerformance({ filters }) {
                 </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 mb-6">
+            <div className="grid grid-cols-3 gap-3 mb-6">
                 <div className="bg-black/40 p-3 rounded-2xl border border-white/5 text-center">
                     <p className="text-[9px] text-emerald-400 font-black uppercase tracking-widest mb-1">Full Pay</p>
                     <h4 className="text-xl font-bold text-white">{stats.full}</h4>
+                </div>
+                <div className="bg-black/40 p-3 rounded-2xl border border-white/5 text-center">
+                    <p className="text-[9px] text-purple-400 font-black uppercase tracking-widest mb-1">Upgrade</p>
+                    <h4 className="text-xl font-bold text-white">{stats.upgrade}</h4>
                 </div>
                 <div className="bg-black/40 p-3 rounded-2xl border border-white/5 text-center">
                     <p className="text-[9px] text-blue-400 font-black uppercase tracking-widest mb-1">Monthly</p>
@@ -367,6 +376,7 @@ export default function PaidCampaignPerformance({ filters }) {
                                 <tr>
                                     <th className="py-4 px-4 font-semibold rounded-tl-lg">Coordinator</th>
                                     <th className="py-4 px-2 text-center font-semibold text-emerald-400 border-l border-white/5">FULL</th>
+                                    <th className="py-4 px-2 text-center font-semibold text-purple-400 border-l border-white/5">UPGRADE</th>
                                     <th className="py-4 px-2 text-center font-semibold text-blue-400 border-l border-white/5">MONTHLY</th>
                                     <th className="py-4 px-2 text-center font-semibold text-amber-400 border-l border-white/5">INSTALLMENT</th>
                                     <th className="py-4 px-2 text-center font-semibold text-red-400 border-l border-white/5">NON-ENROLLED</th>
@@ -375,6 +385,7 @@ export default function PaidCampaignPerformance({ filters }) {
                                 </tr>
                                 <tr className="bg-black/60 border-b border-white/10">
                                     <th className="py-2 px-4 text-[9px] text-slate-500 font-bold">NAME / ROLE</th>
+                                    <th className="py-2 px-2 text-center text-[9px] text-slate-500 font-bold border-l border-white/5">STATS</th>
                                     <th className="py-2 px-2 text-center text-[9px] text-slate-500 font-bold border-l border-white/5">STATS</th>
                                     <th className="py-2 px-2 text-center text-[9px] text-slate-500 font-bold border-l border-white/5">STATS</th>
                                     <th className="py-2 px-2 text-center text-[9px] text-slate-500 font-bold border-l border-white/5">STATS</th>
@@ -393,6 +404,9 @@ export default function PaidCampaignPerformance({ filters }) {
                                         </td>
                                         <td className="py-3 px-2 border-l border-white/5 bg-emerald-500/5 group-hover:bg-emerald-500/10 transition-colors">
                                             <CellStat pending={staff.categories.full.pending} covered={staff.categories.full.covered} />
+                                        </td>
+                                        <td className="py-3 px-2 border-l border-white/5 bg-purple-500/5 group-hover:bg-purple-500/10 transition-colors">
+                                            <CellStat pending={staff.categories.upgrade.pending} covered={staff.categories.upgrade.covered} />
                                         </td>
                                         <td className="py-3 px-2 border-l border-white/5 bg-blue-500/5 group-hover:bg-blue-500/10 transition-colors">
                                             <CellStat pending={staff.categories.monthly.pending} covered={staff.categories.monthly.covered} />

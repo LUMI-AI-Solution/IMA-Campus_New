@@ -2,13 +2,15 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const fs = require('fs');
 const pdfParse = require('pdf-parse'); 
+const ffmpeg = require('fluent-ffmpeg');
+const path = require('path');
 
 // ==========================================
 // 1. SETTINGS: CrmSettings
 // ==========================================
 exports.saveCrmSettings = async (req, res) => {
     try {
-        const { businessId, campaignType, metaApiKey, waId, waNumId, geminiKeys, botMode, batchId } = req.body;
+        const { businessId, campaignType, metaApiKey, waId, waNumId, geminiKeys, botMode, openSemActive, batchId, welcomeMessageText, btnAllowText, btnStopText } = req.body;
         
         // Ensure businessId is an integer and campaignType exists
         if (!businessId || !campaignType) {
@@ -29,7 +31,11 @@ exports.saveCrmSettings = async (req, res) => {
             waNumId: waNumId || null,
             geminiKeys: geminiKeys || [], 
             botMode: botMode || 'OFF',
-            batchId: batchId ? String(batchId) : null
+            openSemActive: openSemActive || false,
+            batchId: batchId ? String(batchId) : null,
+            welcomeMessageText: welcomeMessageText || null,
+            btnAllowText: btnAllowText || null,
+            btnStopText: btnStopText || null
         };
 
         if (existing) {
@@ -118,11 +124,36 @@ exports.addAutoReply = async (req, res) => {
         if (file) {
             attachmentUrl = `/storage/documents/${file.filename}`;
             
-            // 🔥 UPDATE: Video එක අඳුරගන්න කොටස 🔥
+            // 🔥 UPDATE: Video / Audio එක අඳුරගන්න කොටස 🔥
+            const originalNameLower = file.originalname.toLowerCase();
             if (file.mimetype.includes('image')) {
                 attachmentType = 'Image';
             } else if (file.mimetype.includes('video')) {
                 attachmentType = 'Video';
+            } else if (file.mimetype.includes('audio') || originalNameLower.endsWith('.mp3') || originalNameLower.endsWith('.ogg') || originalNameLower.endsWith('.m4a') || originalNameLower.endsWith('.wav') || originalNameLower.endsWith('.webm') || originalNameLower.endsWith('.aac')) {
+                attachmentType = 'Audio';
+                
+                // 🔥 Convert to OGG Opus for 100% universal WhatsApp Voice Note support (iOS & Android)
+                const inputPath = path.join(process.cwd(), 'storage/documents', file.filename);
+                const outputFilename = `VN_CONVERTED_${Date.now()}.ogg`;
+                const outputPath = path.join(process.cwd(), 'storage/documents', outputFilename);
+                
+                try {
+                    await new Promise((resolve, reject) => {
+                        ffmpeg(inputPath)
+                            .audioCodec('libopus')
+                            .audioBitrate('16k')
+                            .audioChannels(1)
+                            .audioFrequency(16000)
+                            .toFormat('ogg')
+                            .on('end', () => resolve())
+                            .on('error', (err) => reject(err))
+                            .save(outputPath);
+                    });
+                    attachmentUrl = `/storage/documents/${outputFilename}`;
+                } catch (err) {
+                    console.error("Audio conversion failed in CRM upload:", err);
+                }
             } else {
                 attachmentType = 'Document';
             }
@@ -180,6 +211,71 @@ exports.deleteAutoReply = async (req, res) => {
 
 // ==========================================
 // 4. CAMPAIGN ARCHIVE
+// ==========================================
+
+exports.updateAutoReply = async (req, res) => {
+    console.log("UPDATE AUTO REPLY HIT", req.params.id);
+    try {
+        const { id } = req.params;
+        const { stepOrder, message } = req.body;
+        const file = req.file;
+
+        let dataToUpdate = {};
+        if (stepOrder) dataToUpdate.stepOrder = parseInt(stepOrder);
+        if (message) dataToUpdate.message = message;
+
+        if (file) {
+            let attachmentUrl = `/storage/documents/${file.filename}`;
+            let attachmentType = null;
+            const originalNameLower = file.originalname.toLowerCase();
+            
+            if (file.mimetype.includes('image')) {
+                attachmentType = 'Image';
+            } else if (file.mimetype.includes('video')) {
+                attachmentType = 'Video';
+            } else if (file.mimetype.includes('audio') || originalNameLower.endsWith('.mp3') || originalNameLower.endsWith('.ogg') || originalNameLower.endsWith('.m4a') || originalNameLower.endsWith('.wav') || originalNameLower.endsWith('.webm') || originalNameLower.endsWith('.aac')) {
+                attachmentType = 'Audio';
+                
+                // 🔥 Convert to OGG Opus for 100% universal WhatsApp Voice Note support (iOS & Android)
+                const inputPath = path.join(process.cwd(), 'storage/documents', file.filename);
+                const outputFilename = `VN_CONVERTED_${Date.now()}.ogg`;
+                const outputPath = path.join(process.cwd(), 'storage/documents', outputFilename);
+                
+                try {
+                    await new Promise((resolve, reject) => {
+                        ffmpeg(inputPath)
+                            .audioCodec('libopus')
+                            .audioBitrate('16k')
+                            .audioChannels(1)
+                            .audioFrequency(16000)
+                            .toFormat('ogg')
+                            .on('end', () => resolve())
+                            .on('error', (err) => reject(err))
+                            .save(outputPath);
+                    });
+                    attachmentUrl = `/storage/documents/${outputFilename}`;
+                } catch (err) {
+                    console.error("Audio conversion failed in CRM update:", err);
+                }
+            } else {
+                attachmentType = 'Document';
+            }
+            dataToUpdate.attachment = attachmentUrl;
+            dataToUpdate.attachmentType = attachmentType;
+        }
+
+        const updatedTemplate = await prisma.autoReply.update({
+            where: { id: parseInt(id) },
+            data: dataToUpdate
+        });
+
+        res.status(200).json({ message: "Auto reply updated successfully", data: updatedTemplate });
+    } catch (error) {
+        console.error("Update reply error:", error);
+        res.status(500).json({ error: "Failed to update auto reply", details: error.message });
+    }
+};
+
 // ==========================================
 exports.archiveCampaign = async (req, res) => {
     try {

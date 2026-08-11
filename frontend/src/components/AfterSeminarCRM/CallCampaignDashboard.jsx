@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FaFilter, FaRobot, FaPowerOff, FaTimes } from 'react-icons/fa';
 import axios from '../../api/axios';
 import toast from 'react-hot-toast';
+import useLocalStorageState from '../../hooks/useLocalStorageState';
 
 import AfterSeminarManagerCampaignStats from './AfterSeminarManagerCampaignStats';
 import AfterSeminarStaffExecution from './CallCampaign/AfterSeminarStaffExecution';
@@ -12,11 +13,16 @@ export default function CallCampaignDashboard({ campaignType }) {
     const [user, setUser] = useState(null);
     const [businesses, setBusinesses] = useState([]);
     const [batches, setBatches] = useState([]);
-    const [selectedBusiness, setSelectedBusiness] = useState('');
-    const [selectedBatch, setSelectedBatch] = useState('');
+    const [selectedBusiness, setSelectedBusiness] = useLocalStorageState('callCamp_selectedBusiness', '');
+    const [selectedBatch, setSelectedBatch] = useLocalStorageState('callCamp_selectedBatch', '');
     const [isFollowUpOn, setIsFollowUpOn] = useState(false);
     const [selectedLead, setSelectedLead] = useState(null);
     const [campaignSearchPhone, setCampaignSearchPhone] = useState('');
+    const [batchLeadsCount, setBatchLeadsCount] = useState(null);
+
+    useEffect(() => {
+        setBatchLeadsCount(null);
+    }, [selectedBusiness, selectedBatch, campaignType]);
 
     useEffect(() => {
         const storedUser = localStorage.getItem('user');
@@ -59,30 +65,13 @@ export default function CallCampaignDashboard({ campaignType }) {
     const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN'].includes(userRole);
 
     const displayBatches = batches.filter(b => {
-        if (isAdmin && !selectedBusiness) return true;
-        if (isAdmin && selectedBusiness) return String(b.businessId) === String(selectedBusiness);
-
-        const uBizId = String(user?.businessId || selectedBusiness || '').trim();
-        const uBizName = String(user?.businessType || '').toLowerCase().trim();
-
-        if (uBizId === '' && uBizName === '') return true;
-
-        const batchBizId = String(b.businessId).trim();
-        const batchBizName = String(b.business?.name || '').toLowerCase().trim();
-
-        if (uBizId !== '' && batchBizId === uBizId) return true;
-        if (uBizName !== '' && batchBizName === uBizName) return true;
-        if (uBizName !== '' && batchBizName.includes(uBizName)) return true;
-        if (uBizName !== '' && uBizName.includes(batchBizName)) return true;
-
-        return false;
+        if (selectedBusiness) return String(b.businessId) === String(selectedBusiness);
+        return true;
     });
 
-    let activeBusinessId = isAdmin ? selectedBusiness : '';
-    if (!isAdmin && displayBatches.length > 0) {
-        activeBusinessId = String(displayBatches[0].businessId);
-    }
-
+    let activeBusinessId = selectedBusiness || '';
+    
+    // For admins, they MUST select a business if they want to view leads, unless it's COORD_PROGRESS
     const needsToSelectBusiness = isAdmin && !selectedBusiness && campaignType !== 'COORD_PROGRESS';
 
     const getCampaignTitle = () => {
@@ -107,14 +96,22 @@ export default function CallCampaignDashboard({ campaignType }) {
                 </div>
 
                 <div className="flex items-center gap-3 w-full xl:w-auto overflow-x-auto">
+                    {/* Animated Batch Leads Count */}
+                    {!isManager && batchLeadsCount !== null && (
+                        <div className="flex items-center gap-2 bg-gradient-to-r from-indigo-500/20 to-purple-500/20 border border-indigo-500/30 px-4 py-2 rounded-xl shadow-[0_0_15px_rgba(99,102,241,0.2)] animate-fade-in-up">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-300/70">Assigned Leads</span>
+                            <div className="bg-indigo-500 text-white text-sm font-black px-2.5 py-0.5 rounded-lg shadow-sm animate-pulse">
+                                {batchLeadsCount}
+                            </div>
+                        </div>
+                    )}
+
                     <div className="flex items-center gap-3 bg-black/20 p-1.5 rounded-xl border border-white/5">
                         <FaFilter className="text-slate-500 ml-2 shrink-0" />
-                        {isAdmin && (
-                            <select value={selectedBusiness} onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }} className="bg-black/40 border border-white/10 text-slate-300 text-sm font-bold rounded-lg px-4 py-2.5 outline-none focus:border-brand-accent transition-all cursor-pointer">
-                                <option value="">Select Business</option>
-                                {businesses.map(biz => <option key={biz.id} value={biz.id} className="bg-slate-900">{biz.name}</option>)}
-                            </select>
-                        )}
+                        <select value={selectedBusiness} onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }} className="bg-black/40 border border-white/10 text-slate-300 text-sm font-bold rounded-lg px-4 py-2.5 outline-none focus:border-brand-accent transition-all cursor-pointer">
+                            <option value="">Select Business (All)</option>
+                            {businesses.map(biz => <option key={biz.id} value={biz.id} className="bg-slate-900">{biz.name}</option>)}
+                        </select>
 
                         <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)} className="bg-black/40 border border-white/10 text-slate-300 text-sm font-bold rounded-lg px-4 py-2.5 outline-none focus:border-brand-accent transition-all cursor-pointer">
                             <option value="">Select Batch (All)</option>
@@ -154,6 +151,7 @@ export default function CallCampaignDashboard({ campaignType }) {
                                 setSelectedLead={setSelectedLead} 
                                 externalTab={campaignType} 
                                 campaignSearchPhone={campaignSearchPhone} 
+                                onLeadsLoaded={setBatchLeadsCount}
                             />
                         </div>
                     )}
@@ -177,7 +175,14 @@ export default function CallCampaignDashboard({ campaignType }) {
 
                         <div className="flex-1 flex gap-4 p-6 h-[calc(100%-75px)] bg-transparent overflow-hidden">
                             <AfterSeminarChatArea selectedLead={selectedLead} businessId={activeBusinessId} />
-                            <AfterSeminarRightPanel selectedLead={selectedLead} activeMode={'CALL_CAMPAIGN'} activeBusinessId={activeBusinessId} />
+                            <AfterSeminarRightPanel 
+                                selectedLead={selectedLead} 
+                                activeMode={'CALL_CAMPAIGN'} 
+                                activeBusinessId={activeBusinessId} 
+                                onBatchAssigned={(leadId, batchId) => {
+                                    setSelectedLead(prev => prev.id === leadId ? { ...prev, batchId: parseInt(batchId) } : prev);
+                                }}
+                            />
                         </div>
                     </div>
                 </div>

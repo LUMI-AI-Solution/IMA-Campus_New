@@ -404,9 +404,8 @@ exports.getRetentionCampaignData = async (req, res) => {
             }
         });
 
-        // 3. Fetch CRM Leads (only leads from students who have an account & payment records)
+        // 3. Fetch CRM Leads (all leads for the batch)
         let whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, { 
-            campaignType: 'AFTER_SEMINAR', paymentIntention: { not: 'NOT_DECIDED' },
             source: { not: 'system' }
         });
 
@@ -445,10 +444,25 @@ exports.getRetentionCampaignData = async (req, res) => {
                 return leadLast9 !== '' && leadLast9 === studentLast9;
             });
 
-            // RULE 8: Only include leads that have a linked student account with payments
-            // If no payment records found, this student hasn't registered/paid via the web
+            // If no payment records found, this student hasn't paid/enrolled yet (NON_ENROLLED)
             if (studentPayments.length === 0) {
-                // Skip leads without any payment records - they are not web-registered
+                leadsWithGroupData.push({ 
+                    ...l, 
+                    registeredUser: null,
+                    phase: l.paidPhase || l.phase || 1,
+                    callStatus: l.paidCallStatus || 'pending',
+                    coordinationRound: l.paidRound || 1,
+                    feedback: l.paidFeedback || '',
+                    callMethod: l.paidCallMethod || null,
+                    callAttempt: l.paidCallAttempt || 1,
+                    enrolledSubjects: l.assignedSubjects && l.assignedSubjects.length > 0 ? l.assignedSubjects : ['General'], 
+                    paymentHistory: {},
+                    isUpgraded: false,
+                    firstEnrolledMonthName: null,
+                    enrolledGroupIds: [],
+                    enrollmentStatus: 'NON_ENROLLED',
+                    paymentIntention: 'NOT_DECIDED'
+                });
                 return;
             }
 
@@ -550,72 +564,72 @@ exports.getRetentionCampaignData = async (req, res) => {
                 }
             });
 
-            // RULE 1-5: Determine enrollment status PURELY from payment data
-            let isEnrolled = false;
-            let isProcessing = false;
+            // ---------------------------------------------------------
+            // MONTH-OVER-MONTH DROP EVALUATION & 2+ MONTH DROPPED LOGIC
+            // ---------------------------------------------------------
+            let prevGroupIndex = activeGroupIndex - 1;
+            let prevGroup = prevGroupIndex >= 0 ? distinctMonthlyGroups[prevGroupIndex] : null;
+            let activeGroup = distinctMonthlyGroups[activeGroupIndex];
 
-            // Build activeMonthSubjects: only subjects from payments up to the active group
-            let activeMonthSubjects = new Set();
-            studentPayments.forEach(p => {
-                let pGroupIndex = -1;
-                if (p.payment_type === 3 || p.payment_type === 2) {
-                    pGroupIndex = 0;
-                } else if (p.groupId) {
-                    pGroupIndex = distinctMonthlyGroups.findIndex(g => g.ids.includes(p.groupId));
-                }
+            let prevGroupPaidSubjects = [];
+            let activeGroupPaidSubjects = [];
+            let droppedSubjectsDetails = [];
+            let newlyDroppedSubjects = [];
+            let isDroppedTwoMonthsPlus = false;
 
-                if (pGroupIndex !== -1 && pGroupIndex <= activeGroupIndex) {
-                    if (p.subjects) {
-                        try {
-                            const subs = JSON.parse(p.subjects);
-                            subs.forEach(item => {
-                                let subName = null;
-                                if (typeof item === 'object' && item.id && courseMap[parseInt(item.id)]) subName = courseMap[parseInt(item.id)];
-                                else if (typeof item === 'string' && isNaN(parseInt(item))) subName = item.trim().toUpperCase();
-                                else if (!isNaN(parseInt(item)) && courseMap[parseInt(item)]) subName = courseMap[parseInt(item)];
-                                else if (typeof item === 'number' && courseMap[item]) subName = courseMap[item];
-                                
-                                if (subName) activeMonthSubjects.add(subName);
-                            });
-                        } catch(e) {}
-                    } else {
-                        // If payment has no subjects, assume it covers all assigned subjects
-                        if (l.assignedSubjects) l.assignedSubjects.forEach(s => activeMonthSubjects.add(s));
+            if (baseSubjects.size > 0 && activeGroupIndex >= 0) {
+                baseSubjects.forEach(subjectName => {
+                    const activeStatus = paymentHistory[subjectName]?.[activeGroup?.name];
+                    if (activeStatus === 'PAID') {
+                        activeGroupPaidSubjects.push(subjectName);
                     }
-                }
-            });
 
-            // Fallback to baseSubjects if no subjects found up to this month
-            let subjectsToEvaluate = activeMonthSubjects.size > 0 ? activeMonthSubjects : baseSubjects;
+                    if (prevGroup) {
+                        const prevStatus = paymentHistory[subjectName]?.[prevGroup.name];
+                        if (prevStatus === 'PAID') {
+                            prevGroupPaidSubjects.push(subjectName);
+                        }
+                    }
 
-            if (subjectsToEvaluate.size > 0 && activeGroupIndex >= 0 && activeGroupIndex < distinctMonthlyGroups.length) {
-                const activeGroup = distinctMonthlyGroups[activeGroupIndex];
-                let allPaid = true;
-                let anyProcessing = false;
-                subjectsToEvaluate.forEach(subjectName => {
-                    const status = paymentHistory[subjectName]?.[activeGroup.name];
-                    if (status !== 'PAID') allPaid = false;
-                    if (status === 'PROCESSING') anyProcessing = true;
+                    // Check consecutive unpaid months leading up to active month
+                    let consecutiveUnpaidCount = 0;
+                    for (let i = activeGroupIndex; i >= 0; i--) {
+                        const g = distinctMonthlyGroups[i];
+                        if (!g) continue;
+                        const st = paymentHistory[subjectName]?.[g.name];
+                        if (st === 'NOT PAID' || st === 'PROCESSING' || !st) {
+                            consecutiveUnpaidCount++;
+                        } else {
+                            break; // Stop counting if paid in a month
+                        }
+                    }
+
+                    // Check if subject was paid at least once in history before the unpaid streak
+                    let hadPriorPayment = false;
+                    for (let i = 0; i < activeGroupIndex; i++) {
+                        const g = distinctMonthlyGroups[i];
+                        if (g && paymentHistory[subjectName]?.[g.name] === 'PAID') {
+                            hadPriorPayment = true;
+                            break;
+                        }
+                    }
+
+                    if (hadPriorPayment && consecutiveUnpaidCount >= 2) {
+                        isDroppedTwoMonthsPlus = true;
+                        droppedSubjectsDetails.push({ subject: subjectName, unpaidMonths: consecutiveUnpaidCount });
+                    }
+
+                    if (prevGroupPaidSubjects.includes(subjectName) && !activeGroupPaidSubjects.includes(subjectName)) {
+                        newlyDroppedSubjects.push(subjectName);
+                    }
                 });
-
-                if (allPaid) {
-                    isEnrolled = true;
-                } else {
-                    isEnrolled = false;
-                    if (anyProcessing) isProcessing = true;
-                }
             }
 
-            // RULE 2: Override CRM status with payment-derived status (no manual overrides)
-            l.enrollmentStatus = isEnrolled ? 'ENROLLED' : 'NON_ENROLLED';
-            l.isProcessing = isProcessing;
-
-            // Determine payment type from actual payment records
+            // Determine Payment Type & Intention
             const hasApprovedFull = studentPayments.some(p => p.payment_type === 3 && [1, 4].includes(p.status));
             const hasApprovedInstallment = studentPayments.some(p => p.payment_type === 2 && [1, 4].includes(p.status));
             const hasApprovedMonthly = studentPayments.some(p => p.payment_type === 1 && [1, 4].includes(p.status));
 
-            // Also check pending payments for type detection when no approved ones exist
             const hasPendingFull = studentPayments.some(p => p.payment_type === 3 && p.status === 0);
             const hasPendingInstallment = studentPayments.some(p => p.payment_type === 2 && p.status === 0);
             const hasPendingMonthly = studentPayments.some(p => p.payment_type === 1 && p.status === 0);
@@ -624,6 +638,23 @@ exports.getRetentionCampaignData = async (req, res) => {
             else if (hasApprovedInstallment || hasPendingInstallment) l.paymentIntention = 'INSTALLMENT';
             else if (hasApprovedMonthly || hasPendingMonthly) l.paymentIntention = 'MONTHLY';
 
+            // Determine Enrollment Status
+            let isEnrolled = false;
+            let isNonEnrolled = false;
+
+            if (hasApprovedFull) {
+                isEnrolled = true;
+            } else if (activeGroupPaidSubjects.length > 0 && newlyDroppedSubjects.length === 0) {
+                isEnrolled = true;
+            } else if (newlyDroppedSubjects.length > 0) {
+                isNonEnrolled = true;
+            } else if (prevGroupPaidSubjects.length === 0 && activeGroupPaidSubjects.length === 0) {
+                isNonEnrolled = true;
+            } else {
+                isEnrolled = activeGroupPaidSubjects.length > 0;
+            }
+
+            l.enrollmentStatus = isEnrolled ? 'ENROLLED' : 'NON_ENROLLED';
             const isUpgraded = studentPayments.some(p => p.remark && p.remark.includes('[UPGRADE]'));
 
             // Add first enrolled month name for frontend display
@@ -633,10 +664,23 @@ exports.getRetentionCampaignData = async (req, res) => {
             
             leadsWithGroupData.push({ 
                 ...l, 
+                registeredUser: studentPayments[0]?.student,
+                phase: l.paidPhase || l.phase || 1,
+                callStatus: l.paidCallStatus || 'pending',
+                coordinationRound: l.paidRound || 1,
+                feedback: l.paidFeedback || '',
+                callMethod: l.paidCallMethod || null,
+                callAttempt: l.paidCallAttempt || 1,
                 enrolledSubjects: Array.from(baseSubjects), 
                 paymentHistory,
                 isUpgraded,
-                firstEnrolledMonthName
+                firstEnrolledMonthName,
+                enrolledGroupIds: studentPayments.filter(p => [1, 4].includes(p.status) && p.groupId).map(p => p.groupId),
+                isDroppedTwoMonthsPlus,
+                droppedSubjectsDetails,
+                newlyDroppedSubjects,
+                prevGroupPaidSubjects,
+                activeGroupPaidSubjects
             });
         });
 

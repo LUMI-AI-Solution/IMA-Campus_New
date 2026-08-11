@@ -1,14 +1,10 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-async function check() {
-    const groups = await prisma.contentGroup.findMany({
-        where: { name: { contains: 'MAY' } },
-        include: { courses: true }
+async function main() {
+    const groups = await prisma.group.findMany({
+        where: { id: { in: [10, 12, 19, 20, 139, 140, 141] } }
     });
-
-    groups.forEach(g => {
-        console.log(`Group ID: ${g.id}, Name: ${g.name}, Batch: ${g.batchId}, Courses:`, g.courses.map(c => c.id));
-    });
+    console.log(groups);
 }
-check().catch(console.error).finally(() => prisma.$disconnect());
+main().finally(() => prisma.$disconnect());

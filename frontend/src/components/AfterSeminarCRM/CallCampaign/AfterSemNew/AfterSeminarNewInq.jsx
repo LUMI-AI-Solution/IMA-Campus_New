@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import axios from '../../../../api/axios';
-import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash, FaCheckCircle, FaUser, FaMapMarkerAlt, FaGraduationCap } from 'react-icons/fa';
-import { Target, PhoneCall, Check, Loader, BookOpen, Loader2 } from 'lucide-react';
+import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash, FaCheckCircle, FaUser, FaMapMarkerAlt, FaGraduationCap, FaLayerGroup, FaPhoneAlt, FaWhatsapp } from 'react-icons/fa';
+import { Target, PhoneCall, Check, Loader, BookOpen, Loader2, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 
@@ -30,6 +30,30 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
     const [searchQuery, setSearchQuery] = useState(externalSearch || '');
     const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, PENDING, DELAYED
     const [currentPage, setCurrentPage] = useState(1);
+
+    const handleCopy = (text, label) => {
+        if (navigator.clipboard && window.isSecureContext) {
+            navigator.clipboard.writeText(text).then(() => {
+                toast.success(`${label} copied!`, { style: { background: '#0F172A', color: '#fff', border: '1px solid #334155' } });
+            }).catch(() => toast.error(`Failed to copy ${label}`));
+        } else {
+            const textArea = document.createElement("textarea");
+            textArea.value = text;
+            textArea.style.position = "fixed";
+            textArea.style.left = "-999999px";
+            textArea.style.top = "-999999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                toast.success(`${label} copied!`, { style: { background: '#0F172A', color: '#fff', border: '1px solid #334155' } });
+            } catch (err) {
+                toast.error(`Failed to copy ${label}.`);
+            }
+            textArea.remove();
+        }
+    };
     const [isGuidanceModalOpen, setIsGuidanceModalOpen] = useState(false);
     const [guidanceLang, setGuidanceLang] = useState('SI');
 
@@ -649,17 +673,42 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                                         <div className="flex flex-col gap-0.5 mt-1">
                                                             <p className="text-slate-400 text-[10px] font-bold uppercase truncate max-w-[150px]">WA: {lead.name || 'Unknown'}</p>
                                                             {lead.registeredUser && (
-                                                                <p 
-                                                                    onMouseEnter={() => setStudentDetailsLead(lead)}
-                                                                    onMouseLeave={() => setStudentDetailsLead(null)}
-                                                                    className="text-emerald-400 text-[10px] font-bold uppercase leading-tight w-full break-words hover:underline cursor-pointer" 
-                                                                    title="View Details"
-                                                                >
-                                                                    WEB: {lead.registeredUser.firstName} {lead.registeredUser.lastName}
-                                                                </p>
-                                                            )}
-                                                            {lead.registeredUser?.optionalPhone && (
-                                                                <p className="text-amber-400 text-[10px] font-bold uppercase truncate w-full">OP: {lead.registeredUser.optionalPhone}</p>
+                                                                <div className="flex flex-col gap-0.5">
+                                                                    <p 
+                                                                        onMouseEnter={() => setStudentDetailsLead(lead)}
+                                                                        onMouseLeave={() => setStudentDetailsLead(null)}
+                                                                        className="text-emerald-400 text-[10px] font-bold uppercase leading-tight w-full break-words hover:underline cursor-pointer" 
+                                                                        title="View Details"
+                                                                    >
+                                                                        WEB: {lead.registeredUser.firstName} {lead.registeredUser.lastName}
+                                                                    </p>
+                                                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+                                                                        {lead.registeredUser.phone && lead.phone?.split('_')[0].slice(-9) !== lead.registeredUser.phone.slice(-9) && (
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <p className="text-amber-400 text-xs font-bold uppercase truncate">Web Pri: {lead.registeredUser.phone}</p>
+                                                                                <button 
+                                                                                    onClick={() => handleCopy(lead.registeredUser.phone, 'Web primary number')}
+                                                                                    className="text-amber-400/50 hover:text-amber-300 transition-colors"
+                                                                                    title="Copy Web Primary Number"
+                                                                                >
+                                                                                    <Copy size={14} />
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                        {lead.registeredUser.optionalPhone && (
+                                                                            <div className="flex items-center gap-1.5">
+                                                                                <p className="text-amber-400 text-xs font-bold uppercase truncate">Web Sec: {lead.registeredUser.optionalPhone}</p>
+                                                                                <button 
+                                                                                    onClick={() => handleCopy(lead.registeredUser.optionalPhone, 'Web secondary number')}
+                                                                                    className="text-amber-400/50 hover:text-amber-300 transition-colors"
+                                                                                    title="Copy Web Secondary Number"
+                                                                                >
+                                                                                    <Copy size={14} />
+                                                                                </button>
+                                                                            </div>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
                                                             )}
                                                             {(enrollmentValue === 'ENROLLED' || enrollmentValue === 'ENROLLED_INSTALLMENT') && lead.enrolledSubjects && lead.enrolledSubjects.length > 0 && (
                                                                 <p className="text-purple-400 text-[10px] font-bold uppercase truncate w-full" title={lead.enrolledSubjects.join(', ')}>SUB: {lead.enrolledSubjects[0]} {lead.enrolledSubjects.length > 1 ? `+${lead.enrolledSubjects.length - 1}` : ''}</p>
@@ -740,6 +789,24 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                                     className="w-full flex-1 bg-[#312e81]/30 border border-indigo-500/20 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:border-indigo-500 resize-none placeholder-indigo-300/30 transition-colors custom-scrollbar"
                                                 />
                                                 {isDraft && <span className="absolute -top-2 right-2 bg-yellow-500 text-black text-[9px] font-black px-1.5 py-0.5 rounded border border-yellow-400 shadow-sm">DRAFT</span>}
+                                            </div>
+
+                                            {/* Dual Call Buttons */}
+                                            <div className="flex gap-2 w-full mb-3">
+                                                <button onClick={(e) => { e.preventDefault(); toast.error('Coming Soon', { icon: '🚧' }); }} className="flex-1 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white rounded-lg py-2 text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-blue-500/20 transition-all border border-blue-500/30">
+                                                    <FaPhoneAlt size={12} /> Normal Call
+                                                </button>
+
+                                                {lead.waCallPermissionExpiry && new Date(lead.waCallPermissionExpiry) > new Date() ? (
+                                                    <button className="flex-1 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white rounded-lg py-1.5 text-xs font-bold flex flex-col items-center justify-center shadow-md shadow-emerald-500/20 transition-all leading-none border border-emerald-500/30">
+                                                        <div className="flex items-center gap-1.5 mb-1">
+                                                            <FaWhatsapp size={14} /> WhatsApp Call
+                                                        </div>
+                                                        <span className="text-[9px] font-mono text-emerald-100 bg-black/20 px-1.5 py-0.5 rounded">
+                                                            Ends: {Math.max(0, Math.ceil((new Date(lead.waCallPermissionExpiry) - new Date()) / (1000 * 60 * 60 * 24)))} Days
+                                                        </span>
+                                                    </button>
+                                                ) : null}
                                             </div>
 
                                             {/* Action Buttons */}
@@ -841,17 +908,42 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                                                                                         <div className="flex flex-col gap-0.5 mt-1">
                                                                                             <p className="text-slate-400 text-[10px] font-bold uppercase truncate max-w-[150px]" title="WhatsApp Name">WA: {lead.name || 'Unknown'}</p>
                                                                                             {lead.registeredUser && (
-                                                                                                <p 
-                                                                                                    onMouseEnter={() => setStudentDetailsLead(lead)}
-                                                                                                    onMouseLeave={() => setStudentDetailsLead(null)}
-                                                                                                    className="text-emerald-400 text-[10px] font-bold uppercase leading-tight w-full break-words cursor-pointer hover:underline" 
-                                                                                                    title="View Details"
-                                                                                                >
-                                                                                                    WEB: {lead.registeredUser.firstName} {lead.registeredUser.lastName}
-                                                                                                </p>
-                                                                                            )}
-                                                                                            {lead.registeredUser?.optionalPhone && (
-                                                                                                <p className="text-indigo-300 text-[10px] font-bold truncate mt-0.5">Sec: {lead.registeredUser.optionalPhone}</p>
+                                                                                                <div className="flex flex-col gap-0.5">
+                                                                                                    <p 
+                                                                                                        onMouseEnter={() => setStudentDetailsLead(lead)}
+                                                                                                        onMouseLeave={() => setStudentDetailsLead(null)}
+                                                                                                        className="text-emerald-400 text-[10px] font-bold uppercase leading-tight w-full break-words cursor-pointer hover:underline" 
+                                                                                                        title="View Details"
+                                                                                                    >
+                                                                                                        WEB: {lead.registeredUser.firstName} {lead.registeredUser.lastName}
+                                                                                                    </p>
+                                                                                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5">
+                                                                                                        {lead.registeredUser.phone && lead.phone?.split('_')[0].slice(-9) !== lead.registeredUser.phone.slice(-9) && (
+                                                                                                            <div className="flex items-center gap-1.5">
+                                                                                                                <p className="text-indigo-300 text-xs font-bold truncate">Web Pri: {lead.registeredUser.phone}</p>
+                                                                                                                <button 
+                                                                                                                    onClick={() => handleCopy(lead.registeredUser.phone, 'Web primary number')}
+                                                                                                                    className="text-indigo-400/50 hover:text-indigo-300 transition-colors"
+                                                                                                                    title="Copy Web Primary Number"
+                                                                                                                >
+                                                                                                                    <Copy size={12} />
+                                                                                                                </button>
+                                                                                                            </div>
+                                                                                                        )}
+                                                                                                        {lead.registeredUser.optionalPhone && (
+                                                                                                            <div className="flex items-center gap-1.5">
+                                                                                                                <p className="text-indigo-300 text-xs font-bold truncate">Web Sec: {lead.registeredUser.optionalPhone}</p>
+                                                                                                                <button 
+                                                                                                                    onClick={() => handleCopy(lead.registeredUser.optionalPhone, 'Web secondary number')}
+                                                                                                                    className="text-indigo-400/50 hover:text-indigo-300 transition-colors"
+                                                                                                                    title="Copy Web Secondary Number"
+                                                                                                                >
+                                                                                                                    <Copy size={12} />
+                                                                                                                </button>
+                                                                                                            </div>
+                                                                                                        )}
+                                                                                                    </div>
+                                                                                                </div>
                                                                                             )}
                                                                                             {timerData && (
                                                                                                 <span className="mt-1 inline-block w-max px-2 py-0.5 rounded text-[9px] font-bold uppercase bg-slate-800 text-slate-300">

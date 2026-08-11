@@ -261,15 +261,15 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
     const isTechDeliverables = task.taskType === 'TECH_DELIVERABLES';
     
     const [batches, setBatches] = useState([]);
-    const [lessonGroups, setLessonGroups] = useState([]);
-    const [existingContents, setExistingContents] = useState([]); 
-    const [massAssignSubjects, setMassAssignSubjects] = useState([]);
-    const [selectedBatchesForContent, setSelectedBatchesForContent] = useState([]);
-    const [activeCourseCode, setActiveCourseCode] = useState(null); 
+    
+    // Per-batch configurations
+    const allBatchIds = [task.batchId, ...(task.additionalBatchIds ? (() => { try { return JSON.parse(task.additionalBatchIds) } catch(e) { return [] } })() : [])].filter(Boolean);
+    const [activeBatchTab, setActiveBatchTab] = useState(task.batchId);
+    const [batchConfigs, setBatchConfigs] = useState({}); 
+    // Format: { [batchId]: { paymentGroups: { [courseId]: { folderId, isChecked, courseCode, groupName, courseName } }, folders: [], existingContents: [] } }
 
-    const [isCreatingFolder, setIsCreatingFolder] = useState(false);
+    const [isCreatingFolder, setIsCreatingFolder] = useState(null); // stores courseId
     const [newFolderName, setNewFolderName] = useState('');
-    const [selectedFolder, setSelectedFolder] = useState('');
 
     const [isVerification, setIsVerification] = useState(false); 
     const [selectedExistingContent, setSelectedExistingContent] = useState(null);
@@ -300,95 +300,187 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
             const res = await api.get(`/admin/batches/${task.businessId}`);
             const fetchedBatches = res.data.batches || res.data || [];
             setBatches(fetchedBatches);
-            if (task.batchId) setSelectedBatchesForContent([task.batchId]);
 
-            let foundCourseId = 0;
-            let foundCode = null;
+            const newConfigs = {};
+            
+            for (const bId of allBatchIds) {
+                let paymentGroups = {};
 
-            if (task.timetable?.subjectName && task.batchId) {
-                const batchData = fetchedBatches.find(b => b.id === task.batchId);
-                if (batchData) {
+                const batchData = fetchedBatches.find(b => b.id === bId);
+                
+                const classDate = task.timetable?.date ? new Date(task.timetable.date) : new Date();
+                const monthNames = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
+                const classMonth = monthNames[classDate.getMonth()];
+
+                if (batchData && task.timetable?.subjectName) {
                     batchData.groups?.forEach(g => {
                         g.courses?.forEach(c => {
                             if (c.name === task.timetable.subjectName) {
-                                setMassAssignSubjects(prev => !prev.includes(c.id) ? [...prev, c.id] : prev);
-                                foundCode = c.code || `SUB_${c.id}`;
-                                foundCourseId = c.id; 
+                                const gName = g.name.toUpperCase();
+                                const isFull = gName.includes('FULL');
+                                const isMatchingMonth = gName.includes(classMonth);
+                                
+                                paymentGroups[c.id] = {
+                                    isChecked: isFull || isMatchingMonth,
+                                    folderId: '',
+                                    courseCode: c.code || `SUB_${c.id}`,
+                                    groupName: g.name,
+                                    courseName: c.name
+                                };
                             }
                         });
                     });
-                    if (foundCode) setActiveCourseCode(foundCode); 
+                }
+
+                try {
+                    const lgRes = await api.get(`/admin/manager/get-contents?batchId=${bId}`);
+                    const targetTypeInt = getTypeInt(contentType);
+                    const allFolders = lgRes.data?.lessonGroups || [];
+                    
+                    newConfigs[bId] = {
+                        paymentGroups,
+                        folders: allFolders.filter(f => parseInt(f.type) === targetTypeInt),
+                        existingContents: lgRes.data?.contents || []
+                    };
+                } catch (err) {
+                    console.error("Failed fetching contents for batch " + bId, err);
                 }
             }
-
-            if (task.batchId) {
-                const lgRes = await api.get(`/admin/manager/get-contents?batchId=${task.batchId}&courseCode=${foundCode || 'null'}&courseId=${foundCourseId}`);
-                const targetTypeInt = getTypeInt(contentType);
-                const allFolders = lgRes.data?.lessonGroups || [];
-                setLessonGroups(allFolders.filter(f => parseInt(f.type) === targetTypeInt));
-                setExistingContents(lgRes.data?.contents || []);
-            }
+            
+            setBatchConfigs(newConfigs);
         } catch (e) { console.error("Error loading hub data", e); }
     };
 
-    const handleCreateFolder = async () => {
-        if (!newFolderName.trim()) return;
+    const handleCreateFolder = async (cId, courseCode) => {
+        if (!newFolderName.trim() || !activeBatchTab) return;
         try {
-            const payload = { title: newFolderName, type: getTypeInt(contentType), order: 1, batch_id: task.batchId, course_code: activeCourseCode };
+            const payload = { 
+                title: newFolderName, 
+                type: getTypeInt(contentType), 
+                order: 1, 
+                batch_id: activeBatchTab, 
+                course_code: courseCode,
+                selectedBatches: []
+            };
             const res = await api.post('/admin/manager/content-group/add', payload);
             toast.success("Folder Created!");
-            if(res.data?.data) { setLessonGroups([...lessonGroups, res.data.data]); setSelectedFolder(res.data.data.id); }
-            setIsCreatingFolder(false); setNewFolderName('');
+            if(res.data?.data) { 
+                setBatchConfigs(prev => {
+                    const newConfig = { ...prev };
+                    if (newConfig[activeBatchTab]) {
+                        newConfig[activeBatchTab].folders = [...newConfig[activeBatchTab].folders, res.data.data];
+                        if (newConfig[activeBatchTab].paymentGroups[cId]) {
+                            newConfig[activeBatchTab].paymentGroups[cId].folderId = res.data.data.id;
+                        }
+                    }
+                    return newConfig;
+                });
+            }
+            setIsCreatingFolder(null); setNewFolderName('');
         } catch (e) { toast.error("Failed to create folder"); }
     };
 
-    const toggleMassAssignSubject = (subId) => setMassAssignSubjects(prev => prev.includes(subId) ? prev.filter(id => id !== subId) : [...prev, subId]);
+    const togglePaymentGroup = (bId, cId) => {
+        setBatchConfigs(prev => {
+            const newConfig = { ...prev };
+            if (newConfig[bId] && newConfig[bId].paymentGroups[cId]) {
+                newConfig[bId].paymentGroups[cId].isChecked = !newConfig[bId].paymentGroups[cId].isChecked;
+            }
+            return newConfig;
+        });
+    };
+
+    const setFolderForGroup = (bId, cId, folderId) => {
+        setBatchConfigs(prev => {
+            const newConfig = { ...prev };
+            if (newConfig[bId] && newConfig[bId].paymentGroups[cId]) {
+                newConfig[bId].paymentGroups[cId].folderId = folderId;
+            }
+            return newConfig;
+        });
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setSubmitting(true);
-        const formData = new FormData(e.target);
+        const formElement = e.target;
         
-        // 🔥 FIX 1: Aggressive Cleanup to prevent 500 Errors 🔥
-        // Remove empty files that crash Multer on the backend
-        ['file', 'thumbnail', 'proof'].forEach(field => {
-            const f = formData.get(field);
-            if (f && (f.size === 0 || !f.name)) {
-                formData.delete(field);
-            }
-        });
-
-        // Remove empty strings for optional fields to prevent parsing errors
-        ['zoomMeetingId', 'startTime', 'endTime'].forEach(field => {
-            if (!formData.get(field)) formData.delete(field);
-        });
-
         try {
             if (isCustom) {
+                const formData = new FormData(formElement);
+                ['file', 'thumbnail', 'proof'].forEach(field => { const f = formData.get(field); if (f && (f.size === 0 || !f.name)) formData.delete(field); });
                 formData.append('taskId', task.id);
                 await api.post('/admin/tasks/complete-custom', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
+                toast.success("Task Executed!");
+                onComplete();
+                return;
             } else if (isTechDeliverables) {
+                const formData = new FormData(formElement);
+                ['file', 'thumbnail', 'proof', 'attachment'].forEach(field => { const f = formData.get(field); if (f && (f.size === 0 || !f.name)) formData.delete(field); });
                 formData.append('taskId', task.id);
                 await api.post('/admin/tasks/complete-technical-deliverables', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
+                toast.success("Task Executed!");
+                onComplete();
+                return;
             } else if (isVerification) {
                 if (!selectedExistingContent) { toast.error("Please select a content to verify!"); setSubmitting(false); return; }
                 await api.post('/admin/tasks/complete', { taskId: task.id, contentId: selectedExistingContent });
-            } else {
-                if (massAssignSubjects.length === 0) { toast.error("Please select at least one subject!"); setSubmitting(false); return; }
+                toast.success("Task Verified & Executed!");
+                onComplete();
+                return;
+            } 
+            
+            // MULTI-BATCH ASSIGNMENT
+            let lastContentId = null;
+            
+            for (const bId of allBatchIds) {
+                const config = batchConfigs[bId];
+                if (!config) continue;
                 
-                formData.set('type', contentType);
-                formData.set('batch_id', task.batchId);
+                // Group selected courses by folderId
+                const folderGroups = {}; // { [folderId]: [courseId1, courseId2] }
                 
-                if (selectedFolder) formData.set('contentGroupId', selectedFolder); 
-                else formData.delete('contentGroupId'); // Prevent NaN errors on backend
+                let hasCheckedGroup = false;
+                Object.entries(config.paymentGroups).forEach(([cId, pg]) => {
+                    if (pg.isChecked) {
+                        hasCheckedGroup = true;
+                        const fId = pg.folderId || 'uncategorized';
+                        if (!folderGroups[fId]) folderGroups[fId] = [];
+                        folderGroups[fId].push(cId);
+                    }
+                });
+
+                if (!hasCheckedGroup) continue;
                 
-                formData.set('selectedCourses', JSON.stringify(massAssignSubjects));
-                formData.set('isFree', formData.get('isFree') ? '1' : '0'); 
-                
-                const contentRes = await api.post('/admin/manager/contents/mass-assign', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
-                await api.post('/admin/tasks/complete', { taskId: task.id, contentId: contentRes.data?.data?.id });
+                for (const [fId, courses] of Object.entries(folderGroups)) {
+                    const formData = new FormData(formElement);
+                    ['file', 'thumbnail', 'proof'].forEach(field => { const f = formData.get(field); if (f && (f.size === 0 || !f.name)) formData.delete(field); });
+                    ['zoomMeetingId', 'startTime', 'endTime'].forEach(field => { if (!formData.get(field)) formData.delete(field); });
+
+                    formData.set('type', contentType);
+                    formData.set('batch_id', bId);
+                    formData.set('selectedBatches', JSON.stringify([])); 
+                    
+                    if (fId !== 'uncategorized' && fId !== '') formData.set('contentGroupId', fId); 
+                    else formData.delete('contentGroupId');
+                    
+                    formData.set('selectedCourses', JSON.stringify(courses));
+                    formData.set('isFree', formData.get('isFree') ? '1' : '0'); 
+                    
+                    const contentRes = await api.post('/admin/manager/contents/mass-assign', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
+                    if (contentRes.data?.data?.id) lastContentId = contentRes.data.data.id;
+                }
             }
-            toast.success("Task Executed & Content Published!");
+
+            if (!lastContentId) {
+                toast.error("Please select at least one Payment Group.");
+                setSubmitting(false);
+                return;
+            }
+            
+            await api.post('/admin/tasks/complete', { taskId: task.id, contentId: lastContentId });
+            
+            toast.success("Task Executed & Content Published for all batches!");
             onComplete();
         } catch (error) { 
             console.error(error);
@@ -455,12 +547,13 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
     }
 
 
-    const filteredExistingContents = existingContents.filter(c => String(c.contentType) === String(getTypeInt(contentType)) || c.contentType === contentType);
+    const activeConfig = batchConfigs[activeBatchTab] || { folders: [], existingContents: [], paymentGroups: {} };
+    const filteredExistingContents = (activeConfig.existingContents || []).filter(c => String(c.contentType) === String(getTypeInt(contentType)) || c.contentType === contentType);
 
     // ----- MAIN CONTENT HUB VIEW -----
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-gray-900/60 dark:bg-slate-950/80 backdrop-blur-md p-4 animate-in fade-in duration-200 transition-colors">
-            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-[2rem] w-full max-w-6xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden transition-colors">
+            <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 rounded-[2rem] w-full max-w-[1400px] w-[95vw] max-h-[90vh] flex flex-col shadow-2xl overflow-hidden transition-colors">
                 
                 {/* Modal Header */}
                 <div className="p-5 md:px-8 md:py-6 border-b border-gray-200 dark:border-slate-800 flex justify-between items-center bg-gray-50 dark:bg-slate-800/30 shrink-0 transition-colors">
@@ -572,12 +665,19 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                                     <div className="border-t border-gray-200 dark:border-slate-700 pt-4 flex flex-col sm:flex-row gap-4 transition-colors">
                                         <div className="flex-1">
                                             <label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">Date</label>
-                                            <input type={(contentType==='document'||contentType==='sPaper'||contentType==='paper') ? "month":"date"} name="date" defaultValue={task.timetable?.date?.split('T')[0]} required className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-gray-900 dark:text-white outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm [color-scheme:light] dark:[color-scheme:dark] shadow-sm transition-colors" />
+                                            <input type={(contentType==='document'||contentType==='sPaper'||contentType==='paper') ? "month":"date"} name="date" defaultValue={task.timetable?.date ? new Date(task.timetable.date).toLocaleDateString('en-CA') : ''} required className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-gray-900 dark:text-white outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm [color-scheme:light] dark:[color-scheme:dark] shadow-sm transition-colors" />
                                         </div>
                                         {contentType === 'live' && (
                                             <>
-                                                <div className="flex-1"><label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">Start Time</label><input type="time" name="startTime" defaultValue={task.timetable?.startTime} className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-gray-900 dark:text-white [color-scheme:light] dark:[color-scheme:dark] outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm shadow-sm transition-colors" /></div>
-                                                <div className="flex-1"><label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">End Time</label><input type="time" name="endTime" defaultValue={task.timetable?.endTime} className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-gray-900 dark:text-white [color-scheme:light] dark:[color-scheme:dark] outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm shadow-sm transition-colors" /></div>
+                                                <div className="flex-1 min-w-[120px]"><label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">Start Time</label><input type="time" name="startTime" defaultValue={task.timetable?.startTime} className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-gray-900 dark:text-white [color-scheme:light] dark:[color-scheme:dark] outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm shadow-sm transition-colors" /></div>
+                                                <div className="flex-1 min-w-[120px]"><label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">End Time</label><input type="time" name="endTime" defaultValue={task.timetable?.endTime} className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-gray-900 dark:text-white [color-scheme:light] dark:[color-scheme:dark] outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm shadow-sm transition-colors" /></div>
+                                                <div className="flex-1 min-w-[120px]">
+                                                    <div className="flex items-center justify-between mb-1.5">
+                                                        <label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase block tracking-widest transition-colors">Auto Erase (Hrs)</label>
+                                                        <input type="checkbox" onChange={(e) => { document.getElementById('autoDeleteHoursInput').style.display = e.target.checked ? 'block' : 'none'; if(!e.target.checked) document.getElementById('autoDeleteHoursInput').value = ''; }} className="cursor-pointer accent-brand-accent" />
+                                                    </div>
+                                                    <input type="number" step="0.1" id="autoDeleteHoursInput" name="autoDeleteHours" placeholder="e.g. 3" className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-gray-900 dark:text-white outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm shadow-sm transition-colors" style={{ display: 'none' }} />
+                                                </div>
                                             </>
                                         )}
                                         {contentType === 'paper' && (
@@ -596,41 +696,75 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                                     </div>
                                 </div>
 
-                                {/* RIGHT COLUMN: Folder & Subjects */}
+                                {/* RIGHT COLUMN: Batch Configuration (Tabs) */}
                                 <div className="lg:col-span-5 flex flex-col gap-6">
-                                    <div className="bg-gray-50 dark:bg-slate-800/30 p-6 rounded-[2rem] border border-gray-200 dark:border-slate-800 shadow-sm transition-colors h-fit">
-                                        <h4 className="text-[10px] font-black text-gray-500 dark:text-slate-500 uppercase tracking-[0.2em] mb-4 border-b border-gray-200 dark:border-slate-700 pb-2 transition-colors">Destination Details</h4>
-                                        <label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">Folder Path</label>
-                                        <div className="flex gap-2 transition-colors">
-                                            {isCreatingFolder ? (
-                                                <div className="flex w-full gap-2 transition-colors"><input type="text" value={newFolderName} onChange={e=>setNewFolderName(e.target.value)} placeholder="Folder Name..." className="flex-1 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-gray-900 dark:text-white outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm shadow-sm transition-colors" /><button type="button" onClick={handleCreateFolder} className="bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30 px-4 rounded-xl hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-500 dark:hover:text-white transition-all shadow-sm outline-none"><CheckCircle2 size={18}/></button><button type="button" onClick={()=>setIsCreatingFolder(false)} className="bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 px-4 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-900 dark:hover:text-white transition-all shadow-sm outline-none"><X size={18}/></button></div>
-                                            ) : (
-                                                <><select value={selectedFolder} onChange={e=>setSelectedFolder(e.target.value)} className="flex-1 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-gray-900 dark:text-white outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm cursor-pointer shadow-sm transition-colors"><option value="" className="bg-white dark:bg-slate-800">Uncategorized</option>{lessonGroups.map(f => <option key={f.id} value={f.id} className="bg-white dark:bg-slate-800">{f.title || f.name}</option>)}</select><button type="button" onClick={()=>setIsCreatingFolder(true)} className="bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 px-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shrink-0 shadow-sm flex items-center gap-1.5 outline-none"><Plus size={14}/> New Folder</button></>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Student Access is now fully integrated into the right column layout */}
                                     <div className="bg-white dark:bg-slate-800 p-6 rounded-[2rem] border border-gray-200 dark:border-slate-700 shadow-sm transition-colors flex-1 flex flex-col min-h-[250px]">
-                                        <h4 className="text-[10px] font-black text-gray-500 dark:text-slate-500 uppercase tracking-[0.2em] mb-4 border-b border-gray-200 dark:border-slate-700 pb-2 transition-colors">Student Access (Subjects)</h4>
+                                        
+                                        <h4 className="text-[10px] font-black text-gray-500 dark:text-slate-500 uppercase tracking-[0.2em] mb-4 border-b border-gray-200 dark:border-slate-700 pb-2 transition-colors">Target Batches</h4>
+                                        <div className="flex flex-wrap gap-2 mb-6">
+                                            {allBatchIds.map(bId => {
+                                                const b = batches.find(bx => bx.id === bId);
+                                                if(!b) return null;
+                                                return (
+                                                    <button 
+                                                        key={bId} 
+                                                        type="button"
+                                                        onClick={() => setActiveBatchTab(bId)}
+                                                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm outline-none ${activeBatchTab === bId ? 'bg-brand-accent text-white shadow-md' : 'bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-gray-600 hover:border-gray-300'}`}
+                                                    >
+                                                        {b.name}
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
+
+                                        <h4 className="text-[10px] font-black text-gray-500 dark:text-slate-500 uppercase tracking-[0.2em] mb-4 border-b border-gray-200 dark:border-slate-700 pb-2 transition-colors">Student Access & Destination</h4>
                                         <div className="overflow-y-auto custom-scrollbar pr-2 flex-1">
-                                            {batches.filter(b => selectedBatchesForContent.includes(b.id)).map(selectedBatch => (
-                                                <div key={selectedBatch.id}>
-                                                    {selectedBatch.groups?.map((group, gIdx) => (
-                                                        <div key={gIdx} className="mb-5 last:mb-0 transition-colors">
-                                                            <p className="text-[9px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2.5 transition-colors">{group.name}</p>
-                                                            <div className="grid grid-cols-2 gap-2.5 transition-colors">
-                                                                {group.courses?.map((course, cIdx) => (
-                                                                    <label key={cIdx} className={`flex items-center gap-2 cursor-pointer px-3 py-2.5 rounded-lg border text-[10px] font-bold transition-all shadow-sm ${massAssignSubjects.includes(course.id) ? 'bg-brand-accentLight/50 dark:bg-brand-accent/20 border-brand-accent/50 text-brand-accent dark:text-brand-accent' : 'bg-gray-50 dark:bg-slate-900 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-400 hover:border-gray-300 dark:hover:border-slate-600'}`}>
-                                                                        <input type="checkbox" checked={massAssignSubjects.includes(course.id)} onChange={() => toggleMassAssignSubject(course.id)} className="w-3.5 h-3.5 accent-brand-accent rounded border-gray-300 dark:border-slate-600" />
-                                                                        <span className="truncate">{course.name}</span>
-                                                                    </label>
-                                                                ))}
-                                                            </div>
+                                            {Object.entries(activeConfig.paymentGroups || {}).length === 0 ? (
+                                                <p className="text-sm text-gray-500 dark:text-slate-400">No matching subjects found in this batch.</p>
+                                            ) : (
+                                                Object.entries(activeConfig.paymentGroups).map(([cId, pg]) => {
+                                                    const courseCodeFolders = (activeConfig.folders || []).filter(f => !f.courseCode || f.courseCode === pg.courseCode);
+                                                    
+                                                    return (
+                                                        <div key={cId} className={`mb-4 last:mb-0 p-4 rounded-2xl border transition-all ${pg.isChecked ? 'bg-gray-50 dark:bg-slate-900 border-brand-accent/30 shadow-sm' : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 opacity-60'}`}>
+                                                            <label className="flex items-center gap-3 cursor-pointer mb-3 w-max">
+                                                                <input 
+                                                                    type="checkbox" 
+                                                                    checked={pg.isChecked} 
+                                                                    onChange={() => togglePaymentGroup(activeBatchTab, cId)} 
+                                                                    className="w-4 h-4 accent-brand-accent rounded border-gray-300 dark:border-slate-600"
+                                                                />
+                                                                <span className="text-[11px] font-black text-gray-900 dark:text-white uppercase tracking-wider">{pg.groupName}</span>
+                                                            </label>
+                                                            
+                                                            {pg.isChecked && (
+                                                                <div className="flex gap-2 pl-7 transition-all">
+                                                                    {isCreatingFolder === cId ? (
+                                                                        <div className="flex w-full gap-2 transition-all">
+                                                                            <input type="text" value={newFolderName} onChange={e=>setNewFolderName(e.target.value)} placeholder="Folder Name..." className="flex-1 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-2.5 text-xs outline-none focus:border-brand-accent dark:focus:border-brand-accent text-gray-900 dark:text-white shadow-sm" />
+                                                                            <button type="button" onClick={() => handleCreateFolder(cId, pg.courseCode)} className="bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30 px-3 rounded-xl hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-500 dark:hover:text-white transition-all shadow-sm outline-none"><CheckCircle2 size={16}/></button>
+                                                                            <button type="button" onClick={() => setIsCreatingFolder(null)} className="bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 px-3 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-900 dark:hover:text-white transition-all shadow-sm outline-none"><X size={16}/></button>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <>
+                                                                            <select 
+                                                                                value={pg.folderId} 
+                                                                                onChange={(e) => setFolderForGroup(activeBatchTab, cId, e.target.value)} 
+                                                                                className="flex-1 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-2.5 text-xs outline-none focus:border-brand-accent dark:focus:border-brand-accent text-gray-900 dark:text-white cursor-pointer shadow-sm"
+                                                                            >
+                                                                                <option value="" className="bg-white dark:bg-slate-800">Uncategorized</option>
+                                                                                {courseCodeFolders.map(f => <option key={f.id} value={f.id} className="bg-white dark:bg-slate-800">{f.title || f.name}</option>)}
+                                                                            </select>
+                                                                            <button type="button" onClick={() => setIsCreatingFolder(cId)} className="bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 px-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 outline-none shrink-0 shadow-sm transition-all"><Plus size={14}/> New</button>
+                                                                        </>
+                                                                    )}
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                    ))}
-                                                </div>
-                                            ))}
+                                                    );
+                                                })
+                                            )}
                                         </div>
                                     </div>
                                 </div>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from '../../api/axios';
 import toast from 'react-hot-toast';
-import { MessageSquare, Bot, Key, UploadCloud, Trash2, PlusCircle, Server, Save, FileText, Archive, Users, Power, Loader2, Globe, ShieldCheck, Copy, RefreshCw, ClipboardCheck } from 'lucide-react';
+import { MessageSquare, Bot, Key, UploadCloud, Trash2, Edit2, PlusCircle, Server, Save, FileText, Archive, Users, Power, Loader2, Globe, ShieldCheck, Copy, RefreshCw, ClipboardCheck, XCircle } from 'lucide-react';
 
 export default function CrmManagement() {
     const [businesses, setBusinesses] = useState([]);
@@ -22,13 +22,18 @@ export default function CrmManagement() {
     const [waNumId, setWaNumId] = useState('');
     const [geminiKeys, setGeminiKeys] = useState(['', '', '', '', '']);
     const [botMode, setBotMode] = useState('OFF'); // OFF, AI_ONLY, AUTO_REPLY_ONLY, BOTH
+    const [openSemActive, setOpenSemActive] = useState(false);
     const [allocatedBatch, setAllocatedBatch] = useState('');
+    const [welcomeMessageText, setWelcomeMessageText] = useState('');
+    const [btnAllowText, setBtnAllowText] = useState('');
+    const [btnStopText, setBtnStopText] = useState('');
 
     // Auto Reply State
     const [replies, setReplies] = useState([]);
     const [newMessage, setNewMessage] = useState('');
     const [stepOrder, setStepOrder] = useState(1);
     const [attachment, setAttachment] = useState(null);
+    const [editingReplyId, setEditingReplyId] = useState(null);
 
     // Knowledge Base State
     const [pdfFile, setPdfFile] = useState(null);
@@ -101,7 +106,11 @@ export default function CrmManagement() {
                 setWaNumId(res.data.waNumId || '');
                 setGeminiKeys(res.data.geminiKeys || ['', '', '', '', '']);
                 setBotMode(res.data.botMode || 'OFF');
+                setOpenSemActive(res.data.openSemActive || false);
                 setAllocatedBatch(res.data.batchId || '');
+                setWelcomeMessageText(res.data.welcomeMessageText || '');
+                setBtnAllowText(res.data.btnAllowText || '');
+                setBtnStopText(res.data.btnStopText || '');
             } else {
                 resetSettingsState();
             }
@@ -115,7 +124,8 @@ export default function CrmManagement() {
 
     const resetSettingsState = () => {
         setMetaKey(''); setWaId(''); setWaNumId(''); 
-        setGeminiKeys(['', '', '', '', '']); setBotMode('OFF'); setAllocatedBatch('');
+        setGeminiKeys(['', '', '', '', '']); setBotMode('OFF'); setOpenSemActive(false); setAllocatedBatch('');
+        setWelcomeMessageText(''); setBtnAllowText(''); setBtnStopText('');
     };
 
     const saveSettings = async (e) => {
@@ -130,6 +140,10 @@ export default function CrmManagement() {
                 waNumId, 
                 geminiKeys, 
                 botMode, 
+                openSemActive,
+                welcomeMessageText,
+                btnAllowText,
+                btnStopText,
                 batchId: activeTab === 'FREE_SEMINAR' ? allocatedBatch : null // After Seminar එකේදි Batch එක Null කරනවා
             });
             toast.success(`${activeTab.replace('_', ' ')} Settings Saved Successfully!`);
@@ -161,12 +175,32 @@ export default function CrmManagement() {
         if (attachment) formData.append('attachment', attachment);
 
         try {
-            // 🔥 URL eke API endpoint eka harida kiyala aniwaren balanna
-            await axios.post('/admin/crm/auto-reply', formData);
-            toast.success("Auto Reply Step Added!");
-            setNewMessage(''); setAttachment(null);
+            if (editingReplyId) {
+                await axios.put(`/admin/crm/auto-reply/${editingReplyId}`, formData);
+                toast.success("Auto Reply Step Updated!");
+            } else {
+                await axios.post('/admin/crm/auto-reply', formData);
+                toast.success("Auto Reply Step Added!");
+            }
+            setNewMessage(''); setAttachment(null); setEditingReplyId(null);
             fetchReplies();
-        } catch (error) { toast.error("Failed to add reply"); }
+        } catch (error) { toast.error(editingReplyId ? "Failed to update reply" : "Failed to add reply"); }
+    };
+
+    const handleEditReply = (reply) => {
+        setEditingReplyId(reply.id);
+        setStepOrder(reply.stepOrder);
+        setNewMessage(reply.message);
+        setAttachment(null);
+        // Scroll to the form
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const cancelEdit = () => {
+        setEditingReplyId(null);
+        setNewMessage('');
+        setAttachment(null);
+        setStepOrder(replies.length + 1);
     };
 
     const deleteReply = async (id) => {
@@ -365,6 +399,30 @@ export default function CrmManagement() {
                             </div>
                         </div>
 
+                        {/* Welcome Message & Interactive Buttons */}
+                        <div className="bg-slate-800/40 p-6 rounded-3xl border border-white/10">
+                            <h3 className="text-lg font-bold text-white mb-6 flex items-center gap-2"><MessageSquare className="text-emerald-400"/> Welcome Message & Anti-Ban Buttons</h3>
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">Initial Welcome Message (With Buttons)</label>
+                                    <textarea value={welcomeMessageText} onChange={e=>setWelcomeMessageText(e.target.value)} rows="3" placeholder="Welcome! Do you want details?" className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white text-sm outline-none focus:border-emerald-500" />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">Allow Button Text (Max 20)</label>
+                                        <input type="text" value={btnAllowText} onChange={e=>setBtnAllowText(e.target.value)} placeholder="Yes, send details" maxLength={20} className="w-full bg-black/30 border border-emerald-500/30 rounded-xl p-3 text-emerald-300 font-bold text-sm outline-none focus:border-emerald-500" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-widest">Stop Button Text (Max 20)</label>
+                                        <input type="text" value={btnStopText} onChange={e=>setBtnStopText(e.target.value)} placeholder="No, stop" maxLength={20} className="w-full bg-black/30 border border-red-500/30 rounded-xl p-3 text-red-300 font-bold text-sm outline-none focus:border-red-500" />
+                                    </div>
+                                </div>
+                                <p className="text-xs text-slate-500 leading-relaxed mt-2">
+                                    * When a student messages via FB Boost, this message is sent first. If they click Allow, the sequence continues. If they click Stop, they are unsubscribed and no further messages are sent.
+                                </p>
+                            </div>
+                        </div>
+
                         {/* Bot Mode & AI Keys */}
                         <div className="bg-slate-800/40 p-6 rounded-3xl border border-white/10">
                             <div className="flex items-center justify-between mb-6">
@@ -424,11 +482,19 @@ export default function CrmManagement() {
                                 </div>
                                 <div>
                                     <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">Message Text</label>
-                                    <textarea rows="4" value={newMessage} onChange={e=>setNewMessage(e.target.value)} required className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white outline-none focus:border-emerald-500 custom-scrollbar" placeholder="Type message..."></textarea>
+                                    <textarea rows="4" value={newMessage} onChange={e=>setNewMessage(e.target.value)} required={!attachment} className="w-full bg-black/30 border border-white/10 rounded-xl p-3 text-white outline-none focus:border-emerald-500 custom-scrollbar" placeholder="Type message..."></textarea>
                                 </div>
-                                <button type="submit" className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2">
-                                    <PlusCircle size={18}/> Add Step
-                                </button>
+                                <div className="flex gap-3">
+                                    <button type="submit" className={`flex-1 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 ${editingReplyId ? 'bg-blue-600 hover:bg-blue-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}>
+                                        {editingReplyId ? <Edit2 size={18}/> : <PlusCircle size={18}/>} 
+                                        {editingReplyId ? "Update Step" : "Add Step"}
+                                    </button>
+                                    {editingReplyId && (
+                                        <button type="button" onClick={cancelEdit} className="bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white font-bold px-4 py-3 rounded-xl flex items-center justify-center gap-2 transition-colors">
+                                            <XCircle size={18}/> Cancel
+                                        </button>
+                                    )}
+                                </div>
                             </form>
                         </div>
 
@@ -451,9 +517,14 @@ export default function CrmManagement() {
                                                 </span>
                                             )}
                                         </div>
-                                        <button onClick={() => deleteReply(reply.id)} className="text-red-400 bg-red-500/10 hover:bg-red-500 hover:text-white p-2.5 rounded-xl transition-colors">
-                                            <Trash2 size={18}/>
-                                        </button>
+                                        <div className="flex flex-col gap-2">
+                                            <button onClick={() => handleEditReply(reply)} className="text-blue-400 bg-blue-500/10 hover:bg-blue-500 hover:text-white p-2.5 rounded-xl transition-colors" title="Edit Step">
+                                                <Edit2 size={18}/>
+                                            </button>
+                                            <button onClick={() => deleteReply(reply.id)} className="text-red-400 bg-red-500/10 hover:bg-red-500 hover:text-white p-2.5 rounded-xl transition-colors" title="Delete Step">
+                                                <Trash2 size={18}/>
+                                            </button>
+                                        </div>
                                         
                                         {/* Connector Line */}
                                         {idx !== replies.length - 1 && (

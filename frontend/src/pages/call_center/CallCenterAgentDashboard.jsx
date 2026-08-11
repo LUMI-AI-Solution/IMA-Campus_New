@@ -7,6 +7,10 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import LeadCallCard from '../../components/CallCenter/LeadCallCard';
+import ChatArea from '../../components/CoordinatorCRM/ChatArea';
+import RightSidePanel from '../../components/CoordinatorCRM/RightSidePanel';
+import ContactSidebar from '../../components/CoordinatorCRM/ContactSidebar';
+import { FaTimes } from 'react-icons/fa';
 
 export default function CallCenterAgentDashboard() {
   const { tab } = useParams(); // 'overview', 'free-sem', 'after-sem'
@@ -23,6 +27,7 @@ export default function CallCenterAgentDashboard() {
   const [selectedBiz, setSelectedBiz] = useState(null); // { id, name, campaignType }
   const [leads, setLeads] = useState([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [chatModalLead, setChatModalLead] = useState(null);
   
   const [activeRound, setActiveRound] = useState(1);
   const [activePhase, setActivePhase] = useState(1);
@@ -105,14 +110,7 @@ export default function CallCenterAgentDashboard() {
   };
 
   const handleOpenChat = (lead) => {
-    let phoneStr = lead.phone.replace(/[^0-9]/g, '');
-    if (phoneStr.startsWith('0')) {
-        phoneStr = '94' + phoneStr.substring(1);
-    }
-    const msg = `Hi ${lead.name || ''}, `;
-    const encodedMsg = encodeURIComponent(msg);
-    const url = `https://wa.me/${phoneStr}?text=${encodedMsg}`;
-    window.open(url, '_blank');
+    setChatModalLead(lead);
   };
 
   // Helper to get active round data for a lead
@@ -157,8 +155,9 @@ export default function CallCenterAgentDashboard() {
   // Stats for the active round
   const totalAssigned = roundLeads.length;
   // For pending, we consider anything that is NOT answered or reject (or completed)
-  const pending = roundLeads.filter(l => !['ANSWERED', 'REJECT', 'COMPLETED'].includes(l.roundData.callStatus?.toUpperCase())).length;
-  const covered = totalAssigned - pending;
+  const pending = roundLeads.filter(l => (l.roundData.callStatus || 'pending').toUpperCase() === 'PENDING').length;
+  const noAnswer = roundLeads.filter(l => (l.roundData.callStatus || '').toUpperCase() === 'NO_ANSWER').length;
+  const covered = totalAssigned - pending - noAnswer;
   const responseRate = totalAssigned > 0 
     ? ((roundLeads.filter(l => ['ANSWERED', 'REJECT'].includes(l.roundData.callStatus?.toUpperCase())).length / totalAssigned) * 100).toFixed(1)
     : 0;
@@ -337,6 +336,8 @@ export default function CallCenterAgentDashboard() {
                   <div className="w-px h-10 bg-white/10 mx-2"></div>
                   <div className="flex flex-col items-center"><span className="text-[10px] text-rose-500 font-bold uppercase tracking-wider mb-1">Pending</span><span className="text-2xl font-black text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]">{pending}</span></div>
                   <div className="w-px h-10 bg-white/10 mx-2"></div>
+                  <div className="flex flex-col items-center"><span className="text-[10px] text-orange-500 font-bold uppercase tracking-wider mb-1">No Answer</span><span className="text-2xl font-black text-orange-400 drop-shadow-[0_0_8px_rgba(249,115,22,0.4)]">{noAnswer}</span></div>
+                  <div className="w-px h-10 bg-white/10 mx-2"></div>
                   <div className="flex flex-col items-center"><span className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mb-1">Covered</span><span className="text-2xl font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.4)]">{covered}</span></div>
                   <div className="w-px h-10 bg-white/10 mx-2"></div>
                   <div className="flex flex-col items-center"><span className="text-[10px] text-blue-500 font-bold uppercase tracking-wider mb-1">Response</span><span className="text-2xl font-black text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]">{responseRate}%</span></div>
@@ -441,6 +442,44 @@ export default function CallCenterAgentDashboard() {
             </div>
           </div>
 
+        </div>
+      )}
+
+      {/* POPUP CHAT MODAL */}
+      {chatModalLead && (
+        <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-2 md:p-4">
+          <div className="w-[98vw] max-w-[1600px] h-[95vh] md:h-[92vh] bg-[#0f172a] rounded-3xl flex flex-col border border-slate-700 shadow-2xl overflow-hidden relative">
+            
+            <div className="bg-gradient-to-r from-[#1e293b] to-[#0f172a] p-4 flex justify-between items-center border-b border-slate-700 shrink-0">
+              <div className="flex items-center gap-3">
+                <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse shadow-[0_0_10px_#10b981]"></span>
+                <h3 className="text-white font-black text-sm md:text-base tracking-wide flex items-center gap-2">
+                  Live CRM Chat <span className="text-blue-400 border-l border-slate-600 pl-2 ml-1">{chatModalLead.phone}</span>
+                </h3>
+              </div>
+              <button onClick={() => {
+                setChatModalLead(null);
+                fetchOverview();
+              }} className="bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white px-4 py-2 rounded-xl transition-all flex items-center gap-2 text-[10px] md:text-xs font-black uppercase tracking-widest border border-red-500/20 hover:shadow-[0_0_15px_rgba(239,68,68,0.4)]">
+                <FaTimes /> Close Workspace
+              </button>
+            </div>
+
+            <div className="flex flex-1 overflow-hidden relative">
+              <div className="hidden md:flex shrink-0 border-r border-slate-800 h-full overflow-hidden">
+                <ContactSidebar 
+                  activeMode="CALL_CAMPAIGN" 
+                  selectedLead={chatModalLead} 
+                  setSelectedLead={setChatModalLead}
+                  filters={{ selectedBusiness: selectedBiz?.id, selectedBatch: batchFilter }}
+                />
+              </div>
+              <ChatArea selectedLead={chatModalLead} />
+              <div className="hidden lg:block h-full shrink-0 border-l border-slate-800">
+                <RightSidePanel selectedLead={chatModalLead} activeMode="CALL_CAMPAIGN" selectedBusiness={selectedBiz?.id} />
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

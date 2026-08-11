@@ -4,17 +4,35 @@ import toast from 'react-hot-toast';
 import { Repeat, ChevronRight, Users, Loader2, Building2, UserCheck, PlayCircle, Phone, User, Calendar, CheckCircle2 } from 'lucide-react';
 import { FaUserTie } from 'react-icons/fa';
 
-export default function BridgeHandOversTab({ staff }) {
+export default function BridgeHandOversTab({ staff = [] }) {
     const [businesses, setBusinesses] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [selectedBiz, setSelectedBiz] = useState(null);
+    const [selectedBizId, setSelectedBizId] = useState(null);
+    const [fetchedStaff, setFetchedStaff] = useState([]);
     
-    // Detailed leads for the selected business
-    const [detailedLeads, setDetailedLeads] = useState([]);
     const [checkedLeads, setCheckedLeads] = useState([]);
-    
     const [selectedAgent, setSelectedAgent] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
+    const [bulkCount, setBulkCount] = useState('');
+
+    useEffect(() => {
+        fetchHandovers();
+        fetchStaffList();
+    }, []);
+
+    const fetchStaffList = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const res = await axios.get('/call-center/manager/staff', { 
+                headers: { Authorization: `Bearer ${token}` } 
+            });
+            if (Array.isArray(res.data) && res.data.length > 0) {
+                setFetchedStaff(res.data);
+            }
+        } catch(e) {
+            console.error("Failed to load staff in BridgeHandOversTab", e);
+        }
+    };
 
     const fetchHandovers = async () => {
         setLoading(true);
@@ -24,17 +42,6 @@ export default function BridgeHandOversTab({ staff }) {
                 headers: { Authorization: `Bearer ${token}` } 
             });
             setBusinesses(res.data.data || []);
-            
-            // If a business was already selected, update its leads
-            if (selectedBiz) {
-                const updatedBiz = res.data.data.find(b => b.businessId === selectedBiz.businessId);
-                if (updatedBiz) {
-                    setDetailedLeads(updatedBiz.leads);
-                    setSelectedBiz(updatedBiz);
-                } else {
-                    setSelectedBiz(null);
-                }
-            }
         } catch (error) {
             console.error("Failed to load bridge handovers");
             toast.error("Failed to load bridge handovers");
@@ -42,19 +49,37 @@ export default function BridgeHandOversTab({ staff }) {
         setLoading(false);
     };
 
-    useEffect(() => {
-        if (!selectedBiz) {
-            fetchHandovers();
-        } else {
-            // When business is selected, the detailed leads are already in selectedBiz.leads
-            // But we might want to refresh them specifically.
-            // For now we just use the leads array we got from the grouping
-            const bizData = businesses.find(b => b.businessId === selectedBiz.businessId);
-            if (bizData) {
-                setDetailedLeads(bizData.leads);
-            }
-        }
+    const selectedBiz = React.useMemo(() => {
+        if (!selectedBizId) return null;
+        return businesses.find(b => b.businessId === selectedBizId) || null;
+    }, [businesses, selectedBizId]);
+
+    const detailedLeads = React.useMemo(() => {
+        return selectedBiz?.leads || [];
     }, [selectedBiz]);
+
+    const availableAgents = React.useMemo(() => {
+        const map = new Map();
+        [...staff, ...fetchedStaff].forEach(s => {
+            if (s && s.id && !map.has(s.id)) {
+                map.set(s.id, s);
+            }
+        });
+        return Array.from(map.values());
+    }, [staff, fetchedStaff]);
+
+    const handleBulkSelectTop = () => {
+        const pendingLeadsList = detailedLeads.filter(l => l.callCenterStatus === 'pending_approval');
+        const amt = parseInt(bulkCount);
+        if (isNaN(amt) || amt <= 0) {
+            setCheckedLeads(pendingLeadsList.map(l => l.id));
+            toast.success(`Selected all ${pendingLeadsList.length} pending leads!`);
+            return;
+        }
+        const leadsToSelect = pendingLeadsList.slice(0, amt).map(l => l.id);
+        setCheckedLeads(leadsToSelect);
+        toast.success(`Selected top ${leadsToSelect.length} pending leads!`);
+    };
 
     const handleApproveAndAssign = async () => {
         if (checkedLeads.length === 0) return toast.error("Select leads first");
@@ -136,7 +161,7 @@ export default function BridgeHandOversTab({ staff }) {
                 </h2>
                 {selectedBiz && (
                     <button 
-                        onClick={() => { setSelectedBiz(null); setCheckedLeads([]); }}
+                        onClick={() => { setSelectedBizId(null); setCheckedLeads([]); }}
                         className="bg-white/10 hover:bg-white/20 px-4 py-1.5 rounded-lg text-sm font-bold transition-colors text-slate-200 flex items-center gap-2 border border-white/5"
                     >
                         <ChevronRight className="rotate-180" size={16}/> Back to Businesses
@@ -161,7 +186,7 @@ export default function BridgeHandOversTab({ staff }) {
                             return (
                                 <div 
                                     key={biz.businessId}
-                                    onClick={() => setSelectedBiz(biz)}
+                                    onClick={() => setSelectedBizId(biz.businessId)}
                                     className="group cursor-pointer bg-[#0f172a]/80 backdrop-blur-3xl border border-white/10 hover:border-indigo-500/50 p-8 rounded-[2rem] flex flex-col gap-6 transition-all duration-500 hover:-translate-y-2 shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:shadow-[0_16px_64px_0_rgba(99,102,241,0.2)] relative overflow-hidden"
                                 >
                                     <div className="absolute -top-24 -right-24 w-64 h-64 blur-[80px] opacity-20 pointer-events-none rounded-full bg-indigo-500 transition-opacity duration-700 group-hover:opacity-50"></div>
@@ -245,27 +270,61 @@ export default function BridgeHandOversTab({ staff }) {
                     <div className="bg-black/40 border border-white/10 rounded-[24px] flex flex-col overflow-hidden flex-1 shadow-2xl">
                         
                         {/* Action Header */}
-                        <div className="bg-white/5 p-4 border-b border-white/10 flex flex-col sm:flex-row justify-between items-center gap-4">
-                            <div className="text-sm font-bold text-slate-300 bg-black/40 px-4 py-2 rounded-xl border border-white/5">
-                                {checkedLeads.length} Selected
+                        <div className="bg-white/5 p-4 border-b border-white/10 flex flex-col xl:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-3 flex-wrap w-full xl:w-auto">
+                                <div className="text-xs font-black text-slate-200 bg-black/50 px-4 py-2.5 rounded-xl border border-white/10 shadow-inner">
+                                    {checkedLeads.length} Selected
+                                </div>
+                                <button 
+                                    onClick={() => handleSelectAll(true)}
+                                    className="bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/40 px-3.5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all"
+                                >
+                                    Select All Pending ({pendingApprovalCount})
+                                </button>
+                                {checkedLeads.length > 0 && (
+                                    <button 
+                                        onClick={() => setCheckedLeads([])}
+                                        className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 px-3 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all"
+                                    >
+                                        Clear
+                                    </button>
+                                )}
+                                <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 p-1 rounded-xl">
+                                    <input 
+                                        type="number" 
+                                        placeholder="Amt" 
+                                        value={bulkCount} 
+                                        onChange={(e) => setBulkCount(e.target.value)}
+                                        className="w-16 bg-transparent text-xs font-bold text-center text-white outline-none px-2 py-1"
+                                        min="1"
+                                        max={pendingApprovalCount}
+                                    />
+                                    <button 
+                                        onClick={handleBulkSelectTop}
+                                        className="bg-white/10 hover:bg-white/20 text-white text-[10px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg transition-all border border-white/10"
+                                    >
+                                        Select
+                                    </button>
+                                </div>
                             </div>
-                            <div className="flex items-center gap-3 w-full sm:w-auto">
+
+                            <div className="flex items-center gap-3 w-full xl:w-auto">
                                 <select 
                                     value={selectedAgent} 
                                     onChange={(e) => setSelectedAgent(e.target.value)}
-                                    className="bg-black/50 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500 font-bold uppercase tracking-wider"
+                                    className="bg-black/50 border border-white/10 rounded-xl px-4 py-2.5 text-xs text-white outline-none focus:border-indigo-500 font-bold uppercase tracking-wider flex-1 xl:flex-none"
                                 >
                                     <option value="">-- Choose Agent to Assign --</option>
-                                    {staff.map(member => (
-                                        <option key={member.id} value={member.id}>{member.firstName} {member.lastName}</option>
+                                    {availableAgents.map(member => (
+                                        <option key={member.id} value={member.id}>{member.firstName} {member.lastName} ({member.role || 'Staff'})</option>
                                     ))}
                                 </select>
                                 <button 
                                     onClick={handleApproveAndAssign}
-                                    disabled={checkedLeads.length === 0 || isProcessing}
-                                    className="bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-400 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50"
+                                    disabled={checkedLeads.length === 0 || isProcessing || !selectedAgent}
+                                    className="bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/50 text-emerald-400 px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all disabled:opacity-50 shrink-0"
                                 >
-                                    Approve & Assign
+                                    Approve & Assign ({checkedLeads.length})
                                 </button>
                             </div>
                         </div>

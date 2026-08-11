@@ -1,6 +1,7 @@
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import React, { useState, useEffect } from 'react';
 import axios from '../../api/axios';
+import { toast } from 'react-hot-toast';
 import { Menu, LogOut, AlertTriangle, Info, Lock, MonitorPlay } from 'lucide-react'; // 🔥 FIX: MonitorPlay added here
 import Sidebar from './components/Sidebar';
 import EnrollmentTab from './components/EnrollmentTab';
@@ -61,6 +62,31 @@ const StudentDashboard = () => {
 
   const [businesses, setBusinesses] = useState([]);
   const [alerts, setAlerts] = useState([]); 
+
+  useEffect(() => {
+    const checkPaycorpReturn = async () => {
+        if (searchParams.get('paycorp') === 'return') {
+            const reqid = searchParams.get('reqid');
+            const clientRef = searchParams.get('clientRef');
+            if (reqid && clientRef) {
+                const toastId = toast.loading('Verifying Paycorp Payment...');
+                try {
+                    const res = await axios.post('/student/paycorp-complete', { reqid, clientRef });
+                    if (res.data.success && res.data.status === 'success') {
+                        toast.success('Payment Verification Successful! Test complete.', { id: toastId });
+                    } else {
+                        toast.error('Payment Verification Failed.', { id: toastId });
+                    }
+                } catch (err) {
+                    toast.error('Payment Verification Error.', { id: toastId });
+                }
+                // Clean url parameters to prevent re-triggering
+                navigate(location.pathname, { replace: true });
+            }
+        }
+    };
+    checkPaycorpReturn();
+  }, [searchParams, location.pathname, navigate]);
 
   const [bgImage, setBgImage] = useState('/student-bg.jpg'); 
 
@@ -154,7 +180,7 @@ const StudentDashboard = () => {
     </div>
 
     <div className={`h-full ${activeTab === 'history' ? 'block' : 'hidden'}`}>
-        <PaymentHistory />
+        <PaymentHistory isActive={activeTab === 'history'} />
     </div>
 
     <div className={`h-full ${activeTab === 'mycourses' ? 'block' : 'hidden'}`}>

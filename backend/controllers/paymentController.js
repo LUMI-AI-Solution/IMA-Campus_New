@@ -161,6 +161,45 @@ const syncLeadEnrollment = async (studentId, paymentType, payment) => {
     }
 };
 
+// Helper: Deduce deliverable tutes for a payment based on Content Hub groupPrices rules and TuteStock
+const getDeliverableCoursesForPayment = async (payment, courses) => {
+    const deliverableCoursesMap = new Map();
+    const parsedPType = parseInt(payment.payment_type);
+
+    for (const course of courses) {
+        let deliverTute = false;
+        let tuteName = course.name || "Tute";
+        let tuteImage = null;
+
+        if (course.groupPrices && payment.groupId) {
+            try {
+                const gps = JSON.parse(course.groupPrices);
+                const match = gps.find(g => g.groupId == payment.groupId);
+                if (match) {
+                    if (match.deliverTute === true || match.deliverTute === 'true') {
+                        deliverTute = true;
+                        if (match.tuteName && match.tuteName.trim()) {
+                            tuteName = match.tuteName.trim();
+                        }
+                        if (match.tuteCover && match.tuteCover.trim()) {
+                            tuteImage = match.tuteCover.trim();
+                        }
+                    }
+                }
+            } catch (e) { }
+        }
+
+        if (deliverTute) {
+            const key = `${course.id}_${tuteName}`;
+            if (!deliverableCoursesMap.has(key)) {
+                deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tuteName, tuteImage: typeof tuteImage !== 'undefined' ? tuteImage : null, quantity: 1 });
+            }
+        }
+    }
+
+    return Array.from(deliverableCoursesMap.values());
+};
+
 // ==========================================
 // 🏦 PAYMENT CONTROLLER LOGIC (ADMIN)
 // ==========================================
@@ -279,7 +318,11 @@ exports.getPayments = async (req, res) => {
 
                                 for (let rule of rules) {
                                     if (eligibleSubjectsCount >= rule.courseCount) {
-                                        activeGroupDiscount = { triggerCount: rule.courseCount, newPricePerCourse: rule.pricePerCourse };
+                                        activeGroupDiscount = { 
+                                            triggerCount: rule.courseCount, 
+                                            newPricePerCourse: rule.pricePerCourse,
+                                            fixedDiscount: rule.fixedDiscount
+                                        };
                                         break;
                                     }
                                 }
@@ -294,7 +337,9 @@ exports.getPayments = async (req, res) => {
                         if (customPricesMap[strId] !== undefined) {
                             price = parseFloat(customPricesMap[strId]);
                         } else if (activeGroupDiscount && course && !course.isDiscountExcluded) {
-                            price = parseFloat(activeGroupDiscount.newPricePerCourse);
+                            if (activeGroupDiscount.newPricePerCourse !== undefined) {
+                                price = parseFloat(activeGroupDiscount.newPricePerCourse);
+                            }
                         }
                         
                         if (course) {
@@ -303,6 +348,11 @@ exports.getPayments = async (req, res) => {
                         }
                         return { id, name: 'Unknown Course', price, code: 'N/A' };
                     });
+
+                    // Apply fixed discount if present in activeGroupDiscount
+                    if (activeGroupDiscount && activeGroupDiscount.fixedDiscount !== undefined) {
+                        systemTotal -= parseFloat(activeGroupDiscount.fixedDiscount);
+                    }
 
                     // Apply Bundle Discount if configured in AppSettings (Only for Upgrades!)
                     if (p.batchId && p.remark && p.remark.includes('[UPGRADE]')) {
@@ -411,12 +461,14 @@ exports.paymentAction = async (req, res) => {
 
                     const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
                     if (courses.length > 0) {
+                        const deliverableItems = await getDeliverableCoursesForPayment(payRecord, courses);
+                        const finalItems = deliverableItems.length > 0 ? deliverableItems : courses.map(c => ({ courseId: c.id, tuteName: c.name || "Tute", quantity: 1 }));
                         const paymentTypeStr = parseInt(payRecord.payment_type) === 1 ? 'Monthly' : (parseInt(payRecord.payment_type) === 2 ? 'Installment' : 'Full');
                         await prisma.delivery.create({
                             data: {
                                 paymentId: payRecord.id, studentId: payRecord.studentId.toString(), businessId: payRecord.businessId,
                                 paymentType: paymentTypeStr, status: 'Pending',
-                                items: { create: courses.map(c => ({ courseId: c.id, tuteName: c.name || "Tute", quantity: 1 })) }
+                                items: { create: finalItems }
                             }
                         });
                         return res.status(200).json({ message: `Sent to Delivery Hub successfully` });
@@ -526,16 +578,21 @@ exports.paymentAction = async (req, res) => {
                     const subIds = JSON.parse(updatedPayment.subjects).map(id => parseInt(id));
                     const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
                     if (courses.length > 0) {
-                        const paymentTypeStr = updatedPayment.payment_type === 1 ? 'Monthly' : (updatedPayment.payment_type === 2 ? 'Installment' : 'Full');
-                        await prisma.delivery.create({
-                            data: {
-                                paymentId: updatedPayment.id, studentId: updatedPayment.studentId.toString(), businessId: updatedPayment.businessId,
-                                paymentType: paymentTypeStr, status: isSelfPicked ? 'Delivered' : 'Pending',
-                                items: { create: courses.map(c => ({ courseId: c.id, tuteName: c.name || "Tute", quantity: 1 })) }
-                            }
-                        });
+                        const deliverableItems = await getDeliverableCoursesForPayment(updatedPayment, courses);
+                        if (deliverableItems.length > 0) {
+                            const paymentTypeStr = updatedPayment.payment_type === 1 ? 'Monthly' : (updatedPayment.payment_type === 2 ? 'Installment' : 'Full');
+                            await prisma.delivery.create({
+                                data: {
+                                    paymentId: updatedPayment.id, studentId: updatedPayment.studentId.toString(), businessId: updatedPayment.businessId,
+                                    paymentType: paymentTypeStr, status: isSelfPicked ? 'Delivered' : 'Pending',
+                                    items: { create: deliverableItems }
+                                }
+                            });
+                        }
                     }
-                } catch (e) { }
+                } catch (e) {
+                    console.error("Auto Delivery Creation Error on Approve:", e);
+                }
             }
         }
 
@@ -615,16 +672,19 @@ exports.approveInstallment = async (req, res) => {
                 const subIds = JSON.parse(updatedPayment.subjects).map(id => parseInt(id));
                 const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
                 if (courses.length > 0) {
-                    await prisma.delivery.create({
-                        data: {
-                            paymentId: updatedPayment.id, studentId: updatedPayment.studentId.toString(), businessId: updatedPayment.businessId,
-                            paymentType: 'Installment', status: isSelfPicked ? 'Delivered' : 'Pending',
-                            items: { create: courses.map(c => ({ courseId: c.id, tuteName: c.name || "Tute", quantity: 1 })) }
-                        }
-                    });
+                    const deliverableItems = await getDeliverableCoursesForPayment(updatedPayment, courses);
+                    if (deliverableItems.length > 0) {
+                        await prisma.delivery.create({
+                            data: {
+                                paymentId: updatedPayment.id, studentId: updatedPayment.studentId.toString(), businessId: updatedPayment.businessId,
+                                paymentType: 'Installment', status: isSelfPicked ? 'Delivered' : 'Pending',
+                                items: { create: deliverableItems }
+                            }
+                        });
+                    }
                 }
             } catch (e) {
-                console.error("Delivery Creation Error:", e);
+                console.error("Delivery Creation Error in approveInstallment:", e);
             }
         }
 
@@ -777,26 +837,32 @@ exports.updatePaymentDetails = async (req, res) => {
         });
 
         if (delivery) {
-            // Delete old items
-            await prisma.deliveryItem.deleteMany({
-                where: { deliveryId: delivery.id }
-            });
-
             // Fetch new courses
             const courses = await prisma.course.findMany({
                 where: { id: { in: subjects.map(id => parseInt(id)) } }
             });
 
-            // Create new items
-            if (courses.length > 0) {
+            const deliverableItems = await getDeliverableCoursesForPayment(updatedPayment, courses);
+
+            if (deliverableItems.length > 0) {
+                // Delete old items and re-create updated items
+                await prisma.deliveryItem.deleteMany({
+                    where: { deliveryId: delivery.id }
+                });
+
                 await prisma.deliveryItem.createMany({
-                    data: courses.map(c => ({
+                    data: deliverableItems.map(item => ({
                         deliveryId: delivery.id,
-                        courseId: c.id,
-                        tuteName: c.name || "Tute",
-                        quantity: 1
+                        courseId: item.courseId,
+                        tuteName: item.tuteName,
+                        tuteImage: item.tuteImage || null,
+                        quantity: item.quantity || 1
                     }))
                 });
+            } else {
+                // If no deliverable tutes exist under Content Hub rules, remove the orphaned delivery
+                await prisma.deliveryItem.deleteMany({ where: { deliveryId: delivery.id } });
+                await prisma.delivery.delete({ where: { id: delivery.id } });
             }
         }
 
@@ -805,4 +871,120 @@ exports.updatePaymentDetails = async (req, res) => {
         console.error("Update payment details error:", error);
         res.status(500).json({ error: "Failed to update payment details" });
     }
-};exports.syncLeadEnrollment = syncLeadEnrollment;
+};
+
+exports.getStaffStatsReport = async (req, res) => {
+    try {
+        const userId = req.user?.userId || req.user?.id;
+        const userRole = req.user?.role;
+        const businessType = req.user?.businessType;
+        const userDepartment = req.user?.department;
+        
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper) || userDepartment === 'Finance';
+
+        const { dateFrom, dateTo, verificationMethod, action } = req.query;
+
+        let where = {};
+        
+        if (!isAdmin && userId) {
+            const allBiz = await prisma.business.findMany();
+            const myBizs = allBiz.filter(biz => {
+                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
+                const matchesBizType = businessType && (
+                    String(biz.id) === String(businessType).trim() ||
+                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
+                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
+                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+                );
+                return isManagerOf || matchesBizType;
+            });
+            const myBizIds = myBizs.map(b => b.id);
+            
+            // If the manager has no businesses, they shouldn't see anything.
+            if (myBizIds.length === 0) {
+                return res.status(200).json({
+                    success: true,
+                    data: [],
+                    summary: { aiVerified: 0, manualVerified: 0, rejected: 0, total: 0 }
+                });
+            }
+            where.businessId = { in: myBizIds };
+        }
+
+        if (dateFrom && dateTo) {
+            where.updatedAt = {
+                gte: new Date(`${dateFrom}T00:00:00.000Z`),
+                lte: new Date(`${dateTo}T23:59:59.999Z`)
+            };
+        }
+
+        if (verificationMethod === 'ai') {
+            where.aiVerified = true;
+        } else if (verificationMethod === 'manual') {
+            where.aiVerified = false;
+        }
+
+        if (action === 'approved') {
+            where.status = 1;
+        } else if (action === 'rejected') {
+            where.status = 2;
+        } else if (action === 'postpay') {
+            where.status = 4;
+        }
+
+        const payments = await prisma.payment.findMany({
+            where,
+            include: {
+                student: { select: { firstName: true, lastName: true, phone: true } },
+                actionedUser: { select: { firstName: true, lastName: true } },
+                batch: { select: { name: true } },
+                business: { select: { name: true } }
+            },
+            orderBy: { updatedAt: 'desc' },
+            take: 1000
+        });
+
+        let summary = {
+            aiVerified: 0,
+            manualVerified: 0,
+            rejected: 0,
+            total: payments.length
+        };
+
+        const reportData = payments.map(p => {
+            const isAi = p.aiVerified === true;
+            if (isAi && p.status === 1) summary.aiVerified++;
+            else if (!isAi && p.status === 1) summary.manualVerified++;
+            else if (p.status === 2) summary.rejected++;
+
+            const verifiedBy = p.actionedUser 
+                ? `${p.actionedUser.firstName} ${p.actionedUser.lastName || ''}`.trim() 
+                : (isAi ? 'AI System' : 'Unknown');
+
+            return {
+                id: p.id,
+                amount: p.amount,
+                status: p.status,
+                isAiVerified: isAi,
+                verifiedBy,
+                studentName: p.student ? `${p.student.firstName} ${p.student.lastName || ''}`.trim() : 'Unknown',
+                batchName: p.batch?.name || '-',
+                businessName: p.business?.name || '-',
+                createdAt: p.created_at,
+                updatedAt: p.updatedAt
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            data: reportData,
+            summary
+        });
+    } catch (error) {
+        console.error("Staff stats report error:", error);
+        res.status(500).json({ error: "Failed to generate staff stats report" });
+    }
+};
+
+exports.syncLeadEnrollment = syncLeadEnrollment;
