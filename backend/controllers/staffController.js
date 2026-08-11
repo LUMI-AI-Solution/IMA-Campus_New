@@ -240,10 +240,9 @@ exports.createStaff = async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
         
         const isTopLevel = checkIsTopLevel(role);
-        const isBusinessScopedRole = department === 'Class Coordination' || role === 'Coordinator';
 
         let finalDepartment = isTopLevel ? null : ((role === 'Coordinator' ? 'Class Coordination' : (role === 'Caller' ? 'Call Center' : department)));
-        const finalBusiness = (!isTopLevel && isBusinessScopedRole) ? businessType : null;
+        const finalBusiness = (!isTopLevel) ? businessType : null;
 
         // Force department to Social Media if role is Social Media Manager or Staff
         if (role === 'Social Media Manager' || role === 'Social Media Staff') {
@@ -266,7 +265,6 @@ exports.updateStaff = async (req, res) => {
         phone = normalizePhone(phone);
         
         const isTopLevel = checkIsTopLevel(role);
-        const isBusinessScopedRole = department === 'Class Coordination' || role === 'Coordinator';
 
         let finalDepartment = isTopLevel ? null : ((role === 'Coordinator' ? 'Class Coordination' : (role === 'Caller' ? 'Call Center' : department)));
         
@@ -277,7 +275,7 @@ exports.updateStaff = async (req, res) => {
         let updateData = { 
             firstName, lastName, phone, nic, role, 
             department: finalDepartment, 
-            businessType: (!isTopLevel && isBusinessScopedRole) ? businessType : null 
+            businessType: (!isTopLevel) ? businessType : null 
         };
         
         if (password && password.trim() !== '') {

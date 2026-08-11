@@ -570,7 +570,7 @@ export default function FinanceMatrix({ loggedInUser }) {
                                 <ChevronLeft size={20} />
                             </button>
                             <div className="text-center min-w-[150px]">
-                                <span className="text-xs uppercase font-semibold text-gray-500 tracking-wider block">Target Period Frame</span>
+                                <span className="text-xs uppercase font-semibold text-gray-500 tracking-wider block">Target Period</span>
                                 <span className="text-sm font-bold text-white">{activeMonth?.name}</span>
                             </div>
                             <button
@@ -603,7 +603,7 @@ export default function FinanceMatrix({ loggedInUser }) {
                             <thead>
                                 <tr className="bg-slate-950 text-sm font-semibold text-gray-300 uppercase tracking-wide h-[50px]">
                                     <th className="min-w-[80px] max-w-[80px] p-3 sticky left-0 top-0 bg-slate-950 z-[60] border-r border-b border-slate-700/50 text-center shadow-md">ID</th>
-                                    <th className="min-w-[200px] max-w-[200px] p-3 sticky left-[80px] top-0 bg-slate-950 z-[60] border-r border-b border-slate-700/50 shadow-md">Student Profile Node</th>
+                                    <th className="min-w-[200px] max-w-[200px] p-3 sticky left-[80px] top-0 bg-slate-950 z-[60] border-r border-b border-slate-700/50 shadow-md">Student Info</th>
                                     <th className="min-w-[120px] max-w-[120px] p-3 sticky left-[280px] top-0 bg-slate-950 z-[60] border-r border-b border-slate-700/50 text-center shadow-md">Type</th>
 
                                     {subjects.map((sub, sIdx) => (
@@ -614,7 +614,7 @@ export default function FinanceMatrix({ loggedInUser }) {
                                             {sub}
                                         </th>
                                     ))}
-                                    <th className="min-w-[140px] max-w-[140px] p-3 text-right bg-emerald-950 text-emerald-400 font-bold border-b border-slate-700/50 sticky top-0 right-0 z-50 backdrop-blur-md">Row Total Flow</th>
+                                    <th className="min-w-[140px] max-w-[140px] p-3 text-right bg-emerald-950 text-emerald-400 font-bold border-b border-slate-700/50 sticky top-0 right-0 z-50 backdrop-blur-md">Monthly Total</th>
                                 </tr>
                             </thead>
 
@@ -677,10 +677,10 @@ export default function FinanceMatrix({ loggedInUser }) {
 
                                             <td className={`p-4 text-right border-l border-emerald-500/20 sticky right-0 z-20 shadow-[-4px_0_10px_-3px_rgba(0,0,0,0.3)] ${isHybrid ? 'bg-fuchsia-950/80' : 'bg-emerald-950/50'}`}>
                                                 <div className="flex flex-col items-end gap-1">
-                                                    <span className={`text-[11px] font-medium tracking-wide uppercase ${isHybrid ? 'text-fuchsia-400/70' : 'text-emerald-500/70'}`}>Frame Flow</span>
+                                                    <span className={`text-[11px] font-medium tracking-wide uppercase ${isHybrid ? 'text-fuchsia-400/70' : 'text-emerald-500/70'}`}>This Month</span>
                                                     <span className={`font-bold ${isHybrid ? 'text-fuchsia-300' : 'text-emerald-400'}`}>{formatCurrency(activeMonthRowTotal)}</span>
                                                     <div className="w-full h-px bg-slate-700/50 my-0.5"></div>
-                                                    <span className={`text-[11px] font-medium tracking-wide uppercase ${isHybrid ? 'text-fuchsia-400/70' : 'text-emerald-500/70'}`}>Global Paid</span>
+                                                    <span className={`text-[11px] font-medium tracking-wide uppercase ${isHybrid ? 'text-fuchsia-400/70' : 'text-emerald-500/70'}`}>Total Paid</span>
                                                     <span className={`font-extrabold ${isHybrid ? 'text-fuchsia-100' : 'text-emerald-100'}`}>{formatCurrency(stu.totalPaid)}</span>
                                                 </div>
                                             </td>
@@ -691,7 +691,7 @@ export default function FinanceMatrix({ loggedInUser }) {
                                 <tr className="bg-slate-950/95 font-bold border-t-2 border-slate-700 text-white sticky bottom-0 z-30 align-top">
                                     <td className="p-4 text-left uppercase text-xs tracking-wider text-gray-400 bg-slate-950 sticky left-0 z-40 border-r border-slate-700/50 shadow-[4px_0_10px_-3px_rgba(0,0,0,0.3)]" colSpan={3}>
                                         <div className="flex flex-col gap-2">
-                                            <span>Active Month Column Aggregates</span>
+                                            <span>Monthly Subject Revenue</span>
                                             {(() => {
                                                 const overall = getOverallActiveMonthBreakdown();
                                                 return (

@@ -189,15 +189,21 @@ exports.getFinanceMatrix = async (req, res) => {
             // 🔥 UNIVERSAL RATIO ENGINE (WITH ENGLISH ISOLATION) 🔥
             // =========================================================
 
-            // 1. English subject eka isolate kireema (matches 'ENGLISH', 'GENERAL ENGLISH', etc.)
-            const englishSub = enrolledSubjectData.find(s => s.name.toUpperCase().includes('ENGLISH'));
-            const otherSubs = enrolledSubjectData.filter(s => !s.name.toUpperCase().includes('ENGLISH'));
+            // 1. English subject eka isolate kireema (matches 'ENGLISH', 'GENERAL ENGLISH', etc., but NOT 'English Medium')
+            const englishSub = enrolledSubjectData.find(s => s.name.toUpperCase().includes('ENGLISH') && !s.name.toUpperCase().includes('MEDIUM'));
+            const otherSubs = enrolledSubjectData.filter(s => !(s.name.toUpperCase().includes('ENGLISH') && !s.name.toUpperCase().includes('MEDIUM')));
 
             let englishFund = 0;
             let othersTotalFund = paidAmount;
 
             if (englishSub) {
-                englishFund = Math.min(englishSub.price, paidAmount);
+                let englishActiveMonthCount = 1;
+                if (payType === 3 || payType === 2) {
+                    const activeGroupIds = subjectActiveMonthsMap[englishSub.name] || monthlyGroups.map(g => g.id);
+                    englishActiveMonthCount = activeGroupIds.length || 1;
+                }
+                const cap = englishSub.price * englishActiveMonthCount;
+                englishFund = Math.min(cap, paidAmount);
                 othersTotalFund = Math.max(0, paidAmount - englishFund);
             }
 
@@ -210,7 +216,7 @@ exports.getFinanceMatrix = async (req, res) => {
 
             enrolledSubjectData.forEach(es => {
                 const sub = es.name;
-                const isEnglish = sub.toUpperCase().includes('ENGLISH');
+                const isEnglish = sub.toUpperCase().includes('ENGLISH') && !sub.toUpperCase().includes('MEDIUM');
 
                 // 2. Fund Allocation
                 let subjectAllocatedFund = 0;

@@ -18,6 +18,8 @@ export default function StaffManagement({ loggedInUser }) {
 
   const userRole = loggedInUser?.role || '';
   const isAdmin = userRole === 'System Admin' || userRole === 'Director' || userRole === 'SYSTEM_ADMIN';
+  const isManager = userRole === 'Manager' || userRole === 'Ass Manager';
+  const canManageStaff = isAdmin || isManager;
 
   const allDepts = ['Class Coordination', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media'];
   const staffDepts = ['Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media']; 
@@ -366,16 +368,16 @@ export default function StaffManagement({ loggedInUser }) {
               <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-5 mt-2">
                 <div className={(formData.role === 'System Admin' || formData.role === 'Director') ? 'col-span-2' : 'col-span-1'}>
                   <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Role</label>
-                  <select disabled={!isAdmin} value={formData.role} onChange={e => handleRoleChange(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
-                    {isAdmin ? allRoles.filter(r => (r !== 'Caller' && r !== 'Call Center Agent') || r === formData.role).map(r => <option key={r} value={r} className="bg-slate-800 text-white">{r}</option>) : <option value={formData.role} className="bg-slate-800 text-white">{formData.role}</option>}
+                  <select disabled={!canManageStaff} value={formData.role} onChange={e => handleRoleChange(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
+                    {canManageStaff ? allRoles.filter(r => isAdmin ? ((r !== 'Caller' && r !== 'Call Center Agent') || r === formData.role) : (['Manager', 'Ass Manager', 'Coordinator', 'Caller', 'Call Center Agent', 'Staff', 'Social Media Staff'].includes(r) || r === formData.role)).map(r => <option key={r} value={r} className="bg-slate-800 text-white">{r}</option>) : <option value={formData.role} className="bg-slate-800 text-white">{formData.role}</option>}
                   </select>
                 </div>
 
                 {formData.role !== 'System Admin' && formData.role !== 'Director' && (
                   <div className="col-span-1">
                     <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Department</label>
-                    <select disabled={!isAdmin || formData.role === 'Coordinator' || formData.role === 'Caller' || formData.role === 'Call Center Agent' || formData.role === 'Social Media Manager' || formData.role === 'Social Media Staff'} value={formData.department} onChange={e => handleDeptChange(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
-                      {isAdmin 
+                    <select disabled={!canManageStaff || formData.role === 'Coordinator' || formData.role === 'Caller' || formData.role === 'Call Center Agent' || formData.role === 'Social Media Manager' || formData.role === 'Social Media Staff'} value={formData.department} onChange={e => handleDeptChange(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
+                      {canManageStaff 
                           ? (formData.role === 'Staff' 
                               ? staffDepts.map(d => <option key={d} value={d} className="bg-slate-800 text-white">{d}</option>) 
                               : allDepts.map(d => <option key={d} value={d} className="bg-slate-800 text-white">{d}</option>)) 
@@ -385,7 +387,7 @@ export default function StaffManagement({ loggedInUser }) {
                   </div>
                 )}
 
-                {formData.department === 'Class Coordination' && formData.role !== 'System Admin' && formData.role !== 'Director' && (
+                {formData.role !== 'System Admin' && formData.role !== 'Director' && (
                   <div className="col-span-2">
                     <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Business Assignment(s)</label>
                     <div className="flex flex-wrap gap-2">
