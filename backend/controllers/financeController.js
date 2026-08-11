@@ -222,11 +222,10 @@ exports.getFinanceMatrix = async (req, res) => {
                 let subjectAllocatedFund = 0;
                 if (isEnglish) {
                     subjectAllocatedFund = englishFund;
-                } else if (payType === 1) { // MONTHLY (Keep original ratio logic for others)
-                    const weightRatio = totalBaseCombinedPrice > 0 ? (es.price / totalBaseCombinedPrice) : 0;
+                } else { 
+                    // Use price weight ratio for ALL payment types (MONTHLY, FULL, INSTALLMENT)
+                    const weightRatio = totalBaseCombinedPrice > 0 ? (es.price / totalBaseCombinedPrice) : (1 / (otherSubs.length || 1));
                     subjectAllocatedFund = othersTotalFund * weightRatio;
-                } else { // FULL or INSTALLMENT (Divided equally among other subjects)
-                    subjectAllocatedFund = othersTotalFund / (otherSubs.length || 1);
                 }
 
                 // 3. Active Months walin bedeema
