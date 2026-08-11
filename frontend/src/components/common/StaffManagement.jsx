@@ -391,25 +391,19 @@ export default function StaffManagement({ loggedInUser }) {
                   <div className="col-span-2">
                     <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Business Assignment(s)</label>
                     <div className="flex flex-wrap gap-2">
-                        {isAdmin ? (
-                            businesses.length > 0 ? businesses.map(b => {
-                                const isSelected = (formData.businessType || '').split(',').map(x => x.trim()).includes(b.name.trim());
-                                return (
-                                    <button 
-                                        key={b.id} 
-                                        type="button"
-                                        onClick={() => handleBusinessToggle(b.name)}
-                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${isSelected ? 'bg-brand-accent/20 text-brand-accent border-brand-accent/50' : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'}`}
-                                    >
-                                        {b.name}
-                                    </button>
-                                );
-                            }) : <span className="text-xs text-slate-500">No businesses available</span>
-                        ) : (
-                            (formData.businessType || '').split(',').map(b => b.trim()).filter(Boolean).map((b, i) => (
-                                <span key={i} className="px-3 py-1.5 rounded-lg text-xs font-bold bg-brand-accent/20 text-brand-accent border border-brand-accent/50">{b}</span>
-                            ))
-                        )}
+                        {businesses.length > 0 ? businesses.map(b => {
+                            const isSelected = (formData.businessType || '').split(',').map(x => x.trim()).includes(b.name.trim());
+                            return (
+                                <button 
+                                    key={b.id} 
+                                    type="button"
+                                    onClick={() => handleBusinessToggle(b.name)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${isSelected ? 'bg-brand-accent/20 text-brand-accent border-brand-accent/50' : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'}`}
+                                >
+                                    {b.name}
+                                </button>
+                            );
+                        }) : <span className="text-xs text-slate-500">No businesses available</span>}
                     </div>
                   </div>
                 )}
