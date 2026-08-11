@@ -201,18 +201,18 @@ export default function PaymentManagement({ loggedInUser }) {
         return matchesSearch && matchesBiz && matchesBatch && matchesGroup && matchesSubject && matchesDate && matchesMethod;
     };
 
-    // Calculate dynamic tab counts based on current filters
-    const tabCounts = {
-        Pending: 0,
-        Approved: 0,
-        'Free Card': 0,
-        Discount: 0,
-        Rejected: 0,
-        Adjusted: 0,
-        'Post Pay': 0,
-        'Upgrade Slips': 0,
-        Upcoming: 0,
-        Trash: 0
+    // Calculate dynamic tab counts based on unique students for current filters
+    const tabStudentSets = {
+        Pending: new Set(),
+        Approved: new Set(),
+        'Free Card': new Set(),
+        Discount: new Set(),
+        Rejected: new Set(),
+        Adjusted: new Set(),
+        'Post Pay': new Set(),
+        'Upgrade Slips': new Set(),
+        Upcoming: new Set(),
+        Trash: new Set()
     };
 
     let pendingUpgradeCount = 0;
@@ -239,10 +239,15 @@ export default function PaymentManagement({ loggedInUser }) {
             mappedTab = 'Adjusted';
         }
 
-        if (tabCounts[mappedTab] !== undefined) {
-            tabCounts[mappedTab]++;
+        if (tabStudentSets[mappedTab] !== undefined) {
+            tabStudentSets[mappedTab].add(p.studentId);
         }
     });
+
+    const tabCounts = Object.keys(tabStudentSets).reduce((acc, tab) => {
+        acc[tab] = tabStudentSets[tab].size;
+        return acc;
+    }, {});
 
     const filteredPayments = payments.filter(p => {
         if (!matchesFiltersExcludingTab(p)) return false;
