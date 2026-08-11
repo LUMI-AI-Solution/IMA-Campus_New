@@ -30,14 +30,15 @@ exports.getBusinesses = async (req, res) => {
             businesses = await prisma.business.findMany({ select: { id: true, name: true, logo: true, ringtone: true } });
         } else {
             const allBiz = await prisma.business.findMany({ select: { id: true, name: true, logo: true, ringtone: true, head_manager_id: true, ass_manager_id: true } });
+            
+            const managerBizArray = businessType ? String(businessType).split(',').map(b => b.trim().toLowerCase()).filter(Boolean) : [];
+            
             businesses = allBiz.filter(biz => {
                 const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
-                const matchesBizType = businessType && (
-                    String(biz.id) === String(businessType).trim() ||
-                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
-                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
-                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
-                );
+                const bizName = biz.name.trim().toLowerCase();
+                const bizId = String(biz.id).trim();
+                
+                const matchesBizType = managerBizArray.includes(bizName) || managerBizArray.includes(bizId);
                 return isManagerOf || matchesBizType;
             });
         }
@@ -191,26 +192,28 @@ console.log("[DEBUG] /admin/staff query:", req.query);
         }
 
         const allBiz = await prisma.business.findMany();
+        
+        const managerBizArray = managerBusinessType ? String(managerBusinessType).split(',').map(b => b.trim().toLowerCase()).filter(Boolean) : [];
+        
         const myBizs = allBiz.filter(biz => {
             const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
-            const matchesBizType = managerBusinessType && (
-                String(biz.id) === String(managerBusinessType).trim() ||
-                biz.name.toLowerCase().trim() === String(managerBusinessType).toLowerCase().trim() ||
-                biz.name.toLowerCase().includes(String(managerBusinessType).toLowerCase().trim()) ||
-                String(managerBusinessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
-            );
+            const bizName = biz.name.trim().toLowerCase();
+            const bizId = String(biz.id).trim();
+            
+            const matchesBizType = managerBizArray.includes(bizName) || managerBizArray.includes(bizId);
             return isManagerOf || matchesBizType;
         });
         
-        const myBizIds = myBizs.map(b => String(b.id));
+        const myBizIds = myBizs.map(b => String(b.id).trim());
         const myBizNames = myBizs.map(b => b.name.toLowerCase().trim());
         
         const filteredStaff = staffWithStats.filter(s => {
             if (!s.businessType) return false;
-            const sBiz = String(s.businessType).trim().toLowerCase();
-            return myBizIds.includes(sBiz) || 
-                   myBizNames.includes(sBiz) || 
-                   myBizs.some(b => b.name.toLowerCase().includes(sBiz) || sBiz.includes(b.name.toLowerCase()));
+            
+            const staffBizArray = String(s.businessType).split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
+            
+            // Check if ANY of the staff's assigned businesses match ANY of the manager's businesses
+            return staffBizArray.some(sBiz => myBizIds.includes(sBiz) || myBizNames.includes(sBiz));
         });
         
         res.status(200).json(filteredStaff);
