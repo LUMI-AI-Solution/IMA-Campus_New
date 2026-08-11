@@ -444,25 +444,9 @@ exports.getRetentionCampaignData = async (req, res) => {
                 return leadLast9 !== '' && leadLast9 === studentLast9;
             });
 
-            // If no payment records found, this student hasn't paid/enrolled yet (NON_ENROLLED)
+            // If no payment records found, this student hasn't paid/enrolled yet.
+            // For the Retention (Paid) campaign, we only want students who have enrolled at least once.
             if (studentPayments.length === 0) {
-                leadsWithGroupData.push({ 
-                    ...l, 
-                    registeredUser: null,
-                    phase: l.paidPhase || l.phase || 1,
-                    callStatus: l.paidCallStatus || 'pending',
-                    coordinationRound: l.paidRound || 1,
-                    feedback: l.paidFeedback || '',
-                    callMethod: l.paidCallMethod || null,
-                    callAttempt: l.paidCallAttempt || 1,
-                    enrolledSubjects: l.assignedSubjects && l.assignedSubjects.length > 0 ? l.assignedSubjects : ['General'], 
-                    paymentHistory: {},
-                    isUpgraded: false,
-                    firstEnrolledMonthName: null,
-                    enrolledGroupIds: [],
-                    enrollmentStatus: 'NON_ENROLLED',
-                    paymentIntention: 'NOT_DECIDED'
-                });
                 return;
             }
 
