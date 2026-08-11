@@ -336,7 +336,9 @@ export default function AISlipVerification({ loggedInUser }) {
       let url = '/ai-verification/pending-slips?includeApproved=true&';
       if (selectedBusiness) url += `businessId=${selectedBusiness}&`;
       if (selectedBatch) url += `batchId=${selectedBatch}&`;
-      if (selectedStatus !== '') url += `status=${selectedStatus}&`;
+      // Note: We deliberately do not pass selectedStatus here so that 
+      // the tabs (AI Verified, Manual Review) can show the real-time progress of slips
+      // even after their status changes (e.g. from 0 to 1).
       const res = await api.get(url);
       setPendingSlips(Array.isArray(res.data) ? res.data : []);
     } catch (err) { toast.error("Failed to fetch pending slips"); }
