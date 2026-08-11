@@ -197,12 +197,12 @@ exports.getFinanceMatrix = async (req, res) => {
             let othersTotalFund = paidAmount;
 
             if (englishSub) {
-                let englishActiveMonthCount = 1;
-                if (payType === 3 || payType === 2) {
-                    const activeGroupIds = subjectActiveMonthsMap[englishSub.name] || monthlyGroups.map(g => g.id);
-                    englishActiveMonthCount = activeGroupIds.length || 1;
-                }
-                const cap = englishSub.price * englishActiveMonthCount;
+                // If it is a full payment, englishSub.price is ALREADY the full price. 
+                // Do not multiply it by active months.
+                let cap = englishSub.price;
+                
+                // For monthly payments, englishSub.price is the monthly price.
+                // cap is englishSub.price * 1 (which is just englishSub.price).
                 englishFund = Math.min(cap, paidAmount);
                 othersTotalFund = Math.max(0, paidAmount - englishFund);
             }
