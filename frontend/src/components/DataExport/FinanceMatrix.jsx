@@ -260,7 +260,7 @@ export default function FinanceMatrix({ loggedInUser }) {
     };
 
     const exportToExcel = () => {
-        if (studentsData.length === 0) return;
+        if (processedData.length === 0) return;
 
         // Calculate bottom aggregates for ALL columns
         const colTotals = {}; // key: "mId_sub" -> { total, full, monthly, installment, hybrid }
@@ -277,7 +277,7 @@ export default function FinanceMatrix({ loggedInUser }) {
             });
         });
 
-        studentsData.forEach(stu => {
+        processedData.forEach(stu => {
             const isHybrid = stu.type === 'Hybrid';
             const isFull = stu.type === 'Full';
             const isMonthly = stu.type === 'Monthly';

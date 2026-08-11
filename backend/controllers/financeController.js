@@ -22,6 +22,14 @@ exports.getFinanceMatrix = async (req, res) => {
         const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
         const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper) || userDepartment === 'Finance';
         
+        const batchObj = await prisma.batch.findUnique({ 
+            where: { id: parsedBatchId },
+            include: { business: true }
+        });
+        if (!batchObj) return res.status(404).json({ error: "Batch not found" });
+
+        const isOLBusiness = batchObj.business && batchObj.business.name.toUpperCase().includes('O/L');
+
         if (!isAdmin) {
             const allBiz = await prisma.business.findMany();
             const myBizs = allBiz.filter(biz => {
@@ -36,8 +44,7 @@ exports.getFinanceMatrix = async (req, res) => {
             });
             const myBizIds = myBizs.map(b => b.id);
             
-            const batchObj = await prisma.batch.findUnique({ where: { id: parsedBatchId } });
-            if (!batchObj || !myBizIds.includes(batchObj.businessId)) {
+            if (!myBizIds.includes(batchObj.businessId)) {
                 return res.status(403).json({ error: "Access Denied. You are not allowed to view this batch's finance matrix." });
             }
         }
@@ -190,8 +197,13 @@ exports.getFinanceMatrix = async (req, res) => {
             // =========================================================
 
             // 1. English subject eka isolate kireema (matches 'ENGLISH', 'GENERAL ENGLISH', etc., but NOT 'English Medium')
-            const englishSub = enrolledSubjectData.find(s => s.name.toUpperCase().includes('ENGLISH') && !s.name.toUpperCase().includes('MEDIUM'));
-            const otherSubs = enrolledSubjectData.filter(s => !(s.name.toUpperCase().includes('ENGLISH') && !s.name.toUpperCase().includes('MEDIUM')));
+            let englishSub = null;
+            let otherSubs = enrolledSubjectData;
+
+            if (!isOLBusiness) {
+                englishSub = enrolledSubjectData.find(s => s.name.toUpperCase().includes('ENGLISH') && !s.name.toUpperCase().includes('MEDIUM'));
+                otherSubs = enrolledSubjectData.filter(s => !(s.name.toUpperCase().includes('ENGLISH') && !s.name.toUpperCase().includes('MEDIUM')));
+            }
 
             let englishFund = 0;
             let othersTotalFund = paidAmount;
