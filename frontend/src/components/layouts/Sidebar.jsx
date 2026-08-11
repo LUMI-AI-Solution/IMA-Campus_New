@@ -162,6 +162,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
   const isClassCoordinatorManager = isManager && loggedInUser?.department === 'Class Coordination';
   const isPhysicalManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'Ass Manager' || roleName === 'ASS_MANAGER') && isPhysicalDept;
   const isAnyManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'Ass Manager' || roleName === 'ASS_MANAGER') && !isCallCenterManager && !isSocialMediaManager;
+  const isHeadManager = (roleName === 'MANAGER' || roleName === 'Manager') && !isCallCenterManager && !isSocialMediaManager;
   const isCaller = roleName === 'CALLER' || roleName === 'Caller';
   const isCallCenterAgent = roleName === 'CALL_CENTER_AGENT' || roleName === 'Call Center Agent';
   const isStaff = !isSystemAdmin && !isManager && !isPhysicalManager && !isDeliveryDept && !isFinanceDept && !isCaller && !isCallCenterAgent && !isSocialMediaManager && !isSocialMediaStaff && roleName !== 'STUDENT' && roleName !== 'user';
@@ -218,7 +219,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
           </>
         )}
 
-        {(isAnyManager && !isSystemAdmin) && (
+        {(isHeadManager && !isSystemAdmin) && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Team Management</p>}
             <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
