@@ -55,9 +55,6 @@ export default function StaffManagement({ loggedInUser }) {
     try {
       const res = await api.get('/admin/staff/businesses');
       setBusinesses(res.data);
-      if (res.data.length > 0 && !formData.businessType) {
-        setFormData(prev => ({...prev, businessType: res.data[0].name}));
-      }
     } catch (err) {
       console.error("Error fetching businesses", err);
     }
@@ -185,7 +182,7 @@ export default function StaffManagement({ loggedInUser }) {
         firstName: '', lastName: '', phone: '', nic: '', password: '', 
         role: isAdmin ? 'Manager' : (loggedInUser?.department === 'Class Coordination' ? 'Coordinator' : (loggedInUser?.department === 'Social Media' ? 'Social Media Staff' : 'Staff')), 
         department: isAdmin ? 'Class Coordination' : loggedInUser?.department,
-        businessType: isAdmin ? (businesses[0]?.name || '') : loggedInUser?.businessType
+        businessType: ''
       });
   };
 
