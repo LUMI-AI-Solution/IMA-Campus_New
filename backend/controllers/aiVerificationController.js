@@ -62,10 +62,15 @@ const fetchGSheetTransactions = async (targetBatchId = null) => {
                 const { google } = require('googleapis');
                 
                 // Use the service account for full read/write access
-                const auth = new google.auth.GoogleAuth({
-                    keyFile: path.join(__dirname, '../gsheet-service-account.json'),
-                    scopes: ['https://www.googleapis.com/auth/spreadsheets']
-                });
+                let auth;
+                try {
+                    auth = new google.auth.GoogleAuth({
+                        keyFile: path.join(__dirname, '../gsheet-service-account.json'),
+                        scopes: ['https://www.googleapis.com/auth/spreadsheets.readonly'],
+                    });
+                } catch (e) {
+                    auth = 'AIzaSyDUfpDVy946hS3mxESKmgByMpS3UoZk6nw';
+                }
                 const sheets = google.sheets({ version: 'v4', auth });
 
                 try {
@@ -91,7 +96,8 @@ const fetchGSheetTransactions = async (targetBatchId = null) => {
                         }
                     }
                 } catch (err) {
-                    console.error("GSheet fetch error with Service Account:", err.message);
+                    console.error("GSheet fetch error:", err.message);
+                    throw new Error(`Google Sheets Access Error: ${err.message}. Please check if the Google Sheet is shared as 'Anyone with the link can view' or if the API key is valid.`);
                 }
             } else {
                 allSheetValues.push({ sheetName: 'Sheet1', values: values });
@@ -379,32 +385,36 @@ exports.startBulkVerification = async (req, res) => {
             bulkState.currentSlipId = slip.id;
             
             try {
-                const axios = require('axios');
-                const port = process.env.PORT || 5000;
-                
-                const token = req.headers.authorization;
-                
-                const response = await axios.post(`http://127.0.0.1:${port}/api/ai-verification/verify-single`, {
-                    paymentId: slip.id,
-                    statementBatch: rawBatchId || slip.batchId,
-                    autoDetect: true
-                }, {
-                    headers: { 'Authorization': token }
-                });
+                let mockResData = null;
+                let mockResStatus = 200;
+                const mockReq = {
+                    body: {
+                        paymentId: slip.id,
+                        statementBatch: rawBatchId || slip.batchId,
+                        autoDetect: true
+                    }
+                };
+                const mockRes = {
+                    status: (s) => { mockResStatus = s; return mockRes; },
+                    json: (d) => { mockResData = d; return mockRes; }
+                };
+
+                await exports.verifySinglePayment(mockReq, mockRes);
 
                 if (currentExecutionId !== execId) break; // Check again after await
 
-                if (response.data.success && response.data.status === 'VERIFIED') {
+                if (mockResStatus === 200 && mockResData && mockResData.success && mockResData.status === 'VERIFIED') {
                     bulkState.success++;
                     bulkState.logs.push(`✅ Slip #${slip.id} matched successfully.`);
                 } else {
                     bulkState.failed++;
-                    bulkState.logs.push(`⚠️ Slip #${slip.id} needs manual review.`);
+                    const errMsg = mockResData?.error || mockResData?.message || '';
+                    bulkState.logs.push(`⚠️ Slip #${slip.id} needs manual review. ${errMsg}`);
                 }
             } catch (err) {
                 if (currentExecutionId !== execId) break; // Check again after await
                 bulkState.failed++;
-                bulkState.logs.push(`❌ Slip #${slip.id} failed: ${err.response?.data?.error || err.message}`);
+                bulkState.logs.push(`❌ Slip #${slip.id} failed: ${err.message}`);
             }
 
             bulkState.processed++;
@@ -425,7 +435,7 @@ exports.startBulkVerification = async (req, res) => {
                         date: dateStr,
                         time: timeStr,
                         businessId: businessId ? String(businessId) : null,
-                        batchId: targetBatchId ? String(targetBatchId) : null,
+                        batchId: rawBatchId ? String(rawBatchId) : null,
                         processed: bulkState.processed,
                         success: bulkState.success,
                         failed: bulkState.failed
@@ -902,14 +912,29 @@ const createDeliveryForVerifiedPayment = async (payment) => {
         for (const course of courses) {
             let deliverTute = false;
             let tuteName = course.name || "Tute";
+            let tuteImage = null;
 
             if (course.groupPrices && payment.groupId) {
                 try {
                     const gps = JSON.parse(course.groupPrices);
                     const match = gps.find(g => g.groupId == payment.groupId);
                     if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                        deliverTute = true;
-                        if (match.tuteName && match.tuteName.trim()) tuteName = match.tuteName.trim();
+                        if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
+                            match.tutes.forEach(t => {
+                                const tName = t.name || t.tuteName || tuteName;
+                                const tCover = t.cover || t.tuteCover || null;
+                                deliverableCourses.push({
+                                    courseId: course.id,
+                                    tuteName: tName,
+                                    tuteImage: tCover,
+                                    quantity: 1
+                                });
+                            });
+                        } else {
+                            deliverTute = true;
+                            if (match.tuteName && match.tuteName.trim()) tuteName = match.tuteName.trim();
+                            if (match.tuteCover) tuteImage = match.tuteCover;
+                        }
                     }
                 } catch(e) {}
             }
@@ -918,6 +943,7 @@ const createDeliveryForVerifiedPayment = async (payment) => {
                 deliverableCourses.push({
                     courseId: course.id,
                     tuteName: tuteName,
+                    tuteImage: tuteImage,
                     quantity: 1
                 });
             }
@@ -1234,10 +1260,15 @@ Format:
         let confidence = 0;
         let matchedRowIndex = -1;
         let gRows = [];
+        let gSheetFetchError = null;
         // Use payment.batchId to fetch the statements
         if (payment.batchId) {
-            const gSheetData = await fetchGSheetTransactions(payment.batchId);
-            gRows = gSheetData.rows || [];
+            try {
+                const gSheetData = await fetchGSheetTransactions(payment.batchId);
+                gRows = gSheetData.rows || [];
+            } catch (err) {
+                gSheetFetchError = err.message;
+            }
         }
 
         // --- NEW RULE: Check for Batch Mismatch ---
@@ -1462,21 +1493,22 @@ Format:
                 matched: false
             });
         } else if (gRows.length === 0 && !isSumAmountMatched) {
+            const errorMsg = gSheetFetchError || `No Google Sheet Linked for this Batch. Please check the Google Sheet Vault.`;
             await prisma.payment.update({
                 where: { id: payment.id },
                 data: {
                     status: payment.status === 4 ? 4 : 0,
                     aiVerified: false,
-                    remark: `AI Skipped: No Google Sheet Linked for this Batch.\n\n--- AI Extraction ---\nBank: ${extracted.matched_bank || 'Unknown'}\nType: ${extracted.matched_slip_type || 'Unknown'}\nExtracted ID: ${extracted.transaction_id || 'null'} (Cleaned: ${cleanTxnId})\nAmount: ${extracted.amount || 'null'}\nTarget Amount: ${targetAmount}`
+                    remark: `AI Skipped: ${errorMsg}\n\n--- AI Extraction ---\nBank: ${extracted.matched_bank || 'Unknown'}\nType: ${extracted.matched_slip_type || 'Unknown'}\nExtracted ID: ${extracted.transaction_id || 'null'} (Cleaned: ${cleanTxnId})\nAmount: ${extracted.amount || 'null'}\nTarget Amount: ${targetAmount}`
                 }
             });
             return res.status(200).json({ 
                 success: false, 
                 status: 'NO_GSHEET',
-                error: `Skipped: No Google Sheet Linked. Please link a Google Sheet in the 'Google Sheet Vault' tab for this batch.`,
+                error: `Skipped: ${errorMsg}`,
                 matched: false
             });
-        } else if ((matchedRowIndex !== -1 && confidence >= 0.80) || isSumAmountMatched) {
+        } else if (matchedRowIndex !== -1 && confidence >= 0.80 && allExtractions.length === 1) {
             if (autoVerify) {
                 const breakdownText = extracted.breakdown ? `\nBreakdown:\n${extracted.breakdown}` : '';
                 const updatedPay = await prisma.payment.update({
@@ -1666,7 +1698,8 @@ Format:
                 transaction: { id: `gsheet_row_${matchedRowIndex}` }
             });
         } else {
-            const skipReason = `AI Skipped: ${matchMethod || 'No match found'}.\n\n--- AI Extraction ---\nBank: ${extracted.matched_bank || 'Unknown'}\nType: ${extracted.matched_slip_type || 'Unknown'}\nExtracted ID: ${extracted.transaction_id || 'null'} (Cleaned: ${cleanTxnId})\nAmount: ${extracted.amount || 'null'}\nTarget Amount: ${targetAmount}`;
+            const multipleSlipNote = allExtractions.length > 1 ? ' (Multiple slips require manual statement update)' : '';
+            const skipReason = `AI Skipped: ${matchMethod || 'No match found'}${multipleSlipNote}.\n\n--- AI Extraction ---\nBank: ${extracted.matched_bank || 'Unknown'}\nType: ${extracted.matched_slip_type || 'Unknown'}\nExtracted ID: ${extracted.transaction_id || 'null'} (Cleaned: ${cleanTxnId})\nExtracted Total: LKR ${totalExtractedAmount.toLocaleString()}\nTarget Amount: LKR ${targetAmount.toLocaleString()}`;
             await prisma.payment.update({
                 where: { id: payment.id },
                 data: { aiVerified: false, aiConfidence: confidence || 0.1, remark: skipReason }

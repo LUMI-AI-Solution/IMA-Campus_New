@@ -713,7 +713,7 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
                             <div className="flex items-center gap-4 min-w-0">
                                 
                                 <div className="shrink-0 w-12 h-16 bg-gray-100 dark:bg-black/40 border border-gray-200 dark:border-white/10 rounded-lg flex items-center justify-center overflow-hidden shadow-sm relative z-10 hover:z-50 transition-all duration-300 hover:scale-[2.5] hover:translate-x-4 hover:-translate-y-2 origin-left cursor-zoom-in">
-                                    <DeliveryItemImage coverName={item.tuteCover} />
+                                    <DeliveryItemImage coverName={item.tuteImage} />
                                 </div>
 
                                 <div className="flex-1 min-w-0">

@@ -136,7 +136,7 @@ exports.getBatchesByBusiness = async (req, res) => {
             include: { groups: { include: { courses: true } } }
         });
         const safeData = JSON.parse(JSON.stringify(batches, (key, value) => typeof value === 'bigint' ? value.toString() : value));
-        res.status(200).json({ batches: safeData });
+        console.log("SENDING BATCHES-FULL:", JSON.stringify(safeData).substring(0, 500)); res.status(200).json({ batches: safeData });
     } catch (error) { res.status(500).json({ error: "Failed to fetch batches" }); }
 };
 
@@ -267,10 +267,12 @@ exports.createSubject = async (req, res) => {
         // 🔥 NEW FIX: Tute Cover එකයි Name එකයි අනිත් Groups වලටත් Share කරනවා (Monthly/Full දෙකටම)
         const commonCover = parsedPrices.find(gp => gp.tuteCover)?.tuteCover;
         const commonTuteName = parsedPrices.find(gp => gp.tuteName)?.tuteName;
+        const commonTutes = parsedPrices.find(gp => gp.tutes && gp.tutes.length > 0)?.tutes;
 
         parsedPrices.forEach(gp => {
             if (!gp.tuteCover && commonCover) gp.tuteCover = commonCover;
             if (!gp.tuteName && commonTuteName) gp.tuteName = commonTuteName;
+            if ((!gp.tutes || gp.tutes.length === 0) && commonTutes) gp.tutes = commonTutes;
         });
         console.log("START MONTH IN REQ:", req.body.startMonth, "END MONTH IN REQ:", req.body.endMonth);
         console.log("UPDATE SUBJECT RECEIVED START MONTH:", req.body.startMonth, "END MONTH:", req.body.endMonth);
@@ -343,6 +345,7 @@ exports.updateSubject = async (req, res) => {
         } catch(e) {}
 
         const parsedPrices = JSON.parse(groupPrices || '[]');
+        console.log("RECEIVED GROUP PRICES: ", groupPrices);
         const excludeDiscount = isDiscountExcluded === 'true' || isDiscountExcluded === '1';
 
         const originalCourse = await prisma.course.findUnique({ where: { id: parseInt(course_id) } });
@@ -378,10 +381,12 @@ exports.updateSubject = async (req, res) => {
         // 🔥 NEW FIX: Update කරද්දීත් Tute Cover එකයි Name එකයි Share කරනවා
         const commonCover = parsedPrices.find(gp => gp.tuteCover)?.tuteCover;
         const commonTuteName = parsedPrices.find(gp => gp.tuteName)?.tuteName;
+        const commonTutes = parsedPrices.find(gp => gp.tutes && gp.tutes.length > 0)?.tutes;
 
         parsedPrices.forEach(gp => {
             if (!gp.tuteCover && commonCover) gp.tuteCover = commonCover;
             if (!gp.tuteName && commonTuteName) gp.tuteName = commonTuteName;
+            if ((!gp.tutes || gp.tutes.length === 0) && commonTutes) gp.tutes = commonTutes;
         });
 
         const finalGroupPricesStr = JSON.stringify(parsedPrices.map(gp => {

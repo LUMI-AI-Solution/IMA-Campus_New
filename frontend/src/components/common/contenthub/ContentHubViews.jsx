@@ -322,9 +322,14 @@ export default function ContentHubViews({ state, actions }) {
                                                                     setEditData(sub); setEditMode(true); 
                                                                     const gPrices = {}; 
                                                                     sub.groupPrices.forEach(p => {
+                                                                        let parsedTutes = p.tutes || [];
+                                                                        if (parsedTutes.length === 0 && p.tuteName) {
+                                                                            parsedTutes = [{ name: p.tuteName, cover: p.tuteCover || null }];
+                                                                        }
                                                                         gPrices[p.groupId] = { 
                                                                             price: p.price, deliverTute: p.deliverTute === true || p.deliverTute === 'true', 
-                                                                            tuteName: p.tuteName || '', tuteCover: p.tuteCover || null, tuteFile: null 
+                                                                            tuteName: p.tuteName || '', tuteCover: p.tuteCover || null, tuteFile: null,
+                                                                            tutes: parsedTutes
                                                                         };
                                                                     }); 
                                                                     setSelectedGroupPrices(gPrices); setShowCourseModal(true); 

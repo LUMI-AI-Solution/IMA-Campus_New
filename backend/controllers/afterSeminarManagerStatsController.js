@@ -815,10 +815,10 @@ exports.getOpenSeminarStats = async (req, res) => {
                             r1HistoricalDelays: 0, r2HistoricalDelays: 0
                         },
                         rounds: {
-                            1: { assigned: 0, contacted: 0, pending: 0, delayed: 0, answered: 0, noAnswer: 0, reject: 0, movedToR2: 0, leads: [] },
-                            2: { assigned: 0, contacted: 0, pending: 0, delayed: 0, answered: 0, noAnswer: 0, reject: 0, movedToPaid: 0, movedToNonEnrolled: 0, leads: [] },
-                            NON_ENROLLED: { assigned: 0, contacted: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0, leads: [] },
-                            PAID: { assigned: 0, contacted: 0, pending: 0, leads: [] }
+                            1: { assigned: 0, totalAssigned: 0, contacted: 0, pending: 0, delayed: 0, answered: 0, noAnswer: 0, reject: 0, movedToR2: 0, leads: [] },
+                            2: { assigned: 0, totalAssigned: 0, contacted: 0, pending: 0, delayed: 0, answered: 0, noAnswer: 0, reject: 0, movedToPaid: 0, movedToNonEnrolled: 0, leads: [] },
+                            NON_ENROLLED: { assigned: 0, totalAssigned: 0, contacted: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0, leads: [] },
+                            PAID: { assigned: 0, totalAssigned: 0, contacted: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0, delayed: 0, leads: [] }
                         }
                     };
                 }
@@ -840,6 +840,12 @@ exports.getOpenSeminarStats = async (req, res) => {
                 staffMap[staffName].overall[bucket]++;
                 if (isDelayed) staffMap[staffName].overall.delayed++;
                 
+                // Track totalAssigned per round
+                staffMap[staffName].rounds[1].totalAssigned++;
+                if (round >= 2 || (isEnrolled && round >= 2)) staffMap[staffName].rounds[2].totalAssigned++;
+                if ((round >= 3 || round === 'NON_ENROLLED') && !isEnrolled) staffMap[staffName].rounds['NON_ENROLLED'].totalAssigned++;
+                if (isEnrolled) staffMap[staffName].rounds['PAID'].totalAssigned++;
+
                 if (isContacted) staffMap[staffName].overall.contacted++;
                 if (isDirectPaid) staffMap[staffName].overall.directPaid++;
                 if (isEnrolled) {

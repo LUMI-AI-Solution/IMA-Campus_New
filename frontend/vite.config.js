@@ -1,12 +1,17 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
+import legacy from '@vitejs/plugin-legacy'
 
 export default defineConfig({
-  base: '/', // 🔥 මෙන්න මේ පේළිය අලුතෙන් දැම්මා 🔥
+  base: '/',
   plugins: [
     react(),
     tailwindcss(),
+    legacy({
+      targets: ['defaults', 'safari >= 14', 'ios >= 14'],
+      additionalLegacyPolyfills: ['regenerator-runtime/runtime']
+    }),
   ],
   build: {
     sourcemap: false, 

@@ -1,14 +1,24 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
-
-async function check() {
-    const courses = await prisma.course.findMany({
-        where: { id: { in: [258, 264, 325, 327, 329, 330] } },
-        include: { tuteStocks: true }
+async function run() {
+    const courses = await prisma.course.findMany({ where: { name: { contains: 'Political' } } });
+    const unique = [];
+    for (const c of courses) {
+        if (!unique.find(u => u.name === c.name)) {
+            unique.push(c);
+        }
+    }
+    
+    unique.forEach(c => {
+        console.log('Course Name:', c.name);
+        try {
+            const parsed = JSON.parse(c.groupPrices || '[]');
+            const g12 = parsed.find(p => p.groupId == 12 || p.groupId == "12");
+            console.log('Group 12 tutes length:', g12 ? (g12.tutes ? g12.tutes.length : 'no tutes array') : 'no group 12');
+        } catch (e) {
+            console.log('Error parsing groupPrices', e.message);
+        }
     });
-
-    console.log("Courses:");
-    console.log(JSON.stringify(courses, null, 2));
+    process.exit(0);
 }
-
-check().catch(console.error).finally(() => prisma.$disconnect());
+run();

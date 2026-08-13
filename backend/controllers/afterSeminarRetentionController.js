@@ -504,8 +504,11 @@ exports.getRetentionCampaignData = async (req, res) => {
             // Build payment history from first enrolled month to active month
             let paymentHistory = {};
             
-            // Generate paymentHistory for the last 3 months (Active month + 2 previous months)
-            let startHistoryIndex = Math.max(0, activeGroupIndex - 2);
+            // Generate paymentHistory for all months from earliestGroupIndex to active month
+            let startHistoryIndex = earliestGroupIndex;
+            if (startHistoryIndex > activeGroupIndex || startHistoryIndex >= distinctMonthlyGroups.length) {
+                startHistoryIndex = 0;
+            }
             
             baseSubjects.forEach(subjectName => {
                 paymentHistory[subjectName] = {};
@@ -557,21 +560,33 @@ exports.getRetentionCampaignData = async (req, res) => {
 
             let prevGroupPaidSubjects = [];
             let activeGroupPaidSubjects = [];
+            let firstGroupPaidSubjects = [];
             let droppedSubjectsDetails = [];
             let newlyDroppedSubjects = [];
             let isDroppedTwoMonthsPlus = false;
 
+            let firstGroupIndex = earliestGroupIndex;
+            if (firstGroupIndex >= distinctMonthlyGroups.length) firstGroupIndex = 0;
+            let firstGroup = distinctMonthlyGroups[firstGroupIndex];
+
             if (baseSubjects.size > 0 && activeGroupIndex >= 0) {
                 baseSubjects.forEach(subjectName => {
                     const activeStatus = paymentHistory[subjectName]?.[activeGroup?.name];
-                    if (activeStatus === 'PAID') {
+                    if (activeStatus === 'PAID' || activeStatus === 'PROCESSING') {
                         activeGroupPaidSubjects.push(subjectName);
                     }
 
                     if (prevGroup) {
                         const prevStatus = paymentHistory[subjectName]?.[prevGroup.name];
-                        if (prevStatus === 'PAID') {
+                        if (prevStatus === 'PAID' || prevStatus === 'PROCESSING') {
                             prevGroupPaidSubjects.push(subjectName);
+                        }
+                    }
+
+                    if (firstGroup) {
+                        const firstStatus = paymentHistory[subjectName]?.[firstGroup.name];
+                        if (firstStatus === 'PAID' || firstStatus === 'PROCESSING') {
+                            firstGroupPaidSubjects.push(subjectName);
                         }
                     }
 
@@ -628,17 +643,23 @@ exports.getRetentionCampaignData = async (req, res) => {
 
             if (hasApprovedFull) {
                 isEnrolled = true;
-            } else if (activeGroupPaidSubjects.length > 0 && newlyDroppedSubjects.length === 0) {
+            } else if (activeGroupIndex === 0) {
+                // First Month Rule: Cannot be non-enrolled
                 isEnrolled = true;
-            } else if (newlyDroppedSubjects.length > 0) {
-                isNonEnrolled = true;
-            } else if (prevGroupPaidSubjects.length === 0 && activeGroupPaidSubjects.length === 0) {
-                isNonEnrolled = true;
+                isNonEnrolled = false;
             } else {
-                isEnrolled = activeGroupPaidSubjects.length > 0;
+                // Month > 1 Rule
+                if (activeGroupPaidSubjects.length < prevGroupPaidSubjects.length) {
+                    isNonEnrolled = true;
+                } else if (prevGroupPaidSubjects.length === 0 && activeGroupPaidSubjects.length === 0) {
+                    isNonEnrolled = true;
+                } else {
+                    isEnrolled = true;
+                }
             }
 
-            l.enrollmentStatus = isEnrolled ? 'ENROLLED' : 'NON_ENROLLED';
+            l.enrollmentStatus = isNonEnrolled ? 'NON_ENROLLED' : 'ENROLLED';
+            const isDroppedOverall = firstGroupPaidSubjects.length > activeGroupPaidSubjects.length;
             const isUpgraded = studentPayments.some(p => p.remark && p.remark.includes('[UPGRADE]'));
 
             // Add first enrolled month name for frontend display
@@ -661,6 +682,7 @@ exports.getRetentionCampaignData = async (req, res) => {
                 firstEnrolledMonthName,
                 enrolledGroupIds: studentPayments.filter(p => [1, 4].includes(p.status) && p.groupId).map(p => p.groupId),
                 isDroppedTwoMonthsPlus,
+                isDroppedOverall,
                 droppedSubjectsDetails,
                 newlyDroppedSubjects,
                 prevGroupPaidSubjects,

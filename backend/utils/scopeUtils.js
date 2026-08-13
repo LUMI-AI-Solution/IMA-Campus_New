@@ -1,7 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
-const getScopedBusinessId = async (user) => {
+const getScopedBusinessId = async (user, requestedBusinessId = null) => {
     if (!user) return null;
     
     const role = (user.role || '').toUpperCase().replace(/ /g, '_');
@@ -14,7 +14,7 @@ const getScopedBusinessId = async (user) => {
     
     const userBizList = user.businessType ? String(user.businessType).split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
     
-    const matchedBiz = allBiz.find(biz => {
+    const allowedBusinesses = allBiz.filter(biz => {
         const isManagerOf = (biz.head_manager_id && String(biz.head_manager_id) === String(userId)) || 
                             (biz.ass_manager_id && String(biz.ass_manager_id) === String(userId));
         const matchesBizType = userBizList.some(b => 
@@ -26,7 +26,14 @@ const getScopedBusinessId = async (user) => {
         return isManagerOf || matchesBizType;
     });
 
-    return matchedBiz ? Number(matchedBiz.id) : null;
+    if (allowedBusinesses.length === 0) return null;
+
+    if (requestedBusinessId) {
+        const requested = allowedBusinesses.find(b => String(b.id) === String(requestedBusinessId));
+        if (requested) return Number(requested.id);
+    }
+
+    return Number(allowedBusinesses[0].id);
 };
 
 module.exports = { getScopedBusinessId };

@@ -75,13 +75,12 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
             const groups = res.data.monthlyGroups || [];
             const cMonths = res.data.coordinationMonths || [];
             setMonthlyGroups(groups);
-            setCoordinationMonths(cMonths);
 
-            if (cMonths.length > 0) {
+            if (groups.length > 0) {
                 setSelectedGroupName(prev => {
-                    const exists = cMonths.some(g => g.name === prev);
+                    const exists = groups.some(g => g.name === prev);
                     if (exists) return prev;
-                    return res.data.defaultActiveGroupName || cMonths[cMonths.length - 1].name;
+                    return res.data.defaultActiveGroupName || groups[groups.length - 1].name;
                 });
             } else {
                 setSelectedGroupName(null);
@@ -376,7 +375,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
 
     // Derived Logic
     const isLeadPending = (l) => {
-        return !l.callStatus || l.callStatus === 'pending' || l.callStatus === '';
+        return !l.effectiveCallStatus || l.effectiveCallStatus === 'pending' || l.effectiveCallStatus === '';
     };
 
     const mappedLeads = useMemo(() => {
@@ -396,18 +395,36 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                     }
                 }
             }
+            let effectiveCallStatus = 'pending';
+            if (selectedGroupName) {
+                const monthAttempts = (draftAttemptsData[l.id]?.[selectedGroupName]) || (l.attemptsData?.[selectedGroupName]) || {};
+                let highestStatus = 'pending';
+                for (let i = 4; i >= 1; i--) {
+                    if (monthAttempts[i] && monthAttempts[i].status && monthAttempts[i].status !== 'pending') {
+                        highestStatus = monthAttempts[i].status;
+                        break;
+                    }
+                }
+                effectiveCallStatus = highestStatus;
+            } else {
+                effectiveCallStatus = l.callStatus || 'pending';
+            }
 
-            return { ...l, effectiveEnrollmentStatus, effectivePaymentIntention, unpaidCount };
+            return { ...l, effectiveEnrollmentStatus, effectivePaymentIntention, unpaidCount, effectiveCallStatus };
         });
-    }, [leads, selectedGroupName, monthlyGroups]);
+    }, [leads, selectedGroupName, monthlyGroups, draftAttemptsData]);
 
     const tabCounts = useMemo(() => {
         let full = 0;
         let monthly = 0;
         let installment = 0;
         let nonEnrolled = 0;
+        let dropped = 0;
 
         mappedLeads.forEach(l => {
+            if (l.isDroppedOverall) {
+                dropped++;
+            }
             if (l.effectiveEnrollmentStatus === 'NON_ENROLLED') {
                 nonEnrolled++;
             } else {
@@ -417,14 +434,16 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
             }
         });
 
-        return { full, monthly, installment, nonEnrolled };
+        return { full, monthly, installment, nonEnrolled, dropped };
     }, [mappedLeads]);
 
     // Apply Filters for the current view
     const visibleLeads = useMemo(() => {
         let filtered = mappedLeads.filter(l => {
             let matchTab = false;
-            if (activeMainTab === 'NON_ENROLLED') {
+            if (activeMainTab === 'DROPPED') {
+                matchTab = l.isDroppedOverall === true;
+            } else if (activeMainTab === 'NON_ENROLLED') {
                 matchTab = l.effectiveEnrollmentStatus === 'NON_ENROLLED';
             } else {
                 if (l.effectiveEnrollmentStatus === 'NON_ENROLLED') {
@@ -448,11 +467,11 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         if (statusFilter === 'PENDING') {
             filtered = filtered.filter(isLeadPending);
         } else if (statusFilter === 'ANSWERED') {
-            filtered = filtered.filter(l => l.callStatus === 'answered');
+            filtered = filtered.filter(l => l.effectiveCallStatus === 'answered');
         } else if (statusFilter === 'REJECT') {
-            filtered = filtered.filter(l => l.callStatus === 'reject');
+            filtered = filtered.filter(l => l.effectiveCallStatus === 'reject');
         } else if (statusFilter === 'NO_ANSWER') {
-            filtered = filtered.filter(l => ['no_answer', 'busy', 'switch_off', 'not_connected'].includes(l.callStatus));
+            filtered = filtered.filter(l => ['no_answer', 'busy', 'switch_off', 'not_connected'].includes(l.effectiveCallStatus));
         } else if (statusFilter === 'DROPPED_2MOS') {
             filtered = filtered.filter(l => l.isDroppedTwoMonthsPlus === true);
         }
@@ -466,6 +485,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
 
     const leadsInActiveTab = useMemo(() => {
         return mappedLeads.filter(l => {
+            if (activeMainTab === 'DROPPED') return l.isDroppedOverall === true;
             if (activeMainTab === 'NON_ENROLLED') return l.effectiveEnrollmentStatus === 'NON_ENROLLED';
             if (l.effectiveEnrollmentStatus === 'NON_ENROLLED') return false;
             if (activeMainTab === 'INSTALLMENT' || activeMainTab === 'INSTALLMENTS') return l.effectivePaymentIntention === 'INSTALLMENT';
@@ -479,9 +499,9 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         let totalAssigned = phaseLeads.length;
         let pending = phaseLeads.filter(isLeadPending).length;
         
-        let answered = phaseLeads.filter(l => l.callStatus === 'answered').length;
-        let rejected = phaseLeads.filter(l => l.callStatus === 'reject').length;
-        let noAnswer = phaseLeads.filter(l => l.callStatus === 'no_answer' || l.callStatus === 'busy' || l.callStatus === 'switch_off' || l.callStatus === 'not_connected').length;
+        let answered = phaseLeads.filter(l => l.effectiveCallStatus === 'answered').length;
+        let rejected = phaseLeads.filter(l => l.effectiveCallStatus === 'reject').length;
+        let noAnswer = phaseLeads.filter(l => l.effectiveCallStatus === 'no_answer' || l.effectiveCallStatus === 'busy' || l.effectiveCallStatus === 'switch_off' || l.effectiveCallStatus === 'not_connected').length;
         
         let covered = totalAssigned - pending;
         let responseRate = totalAssigned > 0 ? ((covered / totalAssigned) * 100).toFixed(1) : 0;
@@ -561,6 +581,13 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                     >
                         <span>NON ENROLLED</span>
                         <span className={`px-2 py-0.5 rounded-full text-xs ${activeMainTab === 'NON_ENROLLED' ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-400'}`}>{tabCounts.nonEnrolled}</span>
+                    </button>
+                    <button
+                        onClick={() => { setActiveMainTab('DROPPED'); setActivePhase('ALL'); setCurrentPage(1); setStatusFilter('ALL'); }}
+                        className={`px-5 py-2.5 rounded-xl font-black uppercase tracking-wider transition-all text-xs md:text-sm flex items-center gap-2 ${activeMainTab === 'DROPPED' ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-lg shadow-purple-500/20' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                    >
+                        <span>DROPPED</span>
+                        <span className={`px-2 py-0.5 rounded-full text-xs ${activeMainTab === 'DROPPED' ? 'bg-white/20 text-white' : 'bg-white/10 text-slate-400'}`}>{tabCounts.dropped}</span>
                     </button>
                 </div>
 
@@ -670,7 +697,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                                     const monthAttempts = attemptsData[currentActiveMonth] || {};
                                     const activeAttemptData = monthAttempts[currentActiveAttempt] || { status: 'pending', method: 'direct', feedback: '' };
 
-                                    const overallCallOutcome = lead.callStatus || 'pending';
+                                    const overallCallOutcome = lead.effectiveCallStatus || 'pending';
 
                                     const mdPositionClass = (index % 2 === 0) ? "md:left-0 md:right-auto md:translate-x-0" : "md:right-0 md:left-auto md:translate-x-0";
                                     const xlPositionClass = (index % 3 === 0) ? "xl:left-0 xl:right-auto xl:translate-x-0" : (index % 3 === 1) ? "xl:left-1/2 xl:right-auto xl:-translate-x-1/2" : "xl:right-0 xl:left-auto xl:translate-x-0";
@@ -1023,7 +1050,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                                                                             {isPaid && <Check size={10} strokeWidth={3}/>}
                                                                             {isProcessing && <Loader2 size={10} className="animate-spin" />}
                                                                             {isNotPaid && <FaTimes size={10}/>}
-                                                                            {status === 'NOT PAID' ? 'DROP' : status}
+                                                                            {status === 'NOT PAID' ? 'UNPAID' : status}
                                                                         </div>
                                                                     </div>
                                                                 );

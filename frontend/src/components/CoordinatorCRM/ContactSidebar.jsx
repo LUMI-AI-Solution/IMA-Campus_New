@@ -212,7 +212,7 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                 status: statusFilter, 
                 staffId: staffFilter,
                 loggedUserRole: rawRole,
-                businessId: isManager ? (filters?.selectedBusiness || '') : '', 
+                businessId: filters?.selectedBusiness || '', 
                 batchId: filters?.selectedBatch || '',
                 searchQuery: debouncedSearchQuery,
                 assigneeGroup,

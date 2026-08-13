@@ -429,34 +429,44 @@ export default function OpenSeminarControls({ filters }) {
 
                                                 {/* Main Stats Grid */}
                                                 <div className="grid grid-cols-4 md:grid-cols-7 gap-4 w-full xl:w-3/4 flex-1 items-center">
-                                                    <div className="flex flex-col items-center">
-                                                        <span className="text-[9px] uppercase font-bold text-slate-500 mb-1 tracking-widest">Assigned</span>
-                                                        <span className="text-xl font-black text-slate-300">{staff.overall.assigned}</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-center relative group">
-                                                        <span className="text-[9px] uppercase font-bold text-indigo-400 mb-1 tracking-widest group-hover:text-indigo-300 transition-colors">Answered</span>
-                                                        <span className="text-2xl font-black text-indigo-300 drop-shadow-[0_0_12px_rgba(99,102,241,0.5)]">{staff.overall.answered}</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-center">
-                                                        <span className="text-[9px] uppercase font-bold text-slate-400 mb-1 tracking-widest">No Ans</span>
-                                                        <span className="text-lg font-black text-slate-300">{staff.overall.noAnswer}</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-center">
-                                                        <span className="text-[9px] uppercase font-bold text-amber-500 mb-1 tracking-widest">Pending</span>
-                                                        <span className="text-lg font-black text-amber-400">{staff.overall.pending}</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-center">
-                                                        <span className="text-[9px] uppercase font-bold text-red-400/80 mb-1 tracking-widest">Reject</span>
-                                                        <span className="text-lg font-black text-red-400">{staff.overall.reject}</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-center">
-                                                        <span className="text-[9px] uppercase font-bold text-rose-500 mb-1 tracking-widest">Delayed</span>
-                                                        <span className={`text-lg font-black ${isHighDelay ? 'text-rose-400 bg-rose-500/10 px-3 py-0.5 rounded-lg border border-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.3)] animate-pulse' : 'text-rose-400/80'}`}>{staff.overall.delayed}</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-center justify-center border-l border-white/10 pl-4 h-full">
-                                                        <span className="text-[9px] uppercase font-bold text-emerald-500 mb-1 tracking-widest">Conversion</span>
-                                                        <span className={`text-lg font-black px-3 py-1 rounded-xl border ${rate > 50 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.3)]' : rate > 20 ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>{rate}%</span>
-                                                    </div>
+                                                    {(() => {
+                                                        const displayOverallPending = staff.rounds && staff.rounds['1'] ? staff.rounds['1'].pending : 0;
+                                                        const displayOverallAnswered = Math.max(0, staff.overall.assigned - displayOverallPending - staff.overall.noAnswer - staff.overall.reject);
+                                                        return (
+                                                            <>
+                                                                <div className="flex flex-col items-center">
+                                                                    <span className="text-[9px] uppercase font-bold text-slate-500 mb-1 tracking-widest">Assigned</span>
+                                                                    <span className="text-xl font-black text-slate-300">{staff.overall.assigned}</span>
+                                                                </div>
+                                                                <div className="flex flex-col items-center relative group">
+                                                                    <span className="text-[9px] uppercase font-bold text-indigo-400 mb-1 tracking-widest group-hover:text-indigo-300 transition-colors">Answered</span>
+                                                                    <span className="text-2xl font-black text-indigo-300 drop-shadow-[0_0_12px_rgba(99,102,241,0.5)]">{displayOverallAnswered}</span>
+                                                                </div>
+                                                                <div className="flex flex-col items-center">
+                                                                    <span className="text-[9px] uppercase font-bold text-slate-400 mb-1 tracking-widest">No Ans</span>
+                                                                    <span className="text-lg font-black text-slate-300">{staff.overall.noAnswer}</span>
+                                                                </div>
+                                                                <div className="flex flex-col items-center">
+                                                                    <span className="text-[9px] uppercase font-bold text-amber-500 mb-1 tracking-widest">Pending</span>
+                                                                    <span className="text-lg font-black text-amber-400">{displayOverallPending}</span>
+                                                                </div>
+                                                                <div className="flex flex-col items-center">
+                                                                    <span className="text-[9px] uppercase font-bold text-red-400/80 mb-1 tracking-widest">Reject</span>
+                                                                    <span className="text-lg font-black text-red-400">{staff.overall.reject}</span>
+                                                                </div>
+                                                                <div className="flex flex-col items-center">
+                                                                    <span className="text-[9px] uppercase font-bold text-rose-500 mb-1 tracking-widest">Delayed</span>
+                                                                    <span className={`text-lg font-black ${isHighDelay ? 'text-rose-400 bg-rose-500/10 px-3 py-0.5 rounded-lg border border-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.3)] animate-pulse' : 'text-rose-400/80'}`}>{staff.overall.delayed}</span>
+                                                                </div>
+                                                                <div className="flex flex-col items-center border-l border-white/5 pl-4">
+                                                                    <span className="text-[9px] uppercase font-bold text-emerald-500 mb-1 tracking-widest">Conversion</span>
+                                                                    <div className="bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md flex items-center justify-center min-w-[3rem]">
+                                                                        <span className="text-sm font-black text-emerald-400">{staff.overall.assigned > 0 ? Math.round((staff.overall.enrolled / staff.overall.assigned) * 100) : 0}%</span>
+                                                                    </div>
+                                                                </div>
+                                                            </>
+                                                        );
+                                                    })()}
                                                 </div>
                                             </div>
 
@@ -523,6 +533,14 @@ export default function OpenSeminarControls({ filters }) {
                                                             let answerColor = 'text-indigo-300';
                                                             let answerBg = 'bg-indigo-500/10 border-indigo-500/20';
 
+                                                            let displayAssigned = roundData.totalAssigned !== undefined ? roundData.totalAssigned : roundData.assigned;
+                                                            let displayAnswered = round === 'PAID' ? roundData.answered : Math.max(0, displayAssigned - roundData.pending - roundData.noAnswer - roundData.reject);
+
+                                                            if (round === '1') {
+                                                                displayAssigned = staff.overall.assigned;
+                                                                displayAnswered = Math.max(0, displayAssigned - roundData.pending - roundData.noAnswer - roundData.reject);
+                                                            }
+
                                                             if (round === 'NON_ENROLLED') {
                                                                 title = 'NON ENROLLED';
                                                                 iconColor = 'text-slate-400';
@@ -562,11 +580,11 @@ export default function OpenSeminarControls({ filters }) {
                                                                         <div className="grid grid-cols-2 gap-2">
                                                                             <div className="bg-black/20 border border-white/5 p-2 rounded-xl flex flex-col justify-center items-center">
                                                                                 <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider mb-0.5">Assigned</span>
-                                                                                <span className="text-sm font-black text-slate-200">{roundData.assigned}</span>
+                                                                                <span className="text-sm font-black text-slate-200">{displayAssigned}</span>
                                                                             </div>
                                                                             <div className={`${answerBg} border p-2 rounded-xl flex flex-col justify-center items-center relative overflow-hidden`}>
                                                                                 <span className={`text-[9px] ${iconColor} opacity-80 font-bold uppercase tracking-wider mb-0.5`}>Answered</span>
-                                                                                <span className={`text-sm font-black ${answerColor}`}>{roundData.answered}</span>
+                                                                                <span className={`text-sm font-black ${answerColor}`}>{displayAnswered}</span>
                                                                             </div>
                                                                         </div>
                                                                         <div className="grid grid-cols-3 gap-2">
@@ -601,7 +619,7 @@ export default function OpenSeminarControls({ filters }) {
                                                                     
                                                                     {/* Mini Progress Bar */}
                                                                     <div className="w-full bg-black/40 rounded-full h-1 mt-4 overflow-hidden relative z-10">
-                                                                        <div className={`h-1 rounded-full ${roundData.assigned > 0 ? (roundData.answered === roundData.assigned ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-amber-500 shadow-[0_0_8px_#f59e0b]') : 'bg-transparent'}`} style={{ width: `${roundData.assigned > 0 ? (roundData.answered / roundData.assigned) * 100 : 0}%` }}></div>
+                                                                        <div className={`h-1 rounded-full ${displayAssigned > 0 ? (displayAnswered === displayAssigned ? 'bg-emerald-500 shadow-[0_0_8px_#10b981]' : 'bg-amber-500 shadow-[0_0_8px_#f59e0b]') : 'bg-transparent'}`} style={{ width: `${displayAssigned > 0 ? (displayAnswered / displayAssigned) * 100 : 0}%` }}></div>
                                                                     </div>
                                                                 </div>
                                                             );

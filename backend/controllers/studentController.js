@@ -426,9 +426,20 @@ exports.payhereNotify = async (req, res) => {
                                         const gps = JSON.parse(course.groupPrices);
                                         const match = gps.find(g => g.groupId == currentGroupId);
                                         if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                                            deliverTute = true;
-                                            if (match.tuteName) tuteName = match.tuteName;
-                                            if (match.tuteCover) tuteImage = match.tuteCover;
+                                            if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
+                                                match.tutes.forEach(t => {
+                                                    const tName = t.name || t.tuteName || course.name || "Tute";
+                                                    const tCover = t.cover || t.tuteCover || null;
+                                                    const key = `${course.id}_${tName}`;
+                                                    if (!deliverableCoursesMap.has(key)) {
+                                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tName, tuteImage: tCover, quantity: 1 });
+                                                    }
+                                                });
+                                            } else {
+                                                deliverTute = true;
+                                                if (match.tuteName) tuteName = match.tuteName;
+                                                if (match.tuteCover) tuteImage = match.tuteCover;
+                                            }
                                         }
                                     } catch(e) {}
                                 }
@@ -618,9 +629,20 @@ exports.enrollStudent = async (req, res) => {
                                         const gps = JSON.parse(course.groupPrices);
                                         const match = gps.find(g => g.groupId == currentGroupId);
                                         if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                                            deliverTute = true;
-                                            if (match.tuteName) tuteName = match.tuteName;
-                                            if (match.tuteCover) tuteImage = match.tuteCover;
+                                            if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
+                                                match.tutes.forEach(t => {
+                                                    const tName = t.name || t.tuteName || course.name || "Tute";
+                                                    const tCover = t.cover || t.tuteCover || null;
+                                                    const key = `${course.id}_${tName}`;
+                                                    if (!deliverableCoursesMap.has(key)) {
+                                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tName, tuteImage: tCover, quantity: 1 });
+                                                    }
+                                                });
+                                            } else {
+                                                deliverTute = true;
+                                                if (match.tuteName) tuteName = match.tuteName;
+                                                if (match.tuteCover) tuteImage = match.tuteCover;
+                                            }
                                         }
                                     } catch(e) {}
                                 }
@@ -792,9 +814,20 @@ exports.enrollStudent = async (req, res) => {
                                         const gps = JSON.parse(course.groupPrices);
                                         const match = gps.find(g => g.groupId == currentGroupId);
                                         if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                                            deliverTute = true;
-                                            if (match.tuteName) tuteName = match.tuteName;
-                                            if (match.tuteCover) tuteImage = match.tuteCover;
+                                            if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
+                                                match.tutes.forEach(t => {
+                                                    const tName = t.name || t.tuteName || course.name || "Tute";
+                                                    const tCover = t.cover || t.tuteCover || null;
+                                                    const key = `${course.id}_${tName}`;
+                                                    if (!deliverableCoursesMap.has(key)) {
+                                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tName, tuteImage: tCover, quantity: 1 });
+                                                    }
+                                                });
+                                            } else {
+                                                deliverTute = true;
+                                                if (match.tuteName) tuteName = match.tuteName;
+                                                if (match.tuteCover) tuteImage = match.tuteCover;
+                                            }
                                         }
                                     } catch(e) {}
                                 }
@@ -908,8 +941,14 @@ exports.getStudentClassroom = async (req, res) => {
                         
                         // Fallback: match by code/name ONLY against subjects paid for in THIS group
                         for (const paidCourse of paidCoursesInThisGroup) {
-                            if (c.code && paidCourse.code === c.code) return true;
-                            if (c.name && paidCourse.name === c.name) return true;
+                            const nameMatches = c.name && paidCourse.name && c.name.trim().toLowerCase() === paidCourse.name.trim().toLowerCase();
+                            const codeMatches = c.code && paidCourse.code && c.code.trim().toLowerCase() === paidCourse.code.trim().toLowerCase();
+                            
+                            if (c.code && paidCourse.code) {
+                                if (codeMatches && nameMatches) return true;
+                            } else if (nameMatches) {
+                                return true;
+                            }
                         }
                         
                         return false;
@@ -1384,9 +1423,20 @@ exports.uploadDueSlip = async (req, res) => {
                                         const gps = JSON.parse(course.groupPrices);
                                         const match = gps.find(g => g.groupId == currentGroupId);
                                         if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                                            deliverTute = true;
-                                            if (match.tuteName) tuteName = match.tuteName;
-                                            if (match.tuteCover) tuteImage = match.tuteCover;
+                                            if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
+                                                match.tutes.forEach(t => {
+                                                    const tName = t.name || t.tuteName || course.name || "Tute";
+                                                    const tCover = t.cover || t.tuteCover || null;
+                                                    const key = `${course.id}_${tName}`;
+                                                    if (!deliverableCoursesMap.has(key)) {
+                                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tName, tuteImage: tCover, quantity: 1 });
+                                                    }
+                                                });
+                                            } else {
+                                                deliverTute = true;
+                                                if (match.tuteName) tuteName = match.tuteName;
+                                                if (match.tuteCover) tuteImage = match.tuteCover;
+                                            }
                                         }
                                     } catch(e) {}
                                 }
@@ -1797,23 +1847,34 @@ exports.payDueOnline = async (req, res) => {
 
                         let currentGroupId = updatedPayment.groupId;
                         if (course.groupPrices && currentGroupId) {
-                            try {
-                                const gps = JSON.parse(course.groupPrices);
-                                const match = gps.find(g => g.groupId == currentGroupId);
-                                if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                                    deliverTute = true;
-                                    if (match.tuteName) tuteName = match.tuteName;
-                                    if (match.tuteCover) tuteImage = match.tuteCover;
+                                    try {
+                                        const gps = JSON.parse(course.groupPrices);
+                                        const match = gps.find(g => g.groupId == currentGroupId);
+                                        if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
+                                            if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
+                                                match.tutes.forEach(t => {
+                                                    const tName = t.name || t.tuteName || course.name || "Tute";
+                                                    const tCover = t.cover || t.tuteCover || null;
+                                                    const key = `${course.id}_${tName}`;
+                                                    if (!deliverableCoursesMap.has(key)) {
+                                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tName, tuteImage: tCover, quantity: 1 });
+                                                    }
+                                                });
+                                            } else {
+                                                deliverTute = true;
+                                                if (match.tuteName) tuteName = match.tuteName;
+                                                if (match.tuteCover) tuteImage = match.tuteCover;
+                                            }
+                                        }
+                                    } catch(e) {}
                                 }
-                            } catch(e) {}
-                        }
-                        
-                        if (deliverTute) {
-                            const key = `${course.id}_${tuteName}`;
-                            if (!deliverableCoursesMap.has(key)) {
-                                deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tuteName, tuteImage: typeof tuteImage !== 'undefined' ? tuteImage : null, quantity: 1 });
-                            }
-                        }
+                                
+                                if (deliverTute) {
+                                    const key = `${course.id}_${tuteName}`;
+                                    if (!deliverableCoursesMap.has(key)) {
+                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tuteName, tuteImage: typeof tuteImage !== 'undefined' ? tuteImage : null, quantity: 1 });
+                                    }
+                                }
                 }
                 const deliverableCourses = Array.from(deliverableCoursesMap.values());
 

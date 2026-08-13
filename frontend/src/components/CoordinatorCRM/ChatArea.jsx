@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, useContext } from 'react';
+import { ReactTransliterate } from 'react-transliterate';
+import 'react-transliterate/dist/index.css';
 import axios from '../../api/axios';
-import { FaPaperPlane, FaPaperclip, FaSun, FaMoon, FaMicrophone, FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic, FaSmile, FaStop, FaPhoneAlt, FaChevronDown } from 'react-icons/fa';
+import { FaPaperPlane, FaPaperclip, FaSun, FaMoon, FaMicrophone, FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic, FaSmile, FaStop, FaPhoneAlt, FaChevronDown, FaGoogle } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import englishWords from '../../utils/englishWords.json';
 import OutboundDialerModal from '../AfterSeminarCRM/CRM/OutboundDialerModal';
@@ -82,6 +84,7 @@ export default function ChatArea({ selectedLead, businessId }) {
   
   const [localReactions, setLocalReactions] = useState({});
   const [enableSinhala, setEnableSinhala] = useState(false);
+  const [enableGoogleSinhala, setEnableGoogleSinhala] = useState(false);
 
   const [showQuickReplies, setShowQuickReplies] = useState(false);
   const [quickReplies, setQuickReplies] = useState([]);
@@ -809,7 +812,8 @@ export default function ChatArea({ selectedLead, businessId }) {
           )}
 
           <div className="p-3.5 flex items-end gap-3">
-                <button type="button" onClick={() => setEnableSinhala(!enableSinhala)} title="Toggle Sinhala Auto-Type" className={`p-3.5 rounded-xl transition-colors font-black text-sm ${enableSinhala ? (isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-600') : (isDark ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200')}`}>අ</button>
+                <button type="button" onClick={() => { setEnableSinhala(!enableSinhala); setEnableGoogleSinhala(false); }} title="Toggle Offline Sinhala" className={`p-3.5 rounded-xl transition-colors font-black text-sm ${enableSinhala ? (isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-600') : (isDark ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200')}`}>අ</button>
+                <button type="button" onClick={() => { setEnableGoogleSinhala(!enableGoogleSinhala); setEnableSinhala(false); }} title="Toggle Google Sinhala" className={`p-3.5 rounded-xl transition-colors text-sm ${enableGoogleSinhala ? (isDark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600') : (isDark ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200')}`}><FaGoogle size={14}/></button>
                 <button onClick={()=>setShowQuickReplies(true)} title="Manage Quick Replies" className={`p-3.5 rounded-xl transition-colors ${isDark ? 'text-blue-400 hover:bg-white/10' : 'text-blue-600 hover:bg-slate-200'}`}><FaMagic size={18}/></button>
                 <label className={`cursor-pointer p-3.5 rounded-xl transition-colors ${isDark ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200'}`}>
                     <FaPaperclip size={18}/>
@@ -821,6 +825,57 @@ export default function ChatArea({ selectedLead, businessId }) {
                         <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
                         <span className="text-red-400 font-bold text-sm flex-1">{formatTime(recordingDuration)}</span>
                         <button onClick={stopRecording} className="p-2 text-red-400 hover:text-white hover:bg-red-500 rounded-full transition-colors"><FaStop/></button>
+                    </div>
+                ) : enableGoogleSinhala ? (
+                    <div className="flex-1 flex relative">
+                        <style>{`
+                            .google-sinhala-container > ul {
+                                background-color: ${isDark ? '#1e293b' : '#ffffff'} !important;
+                                border: 1px solid ${isDark ? '#334155' : '#e2e8f0'} !important;
+                                border-radius: 0.75rem !important;
+                                overflow: hidden !important;
+                                box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2) !important;
+                                bottom: 100% !important;
+                                top: auto !important;
+                                margin-bottom: 8px !important;
+                                padding: 0 !important;
+                            }
+                            .google-sinhala-container > ul > li {
+                                padding: 10px 16px !important;
+                                color: ${isDark ? '#f8fafc' : '#0f172a'} !important;
+                                font-family: 'Inter', sans-serif !important;
+                                border-bottom: 1px solid ${isDark ? '#334155' : '#f1f5f9'} !important;
+                            }
+                            .google-sinhala-container > ul > li:last-child {
+                                border-bottom: none !important;
+                            }
+                            .google-sinhala-container > ul > li[style*="background-color"],
+                            .google-sinhala-container > ul > li:hover {
+                                background-color: ${isDark ? '#3b82f6' : '#eff6ff'} !important;
+                                color: ${isDark ? '#ffffff' : '#1d4ed8'} !important;
+                            }
+                        `}</style>
+                        <ReactTransliterate
+                            value={newMessage}
+                            onChangeText={(text) => {
+                                const fakeEvent = { target: { value: text } };
+                                handleInputChange(fakeEvent);
+                            }}
+                            lang="si"
+                            maxOptions={5}
+                            containerClassName="google-sinhala-container flex-1 flex w-full relative"
+                            activeItemStyles={{}}
+                            containerStyles={{}}
+                            renderComponent={(props) => (
+                                <textarea 
+                                    {...props} 
+                                    rows={Math.min(4, newMessage.split('\n').length)} 
+                                    className={`flex-1 w-full px-5 py-3.5 rounded-2xl border focus:outline-none resize-none overflow-y-auto custom-scrollbar text-[15px] shadow-inner ${isDark ? 'bg-[#0f172a] text-white border-slate-700 focus:border-emerald-600 placeholder-slate-500' : 'bg-white text-slate-800 border-slate-300 focus:border-emerald-500 placeholder-slate-400'}`} 
+                                />
+                            )}
+                            onKeyDown={handleKeyDown}
+                            placeholder="Type with Google Sinhala..."
+                        />
                     </div>
                 ) : (
                     <textarea value={newMessage} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder="Type a message or / for quick replies..." rows={Math.min(4, newMessage.split('\n').length)} className={`flex-1 px-5 py-3.5 rounded-2xl border focus:outline-none resize-none overflow-y-auto custom-scrollbar text-[15px] shadow-inner ${isDark ? 'bg-[#0f172a] text-white border-slate-700 focus:border-emerald-600 placeholder-slate-500' : 'bg-white text-slate-800 border-slate-300 focus:border-emerald-500 placeholder-slate-400'}`} />

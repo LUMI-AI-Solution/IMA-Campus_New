@@ -5,3 +5,4 @@ backend/public/uploads/social-media/*.mp4
 *.zip
 zoom-yt-uploader/release/
 backend/backups/*.sql
+backend/gsheet-service-account.json

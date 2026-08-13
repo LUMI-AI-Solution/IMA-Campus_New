@@ -569,17 +569,28 @@ export default function AISlipVerification({ loggedInUser }) {
   };
 
   const handleClearTable = async () => {
-      if (!selectedMonth) return toast.error("Please select a target month to clear.");
-      if (!window.confirm(`Are you sure you want to clear all imported bank statements for ${selectedMonth}?`)) return;
+      if (!window.confirm(`Are you sure you want to clear the data? If you are using a Google Sheet, this will unlink the sheet for the selected batch.`)) return;
 
-      try {
-          await api.delete(`/ai-verification/bank-statements/${selectedMonth}`);
-          toast.success("Successfully cleared statements.");
-          fetchMonthTransactions(selectedBatch);
-      } catch (err) {
-          console.error(err);
-          toast.error("Failed to clear statements.");
+      if (selectedFolder && selectedBatch) {
+          const t = {...gsheetTree};
+          if (t[selectedFolder]) {
+              t[selectedFolder] = {...t[selectedFolder]};
+              t[selectedFolder][selectedBatch] = [];
+              setGsheetTree(t);
+              await saveGsheetTree(t);
+          }
+          setStatementTransactions([]);
       }
+
+      if (selectedMonth) {
+          try {
+              await api.delete(`/ai-verification/bank-statements/${selectedMonth}`);
+          } catch (err) {
+              console.error(err);
+          }
+      }
+      
+      toast.success("Successfully cleared data.");
   };
 
   const handleUploadStatement = async () => {
@@ -1256,11 +1267,15 @@ export default function AISlipVerification({ loggedInUser }) {
                         <div className="flex gap-2">
                             <input 
                                 type="text" 
-                                placeholder="https://docs.google.com/spreadsheets/d/..." 
+                                placeholder="Paste Google Sheet URL here..." 
                                 value={(gsheetTree[selectedFolder] && Array.isArray(gsheetTree[selectedFolder][selectedBatch]) ? gsheetTree[selectedFolder][selectedBatch][0] : gsheetTree[selectedFolder][selectedBatch]) || ''}
                                 onChange={(e) => {
                                     const t = {...gsheetTree};
-                                    if(!t[selectedFolder]) t[selectedFolder] = {};
+                                    if(!t[selectedFolder]) {
+                                        t[selectedFolder] = {};
+                                    } else {
+                                        t[selectedFolder] = {...t[selectedFolder]};
+                                    }
                                     
                                     // Extract sheet ID from url if full URL is pasted
                                     let sheetId = e.target.value.trim().replace(/\n/g, '');

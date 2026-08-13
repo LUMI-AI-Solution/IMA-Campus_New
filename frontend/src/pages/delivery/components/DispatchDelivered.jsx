@@ -348,7 +348,7 @@ export default function DispatchDelivered({ searchQuery }) {
                                         index === self.findIndex((t) => t.tuteName === item.tuteName)
                                     ).map((item, i) => (
                                         <div key={i} className="flex items-center gap-4 bg-white/60 dark:bg-black/20 backdrop-blur-md border border-gray-200 dark:border-white/5 p-3.5 rounded-2xl transition-colors hover:bg-white/80 dark:hover:bg-white/5 shadow-sm">
-                                            <DeliveryItemImage coverName={item.tuteCover} />
+                                            <DeliveryItemImage coverName={item.tuteImage} />
                                             <div className="overflow-hidden">
                                                 <p className="text-sm font-black text-gray-900 dark:text-white truncate transition-colors mb-1">{item.tuteName} <span className={viewType === 'Delivered' ? 'text-emerald-600 dark:text-emerald-400' : 'text-brand-accent'}>x{item.quantity}</span></p>
                                                 <p className="text-[10px] text-gray-500 dark:text-slate-400 font-bold uppercase tracking-widest truncate transition-colors">{item.courseName}</p>

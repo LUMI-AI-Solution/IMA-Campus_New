@@ -223,6 +223,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Team Management</p>}
             <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
+            <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
           </>
         )}
 
@@ -286,6 +287,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Team & Performance</p>}
             <NavLink to="/call-center/dashboard/staff" className={getNavLinkClass}><Users size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Manage</span>}</NavLink>
             <NavLink to="/call-center/dashboard/progress" className={getNavLinkClass}><Activity size={18} className="text-pink-400" /> {isSidebarOpen && <span className="truncate text-sm">Callers Progress</span>}</NavLink>
+            <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
           </>
         )}
 

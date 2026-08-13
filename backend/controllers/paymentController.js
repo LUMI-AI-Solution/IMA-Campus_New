@@ -1,4 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
+const jwt = require('jsonwebtoken');
+const { markPaymentOnGSheet } = require('../utils/gsheetUpdater');
 const prisma = new PrismaClient();
 
 const safeJson = (data) => JSON.parse(JSON.stringify(data, (key, value) => typeof value === 'bigint' ? value.toString() : value));
@@ -177,12 +179,26 @@ const getDeliverableCoursesForPayment = async (payment, courses) => {
                 const match = gps.find(g => g.groupId == payment.groupId);
                 if (match) {
                     if (match.deliverTute === true || match.deliverTute === 'true') {
-                        deliverTute = true;
-                        if (match.tuteName && match.tuteName.trim()) {
-                            tuteName = match.tuteName.trim();
-                        }
-                        if (match.tuteCover && match.tuteCover.trim()) {
-                            tuteImage = match.tuteCover.trim();
+                        if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
+                            match.tutes.forEach(t => {
+                                const tName = t.name || t.tuteName || tuteName;
+                                const tCover = t.cover || t.tuteCover || null;
+                                const key = `${course.id}_${tName}`;
+                                if (!deliverableCoursesMap.has(key)) {
+                                    deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tName, tuteImage: tCover, quantity: 1 });
+                                } else {
+                                    const existing = deliverableCoursesMap.get(key);
+                                    existing.quantity += 1;
+                                }
+                            });
+                        } else {
+                            deliverTute = true;
+                            if (match.tuteName && match.tuteName.trim()) {
+                                tuteName = match.tuteName.trim();
+                            }
+                            if (match.tuteCover && match.tuteCover.trim()) {
+                                tuteImage = match.tuteCover.trim();
+                            }
                         }
                     }
                 }
@@ -193,6 +209,9 @@ const getDeliverableCoursesForPayment = async (payment, courses) => {
             const key = `${course.id}_${tuteName}`;
             if (!deliverableCoursesMap.has(key)) {
                 deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tuteName, tuteImage: typeof tuteImage !== 'undefined' ? tuteImage : null, quantity: 1 });
+            } else {
+                const existing = deliverableCoursesMap.get(key);
+                existing.quantity += 1;
             }
         }
     }
@@ -596,6 +615,11 @@ exports.paymentAction = async (req, res) => {
             }
         }
 
+        // Trigger GSheet sync asynchronously for Approve/Reject/Free Card/Discount
+        if (['Approve', 'Free Card', 'Discount', 'Reject'].includes(action)) {
+            markPaymentOnGSheet(paymentId).catch(e => console.error("GSheet Update Error:", e));
+        }
+
         res.status(200).json({ message: `Payment processed as ${action}` });
     } catch (error) {
         res.status(500).json({ error: "Action failed" });
@@ -740,6 +764,9 @@ exports.approveInstallment = async (req, res) => {
                 console.error("🔥 Auto-Generate Next Installment Error:", e);
             }
         }
+
+        // Trigger GSheet sync asynchronously
+        markPaymentOnGSheet(paymentId).catch(e => console.error("GSheet Update Error in approveInstallment:", e));
 
         res.status(200).json({ message: "Installment approved successfully" });
     } catch (error) {
@@ -931,6 +958,8 @@ exports.getStaffStatsReport = async (req, res) => {
             where.status = 2;
         } else if (action === 'postpay') {
             where.status = 4;
+        } else if (['quick_approve', 'discount_approve', 'adjust_approve', 'upgrade_approve', 'installment_approve'].includes(action)) {
+            where.status = 1;
         }
 
         const payments = await prisma.payment.findMany({
@@ -949,7 +978,12 @@ exports.getStaffStatsReport = async (req, res) => {
             aiVerified: 0,
             manualVerified: 0,
             rejected: 0,
-            total: payments.length
+            total: payments.length,
+            quickApprove: 0,
+            discountApprove: 0,
+            adjustApprove: 0,
+            upgradeApprove: 0,
+            installmentApprove: 0
         };
 
         const reportData = payments.map(p => {
@@ -957,6 +991,31 @@ exports.getStaffStatsReport = async (req, res) => {
             if (isAi && p.status === 1) summary.aiVerified++;
             else if (!isAi && p.status === 1) summary.manualVerified++;
             else if (p.status === 2) summary.rejected++;
+
+            let approveType = null;
+            if (p.status === 1) {
+                const isUpgrade = p.remark && p.remark.includes('[UPGRADE]');
+                const isAdjusted = parseFloat(p.excessAmount || 0) > 0 || parseFloat(p.arrearsAmount || 0) > 0;
+                const isInstallment = p.payment_type === 2;
+                const isDiscount = p.remark && p.remark.includes('Custom Breakdown');
+                
+                if (isUpgrade) {
+                    approveType = 'Upgrade Approve';
+                    summary.upgradeApprove++;
+                } else if (isAdjusted) {
+                    approveType = 'Adjust Approve';
+                    summary.adjustApprove++;
+                } else if (isInstallment) {
+                    approveType = 'Installment Approve';
+                    summary.installmentApprove++;
+                } else if (isDiscount) {
+                    approveType = 'Discount Approve';
+                    summary.discountApprove++;
+                } else {
+                    approveType = 'Quick Approve';
+                    summary.quickApprove++;
+                }
+            }
 
             const verifiedBy = p.actionedUser 
                 ? `${p.actionedUser.firstName} ${p.actionedUser.lastName || ''}`.trim() 
@@ -972,13 +1031,28 @@ exports.getStaffStatsReport = async (req, res) => {
                 batchName: p.batch?.name || '-',
                 businessName: p.business?.name || '-',
                 createdAt: p.created_at,
-                updatedAt: p.updatedAt
+                updatedAt: p.updatedAt,
+                approveType
             };
         });
 
+        // Filter the final data if a specific sub-approval type was requested
+        let finalReportData = reportData;
+        if (action === 'quick_approve') {
+            finalReportData = reportData.filter(r => r.approveType === 'Quick Approve');
+        } else if (action === 'discount_approve') {
+            finalReportData = reportData.filter(r => r.approveType === 'Discount Approve');
+        } else if (action === 'adjust_approve') {
+            finalReportData = reportData.filter(r => r.approveType === 'Adjust Approve');
+        } else if (action === 'upgrade_approve') {
+            finalReportData = reportData.filter(r => r.approveType === 'Upgrade Approve');
+        } else if (action === 'installment_approve') {
+            finalReportData = reportData.filter(r => r.approveType === 'Installment Approve');
+        }
+
         res.status(200).json({
             success: true,
-            data: reportData,
+            data: finalReportData,
             summary
         });
     } catch (error) {

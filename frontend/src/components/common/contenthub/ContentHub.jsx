@@ -70,7 +70,7 @@ export default function ContentHub() {
   useEffect(() => {
     if (postBizId === 'all' || !postBizId) { setPostBatches([]); return; }
     if (!isSystemAdmin) { setPostBatches(batches); return; }
-    api.get(`/admin/batches/${postBizId}`).then(res => {
+    api.get(`/admin/batches/${postBizId}?t=${Date.now()}`).then(res => {
         const fetched = res.data.batches || res.data || [];
         setPostBatches(Array.isArray(fetched) ? fetched : []);
     }).catch(e => console.error(e));
@@ -146,7 +146,7 @@ export default function ContentHub() {
               }
           } else {
               try {
-                  const batchRes = await api.get('/admin/manager/batches-full');
+                  const batchRes = await api.get(`/admin/manager/batches-full?t=${Date.now()}`);
                   const fetchedBatches = extractArray(batchRes.data);
                   setBatches(fetchedBatches);
                   if (fetchedBatches.length > 0 && fetchedBatches[0].business) {
@@ -173,11 +173,11 @@ export default function ContentHub() {
           const targetBizId = bizId || activeBusiness?.id;
           let fetchedBatches = [];
           if (targetBizId) {
-              const res = await api.get(`/admin/batches/${targetBizId}`);
+              const res = await api.get(`/admin/batches/${targetBizId}?t=${Date.now()}`);
               const data = res.data.batches || res.data;
               fetchedBatches = Array.isArray(data) ? data : [];
           } else {
-              const res = await api.get('/admin/manager/batches-full');
+              const res = await api.get(`/admin/manager/batches-full?t=${Date.now()}`);
               const data = res.data.batches || res.data;
               fetchedBatches = Array.isArray(data) ? data : [];
           }
@@ -215,6 +215,7 @@ export default function ContentHub() {
                   deliverTute: gpData.deliverTute === true || gpData.deliverTute === 'true', 
                   tuteName: gpData.tuteName || '',
                   tuteCover: gpData.tuteCover || null,
+                  tutes: gpData.tutes || [],
                   lecturerImage: gpData.lecturerImage || null
               };
 
@@ -557,6 +558,7 @@ export default function ContentHub() {
           deliverTute: selectedGroupPrices[k].deliverTute,
           tuteName: selectedGroupPrices[k].tuteName,
           tuteCover: selectedGroupPrices[k].tuteCover,
+          tutes: selectedGroupPrices[k].tutes || [],
           lecturerImage: selectedGroupPrices[k].lecturerImage
       }));
 

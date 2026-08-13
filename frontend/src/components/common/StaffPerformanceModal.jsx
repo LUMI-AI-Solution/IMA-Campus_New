@@ -41,7 +41,10 @@ const getAvatarColor = (str) => {
 
 export default function StaffPerformanceModal({ onClose }) {
     const [reportData, setReportData] = useState([]);
-    const [summary, setSummary] = useState({ aiVerified: 0, manualVerified: 0, rejected: 0, total: 0 });
+    const [summary, setSummary] = useState({ 
+        aiVerified: 0, manualVerified: 0, rejected: 0, total: 0,
+        quickApprove: 0, discountApprove: 0, adjustApprove: 0, upgradeApprove: 0, installmentApprove: 0
+    });
     const [loading, setLoading] = useState(false);
     
     // Filters (Default to today)
@@ -59,7 +62,10 @@ export default function StaffPerformanceModal({ onClose }) {
             });
             if (res.data) {
                 setReportData(res.data.data || []);
-                setSummary(res.data.summary || { aiVerified: 0, manualVerified: 0, rejected: 0, total: 0 });
+                setSummary(res.data.summary || { 
+                    aiVerified: 0, manualVerified: 0, rejected: 0, total: 0,
+                    quickApprove: 0, discountApprove: 0, adjustApprove: 0, upgradeApprove: 0, installmentApprove: 0
+                });
             }
         } catch (error) {
             console.error("Failed to fetch staff stats report", error);
@@ -72,13 +78,24 @@ export default function StaffPerformanceModal({ onClose }) {
         fetchStaffStats();
     }, [verificationMethod, actionFilter]);
 
-    // Calculate Leaderboard Data
-    const staffBreakdown = Object.entries(reportData.filter(r => !r.isAiVerified && r.verifiedBy !== 'Unknown').reduce((acc, row) => {
-        acc[row.verifiedBy] = (acc[row.verifiedBy] || 0) + 1;
+    // Calculate Leaderboard Data with Breakdown
+    const staffBreakdownRaw = reportData.filter(r => !r.isAiVerified && r.verifiedBy !== 'Unknown').reduce((acc, row) => {
+        if (!acc[row.verifiedBy]) {
+            acc[row.verifiedBy] = { total: 0, quick: 0, discount: 0, adjust: 0, upgrade: 0, installment: 0 };
+        }
+        acc[row.verifiedBy].total += 1;
+        
+        if (row.approveType === 'Quick Approve') acc[row.verifiedBy].quick += 1;
+        if (row.approveType === 'Discount Approve') acc[row.verifiedBy].discount += 1;
+        if (row.approveType === 'Adjust Approve') acc[row.verifiedBy].adjust += 1;
+        if (row.approveType === 'Upgrade Approve') acc[row.verifiedBy].upgrade += 1;
+        if (row.approveType === 'Installment Approve') acc[row.verifiedBy].installment += 1;
+        
         return acc;
-    }, {})).sort((a, b) => b[1] - a[1]);
+    }, {});
 
-    const maxStaffCount = staffBreakdown.length > 0 ? staffBreakdown[0][1] : 1;
+    const staffBreakdown = Object.entries(staffBreakdownRaw).sort((a, b) => b[1].total - a[1].total);
+    const maxStaffCount = staffBreakdown.length > 0 ? staffBreakdown[0][1].total : 1;
 
     return (
         <div className="fixed inset-0 z-[99999] bg-[#020617]/80 backdrop-blur-xl flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-300">
@@ -140,7 +157,12 @@ export default function StaffPerformanceModal({ onClose }) {
                             <div className="relative">
                                 <select value={actionFilter} onChange={e => setActionFilter(e.target.value)} className="w-full bg-[#0B1221] border border-white/5 rounded-xl px-4 py-2.5 text-white text-sm font-semibold outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm cursor-pointer appearance-none">
                                     <option value="all">All Actions</option>
-                                    <option value="approved">Approved</option>
+                                    <option value="approved">All Approved</option>
+                                    <option value="quick_approve">↳ Quick Approve</option>
+                                    <option value="discount_approve">↳ Discount Approve</option>
+                                    <option value="adjust_approve">↳ Adjust Approve</option>
+                                    <option value="upgrade_approve">↳ Upgrade Approve</option>
+                                    <option value="installment_approve">↳ Installment Approve</option>
                                     <option value="rejected">Rejected</option>
                                 </select>
                                 <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">▼</div>
@@ -178,6 +200,37 @@ export default function StaffPerformanceModal({ onClose }) {
                         </div>
                     </div>
 
+                    {/* Approval Breakdown */}
+                    {(summary.quickApprove > 0 || summary.discountApprove > 0 || summary.adjustApprove > 0 || summary.upgradeApprove > 0 || summary.installmentApprove > 0) && (
+                        <div className="space-y-3">
+                            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                <CheckCircle size={14} className="text-emerald-400" /> Approval Breakdown (Total: {summary.quickApprove + summary.discountApprove + summary.adjustApprove + summary.upgradeApprove + summary.installmentApprove})
+                            </h3>
+                            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                <div className="bg-[#131A2D] border border-white/5 rounded-xl p-3 flex flex-col items-center justify-center gap-1 hover:border-emerald-500/30 transition-colors">
+                                    <span className="text-2xl font-black text-white">{summary.quickApprove}</span>
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase">Quick</span>
+                                </div>
+                                <div className="bg-[#131A2D] border border-white/5 rounded-xl p-3 flex flex-col items-center justify-center gap-1 hover:border-emerald-500/30 transition-colors">
+                                    <span className="text-2xl font-black text-white">{summary.discountApprove}</span>
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase">Discount</span>
+                                </div>
+                                <div className="bg-[#131A2D] border border-white/5 rounded-xl p-3 flex flex-col items-center justify-center gap-1 hover:border-emerald-500/30 transition-colors">
+                                    <span className="text-2xl font-black text-white">{summary.adjustApprove}</span>
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase">Adjust</span>
+                                </div>
+                                <div className="bg-[#131A2D] border border-white/5 rounded-xl p-3 flex flex-col items-center justify-center gap-1 hover:border-emerald-500/30 transition-colors">
+                                    <span className="text-2xl font-black text-white">{summary.upgradeApprove}</span>
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase">Upgrade</span>
+                                </div>
+                                <div className="bg-[#131A2D] border border-white/5 rounded-xl p-3 flex flex-col items-center justify-center gap-1 hover:border-emerald-500/30 transition-colors">
+                                    <span className="text-2xl font-black text-white">{summary.installmentApprove}</span>
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase">Installment</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* Staff Leaderboard */}
                     {staffBreakdown.length > 0 && (
                         <div className="space-y-3">
@@ -185,10 +238,10 @@ export default function StaffPerformanceModal({ onClose }) {
                                 <Trophy size={14} className="text-amber-400" /> Staff Leaderboard
                             </h3>
                             <div className="flex gap-4 overflow-x-auto custom-scrollbar pb-2 snap-x">
-                                {staffBreakdown.map(([staffName, count], idx) => {
-                                    const percentage = Math.round((count / maxStaffCount) * 100);
+                                {staffBreakdown.map(([staffName, stats], idx) => {
+                                    const percentage = Math.round((stats.total / maxStaffCount) * 100);
                                     return (
-                                        <div key={staffName} className="snap-start flex-shrink-0 w-64 bg-[#131A2D] border border-white/5 rounded-2xl p-4 flex flex-col gap-3 relative overflow-hidden group hover:border-emerald-500/30 transition-all cursor-default">
+                                        <div key={staffName} className="snap-start flex-shrink-0 w-72 bg-[#131A2D] border border-white/5 rounded-2xl p-4 flex flex-col gap-3 relative overflow-hidden group hover:border-emerald-500/30 transition-all cursor-default">
                                             {idx === 0 && <div className="absolute -top-6 -right-6 w-16 h-16 bg-amber-500/20 blur-xl rounded-full"></div>}
                                             <div className="flex justify-between items-start">
                                                 <div className="flex items-center gap-3">
@@ -201,14 +254,38 @@ export default function StaffPerformanceModal({ onClose }) {
                                                     </div>
                                                 </div>
                                                 <span className="bg-emerald-500/10 text-emerald-400 text-lg font-black px-2.5 py-1 rounded-xl border border-emerald-500/20">
-                                                    {count}
+                                                    {stats.total}
                                                 </span>
                                             </div>
                                             <div className="w-full h-1.5 bg-black/40 rounded-full overflow-hidden border border-white/5">
                                                 <div 
-                                                    className="h-full bg-gradient-to-r from-emerald-600 to-emerald-400 rounded-full transition-all duration-1000 ease-out"
+                                                    className="h-full bg-emerald-500" 
                                                     style={{ width: `${percentage}%` }}
-                                                />
+                                                ></div>
+                                            </div>
+                                            
+                                            {/* Detailed Breakdown */}
+                                            <div className="grid grid-cols-5 gap-1 mt-1 border-t border-white/5 pt-3">
+                                                <div className="flex flex-col items-center justify-center" title="Quick Approve">
+                                                    <span className="text-xs font-black text-white">{stats.quick}</span>
+                                                    <span className="text-[8px] font-bold text-slate-500 uppercase mt-0.5">Qck</span>
+                                                </div>
+                                                <div className="flex flex-col items-center justify-center" title="Discount Approve">
+                                                    <span className="text-xs font-black text-white">{stats.discount}</span>
+                                                    <span className="text-[8px] font-bold text-slate-500 uppercase mt-0.5">Dis</span>
+                                                </div>
+                                                <div className="flex flex-col items-center justify-center" title="Adjust Approve">
+                                                    <span className="text-xs font-black text-white">{stats.adjust}</span>
+                                                    <span className="text-[8px] font-bold text-slate-500 uppercase mt-0.5">Adj</span>
+                                                </div>
+                                                <div className="flex flex-col items-center justify-center" title="Upgrade Approve">
+                                                    <span className="text-xs font-black text-white">{stats.upgrade}</span>
+                                                    <span className="text-[8px] font-bold text-slate-500 uppercase mt-0.5">Upg</span>
+                                                </div>
+                                                <div className="flex flex-col items-center justify-center" title="Installment Approve">
+                                                    <span className="text-xs font-black text-white">{stats.installment}</span>
+                                                    <span className="text-[8px] font-bold text-slate-500 uppercase mt-0.5">Inst</span>
+                                                </div>
                                             </div>
                                         </div>
                                     );
@@ -271,17 +348,17 @@ export default function StaffPerformanceModal({ onClose }) {
                                                     </span>
                                                 </td>
                                                 <td className="px-6 py-4">
-                                                    {row.status === 'Approved' ? (
-                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 text-xs font-bold border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]">
-                                                            <CheckCircle size={12} strokeWidth={3}/> APPROVED
+                                                    {row.status === 1 ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)] uppercase whitespace-nowrap">
+                                                            <CheckCircle size={12} strokeWidth={3}/> {row.approveType || 'APPROVED'}
                                                         </span>
-                                                    ) : row.status === 'Rejected' ? (
-                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 text-rose-400 text-xs font-bold border border-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.1)]">
+                                                    ) : row.status === 2 ? (
+                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-rose-500/10 text-rose-400 text-[10px] font-bold border border-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.1)] uppercase whitespace-nowrap">
                                                             <XCircle size={12} strokeWidth={3}/> REJECTED
                                                         </span>
                                                     ) : (
-                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-400 text-xs font-bold border border-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.1)]">
-                                                            <Bot size={12} strokeWidth={3}/> EDITED
+                                                        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 text-blue-400 text-[10px] font-bold border border-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.1)] uppercase whitespace-nowrap">
+                                                            <Bot size={12} strokeWidth={3}/> EDITED (STATUS: {row.status})
                                                         </span>
                                                     )}
                                                 </td>

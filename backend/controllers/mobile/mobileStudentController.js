@@ -139,7 +139,12 @@ exports.getMobileClassroom = async (req, res) => {
         if (validPayments.length === 0) return res.status(200).json([]);
 
         let allowedSubjectIds = [];
+        let validBatchIds = [];
+        let validGroupIds = [];
+
         validPayments.forEach(p => {
+            if (p.batchId) validBatchIds.push(p.batchId);
+            if (p.groupId) validGroupIds.push(p.groupId);
             if (p.subjects) {
                 try { 
                     const parsedIds = JSON.parse(p.subjects).map(id => parseInt(id, 10));
@@ -148,12 +153,49 @@ exports.getMobileClassroom = async (req, res) => {
             }
         });
 
+        validBatchIds = [...new Set(validBatchIds)];
+        validGroupIds = [...new Set(validGroupIds)];
         const uniqueIds = [...new Set(allowedSubjectIds)];
 
-        if (uniqueIds.length === 0) return res.status(200).json([]);
+        // 🔥 FIX: Apply the same fallback logic as Web for mobile!
+        const paidCourses = await prisma.course.findMany({
+            where: { id: { in: uniqueIds } },
+            select: { id: true, code: true, name: true }
+        });
+
+        const groupsWithCourses = await prisma.group.findMany({
+            where: { id: { in: validGroupIds } },
+            include: { courses: true }
+        });
+
+        let finalAllowedCourseIds = new Set(uniqueIds); // Always include exact matches
+
+        groupsWithCourses.forEach(group => {
+            const paidSubjectIdsInThisGroup = [];
+            validPayments.filter(p => p.groupId === group.id).forEach(p => {
+                if (p.subjects && p.subjects !== '[]') {
+                    try { paidSubjectIdsInThisGroup.push(...JSON.parse(p.subjects).map(Number)); } catch(e){}
+                }
+            });
+            const paidCoursesInThisGroup = paidCourses.filter(pc => paidSubjectIdsInThisGroup.includes(pc.id));
+
+            group.courses.forEach(c => {
+                const hasFullGroupPayment = validPayments.some(p => p.groupId === group.id && (!p.subjects || p.subjects === '[]'));
+                if (hasFullGroupPayment) {
+                    finalAllowedCourseIds.add(c.id);
+                    return;
+                }
+                for (const paidCourse of paidCoursesInThisGroup) {
+                    if (c.code && paidCourse.code === c.code) finalAllowedCourseIds.add(c.id);
+                    else if (c.name && paidCourse.name === c.name) finalAllowedCourseIds.add(c.id);
+                }
+            });
+        });
+
+        if (finalAllowedCourseIds.size === 0) return res.status(200).json([]);
 
         const mySubjects = await prisma.course.findMany({
-            where: { id: { in: uniqueIds } },
+            where: { id: { in: Array.from(finalAllowedCourseIds) } },
             include: {
                 group: { include: { batch: { include: { business: true } } } }
             }
@@ -171,18 +213,36 @@ exports.getMobileClassroom = async (req, res) => {
                 }
             } catch(e) {}
 
+            // Calculate student payment type for this course
+            const coursePayments = validPayments.filter(p => {
+                if (!p.subjects) return true;
+                try {
+                    const subs = JSON.parse(p.subjects).map(id => parseInt(id, 10));
+                    return subs.includes(sub.id);
+                } catch (e) {
+                    return true;
+                }
+            });
+            let actualType = 1; // Default Monthly
+            if (coursePayments.some(p => parseInt(p.payment_type) === 3)) actualType = 3;
+            else if (coursePayments.some(p => parseInt(p.payment_type) === 2)) actualType = 2;
+
             return {
                 id: sub.id.toString(), 
                 name: sub.name,
                 code: sub.code,
+                businessId: sub.group?.batch?.businessId || null,
                 businessName: sub.group?.batch?.business?.name || "Other",
                 businessLogo: sub.group?.batch?.business?.logo || "default.png",
+                batchId: sub.group?.batchId || null,
                 batchName: sub.group?.batch?.name || sub.stream || "General Subjects",
                 batchLogo: sub.group?.batch?.logo || "default.png",
                 description: sub.lecturerName || sub.description,
                 groupType: sub.group?.type || 1, // 1 for Monthly, 2 for Full/Upgrade
+                groupId: sub.group?.id || null,
                 groupName: sub.group?.name || "",
-                lecturerImage: lecturerImage
+                lecturerImage: lecturerImage,
+                studentPaymentType: actualType
             };
         });
 

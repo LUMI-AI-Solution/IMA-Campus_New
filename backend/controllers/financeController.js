@@ -20,7 +20,7 @@ exports.getFinanceMatrix = async (req, res) => {
         const userDepartment = req.user.department;
         
         const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
-        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper) || userDepartment === 'Finance';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'ASS_MANAGER'].includes(roleUpper) || userDepartment === 'Finance';
         
         const batchObj = await prisma.batch.findUnique({ 
             where: { id: parsedBatchId },
@@ -232,7 +232,10 @@ exports.getFinanceMatrix = async (req, res) => {
 
                 // 2. Fund Allocation
                 let subjectAllocatedFund = 0;
-                if (isEnglish) {
+                // Only treat as isolated English if we actually extracted it (i.e. not an O/L business)
+                const isIsolatedEnglish = isEnglish && englishSub !== null;
+
+                if (isIsolatedEnglish) {
                     subjectAllocatedFund = englishFund;
                 } else { 
                     // Use price weight ratio for ALL payment types (MONTHLY, FULL, INSTALLMENT)
@@ -244,7 +247,7 @@ exports.getFinanceMatrix = async (req, res) => {
                 let activeGroupIds = subjectActiveMonthsMap[sub] || monthlyGroups.map(g => g.id);
                 let activeMonthCount = activeGroupIds.length || 1;
 
-                if (isEnglish) {
+                if (isIsolatedEnglish) {
                     if (payType === 1) { // MONTHLY for English
                         let targetMgId = monthlyGroups.find(mg => mg.id === p.groupId)?.id || monthlyGroups[0].id;
                         if (sData.matrixValues[targetMgId]) {
@@ -392,7 +395,7 @@ exports.getPaidCampaignDropMatrix = async (req, res) => {
 
         const userRole = req.user.role;
         const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
-        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'ASS_MANAGER'].includes(roleUpper);
         if (!isAdmin) {
              return res.status(403).json({ error: "Access Denied." });
         }

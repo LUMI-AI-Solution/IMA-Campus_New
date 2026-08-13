@@ -264,10 +264,22 @@ export default function CourseView({ courseId, onBack }) {
             .filter(f => parseInt(f.type) === getTypeInt(activeTab))
             .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1));
 
-        const groupedItems = folders.map(folder => ({ 
+        // Merge folders with the exact same name (case-insensitive) to avoid UI duplicates
+        const mergedFoldersMap = new Map();
+        folders.forEach(f => {
+            const titleKey = (f.title || '').trim().toLowerCase();
+            if (!mergedFoldersMap.has(titleKey)) {
+                mergedFoldersMap.set(titleKey, { ...f, ids: [String(f.id)] });
+            } else {
+                mergedFoldersMap.get(titleKey).ids.push(String(f.id));
+            }
+        });
+        const mergedFolders = Array.from(mergedFoldersMap.values());
+
+        const groupedItems = mergedFolders.map(folder => ({ 
             folder, 
             items: currentData
-                .filter(item => getFolderId(item) === String(folder.id))
+                .filter(item => folder.ids.includes(getFolderId(item)))
                 .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1))
         }));
         

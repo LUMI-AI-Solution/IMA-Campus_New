@@ -149,7 +149,7 @@ exports.getLeads = async (req, res) => {
         let { campaignType, tab, staffPhase, status, staffId, batchId, businessId, searchQuery, limit, assigneeGroup, ccStatus } = req.query;
         const limitNum = limit ? parseInt(limit) : 2000;
 
-        const scopedBizId = await getScopedBusinessId(req.user);
+        const scopedBizId = await getScopedBusinessId(req.user, businessId);
         if (scopedBizId) {
             businessId = scopedBizId.toString();
         }

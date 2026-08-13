@@ -2,6 +2,65 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const admin = require("firebase-admin"); 
 
+const resolveTutesForDeliveryItem = (item, d, courses, allGroups) => {
+    const course = courses.find(c => c.id === item.courseId);
+    let lecturerName = course?.lecturerName || 'Lecturer';
+    let lecturerImage = 'default.png';
+    let tuteCover = item.tuteImage || 'default-tute.png';
+    let actualTuteName = item.tuteName; 
+    let tutesList = [];
+
+    if (course && course.groupPrices) {
+        try {
+            const gpArr = JSON.parse(course.groupPrices);
+            let matchedGp;
+            
+            if (d.paymentType === 'Full') {
+                const fullGrp = allGroups.find(g => g.batchId === d.payment?.batchId && g.name.toLowerCase().includes('full'));
+                if (fullGrp) matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(fullGrp.id));
+            }
+            if (!matchedGp && d.payment?.groupId) {
+                matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(d.payment.groupId));
+            }
+            if (!matchedGp) matchedGp = gpArr.find(g => g.tuteName === item.tuteName) || gpArr[0];
+
+            if (matchedGp) {
+                if (matchedGp.lecturerImage) lecturerImage = matchedGp.lecturerImage;
+                else {
+                    const fallbackLec = gpArr.find(g => g.lecturerImage)?.lecturerImage;
+                    if (fallbackLec) lecturerImage = fallbackLec;
+                }
+
+                if (matchedGp.tutes && matchedGp.tutes.length > 0) {
+                    tutesList = matchedGp.tutes;
+                } else {
+                    if (matchedGp.tuteCover) tuteCover = matchedGp.tuteCover;
+                    else {
+                        const fallbackCover = gpArr.find(g => g.tuteCover)?.tuteCover;
+                        if (fallbackCover) tuteCover = fallbackCover;
+                    }
+                    if (matchedGp.tuteName) actualTuteName = matchedGp.tuteName;
+                    tutesList = [{ name: actualTuteName || item.tuteName, cover: tuteCover }];
+                }
+            }
+        } catch (e) {}
+    }
+
+    if (tutesList.length === 0) {
+        tutesList = [{ name: actualTuteName || item.tuteName || 'Unknown', cover: tuteCover }];
+    }
+
+    return tutesList.map(tute => ({
+        ...item,
+        tuteName: tute.name,
+        courseName: course?.name || 'Subject',
+        lecturerName,
+        lecturerImage,
+        tuteCover: tute.cover,
+        tuteImage: tute.cover
+    }));
+};
+
 // ================= DELIVERY POS ACTIONS =================
 
 // 1. Pending & Hold Deliveries ගන්න (Monthly/Full වලට හරියටම Covers & Names එන්න හැදුවා)
@@ -60,73 +119,7 @@ exports.getPendingDeliveries = async (req, res) => {
 
             const isUpgrade = d.payment?.remark ? d.payment.remark.includes('[UPGRADE]') : false;
 
-            const itemsWithDetails = d.items.map(item => {
-                const course = courses.find(c => c.id === item.courseId);
-                let lecturerName = course?.lecturerName || 'Lecturer';
-                let lecturerImage = 'default.png';
-                let tuteCover = 'default-tute.png';
-                let tuteCovers = null;
-                let actualTuteName = item.tuteName; 
-
-                if (course && course.groupPrices) {
-                    try {
-                        const gpArr = JSON.parse(course.groupPrices);
-                        let matchedGp;
-                        
-                        if (d.paymentType === 'Full') {
-                            const fullGrp = allGroups.find(g => g.batchId === d.payment?.batchId && g.name.toLowerCase().includes('full'));
-                            if (fullGrp) {
-                                matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(fullGrp.id));
-                            }
-                        }
-
-                        if (!matchedGp && d.payment?.groupId) {
-                            matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(d.payment.groupId));
-                        }
-                        
-                        if (!matchedGp) matchedGp = gpArr.find(g => g.tuteName === item.tuteName) || gpArr[0];
-
-                        if (matchedGp) {
-                            if (matchedGp.lecturerImage) {
-                                lecturerImage = matchedGp.lecturerImage;
-                            } else {
-                                const fallbackLec = gpArr.find(g => g.lecturerImage)?.lecturerImage;
-                                if (fallbackLec) lecturerImage = fallbackLec;
-                            }
-
-                            if (matchedGp.tuteCover) {
-                                tuteCover = matchedGp.tuteCover;
-                            } else {
-                                const fallbackCover = gpArr.find(g => g.tuteCover)?.tuteCover;
-                                if (fallbackCover) tuteCover = fallbackCover;
-                            }
-                            
-                            if (matchedGp.tuteCovers) {
-                                tuteCovers = matchedGp.tuteCovers;
-                            } else {
-                                const fallbackCovers = gpArr.find(g => g.tuteCovers)?.tuteCovers;
-                                if (fallbackCovers) tuteCovers = fallbackCovers;
-                            }
-
-                            if (matchedGp.tuteName) actualTuteName = matchedGp.tuteName; 
-                        }
-                    } catch (e) {}
-                }
-
-                if (item.tuteImage) {
-                    tuteCover = item.tuteImage;
-                }
-
-                return {
-                    ...item,
-                    tuteName: actualTuteName, 
-                    courseName: course?.name || 'Subject',
-                    lecturerName,
-                    lecturerImage,
-                    tuteCover,
-                    tuteCovers
-                };
-            });
+            const itemsWithDetails = d.items.flatMap(item => resolveTutesForDeliveryItem(item, d, courses, allGroups));
 
             const lastDel = pastDeliveries.find(pd => pd.studentId === String(std.id));
             let lastDeliveryInfo = null;
@@ -185,71 +178,34 @@ exports.packDelivery = async (req, res) => {
                 include: { items: true, payment: true }
             });
 
-            for (const item of updatedDelivery.items) {
-                const course = await tx.course.findUnique({ where: { id: item.courseId } });
-                let actualTuteName = item.tuteName;
+            const courseIds = updatedDelivery.items.map(i => i.courseId).filter(Boolean);
+            const courses = await tx.course.findMany({ where: { id: { in: courseIds } } });
+            const allGroups = await tx.group.findMany({ where: { batchId: updatedDelivery.payment?.batchId } });
+            
+            const expandedItems = updatedDelivery.items.flatMap(item => resolveTutesForDeliveryItem(item, updatedDelivery, courses, allGroups));
 
-                if (course && course.groupPrices) {
-                    try {
-                        const gp = JSON.parse(course.groupPrices);
-                        let matchedGp;
-
-                        if (updatedDelivery.paymentType === 'Full') {
-                            const fullGrp = await tx.group.findFirst({
-                                where: { batchId: updatedDelivery.payment?.batchId, name: { contains: 'full' } }
-                            });
-                            if (fullGrp) {
-                                matchedGp = gp.find(g => parseInt(g.groupId) === parseInt(fullGrp.id));
-                            }
-                        }
-
-                        if (!matchedGp && updatedDelivery.payment?.groupId) {
-                            matchedGp = gp.find(g => parseInt(g.groupId) === parseInt(updatedDelivery.payment.groupId));
-                        }
-                        
-                        if (!matchedGp) matchedGp = gp.find(g => g.tuteName === item.tuteName) || gp[0];
-
-                        if (matchedGp && matchedGp.tuteName) {
-                            actualTuteName = matchedGp.tuteName;
-                        }
-                    } catch(e) {}
-                }
+            for (const item of expandedItems) {
+                const actualTuteName = item.tuteName;
+                const gpCover = item.tuteCover;
 
                 let stockItem = await tx.tuteStock.findFirst({
                     where: { courseId: parseInt(item.courseId), tuteName: actualTuteName }
                 });
 
                 if (!stockItem && actualTuteName) {
-                    // Try to fall back to just courseId
-                    stockItem = await tx.tuteStock.findFirst({
-                        where: { courseId: parseInt(item.courseId) }
-                    });
-
                     // If completely missing, auto-create it with 0 balance
-                    if (!stockItem) {
-                        let gpCover = 'default-tute.png';
-                        try {
-                            const crs = await tx.course.findUnique({ where: { id: parseInt(item.courseId) } });
-                            if (crs && crs.groupPrices) {
-                                const gp = JSON.parse(crs.groupPrices);
-                                const mGp = gp.find(g => g.tuteName === actualTuteName) || gp[0];
-                                if (mGp && mGp.tuteCover) gpCover = mGp.tuteCover;
-                            }
-                        } catch(e){}
-
-                        stockItem = await tx.tuteStock.create({
-                            data: {
-                                courseId: parseInt(item.courseId),
-                                tuteName: actualTuteName,
-                                tuteImage: gpCover,
-                                availableQuantity: 0
-                            }
-                        });
-                    }
+                    stockItem = await tx.tuteStock.create({
+                        data: {
+                            courseId: parseInt(item.courseId),
+                            tuteName: actualTuteName,
+                            tuteImage: gpCover,
+                            availableQuantity: 0
+                        }
+                    });
                 }
 
                 if (stockItem) {
-                    const newQty = stockItem.availableQuantity - parseInt(item.quantity);
+                    const newQty = stockItem.availableQuantity - parseInt(item.quantity || 1);
                     
                     await tx.tuteStock.update({
                         where: { id: stockItem.id },
@@ -503,7 +459,16 @@ exports.getStockAnalytics = async (req, res) => {
                 status: { notIn: ['Pending', 'Hold'] },
                 ...(dateFilter.gte ? { packedAt: dateFilter } : {})
             },
-            include: { items: true }
+            include: { items: true, payment: true }
+        });
+
+        const courseIds = [...new Set(deliveries.flatMap(d => d.items.map(i => i.courseId)).filter(Boolean))];
+        const courses = await prisma.course.findMany({ where: { id: { in: courseIds } } });
+        const batchIds = [...new Set(deliveries.map(d => d.payment?.batchId).filter(Boolean))];
+        const allGroups = await prisma.group.findMany({ where: { batchId: { in: batchIds } } });
+
+        deliveries.forEach(d => {
+            d.expandedItems = d.items.flatMap(item => resolveTutesForDeliveryItem(item, d, courses, allGroups));
         });
 
         // Fetch stock history in range for "Tutes Added"
@@ -528,11 +493,11 @@ exports.getStockAnalytics = async (req, res) => {
             let issuedCount = 0;
             let autoPackedCount = 0; // if packed automatically or no packRemark
             deliveries.forEach(d => {
-                const item = d.items.find(i => i.courseId === stock.courseId && i.tuteName === stock.tuteName);
-                if (item) {
-                    issuedCount += item.quantity;
-                    if (!d.packRemark) autoPackedCount += item.quantity; // Heuristic for auto-packed
-                }
+                const items = d.expandedItems.filter(i => i.courseId === stock.courseId && i.tuteName === stock.tuteName);
+                items.forEach(item => {
+                    issuedCount += (item.quantity || 1);
+                    if (!d.packRemark) autoPackedCount += (item.quantity || 1); // Heuristic for auto-packed
+                });
             });
 
             const bizName = stock.course?.group?.batch?.business?.name || 'Unknown Business';
@@ -784,32 +749,7 @@ exports.getDispatchDeliveries = async (req, res) => {
                 phone: d.labelPhone || finalPhone, // 🔥 Updated Multiple Phones
                 batchName: d.payment?.batch?.name || 'Batch Not Assigned',
                 groupName: d.payment?.group?.name || 'No Group',
-                items: d.items.map(item => {
-                    const course = courses.find(c => c.id === item.courseId);
-                    let tuteCover = null;
-                    let lecturerImage = null;
-
-                    if (course && course.groupPrices && d.payment?.groupId) {
-                        try {
-                            const gps = JSON.parse(course.groupPrices);
-                            let matchedGp = gps.find(g => parseInt(g.groupId) === parseInt(d.payment.groupId));
-                            if (!matchedGp) matchedGp = gps.find(g => g.tuteName === item.tuteName);
-
-                            if (matchedGp) {
-                                if (matchedGp.tuteCover) tuteCover = matchedGp.tuteCover;
-                                if (matchedGp.lecturerImage) lecturerImage = matchedGp.lecturerImage;
-                            }
-                        } catch(e) {}
-                    }
-
-                    return {
-                        ...item,
-                        courseName: course?.name || 'Subject',
-                        lecturerName: course?.lecturerName || 'Lecturer',
-                        tuteCover: tuteCover,
-                        lecturerImage: lecturerImage
-                    };
-                })
+                items: d.items.flatMap(item => resolveTutesForDeliveryItem(item, d, courses, allGroups))
             };
         });
 
@@ -895,68 +835,7 @@ exports.getAdvancedHistory = async (req, res) => {
             const finalPhone = [...new Set(phoneParts)].join(' / ') || 'No Phone';
 
             // 🔥 FIX: Resolve actual tute name dynamically like in getPendingDeliveries
-            const itemsWithDetails = d.items.map(item => {
-                const course = courses.find(c => c.id === item.courseId);
-                let actualTuteName = item.tuteName; // Default
-                let lecturerImage = 'default.png';
-                let tuteCover = 'default-tute.png';
-                let tuteCovers = null;
-
-                if (course && course.groupPrices) {
-                    try {
-                        const gpArr = JSON.parse(course.groupPrices);
-                        let matchedGp;
-                        
-                        if (d.paymentType === 'Full') {
-                            const fullGrp = allGroups.find(g => g.batchId === d.payment?.batchId && g.name.toLowerCase().includes('full'));
-                            if (fullGrp) {
-                                matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(fullGrp.id));
-                            }
-                        }
-
-                        if (!matchedGp && d.payment?.groupId) {
-                            matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(d.payment.groupId));
-                        }
-                        
-                        if (!matchedGp) matchedGp = gpArr.find(g => g.tuteName === item.tuteName) || gpArr[0];
-
-                        if (matchedGp) {
-                            if (matchedGp.lecturerImage) {
-                                lecturerImage = matchedGp.lecturerImage;
-                            } else {
-                                const fallbackLec = gpArr.find(g => g.lecturerImage)?.lecturerImage;
-                                if (fallbackLec) lecturerImage = fallbackLec;
-                            }
-
-                            if (matchedGp.tuteCover) {
-                                tuteCover = matchedGp.tuteCover;
-                            } else {
-                                const fallbackCover = gpArr.find(g => g.tuteCover)?.tuteCover;
-                                if (fallbackCover) tuteCover = fallbackCover;
-                            }
-                            
-                            if (matchedGp.tuteCovers) {
-                                tuteCovers = matchedGp.tuteCovers;
-                            } else {
-                                const fallbackCovers = gpArr.find(g => g.tuteCovers)?.tuteCovers;
-                                if (fallbackCovers) tuteCovers = fallbackCovers;
-                            }
-
-                            if (matchedGp.tuteName) actualTuteName = matchedGp.tuteName; 
-                        }
-                    } catch (e) {}
-                }
-
-                return {
-                    ...item,
-                    tuteName: actualTuteName,
-                    courseName: course?.name || 'Subject',
-                    lecturerName: course?.lecturerName || 'Unknown',
-                    lecturerImage,
-                    tuteCover,
-                    tuteCovers
-                };
-            });
+            const itemsWithDetails = d.items.flatMap(item => resolveTutesForDeliveryItem(item, d, courses, allGroups));
 
             return {
                 id: d.id,
@@ -1168,13 +1047,19 @@ exports.getTuteDeliveryReport = async (req, res) => {
             }
         }
 
+        const courseIds = [...new Set(deliveries.flatMap(d => d.items.map(i => i.courseId)).filter(Boolean))];
+        const courses = await prisma.course.findMany({ where: { id: { in: courseIds } } });
+        const batchIds = [...new Set(deliveries.map(d => d.payment?.batchId).filter(Boolean))];
+        const allGroups = await prisma.group.findMany({ where: { batchId: { in: batchIds } } });
+
         const reportMap = {};
 
         deliveries.forEach(d => {
             const payType = d.paymentType || 'Unknown';
+            const expandedItems = d.items.flatMap(item => resolveTutesForDeliveryItem(item, d, courses, allGroups));
 
-            d.items.forEach(item => {
-                const lecName = item.course?.lecturerName || 'Unknown Lecturer';
+            expandedItems.forEach(item => {
+                const lecName = item.lecturerName || item.course?.lecturerName || 'Unknown Lecturer';
                 
                 if (selectedLecturers.length > 0 && !selectedLecturers.includes(lecName)) {
                     return;
@@ -1186,17 +1071,17 @@ exports.getTuteDeliveryReport = async (req, res) => {
                         lecturerName: lecName,
                         paymentType: payType,
                         courseId: item.courseId,
-                        courseName: item.course?.name || 'Unknown Subject',
+                        courseName: item.courseName || item.course?.name || 'Unknown Subject',
                         tuteName: item.tuteName, 
                         deliveredQty: 0 
                     };
                 }
-                reportMap[key].deliveredQty += item.quantity; 
+                reportMap[key].deliveredQty += (item.quantity || 1); 
             });
         });
 
-        const courseIds = Object.values(reportMap).map(r => parseInt(r.courseId));
-        const stocks = await prisma.tuteStock.findMany({ where: { courseId: { in: courseIds } } });
+        const cIds = Object.values(reportMap).map(r => parseInt(r.courseId));
+        const stocks = await prisma.tuteStock.findMany({ where: { courseId: { in: cIds } } });
 
         const finalReport = Object.values(reportMap).map(r => {
             const stockItem = stocks.find(s => s.courseId === r.courseId && s.tuteName === r.tuteName);

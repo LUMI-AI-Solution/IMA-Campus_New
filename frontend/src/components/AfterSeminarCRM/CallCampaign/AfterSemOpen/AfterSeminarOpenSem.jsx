@@ -248,6 +248,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
         let totalAssigned = 0;
         let currentlyInRound = 0;
         let pending = 0;
+        let answered = 0;
         let noAnswer = 0;
         let reject = 0;
         let delayed = 0;
@@ -266,6 +267,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
             noAnswer = r1CurrentLeads.filter(l => l.callStatus === 'no_answer').length;
             reject = r1CurrentLeads.filter(l => l.callStatus === 'reject').length;
             delayed = r1CurrentLeads.filter(l => isLeadDelayed(l)).length;
+            answered = totalAssigned - pending - noAnswer - reject;
             
             movedToR2 = openSemLeads.filter(l => (l?.coordinationRound || 1) > 1 && (!(l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_'))))).length;
             
@@ -283,6 +285,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
             noAnswer = r2CurrentLeads.filter(l => l.callStatus === 'no_answer').length;
             reject = r2CurrentLeads.filter(l => l.callStatus === 'reject').length;
             delayed = r2CurrentLeads.filter(l => isLeadDelayed(l)).length;
+            answered = totalAssigned - pending - noAnswer - reject;
             
             movedToNonEnrolled = r2ArrivedLeads.filter(l => (l?.coordinationRound === 3 || isAutoPushedToNonEnrolled(l)) && (!(l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_'))))).length;
             movedToPaid = r2ArrivedLeads.filter(l => ((l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_'))))).length;
@@ -295,15 +298,17 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
             totalAssigned = nonEnrolledLeads.length;
             currentlyInRound = totalAssigned;
             pending = nonEnrolledLeads.filter(l => l.callStatus === 'pending' || !l.callStatus).length;
+            noAnswer = nonEnrolledLeads.filter(l => l.callStatus === 'no_answer').length;
             reject = nonEnrolledLeads.filter(l => l.callStatus === 'reject').length;
             delayed = nonEnrolledLeads.filter(l => isLeadDelayed(l)).length;
+            answered = totalAssigned - pending - noAnswer - reject;
         } else if (activeRound === 'enrolled') {
             const enrolledLeads = openSemLeads.filter(l => ((l?.enrollmentStatus === 'ENROLLED' || l?.enrollmentStatus === 'PAID' || (l?.enrollmentStatus && l?.enrollmentStatus.startsWith('ENROLLED_')))));
             totalAssigned = enrolledLeads.length;
             currentlyInRound = totalAssigned;
         }
 
-        return { totalAssigned, currentlyInRound, pending, noAnswer, reject, delayed, movedToR2, movedToNonEnrolled, movedToPaid, responseRate };
+        return { totalAssigned, currentlyInRound, pending, answered, noAnswer, reject, delayed, movedToR2, movedToNonEnrolled, movedToPaid, responseRate };
     }, [openSemLeads, activeRound]);
 
     const totalPages = Math.ceil(filteredLeads.length / ITEMS_PER_PAGE);
@@ -602,7 +607,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                 </div>
 
                 {/* Stats & Filters Box */}
-                <div className="bg-white/5 border border-white/10 p-6 rounded-3xl mb-6 backdrop-blur-sm shadow-lg">
+                <div className="sticky top-0 z-40 bg-[#0F172A]/95 border border-white/10 p-6 rounded-3xl mb-6 backdrop-blur-xl shadow-lg shadow-black/50">
                     <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6">
 
                         {/* Stats Section */}
@@ -611,6 +616,9 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                             <div className="w-px h-8 bg-white/10 mx-1"></div>
 
                             <div className="flex flex-col items-center"><span className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mb-1">Pending</span><span className="text-xl font-black text-amber-400">{stats.pending}</span></div>
+                            <div className="w-px h-8 bg-white/10 mx-1"></div>
+
+                            <div className="flex flex-col items-center"><span className="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1">Answered</span><span className="text-xl font-black text-indigo-300">{stats.answered}</span></div>
                             <div className="w-px h-8 bg-white/10 mx-1"></div>
 
                             <div className="flex flex-col items-center"><span className="text-[10px] text-slate-300 font-bold uppercase tracking-wider mb-1">No Answer</span><span className="text-xl font-black text-slate-200">{stats.noAnswer}</span></div>

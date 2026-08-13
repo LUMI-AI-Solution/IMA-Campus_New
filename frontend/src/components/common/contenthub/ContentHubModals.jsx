@@ -789,78 +789,135 @@ export default function ContentHubModals({ state, actions }) {
 
                                                     {selectedGroupPrices[g.id] !== undefined && selectedGroupPrices[g.id].deliverTute && (
                                                         <div className="mt-4 pt-4 border-t border-blue-500/20">
-                                                            <label className="text-[10px] font-bold text-slate-400 mb-2 block uppercase tracking-wider">Select Tute to Deliver</label>
-                                                            <select 
-                                                                value={selectedGroupPrices[g.id].tuteName || ''} 
-                                                                onChange={(e) => {
-                                                                    const val = e.target.value;
-                                                                    updateGroupData(g.id, 'tuteName', val);
-                                                                    
-                                                                    // Auto set cover and lecturer image if found
-                                                                    const lecName = editData?.lecturerName || document.querySelector('select[name="lecturerName"]')?.value;
-                                                                    const mtd = masterTutes?.find(l => l.name === lecName);
-                                                                    if (mtd) {
-                                                                        const tuteData = mtd.tutes?.find(t => t.name === val);
-                                                                        if (tuteData) {
-                                                                            updateGroupData(g.id, 'tuteCover', tuteData.image || null);
-                                                                        }
-                                                                        updateGroupData(g.id, 'lecturerImage', mtd.image || null);
-                                                                    }
-                                                                }}
-                                                                className="w-full bg-black/60 border border-orange-500/30 rounded-xl p-3 text-sm text-white font-bold outline-none focus:border-orange-500 shadow-inner transition-all cursor-pointer"
-                                                            >
-                                                                <option value="" disabled className="bg-slate-800 text-slate-400">Select Tute</option>
-                                                                {(() => {
-                                                                    const currentVal = selectedGroupPrices[g.id].tuteName;
-                                                                    const currLecName = editData?.lecturerName || document.querySelector('select[name="lecturerName"]')?.value;
-                                                                    const lecData = masterTutes?.find(l => l.name === currLecName);
-                                                                    
-                                                                    const options = [];
-                                                                    let hasLegacy = false;
+                                                            <div className="flex items-center justify-between mb-4">
+                                                                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Allocated Tutes ({(selectedGroupPrices[g.id].tutes || []).length}/5)</label>
+                                                                {(selectedGroupPrices[g.id].tutes || []).length < 5 && (
+                                                                    <button 
+                                                                        type="button" 
+                                                                        onClick={() => {
+                                                                            const currentTutes = selectedGroupPrices[g.id].tutes || [];
+                                                                            updateGroupData(g.id, 'tutes', [...currentTutes, { name: '', cover: null }]);
+                                                                        }} 
+                                                                        className="text-[10px] font-bold text-white bg-blue-600 hover:bg-blue-500 px-2.5 py-1.5 rounded-lg flex items-center gap-1 transition-colors"
+                                                                    >
+                                                                        <Plus size={12}/> Add Tute
+                                                                    </button>
+                                                                )}
+                                                            </div>
+                                                            
+                                                            {(selectedGroupPrices[g.id].tutes || []).map((tuteItem, tIndex) => (
+                                                                <div key={tIndex} className="bg-black/30 border border-white/5 p-4 rounded-xl mb-3 relative group">
+                                                                    <button 
+                                                                        type="button" 
+                                                                        onClick={() => {
+                                                                            const currentTutes = [...(selectedGroupPrices[g.id].tutes || [])];
+                                                                            currentTutes.splice(tIndex, 1);
+                                                                            updateGroupData(g.id, 'tutes', currentTutes);
+                                                                            if (tIndex === 0) {
+                                                                                const first = currentTutes[0];
+                                                                                updateGroupData(g.id, 'tuteName', first ? first.name : '');
+                                                                                updateGroupData(g.id, 'tuteCover', first ? first.cover : null);
+                                                                            }
+                                                                        }} 
+                                                                        className="absolute top-2 right-2 w-6 h-6 flex items-center justify-center bg-red-500/20 text-red-400 hover:bg-red-500 hover:text-white rounded-md transition-colors opacity-50 group-hover:opacity-100"
+                                                                    >
+                                                                        <X size={14}/>
+                                                                    </button>
 
-                                                                    if (currentVal && (!lecData || !lecData.tutes?.some(t => t.name === currentVal))) {
-                                                                        hasLegacy = true;
-                                                                        options.push(<option key="legacy" value={currentVal} className="bg-slate-800 text-yellow-400">{currentVal} (Legacy)</option>);
-                                                                    }
-
-                                                                    if (!lecData || !lecData.tutes || lecData.tutes.length === 0) {
-                                                                        if (!hasLegacy) options.push(<option key="empty" value="" disabled className="bg-slate-800 text-red-400">No tutes found for selected lecturer</option>);
-                                                                    } else {
-                                                                        options.push(...lecData.tutes.map((t, idx) => (
-                                                                            <option key={idx} value={t.name} className="bg-slate-800 text-white">{t.name}</option>
-                                                                        )));
-                                                                    }
-                                                                    return options;
-                                                                })()}
-                                                            </select>
-                                                            {selectedGroupPrices[g.id].tuteName && (
-                                                                <div className="mt-4 p-4 bg-orange-500/10 border border-orange-500/40 rounded-xl flex flex-col sm:flex-row items-center gap-4 shadow-[0_4px_20px_rgba(249,115,22,0.15)] transition-all">
-                                                                    {selectedGroupPrices[g.id].tuteCover ? (
-                                                                        <img 
-                                                                            src={api.defaults.baseURL ? `${api.defaults.baseURL.replace('/api', '')}/storage/documents/${selectedGroupPrices[g.id].tuteCover}` : `https://imacampus.online/storage/documents/${selectedGroupPrices[g.id].tuteCover}`} 
-                                                                            onError={(e) => {
-                                                                                if (e.target.src.includes('/storage/documents/')) {
-                                                                                    e.target.src = e.target.src.replace('/storage/documents/', '/storage/images/');
-                                                                                } else if (e.target.src.includes('/storage/images/')) {
-                                                                                    e.target.src = e.target.src.replace('/storage/images/', '/storage/icons/');
-                                                                                } else {
-                                                                                    e.target.onerror = null;
-                                                                                    e.target.style.display = 'none';
+                                                                    <select 
+                                                                        value={tuteItem.name || ''} 
+                                                                        onChange={(e) => {
+                                                                            const val = e.target.value;
+                                                                            const currentTutes = [...(selectedGroupPrices[g.id].tutes || [])];
+                                                                            currentTutes[tIndex] = { ...currentTutes[tIndex], name: val };
+                                                                            
+                                                                            const lecName = editData?.lecturerName || document.querySelector('select[name="lecturerName"]')?.value;
+                                                                            const mtd = masterTutes?.find(l => l.name === lecName);
+                                                                            if (mtd) {
+                                                                                const tuteData = mtd.tutes?.find(t => t.name === val);
+                                                                                if (tuteData) {
+                                                                                    currentTutes[tIndex].cover = tuteData.image || null;
                                                                                 }
-                                                                            }}
-                                                                            alt="Tute Cover" 
-                                                                            className="w-24 h-32 sm:w-28 sm:h-36 object-cover rounded-lg shadow-lg border-2 border-orange-500/50 bg-slate-900" 
-                                                                        />
-                                                                    ) : (
-                                                                        <div className="w-24 h-32 sm:w-28 sm:h-36 bg-slate-800/80 rounded-lg flex flex-col items-center justify-center border-2 border-dashed border-orange-500/30">
-                                                                            <svg className="w-8 h-8 text-slate-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
-                                                                            <span className="text-[10px] text-slate-400 font-bold tracking-wider">NO COVER</span>
+                                                                            }
+                                                                            updateGroupData(g.id, 'tutes', currentTutes);
+
+                                                                            if (tIndex === 0) {
+                                                                                updateGroupData(g.id, 'tuteName', val);
+                                                                                updateGroupData(g.id, 'tuteCover', currentTutes[0].cover);
+                                                                                if (mtd) updateGroupData(g.id, 'lecturerImage', mtd.image || null);
+                                                                            }
+                                                                        }}
+                                                                        className="w-full bg-black/60 border border-orange-500/30 rounded-xl p-3 pr-10 text-sm text-white font-bold outline-none focus:border-orange-500 shadow-inner transition-all cursor-pointer"
+                                                                    >
+                                                                        <option value="" disabled className="bg-slate-800 text-slate-400">Select Tute</option>
+                                                                        {(() => {
+                                                                            const currentVal = tuteItem.name;
+                                                                            const currLecName = editData?.lecturerName || document.querySelector('select[name="lecturerName"]')?.value;
+                                                                            const lecData = masterTutes?.find(l => l.name === currLecName);
+                                                                            
+                                                                            const options = [];
+                                                                            let hasLegacy = false;
+
+                                                                            if (currentVal && (!lecData || !lecData.tutes?.some(t => t.name === currentVal))) {
+                                                                                hasLegacy = true;
+                                                                                options.push(<option key="legacy" value={currentVal} className="bg-slate-800 text-yellow-400">{currentVal} (Legacy)</option>);
+                                                                            }
+
+                                                                            if (!lecData || !lecData.tutes || lecData.tutes.length === 0) {
+                                                                                if (!hasLegacy) options.push(<option key="empty" value="" disabled className="bg-slate-800 text-red-400">No tutes found for selected lecturer</option>);
+                                                                            } else {
+                                                                                options.push(...lecData.tutes.map((t, idx) => (
+                                                                                    <option key={idx} value={t.name} className="bg-slate-800 text-white">{t.name}</option>
+                                                                                )));
+                                                                            }
+                                                                            return options;
+                                                                        })()}
+                                                                    </select>
+
+                                                                    {tuteItem.name && (
+                                                                        <div className="mt-3 flex items-center gap-4">
+                                                                            {tuteItem.cover ? (
+                                                                                <img 
+                                                                                    src={api.defaults.baseURL ? `${api.defaults.baseURL.replace('/api', '')}/storage/documents/${tuteItem.cover}` : `https://imacampus.online/storage/documents/${tuteItem.cover}`} 
+                                                                                    onError={(e) => {
+                                                                                        if (e.target.src.includes('/storage/documents/')) {
+                                                                                            e.target.src = e.target.src.replace('/storage/documents/', '/storage/images/');
+                                                                                        } else if (e.target.src.includes('/storage/images/')) {
+                                                                                            e.target.src = e.target.src.replace('/storage/images/', '/storage/icons/');
+                                                                                        } else {
+                                                                                            e.target.onerror = null;
+                                                                                            e.target.style.display = 'none';
+                                                                                        }
+                                                                                    }}
+                                                                                    alt="Tute Cover" 
+                                                                                    className="w-16 h-20 sm:w-20 sm:h-24 object-cover rounded-lg shadow-md border border-orange-500/30 bg-slate-900" 
+                                                                                />
+                                                                            ) : (
+                                                                                <div className="w-16 h-20 sm:w-20 sm:h-24 bg-slate-800/80 rounded-lg flex flex-col items-center justify-center border border-dashed border-orange-500/30">
+                                                                                    <span className="text-[8px] text-slate-400 font-bold tracking-wider">NO COVER</span>
+                                                                                </div>
+                                                                            )}
+                                                                            <div className="flex-1 min-w-0">
+                                                                                <p className="text-[10px] text-orange-400 font-bold uppercase tracking-wider mb-0.5">Tute {tIndex + 1}</p>
+                                                                                <p className="text-sm font-bold text-white truncate">{tuteItem.name}</p>
+                                                                            </div>
                                                                         </div>
                                                                     )}
-                                                                    <div className="flex flex-col text-center sm:text-left mt-2 sm:mt-0">
-                                                                        <span className="text-[10px] text-orange-400 font-black uppercase tracking-[0.2em] mb-1 opacity-80">Selected Tute</span>
-                                                                        <span className="text-xl sm:text-2xl text-white font-black drop-shadow-md leading-tight">{selectedGroupPrices[g.id].tuteName}</span>
-                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                            
+                                                            {(selectedGroupPrices[g.id].tutes || []).length === 0 && (
+                                                                <div className="p-4 border border-dashed border-slate-600 rounded-xl text-center">
+                                                                    <p className="text-xs text-slate-400 font-bold mb-2">No tutes allocated yet.</p>
+                                                                    <button 
+                                                                        type="button" 
+                                                                        onClick={() => {
+                                                                            updateGroupData(g.id, 'tutes', [{ name: '', cover: null }]);
+                                                                        }} 
+                                                                        className="text-[11px] font-bold text-blue-400 hover:text-blue-300 px-3 py-1.5 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg inline-flex items-center gap-1.5 transition-colors"
+                                                                    >
+                                                                        <Plus size={14}/> Add First Tute
+                                                                    </button>
                                                                 </div>
                                                             )}
                                                         </div>
