@@ -94,7 +94,6 @@ exports.getBusinessLeads = async (req, res) => {
         if (!agentId) return res.status(401).json({ error: "Unauthorized" });
 
         const whereClause = {
-            isCallCenter: true,
             assignedTo: parseInt(agentId),
             batch: { businessId: parseInt(businessId) }
         };

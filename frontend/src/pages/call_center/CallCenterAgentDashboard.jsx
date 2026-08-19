@@ -140,6 +140,14 @@ export default function CallCenterAgentDashboard() {
     }
   };
 
+  // Helper to determine if callStatus is Pending
+  const isPendingCallStatus = (st) => {
+    const s = (st || 'PENDING').toUpperCase();
+    if (!s || s === 'PENDING' || s === 'NEW' || s === 'OPEN' || s === 'NOT_CALLED') return true;
+    if (!['ANSWERED', 'ANSWER', 'REJECT', 'REJECTED', 'NO_ANSWER', 'CALL_AGAIN', 'FOLLOW_UP', 'NOT_INTERESTED', 'ENROLLED'].includes(s)) return true;
+    return false;
+  };
+
   // Compute filtered leads
   const batchFilteredLeads = batchFilter === 'All' ? leads : leads.filter(l => l.batch?.id === parseInt(batchFilter));
   
@@ -153,7 +161,7 @@ export default function CallCenterAgentDashboard() {
   const phaseLeadsAll = roundLeads.filter(l => l.roundData.phase === activePhase);
   
   // Dynamic outcome counts for current phase
-  const countPending = phaseLeadsAll.filter(l => (l.roundData.callStatus || 'PENDING').toUpperCase() === 'PENDING').length;
+  const countPending = phaseLeadsAll.filter(l => isPendingCallStatus(l.roundData.callStatus)).length;
   const countNoAnswer = phaseLeadsAll.filter(l => (l.roundData.callStatus || '').toUpperCase() === 'NO_ANSWER').length;
   const countAnswered = phaseLeadsAll.filter(l => ['ANSWERED', 'ANSWER', 'CALL_AGAIN', 'FOLLOW_UP'].includes((l.roundData.callStatus || '').toUpperCase())).length;
   const countReject = phaseLeadsAll.filter(l => ['REJECT', 'REJECTED', 'NOT_INTERESTED'].includes((l.roundData.callStatus || '').toUpperCase())).length;
@@ -162,7 +170,7 @@ export default function CallCenterAgentDashboard() {
   const phaseLeads = phaseLeadsAll.filter(l => {
     const statusUpper = (l.roundData.callStatus || 'PENDING').toUpperCase();
     if (statusFilter === 'ALL') return true;
-    if (statusFilter === 'PENDING') return statusUpper === 'PENDING';
+    if (statusFilter === 'PENDING') return isPendingCallStatus(l.roundData.callStatus);
     if (statusFilter === 'NO_ANSWER') return statusUpper === 'NO_ANSWER';
     if (statusFilter === 'ANSWERED') return ['ANSWERED', 'ANSWER', 'CALL_AGAIN', 'FOLLOW_UP'].includes(statusUpper);
     if (statusFilter === 'REJECT') return ['REJECT', 'REJECTED', 'NOT_INTERESTED'].includes(statusUpper);
@@ -175,12 +183,11 @@ export default function CallCenterAgentDashboard() {
 
   // Stats for the active round
   const totalAssigned = roundLeads.length;
-  // For pending, we consider anything that is NOT answered or reject (or completed)
-  const pending = roundLeads.filter(l => (l.roundData.callStatus || 'pending').toUpperCase() === 'PENDING').length;
+  const pending = roundLeads.filter(l => isPendingCallStatus(l.roundData.callStatus)).length;
   const noAnswer = roundLeads.filter(l => (l.roundData.callStatus || '').toUpperCase() === 'NO_ANSWER').length;
-  const covered = totalAssigned - pending - noAnswer;
+  const covered = roundLeads.filter(l => ['ANSWERED', 'REJECT', 'REJECTED', 'ANSWER', 'CALL_AGAIN', 'FOLLOW_UP', 'NOT_INTERESTED'].includes((l.roundData.callStatus || '').toUpperCase())).length;
   const responseRate = totalAssigned > 0 
-    ? ((roundLeads.filter(l => ['ANSWERED', 'REJECT'].includes(l.roundData.callStatus?.toUpperCase())).length / totalAssigned) * 100).toFixed(1)
+    ? ((covered / totalAssigned) * 100).toFixed(1)
     : 0;
 
   // Batches for the filter

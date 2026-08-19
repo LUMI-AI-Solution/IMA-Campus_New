@@ -387,10 +387,10 @@ export default function OverviewTab() {
                 </span>
                 {[
                   { id: 'ALL', label: 'All Time' },
-                  { id: 'TODAY', label: 'Today (අද)' },
-                  { id: 'YESTERDAY', label: 'Yesterday (ඊයේ)' },
-                  { id: 'THIS_WEEK', label: 'This Week (මෙම සතිය)' },
-                  { id: 'THIS_MONTH', label: 'This Month (මෙම මාසය)' }
+                  { id: 'TODAY', label: 'Today' },
+                  { id: 'YESTERDAY', label: 'Yesterday' },
+                  { id: 'THIS_WEEK', label: 'This Week' },
+                  { id: 'THIS_MONTH', label: 'This Month' }
                 ].map(p => (
                   <button
                     key={p.id}

@@ -189,6 +189,7 @@ exports.assignLeadsToAgent = async (req, res) => {
             where: { id: { in: leadIds.map(id => parseInt(id)) } },
             data: {
                 assignedTo: targetAgentId,
+                isCallCenter: true,
                 callCenterStatus: 'pending' // Reset status for agent to call
             }
         });
