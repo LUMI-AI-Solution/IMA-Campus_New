@@ -137,10 +137,8 @@ exports.getCallCenterStaff = async (req, res) => {
         const staffList = await prisma.user.findMany({
             where: {
                 OR: [
-                    { role: { in: ['Coordinator', 'COORDINATOR', 'CALLER', 'Caller', 'Call Center Agent', 'CALL_CENTER_AGENT', 'CALL_CENTER_COORDINATOR', 'agent', 'AGENT'] } },
-                    { role: { contains: 'Coordinator' } },
-                    { role: { contains: 'Caller' } },
-                    { role: { contains: 'Call Center' } }
+                    { role: { in: ['Call Center Agent', 'CALL_CENTER_AGENT', 'CALLER', 'Caller', 'CALL_CENTER_COORDINATOR', 'Call Center Coordinator', 'agent', 'AGENT'] } },
+                    { department: { equals: 'Call Center' } }
                 ],
                 role: { notIn: ['Student', 'USER', 'STUDENT', 'Manager', 'MANAGER', 'SYSTEM_ADMIN', 'DIRECTOR', 'head_manager', 'ass_manager'] }
             },

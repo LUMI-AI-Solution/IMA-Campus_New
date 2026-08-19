@@ -11,7 +11,7 @@ export default function FinanceMatrix({ loggedInUser }) {
 
     const [businesses, setBusinesses] = useState([]);
     const [batches, setBatches] = useState([]);
-    const [selectedBiz, setSelectedBiz] = useState(canSeeAllBusinesses ? '' : loggedInUser?.businessId || '');
+    const [selectedBiz, setSelectedBiz] = useState(loggedInUser?.businessId ? String(loggedInUser.businessId) : '');
     const [selectedBatch, setSelectedBatch] = useState('');
 
     const [searchTerm, setSearchTerm] = useState('');
@@ -38,11 +38,15 @@ export default function FinanceMatrix({ loggedInUser }) {
                     fetchBatches(fetchedBiz[0].id.toString());
                 } else if (selectedBiz) {
                     fetchBatches(selectedBiz);
+                } else if (fetchedBiz.length > 0) {
+                    // Preselect first business if none set
+                    setSelectedBiz(fetchedBiz[0].id.toString());
+                    fetchBatches(fetchedBiz[0].id.toString());
                 }
             } catch (e) { console.error(e); }
         };
         fetchInitialBiz();
-    }, [canSeeAllBusinesses]); // Removed selectedBiz from dependency to prevent infinite loop or over-fetching
+    }, []); // Removed selectedBiz from dependency to prevent infinite loop or over-fetching
 
     useEffect(() => {
         if (selectedBiz) {
@@ -334,27 +338,24 @@ export default function FinanceMatrix({ loggedInUser }) {
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-                    {canSeeAllBusinesses && (
-                        <select
-                            className="bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white outline-none cursor-pointer"
-                            value={selectedBiz}
-                            onChange={(e) => setSelectedBiz(e.target.value)}
-                        >
-                            <option value="">Select Corporate Business</option>
-                            {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                        </select>
-                    )}
+                    <select
+                        className="bg-slate-950 border border-slate-700 rounded-lg px-4 py-2.5 text-sm text-white outline-none cursor-pointer font-semibold focus:border-emerald-500"
+                        value={selectedBiz}
+                        onChange={(e) => setSelectedBiz(e.target.value)}
+                    >
+                        <option value="">Select Corporate Business</option>
+                        {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
 
-                    {selectedBiz && (
-                        <select
-                            className="bg-slate-950 border border-emerald-500/50 rounded-lg px-4 py-2.5 text-sm text-emerald-400 outline-none cursor-pointer"
-                            value={selectedBatch}
-                            onChange={(e) => setSelectedBatch(e.target.value)}
-                        >
-                            <option value="">Select Academic Batch</option>
-                            {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                        </select>
-                    )}
+                    <select
+                        className="bg-slate-950 border border-emerald-500/50 rounded-lg px-4 py-2.5 text-sm text-emerald-400 outline-none cursor-pointer font-bold disabled:opacity-50"
+                        value={selectedBatch}
+                        onChange={(e) => setSelectedBatch(e.target.value)}
+                        disabled={!selectedBiz}
+                    >
+                        <option value="">Select Academic Batch</option>
+                        {batches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
 
                     {studentsData.length > 0 && (
                         <button
