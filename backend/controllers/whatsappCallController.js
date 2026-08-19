@@ -1409,24 +1409,44 @@ exports.getCallReport = async (req, res) => {
         if (startDate || endDate) {
             where.createdAt = {};
             if (startDate) {
-                const sDate = new Date(startDate);
+                const parts = String(startDate).trim().includes('-') ? startDate.trim().split('-') : startDate.trim().split('/');
+                let sDate;
+                if (parts.length === 3 && parts[0].length === 4) {
+                    sDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 0, 0, 0, 0);
+                } else if (parts.length === 3) {
+                    sDate = new Date(Number(parts[2]), Number(parts[0]) - 1, Number(parts[1]), 0, 0, 0, 0);
+                } else {
+                    sDate = new Date(startDate);
+                }
                 if (startTime) {
                     const [sh, sm] = startTime.split(':').map(Number);
                     sDate.setHours(sh || 0, sm || 0, 0, 0);
                 } else {
                     sDate.setHours(0, 0, 0, 0);
                 }
-                where.createdAt.gte = sDate;
+                if (!isNaN(sDate.getTime())) {
+                    where.createdAt.gte = sDate;
+                }
             }
             if (endDate) {
-                const eDate = new Date(endDate);
+                const parts = String(endDate).trim().includes('-') ? endDate.trim().split('-') : endDate.trim().split('/');
+                let eDate;
+                if (parts.length === 3 && parts[0].length === 4) {
+                    eDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 23, 59, 59, 999);
+                } else if (parts.length === 3) {
+                    eDate = new Date(Number(parts[2]), Number(parts[0]) - 1, Number(parts[1]), 23, 59, 59, 999);
+                } else {
+                    eDate = new Date(endDate);
+                }
                 if (endTime) {
                     const [eh, em] = endTime.split(':').map(Number);
                     eDate.setHours(eh || 23, em || 59, 59, 999);
                 } else {
                     eDate.setHours(23, 59, 59, 999);
                 }
-                where.createdAt.lte = eDate;
+                if (!isNaN(eDate.getTime())) {
+                    where.createdAt.lte = eDate;
+                }
             }
         }
 
