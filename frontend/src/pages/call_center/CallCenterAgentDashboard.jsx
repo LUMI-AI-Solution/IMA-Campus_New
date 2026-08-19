@@ -214,6 +214,9 @@ export default function CallCenterAgentDashboard() {
     }
   };
   
+  // Batches for the filter
+  const uniqueBatches = [...new Set(leads.map(l => l.batch?.id).filter(Boolean))];
+
   const hasPendingInBatch = (bId) => {
     return leads.some(l => {
       if (l.batch?.id !== bId) return false;
