@@ -279,19 +279,50 @@ export default function CallCenterManagerDashboard() {
     return combined;
   };
 
+  const [sortOrder, setSortOrder] = useState('NEWEST'); // 'NEWEST' or 'OLDEST'
+  const [allocateCount, setAllocateCount] = useState('');
+
   const getFilteredDetailedLeads = () => {
-    let list = detailedLeads;
+    let list = [...detailedLeads];
     if (selectedBatch !== 'All') {
       list = list.filter(l => l.batchId === parseInt(selectedBatch));
     }
     if (activeSubTab === 'pending-handovers') {
       list = list.filter(l => l.callCenterRequestStatus === 'REQUESTED');
     } else if (activeSubTab === 'needs-assignment') {
-      list = list.filter(l => l.callCenterRequestStatus === 'APPROVED' && l.assignedTo === null);
+      list = list.filter(l => (l.callCenterRequestStatus === 'APPROVED' || l.isCallCenter) && l.assignedTo === null);
     } else if (activeSubTab === 'assigned') {
       list = list.filter(l => l.assignedTo !== null);
     }
+
+    // Sort order (Newest first vs Oldest first)
+    list.sort((a, b) => {
+      const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
+      const timeB = new Date(b.createdAt || b.created_at || 0).getTime();
+      return sortOrder === 'NEWEST' ? timeB - timeA : timeA - timeB;
+    });
+
     return list;
+  };
+
+  const handleQuickSelectCount = (countVal) => {
+    const list = getFilteredDetailedLeads();
+    if (countVal === 'ALL') {
+      setCheckedLeads(list.map(l => l.id));
+      setAllocateCount(String(list.length));
+      toast.success(`Selected all ${list.length} leads!`);
+      return;
+    }
+    const count = parseInt(countVal);
+    if (isNaN(count) || count <= 0) {
+      setCheckedLeads([]);
+      setAllocateCount('');
+      return;
+    }
+    setAllocateCount(String(count));
+    const targetSlice = list.slice(0, count).map(l => l.id);
+    setCheckedLeads(targetSlice);
+    toast.success(`Selected top ${targetSlice.length} ${sortOrder === 'NEWEST' ? 'newest' : 'oldest'} leads!`);
   };
 
   const filteredLeads = getFilteredDetailedLeads();
@@ -490,21 +521,81 @@ export default function CallCenterManagerDashboard() {
                                   Start Round 2
                                 </button>
                               ) : (
-                                <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-                                  <select 
-                                    value={selectedAgent} 
-                                    onChange={(e) => setSelectedAgent(e.target.value)}
-                                    className="bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-sm text-white focus:border-red-500 outline-none w-full sm:w-auto font-medium"
-                                  >
-                                    <option value="">-- Choose Agent to Assign --</option>
-                                    {staff.map(member => (
-                                      <option key={member.id} value={member.id}>{member.firstName} {member.lastName}</option>
-                                    ))}
-                                  </select>
-                                  <button onClick={handleBulkAssign} className="w-full sm:w-auto bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-red-500/20">
-                                    Assign Workload
-                                  </button>
-                                </div>
+                                <div className="flex flex-col lg:flex-row items-center justify-between gap-4 w-full">
+                                   {/* Order & Count Allocation Section */}
+                                   <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto bg-slate-900/60 p-2 px-3 rounded-2xl border border-slate-700/60">
+                                     <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 shrink-0">
+                                       <button
+                                         onClick={() => { setSortOrder('NEWEST'); if (allocateCount) handleQuickSelectCount(allocateCount); }}
+                                         className={`px-3 py-1 rounded-lg text-xs font-black uppercase transition-all ${sortOrder === 'NEWEST' ? 'bg-red-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                                       >
+                                         Newest First ⬇️
+                                       </button>
+                                       <button
+                                         onClick={() => { setSortOrder('OLDEST'); if (allocateCount) handleQuickSelectCount(allocateCount); }}
+                                         className={`px-3 py-1 rounded-lg text-xs font-black uppercase transition-all ${sortOrder === 'OLDEST' ? 'bg-red-600 text-white shadow-md' : 'text-slate-400 hover:text-white'}`}
+                                       >
+                                         Oldest First ⬆️
+                                       </button>
+                                     </div>
+
+                                     <div className="flex items-center gap-2">
+                                       <span className="text-xs font-bold text-slate-400 uppercase tracking-wider hidden sm:inline">Count:</span>
+                                       <input
+                                         type="number"
+                                         min="1"
+                                         max={filteredLeads.length}
+                                         placeholder="e.g. 50"
+                                         value={allocateCount}
+                                         onChange={(e) => handleQuickSelectCount(e.target.value)}
+                                         className="w-20 bg-slate-900 border border-slate-600 rounded-xl px-3 py-1.5 text-xs text-white font-bold outline-none focus:border-red-500 text-center"
+                                       />
+                                     </div>
+
+                                     <div className="flex items-center gap-1">
+                                       {[10, 25, 50, 100].map(cnt => (
+                                         <button
+                                           key={cnt}
+                                           onClick={() => handleQuickSelectCount(cnt)}
+                                           className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
+                                             allocateCount === String(cnt) 
+                                               ? 'bg-orange-500 text-white border-orange-400 font-black shadow-md' 
+                                               : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                                           }`}
+                                         >
+                                           {cnt}
+                                         </button>
+                                       ))}
+                                       <button
+                                         onClick={() => handleQuickSelectCount('ALL')}
+                                         className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all border ${
+                                           checkedLeads.length === filteredLeads.length && filteredLeads.length > 0
+                                             ? 'bg-orange-500 text-white border-orange-400 font-black shadow-md' 
+                                             : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'
+                                         }`}
+                                       >
+                                         All ({filteredLeads.length})
+                                       </button>
+                                     </div>
+                                   </div>
+
+                                   {/* Agent Selector & Assign Button */}
+                                   <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
+                                     <select 
+                                       value={selectedAgent} 
+                                       onChange={(e) => setSelectedAgent(e.target.value)}
+                                       className="bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-sm text-white focus:border-red-500 outline-none w-full sm:w-auto font-medium"
+                                     >
+                                       <option value="">-- Choose Agent to Assign --</option>
+                                       {staff.map(member => (
+                                         <option key={member.id} value={member.id}>{member.firstName} {member.lastName}</option>
+                                       ))}
+                                     </select>
+                                     <button onClick={handleBulkAssign} className="w-full sm:w-auto bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-red-500/20 whitespace-nowrap">
+                                       Assign Workload ({checkedLeads.length})
+                                     </button>
+                                   </div>
+                                 </div>
                               )}
                             </div>
                           )}

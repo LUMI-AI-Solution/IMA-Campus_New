@@ -93,12 +93,18 @@ exports.getManagerLeads = async (req, res) => {
         const { businessId, campaignType, tab } = req.query;
 
         const whereClause = {
-            isCallCenter: true,
-            callCenterRequestStatus: 'APPROVED'
+            isCallCenter: true
         };
 
         if (campaignType && campaignType !== 'All') {
-            whereClause.campaignType = campaignType;
+            if (campaignType === 'BRIDGE') {
+                whereClause.source = 'bridge_transfer';
+            } else if (campaignType === 'AFTER_SEMINAR') {
+                whereClause.campaignType = 'AFTER_SEMINAR';
+                whereClause.source = { not: 'bridge_transfer' };
+            } else {
+                whereClause.campaignType = campaignType;
+            }
         }
 
         if (businessId && businessId !== 'All') {
@@ -119,9 +125,10 @@ exports.getManagerLeads = async (req, res) => {
             where: whereClause,
             include: {
                 batch: { include: { business: true } },
-                assignedUser: { select: { id: true, firstName: true, lastName: true } }
+                assignedUser: { select: { id: true, firstName: true, lastName: true } },
+                roundProgress: true
             },
-            orderBy: { updatedAt: 'desc' }
+            orderBy: { createdAt: 'desc' }
         });
 
         res.status(200).json(safeJson(leads));
@@ -348,9 +355,17 @@ exports.startRound = async (req, res) => {
         
         let whereClause = {
             isCallCenter: true,
-            campaignType,
             batch: { businessId: parseInt(businessId) }
         };
+
+        if (campaignType === 'BRIDGE') {
+            whereClause.source = 'bridge_transfer';
+        } else if (campaignType === 'AFTER_SEMINAR') {
+            whereClause.campaignType = 'AFTER_SEMINAR';
+            whereClause.source = { not: 'bridge_transfer' };
+        } else if (campaignType && campaignType !== 'All') {
+            whereClause.campaignType = campaignType;
+        }
 
         if (batchId && batchId !== 'All') {
             whereClause.batchId = parseInt(batchId);

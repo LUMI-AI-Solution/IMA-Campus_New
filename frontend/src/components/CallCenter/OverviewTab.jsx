@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import axios from '../../api/axios';
 import { 
-  Building2, ChevronRight, BarChart3, Download, RefreshCw, Users 
+  Building2, ChevronRight, BarChart3, Download, RefreshCw, Users,
+  Calendar, Clock, Filter
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
@@ -15,6 +16,11 @@ export default function OverviewTab() {
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(false);
 
+  // Date & Time Range Filter States
+  const [datePreset, setDatePreset] = useState('ALL');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
   // Quick Round Management States
   const [quickCampaign, setQuickCampaign] = useState('FREE_SEMINAR');
   const [quickBiz, setQuickBiz] = useState('');
@@ -22,6 +28,41 @@ export default function OverviewTab() {
   const [quickBatches, setQuickBatches] = useState([]);
   const [quickActiveRound, setQuickActiveRound] = useState(1);
   const [quickLoading, setQuickLoading] = useState(false);
+
+  const applyDatePreset = (preset) => {
+    setDatePreset(preset);
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+
+    if (preset === 'TODAY') {
+      const startStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T00:00`;
+      const endStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`;
+      setStartDate(startStr);
+      setEndDate(endStr);
+    } else if (preset === 'YESTERDAY') {
+      const yesterday = new Date(now);
+      yesterday.setDate(now.getDate() - 1);
+      const startStr = `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}T00:00`;
+      const endStr = `${yesterday.getFullYear()}-${pad(yesterday.getMonth() + 1)}-${pad(yesterday.getDate())}T23:59`;
+      setStartDate(startStr);
+      setEndDate(endStr);
+    } else if (preset === 'THIS_WEEK') {
+      const weekStart = new Date(now);
+      weekStart.setDate(now.getDate() - 7);
+      const startStr = `${weekStart.getFullYear()}-${pad(weekStart.getMonth() + 1)}-${pad(weekStart.getDate())}T00:00`;
+      const endStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`;
+      setStartDate(startStr);
+      setEndDate(endStr);
+    } else if (preset === 'THIS_MONTH') {
+      const startStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-01T00:00`;
+      const endStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T23:59`;
+      setStartDate(startStr);
+      setEndDate(endStr);
+    } else if (preset === 'ALL') {
+      setStartDate('');
+      setEndDate('');
+    }
+  };
 
   useEffect(() => {
     fetchBusinesses();
@@ -288,52 +329,116 @@ export default function OverviewTab() {
       ) : (
         <div className="flex flex-col gap-6 animate-fade-in-up flex-1">
           {/* Top Filters */}
-          <div className="flex flex-col md:flex-row justify-between items-center bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50 gap-4">
-            <div className="flex gap-2 bg-[#0f172a] p-1.5 rounded-xl border border-slate-700 w-full md:w-auto overflow-x-auto">
-              <button 
-                onClick={() => {
-                   setOverviewCampaign('FREE_SEMINAR');
-                   fetchLeads(overviewBiz.id, 'FREE_SEMINAR');
-                }}
-                className={`px-6 py-2 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${overviewCampaign === 'FREE_SEMINAR' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-              >Free Sem</button>
-              <button 
-                onClick={() => {
-                   setOverviewCampaign('AFTER_SEMINAR');
-                   fetchLeads(overviewBiz.id, 'AFTER_SEMINAR');
-                }}
-                className={`px-6 py-2 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${overviewCampaign === 'AFTER_SEMINAR' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-              >After Sem</button>
-              <button 
-                onClick={() => {
-                   setOverviewCampaign('BRIDGE');
-                   fetchLeads(overviewBiz.id, 'BRIDGE');
-                }}
-                className={`px-6 py-2 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${overviewCampaign === 'BRIDGE' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
-              >Bridge</button>
+          <div className="flex flex-col gap-4 bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50">
+            <div className="flex flex-col md:flex-row justify-between items-center gap-4">
+              <div className="flex gap-2 bg-[#0f172a] p-1.5 rounded-xl border border-slate-700 w-full md:w-auto overflow-x-auto">
+                <button 
+                  onClick={() => {
+                     setOverviewCampaign('FREE_SEMINAR');
+                     fetchLeads(overviewBiz.id, 'FREE_SEMINAR');
+                  }}
+                  className={`px-6 py-2 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${overviewCampaign === 'FREE_SEMINAR' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                >Free Sem</button>
+                <button 
+                  onClick={() => {
+                     setOverviewCampaign('AFTER_SEMINAR');
+                     fetchLeads(overviewBiz.id, 'AFTER_SEMINAR');
+                  }}
+                  className={`px-6 py-2 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${overviewCampaign === 'AFTER_SEMINAR' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                >After Sem</button>
+                <button 
+                  onClick={() => {
+                     setOverviewCampaign('BRIDGE');
+                     fetchLeads(overviewBiz.id, 'BRIDGE');
+                  }}
+                  className={`px-6 py-2 rounded-lg font-bold text-sm transition-all whitespace-nowrap ${overviewCampaign === 'BRIDGE' ? 'bg-red-500 text-white shadow-lg shadow-red-500/30' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+                >Bridge</button>
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
+                <select 
+                  value={overviewBatch} 
+                  onChange={(e) => setOverviewBatch(e.target.value)}
+                  className="bg-[#0f172a] border border-slate-600 rounded-lg px-4 py-2.5 text-sm text-white focus:border-red-500 outline-none font-bold w-full sm:w-auto"
+                >
+                  <option value="All">All Batches Overview</option>
+                  {batches.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
+
+                <button onClick={handleExportExcel} className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg font-bold text-sm shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-colors">
+                  <Download size={16}/> Export Excel
+                </button>
+
+                {overviewBatch !== 'All' && (
+                  <button onClick={handleStartRound2} className="w-full sm:w-auto bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-5 py-2.5 rounded-lg font-bold text-sm shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all">
+                    <RefreshCw size={16}/> Start Round 2
+                  </button>
+                )}
+              </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row items-center gap-4 w-full md:w-auto">
-              <select 
-                value={overviewBatch} 
-                onChange={(e) => setOverviewBatch(e.target.value)}
-                className="bg-[#0f172a] border border-slate-600 rounded-lg px-4 py-2.5 text-sm text-white focus:border-red-500 outline-none font-bold w-full sm:w-auto"
-              >
-                <option value="All">All Batches Overview</option>
-                {batches.map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
+            {/* Date & Time Range Filter Controls Bar */}
+            <div className="pt-3 border-t border-slate-700/60 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar py-1">
+                <span className="text-xs font-black text-slate-400 uppercase tracking-wider flex items-center gap-1.5 shrink-0 mr-1">
+                  <Filter size={14} className="text-red-400"/> Date & Time Filter:
+                </span>
+                {[
+                  { id: 'ALL', label: 'All Time' },
+                  { id: 'TODAY', label: 'Today (අද)' },
+                  { id: 'YESTERDAY', label: 'Yesterday (ඊයේ)' },
+                  { id: 'THIS_WEEK', label: 'This Week (මෙම සතිය)' },
+                  { id: 'THIS_MONTH', label: 'This Month (මෙම මාසය)' }
+                ].map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => applyDatePreset(p.id)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 border ${
+                      datePreset === p.id 
+                        ? 'bg-red-600 text-white border-red-500 shadow-md font-black' 
+                        : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
                 ))}
-              </select>
+              </div>
 
-              <button onClick={handleExportExcel} className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2.5 rounded-lg font-bold text-sm shadow-lg shadow-emerald-600/20 flex items-center justify-center gap-2 transition-colors">
-                <Download size={16}/> Export Excel
-              </button>
+              {/* Custom Datetime Pickers */}
+              <div className="flex flex-wrap items-center gap-3 bg-[#0f172a]/80 p-2 px-3 rounded-xl border border-slate-700/80">
+                <div className="flex items-center gap-1.5 text-xs text-slate-400 font-bold">
+                  <Calendar size={13} className="text-indigo-400" />
+                  <span>From:</span>
+                  <input
+                    type="datetime-local"
+                    value={startDate}
+                    onChange={(e) => { setStartDate(e.target.value); setDatePreset('CUSTOM'); }}
+                    className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white outline-none focus:border-red-500 font-medium"
+                  />
+                </div>
 
-              {overviewBatch !== 'All' && (
-                <button onClick={handleStartRound2} className="w-full sm:w-auto bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-5 py-2.5 rounded-lg font-bold text-sm shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-2 transition-all">
-                  <RefreshCw size={16}/> Start Round 2
-                </button>
-              )}
+                <div className="flex items-center gap-1.5 text-xs text-slate-400 font-bold">
+                  <Clock size={13} className="text-orange-400" />
+                  <span>To:</span>
+                  <input
+                    type="datetime-local"
+                    value={endDate}
+                    onChange={(e) => { setEndDate(e.target.value); setDatePreset('CUSTOM'); }}
+                    className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white outline-none focus:border-red-500 font-medium"
+                  />
+                </div>
+
+                {(startDate || endDate) && (
+                  <button
+                    onClick={() => applyDatePreset('ALL')}
+                    className="text-xs text-red-400 hover:text-red-300 underline font-bold px-1"
+                  >
+                    Reset
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -343,7 +448,17 @@ export default function OverviewTab() {
               return <div className="text-center py-10 text-slate-400">Loading data...</div>;
             }
 
-            const filtered = overviewLeads.filter(l => overviewBatch === 'All' || l.batchId === parseInt(overviewBatch));
+            let filtered = overviewLeads.filter(l => overviewBatch === 'All' || l.batchId === parseInt(overviewBatch));
+
+            if (startDate || endDate) {
+              const startTs = startDate ? new Date(startDate).getTime() : 0;
+              const endTs = endDate ? new Date(endDate).getTime() : Infinity;
+              filtered = filtered.filter(l => {
+                const lTs = new Date(l.createdAt || l.created_at || l.updatedAt || 0).getTime();
+                return lTs >= startTs && lTs <= endTs;
+              });
+            }
+
             const approved = filtered.filter(l => l.callCenterRequestStatus === 'APPROVED' || l.isCallCenter).length;
             const assigned = filtered.filter(l => l.assignedTo !== null).length;
             const pending = filtered.filter(l => l.assignedTo !== null && l.callCenterStatus !== 'completed').length;
