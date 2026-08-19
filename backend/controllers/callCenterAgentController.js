@@ -53,19 +53,18 @@ exports.getOverview = async (req, res) => {
             
             // Check active round
             const r2 = lead.roundProgress?.find(r => r.roundNum === 2);
-            let isPending = false;
+            let cStatus = '';
             
             if (r2) {
-                // If Round 2 exists, we use its callStatus to determine pending. 
-                // Any status other than ANSWERED or REJECT (or completed) is pending.
-                const st = r2.callStatus?.toUpperCase();
-                isPending = !['ANSWERED', 'REJECT', 'COMPLETED'].includes(st);
+                cStatus = (r2.callStatus || '').toUpperCase();
             } else {
-                // Use Round 1
-                isPending = lead.callCenterStatus !== 'completed';
+                cStatus = (lead.callStatus || lead.roundProgress?.[0]?.callStatus || '').toUpperCase();
             }
 
-            if (!isPending) {
+            const coveredStatuses = ['ANSWERED', 'ANSWER', 'REJECT', 'REJECTED', 'NO_ANSWER', 'CALL_AGAIN', 'FOLLOW_UP', 'NOT_INTERESTED', 'ENROLLED', 'COMPLETED'];
+            const isCovered = coveredStatuses.includes(cStatus) || lead.callCenterStatus === 'completed';
+
+            if (isCovered) {
                 overview[cType][biz.id].completed++;
             } else {
                 overview[cType][biz.id].pending++;

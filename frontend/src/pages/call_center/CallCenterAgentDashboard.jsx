@@ -206,8 +206,12 @@ export default function CallCenterAgentDashboard() {
       const firstPendingPhase = [1, 2, 3].find(ph => {
         return roundLeads.some(l => l.roundData.phase === ph && isPendingCallStatus(l.roundData.callStatus));
       });
-      if (firstPendingPhase && firstPendingPhase !== activePhase) {
-        setActivePhase(firstPendingPhase);
+      if (firstPendingPhase) {
+        if (firstPendingPhase !== activePhase) setActivePhase(firstPendingPhase);
+        setStatusFilter('PENDING');
+      } else {
+        // 0 uncalled pending leads -> default to 'ALL' so agent sees their leads!
+        setStatusFilter('ALL');
       }
     }
   }, [leads, activeRound]);
