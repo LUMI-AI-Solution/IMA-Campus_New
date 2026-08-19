@@ -1,10 +1,12 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+
 async function main() {
-  const lead = await prisma.lead.findFirst({ 
-    where: { phone: { contains: 'BIZ_13_AS' } }, 
-    orderBy: { updatedAt: 'desc' } 
-  });
-  console.log(lead);
+    const courses33 = await prisma.course.findMany({
+        where: { code: '33' },
+        select: { id: true, name: true, code: true }
+    });
+    console.log("Courses with code 33:");
+    console.dir(courses33, { maxArrayLength: null });
 }
-main().finally(() => prisma.$disconnect());
+main().catch(console.error).finally(() => prisma.$disconnect());

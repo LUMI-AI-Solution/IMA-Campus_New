@@ -122,6 +122,9 @@ model Batch {
   timetables   Timetable[]
 
   tasks Task[]
+
+  targetIndividualGoal Float? @default(40.0)
+  targetGroupGoal      Float? @default(50.0)
 }
 
 model Group {
@@ -723,16 +726,19 @@ model AppSetting {
 
 model Reminder {
   id          Int      @id @default(autoincrement())
-  leadId      Int
+  leadId      Int?
   agentId     Int // Reminder එක දාපු කෙනාට විතරක් පේන්න
-  leadType    String // 'NEW_INQ' හෝ 'OPEN_SEMINAR'
-  phone       String // Redirect වෙන්න ලේසි වෙන්න
+  leadType    String? // 'NEW_INQ' හෝ 'OPEN_SEMINAR'
+  phone       String? // Redirect වෙන්න ලේසි වෙන්න
   name        String?
   round       Int      @default(1)
   phase       Int      @default(1)
   remindAt    DateTime // Reminder එක එන්න ඕන වෙලාව
   note        String?  @db.Text
   isCompleted Boolean  @default(false)
+  isPersonal  Boolean  @default(false)
+  isRepeat    Boolean  @default(false)
+  repeatTime  String?  // Time in HH:mm format for repeating reminders
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }

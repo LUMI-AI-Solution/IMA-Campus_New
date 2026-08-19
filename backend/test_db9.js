@@ -1,16 +1,25 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+
 async function main() {
-  const futureReplies = await prisma.autoReply.findMany({
-      where: {
-          businessId: 13,
-          campaignType: 'AFTER_SEMINAR',
-          stepOrder: 1
-      }
-  });
-  console.log("Future Replies for step 1:", futureReplies.length);
-  if (futureReplies.length > 0) {
-      console.log(futureReplies[0]);
-  }
+    const contents = await prisma.content.findMany({
+        where: { title: { contains: "සාහිත්‍ය" } },
+        select: { id: true, title: true }
+    });
+    console.log("Literature contents:");
+    console.dir(contents, { maxArrayLength: null });
+    
+    for (let c of contents) {
+        const links = await prisma.contentCourse.findMany({
+            where: { content_id: c.id }
+        });
+        
+        for (let l of links) {
+            const course = await prisma.course.findUnique({
+                where: { id: Number(l.course_id) }
+            });
+            console.log("Content:", c.title, "=> Course:", course.id, course.name, course.code);
+        }
+    }
 }
-main().finally(() => prisma.$disconnect());
+main().catch(console.error).finally(() => prisma.$disconnect());

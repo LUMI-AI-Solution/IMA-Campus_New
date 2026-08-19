@@ -2,13 +2,12 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 async function main() {
-    const countWithBatch = await prisma.lead.count({
-        where: { campaignType: 'FREE_SEMINAR', batchId: { not: null } }
+    const leads = await prisma.lead.findMany({
+        where: { batchId: 5 }
     });
-    const countNoBatch = await prisma.lead.count({
-        where: { campaignType: 'FREE_SEMINAR', batchId: null }
+    console.log("Leads for Batch 5:");
+    leads.forEach(l => {
+        console.log(`ID: ${l.id}, Phone: ${l.phone}, BatchID: ${l.batchId}, AssignedTo: ${l.assignedTo}, Status: ${l.status}, CallStatus: ${l.callStatus}`);
     });
-    console.log("With batch:", countWithBatch);
-    console.log("Without batch:", countNoBatch);
 }
 main().catch(console.error).finally(() => prisma.$disconnect());

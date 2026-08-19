@@ -47,60 +47,6 @@ const syncLeadEnrollment = async (studentId, paymentType, payment) => {
                 }
             });
             console.log(`[SYNC] Updated ${leads.length} leads to ${newEnrollmentStatus} for Student ID ${studentId}`);
-        }
-                // No inquiry leads, check if PAID_CAMP lead already exists
-                const existingPaidLead = leads.find(l => l.inquiryType === 'PAID_CAMP');
-
-                if (existingPaidLead) {
-                    await prisma.lead.update({
-                        where: { id: existingPaidLead.id },
-                        data: {
-                            enrollmentStatus: newEnrollmentStatus,
-                            paymentIntention: pIntention
-                        }
-                    });
-                    console.log(`[SYNC] Existing PAID_CAMP Lead updated to ENROLLED for Student ID ${studentId}`);
-                } else {
-                    // Create fresh PAID_CAMP lead record
-                    const basePhone = phonesToCheck[0];
-                    const businessId = payment?.businessId || student.businessId || 1;
-                    const batchId = payment?.batchId || student.batchId || null;
-                    const assignedTo = null; // No original coordinator
-
-                    const dbPhoneSuffix = `_BIZ_${businessId}` + (batchId ? `_BATCH_${batchId}` : '') + `_PAID`;
-                    const newPhone = `${basePhone}${dbPhoneSuffix}`;
-
-                    // Check unique constraint first
-                    const checkExact = await prisma.lead.findUnique({ where: { phone: newPhone } });
-                    if (!checkExact) {
-                        await prisma.lead.create({
-                            data: {
-                                name: student.firstName ? `${student.firstName} ${student.lastName || ''}`.trim() : (leads[0]?.name || 'Unknown Student'),
-                                phone: newPhone,
-                                source: 'system',
-                                campaignType: 'AFTER_SEMINAR',
-                                inquiryType: 'PAID_CAMP',
-                                enrollmentStatus: newEnrollmentStatus,
-                                paymentIntention: pIntention,
-                                assignedTo: assignedTo,
-                                batchId: batchId,
-                                coordinationRound: 1,
-                                phase: 1,
-                                callStatus: 'pending'
-                            }
-                        });
-                        console.log(`[SYNC] Created fresh PAID_CAMP lead for Student ID ${studentId}`);
-                    } else {
-                        await prisma.lead.update({
-                            where: { id: checkExact.id },
-                            data: {
-                                enrollmentStatus: newEnrollmentStatus,
-                                paymentIntention: pIntention
-                            }
-                        });
-                    }
-                }
-            }
         } else {
             // No matching lead found at all, create a completely new PAID_CAMP lead if student exists
             const basePhone = phonesToCheck[0];
@@ -140,8 +86,8 @@ const syncLeadEnrollment = async (studentId, paymentType, payment) => {
                 });
             }
         }
-    } catch (e) {
-        console.error("Error syncing lead enrollment status:", e);
+    } catch (error) {
+        console.error(`[SYNC ERROR] syncLeadEnrollment failed for Student ID ${studentId}:`, error);
     }
 };
 

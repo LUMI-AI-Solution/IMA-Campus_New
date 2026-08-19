@@ -1,9 +1,24 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+
 async function main() {
-  const settings = await prisma.crmSettings.findFirst({ 
-    where: { businessId: 13, campaignType: 'AFTER_SEMINAR' } 
-  });
-  console.log(settings);
+    const englishContents = await prisma.content.findMany({
+        where: { title: { contains: "English - Paper No. 01" } },
+        select: { id: true, title: true }
+    });
+    
+    if (englishContents.length > 0) {
+        const links = await prisma.contentCourse.findMany({
+            where: { content_id: englishContents[0].id }
+        });
+        
+        for (let l of links) {
+            const course = await prisma.course.findUnique({
+                where: { id: Number(l.course_id) },
+                include: { group: true }
+            });
+            console.log("Course details:", course.id, course.name, course.code, "Batch:", course.group?.batchId);
+        }
+    }
 }
-main().finally(() => prisma.$disconnect());
+main().catch(console.error).finally(() => prisma.$disconnect());

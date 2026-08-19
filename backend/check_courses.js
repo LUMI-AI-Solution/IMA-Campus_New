@@ -1,24 +1,18 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
-async function run() {
-    const courses = await prisma.course.findMany({ where: { name: { contains: 'Political' } } });
-    const unique = [];
-    for (const c of courses) {
-        if (!unique.find(u => u.name === c.name)) {
-            unique.push(c);
+
+async function check() {
+    const biz = await prisma.business.findFirst({ where: { name: { contains: 'Law' } }, include: { batches: { include: { groups: { include: { courses: true } } } } } });
+    if (!biz) { console.log('No Law business found'); return; }
+    console.log("Business:", biz.name);
+    for (const batch of biz.batches) {
+        console.log(" Batch:", batch.name);
+        for (const group of batch.groups) {
+            console.log("  Group:", group.name);
+            for (const course of group.courses) {
+                console.log("   Course:", course.name);
+            }
         }
     }
-    
-    unique.forEach(c => {
-        console.log('Course Name:', c.name);
-        try {
-            const parsed = JSON.parse(c.groupPrices || '[]');
-            const g12 = parsed.find(p => p.groupId == 12 || p.groupId == "12");
-            console.log('Group 12 tutes length:', g12 ? (g12.tutes ? g12.tutes.length : 'no tutes array') : 'no group 12');
-        } catch (e) {
-            console.log('Error parsing groupPrices', e.message);
-        }
-    });
-    process.exit(0);
 }
-run();
+check();
