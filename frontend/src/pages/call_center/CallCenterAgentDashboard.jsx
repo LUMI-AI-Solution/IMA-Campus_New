@@ -190,8 +190,29 @@ export default function CallCenterAgentDashboard() {
     ? ((covered / totalAssigned) * 100).toFixed(1)
     : 0;
 
-  // Batches for the filter
-  const uniqueBatches = [...new Set(leads.map(l => l.batch?.id).filter(Boolean))];
+  // Auto-switch to phase with pending leads when leads load
+  useEffect(() => {
+    if (roundLeads.length > 0) {
+      const firstPendingPhase = [1, 2, 3].find(ph => {
+        return roundLeads.some(l => l.roundData.phase === ph && isPendingCallStatus(l.roundData.callStatus));
+      });
+      if (firstPendingPhase && firstPendingPhase !== activePhase) {
+        setActivePhase(firstPendingPhase);
+      }
+    }
+  }, [leads, activeRound]);
+
+  const handlePendingFilterClick = () => {
+    setStatusFilter('PENDING');
+    setCurrentPage(1);
+    if (countPending === 0) {
+      const targetPhase = [1, 2, 3].find(ph => roundLeads.some(l => l.roundData.phase === ph && isPendingCallStatus(l.roundData.callStatus)));
+      if (targetPhase) {
+        setActivePhase(targetPhase);
+        toast.success(`Switched to Phase 0${targetPhase} with pending leads!`);
+      }
+    }
+  };
   
   const hasPendingInBatch = (bId) => {
     return leads.some(l => {
@@ -447,7 +468,7 @@ export default function CallCenterAgentDashboard() {
                 All ({phaseLeadsAll.length})
               </button>
               <button
-                onClick={() => { setStatusFilter('PENDING'); setCurrentPage(1); }}
+                onClick={handlePendingFilterClick}
                 className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 border flex items-center gap-1.5 ${
                   statusFilter === 'PENDING'
                     ? 'bg-rose-500 text-white border-rose-400 shadow-md shadow-rose-500/30 font-black'
@@ -511,23 +532,35 @@ export default function CallCenterAgentDashboard() {
 
           <div className="flex gap-6">
             {/* Left Sidebar for Phases */}
-            <div className="w-24 shrink-0 flex flex-col gap-3">
+            <div className="w-28 shrink-0 flex flex-col gap-3">
               {[1, 2, 3].map(ph => {
-                const phCount = roundLeads.filter(l => l.roundData.phase === ph).length;
+                const phLeads = roundLeads.filter(l => l.roundData.phase === ph);
+                const phPending = phLeads.filter(l => isPendingCallStatus(l.roundData.callStatus)).length;
                 return (
                   <button
                     key={ph}
                     onClick={() => { setActivePhase(ph); setCurrentPage(1); setStatusFilter('ALL'); }}
-                    className={`flex flex-col items-center justify-center py-4 rounded-2xl transition-all relative overflow-hidden ${
+                    className={`flex flex-col items-center justify-center py-3.5 rounded-2xl transition-all relative overflow-hidden px-2 ${
                       activePhase === ph 
-                        ? 'bg-gradient-to-b from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/20' 
+                        ? 'bg-gradient-to-b from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/20 ring-2 ring-rose-400' 
                         : 'bg-white/5 border border-white/10 text-slate-400 hover:bg-white/10'
                     }`}
                   >
-                    <span className="text-[10px] font-black uppercase tracking-widest mb-1 opacity-70">Phase</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest mb-0.5 opacity-70">Phase</span>
                     <span className="text-2xl font-black">0{ph}</span>
-                    {phCount > 0 && (
-                      <span className="mt-2 bg-black/30 px-2 py-0.5 rounded-full text-[10px] font-bold">{phCount} leads</span>
+                    {phLeads.length > 0 && (
+                      <div className="mt-1.5 flex flex-col items-center gap-1 w-full">
+                        <span className="bg-black/30 px-2 py-0.5 rounded-full text-[10px] font-bold text-slate-300">{phLeads.length} leads</span>
+                        {phPending > 0 ? (
+                          <span className="bg-rose-500 text-white px-2 py-0.5 rounded-full text-[9px] font-black animate-pulse shadow-sm">
+                            🔴 {phPending} Pending
+                          </span>
+                        ) : (
+                          <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full text-[9px] font-bold">
+                            ✓ Done
+                          </span>
+                        )}
+                      </div>
                     )}
                   </button>
                 );
