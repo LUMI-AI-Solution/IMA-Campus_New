@@ -1412,9 +1412,24 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                 </div>
                             ) : studentDetailsData?.isEnrolled ? (
                                 <div className="space-y-4">
-                                    <div className="flex items-center gap-2 text-emerald-400 font-bold bg-emerald-900/20 p-3 rounded-xl border border-emerald-500/30 text-xs">
-                                        <FaCheckCircle size={14}/> Registered Student
-                                    </div>
+                                    {studentDetailsData?.hasApprovedPayment ? (
+                                        <div className="flex items-center gap-2 text-emerald-400 font-bold bg-emerald-900/30 p-3 rounded-xl border border-emerald-500/40 text-xs">
+                                            <FaCheckCircle size={14}/> APPROVED & ENROLLED STUDENT
+                                        </div>
+                                    ) : studentDetailsData?.hasPendingPayment ? (
+                                        <div className="flex flex-col gap-1 text-amber-300 font-bold bg-amber-950/60 p-3 rounded-xl border border-amber-500/50 text-xs shadow-inner">
+                                            <div className="flex items-center gap-2">
+                                                <FaClock size={14} className="text-amber-400 shrink-0 animate-pulse"/> SLIP PENDING / POST-PAY (NOT APPROVED)
+                                            </div>
+                                            <span className="text-[10px] text-amber-200/80 font-medium leading-relaxed">
+                                                Payment submitted/post-pay is pending manager approval. Lead moves to Paid section automatically once approved in Payment Management.
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-2 text-sky-400 font-bold bg-sky-900/30 p-3 rounded-xl border border-sky-500/40 text-xs">
+                                            <FaUser size={14}/> REGISTERED ACCOUNT (NO PAYMENT YET)
+                                        </div>
+                                    )}
                 
                                     <div className="space-y-3 bg-slate-800/20 p-4 rounded-xl border border-slate-700/50">
                                         <div className="text-sm">

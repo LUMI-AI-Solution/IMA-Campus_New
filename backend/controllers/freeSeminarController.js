@@ -2591,7 +2591,19 @@ exports.getLeadDetails = async (req, res) => {
                 });
             }
         }
-        res.status(200).json({ isEnrolled: true, student: bestStudent, enrolledCourses });
+
+        const hasApprovedPayment = bestStudent.payments.some(p => p.status === 1);
+        const hasPendingPayment = bestStudent.payments.some(p => p.status === 0 || p.status === 4);
+        const latestPaymentStatus = bestStudent.payments[0]?.status ?? null;
+
+        res.status(200).json({ 
+            isEnrolled: true, 
+            hasApprovedPayment,
+            hasPendingPayment,
+            latestPaymentStatus,
+            student: bestStudent, 
+            enrolledCourses 
+        });
     } catch (error) { res.status(500).json({ error: "Failed to fetch lead details" }); }
 };
 
