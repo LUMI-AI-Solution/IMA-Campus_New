@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import axios from '../../api/axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
-  PhoneCall, Loader, ChevronLeft, Calendar,
+  PhoneCall, Loader, ChevronLeft, Calendar, Search,
   PhoneForwarded, Megaphone, Target, PieChart, Activity, Repeat,
   Filter, Clock, CheckCircle, UserMinus, Sparkles
 } from 'lucide-react';
@@ -34,6 +34,7 @@ export default function CallCenterAgentDashboard() {
   const [activePhase, setActivePhase] = useState(1);
   const [batchFilter, setBatchFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [searchQuery, setSearchQuery] = useState('');
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -148,8 +149,17 @@ export default function CallCenterAgentDashboard() {
     return false;
   };
 
-  // Compute filtered leads
-  const batchFilteredLeads = batchFilter === 'All' ? leads : leads.filter(l => l.batch?.id === parseInt(batchFilter));
+  // Compute filtered leads (Batch Filter + Search Query)
+  const batchFilteredLeads = leads.filter(l => {
+    if (batchFilter !== 'All' && l.batch?.id !== parseInt(batchFilter)) return false;
+    if (searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase().trim();
+      const name = (l.name || l.studentName || '').toLowerCase();
+      const phone = (l.phone || l.contactNumber || '').toLowerCase();
+      return name.includes(q) || phone.includes(q);
+    }
+    return true;
+  });
   
   // Leads for the current round
   const roundLeads = batchFilteredLeads.map(l => {
@@ -432,22 +442,48 @@ export default function CallCenterAgentDashboard() {
                 </div>
               </div>
 
-              {/* Batch Filter */}
-              <div className="min-w-[250px]">
-                <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Filter by Batch</label>
-                <div className="relative">
-                  <select 
-                    value={batchFilter}
-                    onChange={(e) => { setBatchFilter(e.target.value); setCurrentPage(1); }}
-                    className="w-full bg-[#0F172A] border border-white/10 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-indigo-500 appearance-none"
-                  >
-                    <option value="All">All Batches</option>
-                    {uniqueBatches.map(bId => {
-                      const bName = leads.find(l => l.batch?.id === bId)?.batch?.name;
-                      const hasPending = hasPendingInBatch(bId);
-                      return <option key={bId} value={bId}>{bName} {hasPending ? '🔴 (Pending)' : ''}</option>;
-                    })}
-                  </select>
+              {/* Search Bar & Batch Filter Container */}
+              <div className="flex flex-wrap items-center gap-4 w-full lg:w-auto">
+                {/* Search Bar */}
+                <div className="min-w-[260px] flex-1 lg:flex-none">
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Search Student / Phone</label>
+                  <div className="relative">
+                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      type="text"
+                      placeholder="Search name or number..."
+                      value={searchQuery}
+                      onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                      className="w-full bg-[#0F172A] border border-white/10 rounded-xl pl-10 pr-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-red-500 placeholder:text-slate-500"
+                    />
+                    {searchQuery && (
+                      <button
+                        onClick={() => { setSearchQuery(''); setCurrentPage(1); }}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-white bg-white/10 rounded-full w-4 h-4 flex items-center justify-center"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Batch Filter */}
+                <div className="min-w-[240px] flex-1 lg:flex-none">
+                  <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-2">Filter by Batch</label>
+                  <div className="relative">
+                    <select 
+                      value={batchFilter}
+                      onChange={(e) => { setBatchFilter(e.target.value); setCurrentPage(1); }}
+                      className="w-full bg-[#0F172A] border border-white/10 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-indigo-500 appearance-none"
+                    >
+                      <option value="All">All Batches</option>
+                      {uniqueBatches.map(bId => {
+                        const bName = leads.find(l => l.batch?.id === bId)?.batch?.name;
+                        const hasPending = hasPendingInBatch(bId);
+                        return <option key={bId} value={bId}>{bName} {hasPending ? '🔴 (Pending)' : ''}</option>;
+                      })}
+                    </select>
+                  </div>
                 </div>
               </div>
 
