@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, CheckCircle, Clock, ArrowRightLeft, 
   Sparkles, UserCheck, UserMinus, ChevronRight, PhoneCall, 
   Loader, Building2, Briefcase, BarChart3, Filter, ShieldAlert,
-  AlertCircle
+  AlertCircle, Ghost
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import OverviewTab from '../../components/CallCenter/OverviewTab';
@@ -97,6 +97,27 @@ export default function CallCenterManagerDashboard() {
       const response = await axios.get('/call-center/manager/staff', { headers: { Authorization: `Bearer ${token}` } });
       setStaff(response.data || []);
     } catch (error) { console.error("Failed to load staff list", error); }
+  };
+
+  const handleGhostLogin = async (staffId) => {
+    try {
+      const toastId = toast.loading("Switching to Ghost Mode...");
+      const token = localStorage.getItem('token');
+      const res = await axios.post(`/auth/ghost-login/${staffId}`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.data.token && res.data.user) {
+        localStorage.setItem('admin_token', localStorage.getItem('token'));
+        localStorage.setItem('admin_user', localStorage.getItem('user'));
+        const { password, ...safeUser } = res.data.user;
+        localStorage.setItem('token', res.data.token);
+        localStorage.setItem('user', JSON.stringify(safeUser));
+        toast.success("Switched to Ghost Mode successfully!", { id: toastId });
+        window.location.href = '/login';
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.error || "Ghost login failed.");
+    }
   };
 
   const fetchStats = async () => {
@@ -615,12 +636,19 @@ export default function CallCenterManagerDashboard() {
                           </div>
                         </div>
                       </div>
-                      <div className="flex gap-2 relative z-10">
-                        <button onClick={() => handleOpenEditStaff(member)} className="flex-1 flex items-center justify-center gap-2 text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 py-2.5 rounded-xl transition-all text-sm font-bold border border-white/5">
-                          <Briefcase size={14}/> Edit Profile
+                      <div className="flex gap-2 relative z-10 flex-wrap">
+                        <button 
+                          onClick={() => handleGhostLogin(member.id)} 
+                          className="flex-1 flex items-center justify-center gap-1.5 text-purple-300 hover:text-white bg-purple-600/20 hover:bg-purple-600 py-2.5 rounded-xl transition-all text-xs font-bold border border-purple-500/30 shadow-md hover:shadow-purple-500/30"
+                          title="Ghost login as this caller/agent"
+                        >
+                          <Ghost size={14}/> Ghost Login
                         </button>
-                        <button onClick={() => handleDeleteStaff(member.id)} className="flex-1 flex items-center justify-center gap-2 text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 py-2.5 rounded-xl transition-all text-sm font-bold border border-rose-500/20 hover:border-rose-500 shadow-sm">
-                          <UserMinus size={14}/> Delete Agent
+                        <button onClick={() => handleOpenEditStaff(member)} className="flex-1 flex items-center justify-center gap-1.5 text-slate-300 hover:text-white bg-white/5 hover:bg-white/10 py-2.5 rounded-xl transition-all text-xs font-bold border border-white/5">
+                          <Briefcase size={14}/> Edit
+                        </button>
+                        <button onClick={() => handleDeleteStaff(member.id)} className="flex-1 flex items-center justify-center gap-1.5 text-rose-400 hover:text-white bg-rose-500/10 hover:bg-rose-600 py-2.5 rounded-xl transition-all text-xs font-bold border border-rose-500/20 hover:border-rose-500 shadow-sm">
+                          <UserMinus size={14}/> Delete
                         </button>
                       </div>
                     </div>

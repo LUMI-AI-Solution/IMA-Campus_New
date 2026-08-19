@@ -136,9 +136,16 @@ exports.getCallCenterStaff = async (req, res) => {
     try {
         const staffList = await prisma.user.findMany({
             where: {
-                role: { notIn: ['Student', 'USER', 'STUDENT'] }
+                OR: [
+                    { role: { in: ['Coordinator', 'COORDINATOR', 'CALLER', 'Caller', 'Call Center Agent', 'CALL_CENTER_AGENT', 'CALL_CENTER_COORDINATOR', 'agent', 'AGENT'] } },
+                    { role: { contains: 'Coordinator' } },
+                    { role: { contains: 'Caller' } },
+                    { role: { contains: 'Call Center' } }
+                ],
+                role: { notIn: ['Student', 'USER', 'STUDENT', 'Manager', 'MANAGER', 'SYSTEM_ADMIN', 'DIRECTOR', 'head_manager', 'ass_manager'] }
             },
-            select: { id: true, firstName: true, lastName: true, phone: true, role: true, department: true, businessType: true }
+            select: { id: true, firstName: true, lastName: true, phone: true, role: true, department: true, businessType: true },
+            orderBy: { firstName: 'asc' }
         });
 
         // Compute dynamic counts per staff
