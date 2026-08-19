@@ -197,16 +197,58 @@ export default function InboundMissedCallsReportModal({ isOpen, onClose }) {
 
     const filteredLogs = useMemo(() => {
         if (!reportData.logs) return [];
-        if (!searchQuery.trim()) return reportData.logs;
+        let list = reportData.logs;
+
+        // Apply strict date range filter on frontend
+        if (startDate || endDate) {
+            const startMs = startDate ? new Date(`${startDate}T00:00:00`).getTime() : 0;
+            const endMs = endDate ? new Date(`${endDate}T23:59:59.999`).getTime() : Infinity;
+            list = list.filter(log => {
+                const logMs = new Date(log.createdAt).getTime();
+                return logMs >= startMs && logMs <= endMs;
+            });
+        }
+
+        if (!searchQuery.trim()) return list;
         const q = searchQuery.toLowerCase().trim();
-        return reportData.logs.filter(log => {
+        return list.filter(log => {
             const phone = String(log.leadPhone || '').toLowerCase();
             const name = String(log.leadName || log.lead?.name || '').toLowerCase();
             const batch = String(log.batchName || log.lead?.batchName || '').toLowerCase();
             const agent = String(log.agent?.firstName || '') + ' ' + String(log.agent?.lastName || '');
             return phone.includes(q) || name.includes(q) || batch.includes(q) || agent.toLowerCase().includes(q);
         });
-    }, [reportData.logs, searchQuery]);
+    }, [reportData.logs, searchQuery, startDate, endDate]);
+
+    const dynamicSummary = useMemo(() => {
+        const total = filteredLogs.length;
+        let missed = 0;
+        let completed = 0;
+        let rejected = 0;
+        let totalDuration = 0;
+
+        filteredLogs.forEach(c => {
+            const st = (c.status || '').toUpperCase();
+            if (st === 'COMPLETED' || st === 'ANSWERED') completed++;
+            else if (st === 'REJECTED' || st === 'BUSY') rejected++;
+            else missed++;
+            totalDuration += (c.duration || 0);
+        });
+
+        const missedRate = total > 0 ? ((missed / total) * 100).toFixed(0) : 0;
+        const avgDuration = total > 0 ? Math.round(totalDuration / total) : 0;
+
+        return {
+            total,
+            inboundTotal: total,
+            missedCalls: missed,
+            completedCalls: completed,
+            rejectedCalls: rejected,
+            missedRate,
+            avgDuration,
+            totalDuration
+        };
+    }, [filteredLogs]);
 
     const filteredPerms = useMemo(() => {
         if (!permRequests) return [];
@@ -594,12 +636,12 @@ export default function InboundMissedCallsReportModal({ isOpen, onClose }) {
                     </div>
                 ) : (
                     <div className="px-6 py-3 bg-black/40 border-b border-white/5 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 shrink-0">
-                        <div className="p-2.5 bg-slate-900/60 border border-white/10 rounded-xl"><span className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1"><PhoneIncoming size={12} className="text-emerald-400" /> Total Inbound</span><p className="text-xl font-black text-white mt-1">{summary.inboundTotal}</p></div>
-                        <div className="p-2.5 bg-rose-950/20 border border-rose-500/30 rounded-xl"><span className="text-[10px] uppercase font-bold text-rose-300 flex items-center gap-1"><PhoneMissed size={12} className="text-rose-400" /> Missed Calls</span><p className="text-xl font-black text-rose-400 mt-1">{summary.missedCalls}</p></div>
-                        <div className="p-2.5 bg-emerald-950/20 border border-emerald-500/30 rounded-xl"><span className="text-[10px] uppercase font-bold text-emerald-300 flex items-center gap-1"><CheckCircle2 size={12} className="text-emerald-400" /> Answered Calls</span><p className="text-xl font-black text-emerald-400 mt-1">{summary.completedCalls}</p></div>
-                        <div className="p-2.5 bg-amber-950/20 border border-amber-500/30 rounded-xl"><span className="text-[10px] uppercase font-bold text-amber-300 flex items-center gap-1"><PhoneOff size={12} className="text-amber-400" /> Rejected / Busy</span><p className="text-xl font-black text-amber-400 mt-1">{summary.rejectedCalls}</p></div>
-                        <div className="p-2.5 bg-rose-950/20 border border-rose-500/30 rounded-xl"><span className="text-[10px] uppercase font-bold text-rose-300 flex items-center gap-1"><TrendingDown size={12} className="text-rose-400" /> Missed Rate</span><p className="text-xl font-black text-rose-400 mt-1">{summary.missedRate}%</p></div>
-                        <div className="p-2.5 bg-slate-900/60 border border-white/10 rounded-xl"><span className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1"><Clock size={12} className="text-teal-400" /> Avg Talk Time</span><p className="text-xl font-black text-teal-300 mt-1">{formatDuration(summary.avgDuration)}</p></div>
+                        <div className="p-2.5 bg-slate-900/60 border border-white/10 rounded-xl"><span className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1"><PhoneIncoming size={12} className="text-emerald-400" /> Total Inbound</span><p className="text-xl font-black text-white mt-1">{dynamicSummary.inboundTotal}</p></div>
+                        <div className="p-2.5 bg-rose-950/20 border border-rose-500/30 rounded-xl"><span className="text-[10px] uppercase font-bold text-rose-300 flex items-center gap-1"><PhoneMissed size={12} className="text-rose-400" /> Missed Calls</span><p className="text-xl font-black text-rose-400 mt-1">{dynamicSummary.missedCalls}</p></div>
+                        <div className="p-2.5 bg-emerald-950/20 border border-emerald-500/30 rounded-xl"><span className="text-[10px] uppercase font-bold text-emerald-300 flex items-center gap-1"><CheckCircle2 size={12} className="text-emerald-400" /> Answered Calls</span><p className="text-xl font-black text-emerald-400 mt-1">{dynamicSummary.completedCalls}</p></div>
+                        <div className="p-2.5 bg-amber-950/20 border border-amber-500/30 rounded-xl"><span className="text-[10px] uppercase font-bold text-amber-300 flex items-center gap-1"><PhoneOff size={12} className="text-amber-400" /> Rejected / Busy</span><p className="text-xl font-black text-amber-400 mt-1">{dynamicSummary.rejectedCalls}</p></div>
+                        <div className="p-2.5 bg-rose-950/20 border border-rose-500/30 rounded-xl"><span className="text-[10px] uppercase font-bold text-rose-300 flex items-center gap-1"><TrendingDown size={12} className="text-rose-400" /> Missed Rate</span><p className="text-xl font-black text-rose-400 mt-1">{dynamicSummary.missedRate}%</p></div>
+                        <div className="p-2.5 bg-slate-900/60 border border-white/10 rounded-xl"><span className="text-[10px] uppercase font-bold text-slate-400 flex items-center gap-1"><Clock size={12} className="text-teal-400" /> Avg Talk Time</span><p className="text-xl font-black text-teal-300 mt-1">{formatDuration(dynamicSummary.avgDuration)}</p></div>
                     </div>
                 )}
 
