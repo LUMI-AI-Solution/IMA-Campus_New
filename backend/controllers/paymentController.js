@@ -38,34 +38,16 @@ const syncLeadEnrollment = async (studentId, paymentType, payment) => {
         else if (payment && (payment.status === 2 || payment.status === 5)) newEnrollmentStatus = 'NON_ENROLLED';
 
         if (leads.length > 0) {
-            // 1. Identify original inquiry leads
-            const inquiryLeads = leads.filter(l =>
-                !l.inquiryType || ['NEW_INQ', 'OPEN_SEMINAR', 'NORMAL'].includes(l.inquiryType)
-            );
-
-            if (inquiryLeads.length > 0) {
-                // Update original inquiry leads so they are marked as ENROLLED
-                await prisma.lead.updateMany({
-                    where: { id: { in: inquiryLeads.map(l => l.id) } },
-                    data: {
-                        enrollmentStatus: newEnrollmentStatus,
-                        paymentIntention: pIntention
-                    }
-                });
-                console.log(`[SYNC] Original Inquiry Leads updated to ENROLLED for Student ID ${studentId}`);
-
-                // Check if a duplicate PAID_CAMP lead somehow exists, update it too just in case
-                const existingPaidLead = leads.find(l => l.inquiryType === 'PAID_CAMP');
-                if (existingPaidLead) {
-                    await prisma.lead.update({
-                        where: { id: existingPaidLead.id },
-                        data: {
-                            enrollmentStatus: newEnrollmentStatus,
-                            paymentIntention: pIntention
-                        }
-                    });
+            // Update ALL matching leads for this student so they are marked as ENROLLED / PAID
+            await prisma.lead.updateMany({
+                where: { id: { in: leads.map(l => l.id) } },
+                data: {
+                    enrollmentStatus: newEnrollmentStatus,
+                    paymentIntention: pIntention
                 }
-            } else {
+            });
+            console.log(`[SYNC] Updated ${leads.length} leads to ${newEnrollmentStatus} for Student ID ${studentId}`);
+        }
                 // No inquiry leads, check if PAID_CAMP lead already exists
                 const existingPaidLead = leads.find(l => l.inquiryType === 'PAID_CAMP');
 

@@ -1136,9 +1136,9 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
 
 
             {/* Student Details Hover Popover */}
-            {studentDetailsLead && (
-                <div className="fixed bottom-6 right-6 z-[100] transition-opacity pointer-events-none">
-                    <div className="bg-[#0f172a]/95 backdrop-blur-md border border-slate-700 w-[350px] rounded-2xl overflow-hidden flex flex-col transform transition-all shadow-[0_10px_40px_rgba(0,0,0,0.5)]">
+            {studentDetailsLead && createPortal(
+                <div className="fixed top-24 right-6 z-[99999] pointer-events-auto transition-all animate-in fade-in slide-in-from-top-4">
+                    <div className="bg-[#0f172a]/95 backdrop-blur-xl border border-sky-500/40 w-[360px] rounded-2xl overflow-hidden flex flex-col transform transition-all shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
                         <div className="flex justify-between items-center p-4 border-b border-slate-700/50 bg-slate-800/30">
                             <h2 className="text-slate-200 font-bold flex items-center gap-2">
                                 <FaUser className="text-sky-400" /> Student Details
@@ -1202,7 +1202,8 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                             )}
                         </div>
                     </div>
-                </div>
+                </div>,
+                document.body
             )}
 
             {/* REMINDER MODAL */}
