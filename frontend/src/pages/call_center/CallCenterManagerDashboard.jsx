@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, CheckCircle, Clock, ArrowRightLeft, 
   Sparkles, UserCheck, UserMinus, ChevronRight, PhoneCall, 
   Loader, Building2, Briefcase, BarChart3, Filter, ShieldAlert,
-  AlertCircle, Ghost
+  AlertCircle, Ghost, Search
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import OverviewTab from '../../components/CallCenter/OverviewTab';
@@ -15,6 +15,8 @@ export default function CallCenterManagerDashboard() {
   const { tab } = useParams();
   const navigate = useNavigate();
   const activeTab = tab || 'overview';
+
+  const [searchQuery, setSearchQuery] = useState('');
 
   const [stats, setStats] = useState({
     totalRequested: 0,
@@ -295,6 +297,16 @@ export default function CallCenterManagerDashboard() {
       list = list.filter(l => l.assignedTo !== null);
     }
 
+    if (searchQuery.trim() !== '') {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(l => {
+        const name = (l.name || l.studentName || '').toLowerCase();
+        const phone = (l.phone || l.contactNumber || '').toLowerCase();
+        const agent = (l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : '').toLowerCase();
+        return name.includes(q) || phone.includes(q) || agent.includes(q);
+      });
+    }
+
     // Sort order (Newest first vs Oldest first)
     list.sort((a, b) => {
       const timeA = new Date(a.createdAt || a.created_at || 0).getTime();
@@ -502,10 +514,31 @@ export default function CallCenterManagerDashboard() {
                       ) : (
                         <div className="bg-slate-900/80 rounded-2xl overflow-hidden border border-slate-700 flex flex-col h-full animate-fade-in shadow-xl">
                           {(activeSubTab === 'pending-handovers' || activeSubTab === 'needs-assignment' || activeSubTab === 'assigned') && (
-                            <div className="p-4 border-b border-slate-700 bg-slate-800/50 flex justify-end items-center gap-4">
-                              <span className="text-sm font-bold text-slate-400">
-                                {activeSubTab === 'assigned' ? `${filteredLeads.length} Total Assigned` : `${checkedLeads.length} Selected`}
-                              </span>
+                            <div className="p-4 border-b border-slate-700 bg-slate-800/50 flex flex-col md:flex-row justify-between items-center gap-4">
+                              {/* Search Bar Input */}
+                              <div className="relative w-full md:w-80">
+                                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                <input
+                                  type="text"
+                                  placeholder="Search name, phone, caller..."
+                                  value={searchQuery}
+                                  onChange={(e) => setSearchQuery(e.target.value)}
+                                  className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-8 py-2 text-xs font-bold text-white outline-none focus:border-red-500 placeholder:text-slate-500"
+                                />
+                                {searchQuery && (
+                                  <button
+                                    onClick={() => setSearchQuery('')}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-white bg-white/10 rounded-full w-4 h-4 flex items-center justify-center"
+                                  >
+                                    ✕
+                                  </button>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-4 w-full md:w-auto justify-end">
+                                <span className="text-sm font-bold text-slate-400 whitespace-nowrap">
+                                  {activeSubTab === 'assigned' ? `${filteredLeads.length} Total Assigned` : `${checkedLeads.length} Selected`}
+                                </span>
                               
                               {activeSubTab === 'pending-handovers' ? (
                                 <div className="flex gap-2">
@@ -586,17 +619,18 @@ export default function CallCenterManagerDashboard() {
                                        onChange={(e) => setSelectedAgent(e.target.value)}
                                        className="bg-slate-900 border border-slate-600 rounded-xl px-4 py-2.5 text-sm text-white focus:border-red-500 outline-none w-full sm:w-auto font-medium"
                                      >
-                                       <option value="">-- Choose Agent to Assign --</option>
-                                       {staff.map(member => (
-                                         <option key={member.id} value={member.id}>{member.firstName} {member.lastName}</option>
-                                       ))}
-                                     </select>
-                                     <button onClick={handleBulkAssign} className="w-full sm:w-auto bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-red-500/20 whitespace-nowrap">
-                                       Assign Workload ({checkedLeads.length})
-                                     </button>
-                                   </div>
-                                 </div>
-                              )}
+                                        <option value="">-- Choose Agent to Assign --</option>
+                                        {staff.map(member => (
+                                          <option key={member.id} value={member.id}>{member.firstName} {member.lastName}</option>
+                                        ))}
+                                      </select>
+                                      <button onClick={handleBulkAssign} className="w-full sm:w-auto bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white px-8 py-2.5 rounded-xl text-sm font-bold transition-all shadow-lg shadow-red-500/20 whitespace-nowrap">
+                                        Assign Workload ({checkedLeads.length})
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           )}
 
@@ -644,12 +678,32 @@ export default function CallCenterManagerDashboard() {
                                       </td>
                                     )}
                                     {activeSubTab === 'assigned' && (
-                                      <td className="px-5 py-4 text-xs font-bold">
-                                        <span className={`px-3 py-1.5 rounded-lg border ${lead.callCenterStatus === 'completed' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-sm shadow-emerald-500/10' : 'bg-amber-500/10 border-amber-500/30 text-amber-400 shadow-sm shadow-amber-500/10'}`}>
-                                          {lead.callCenterStatus?.toUpperCase() || 'PENDING'}
-                                        </span>
-                                      </td>
-                                    )}
+                                       <td className="px-5 py-4 text-xs font-bold">
+                                         {(() => {
+                                           const cStatus = (lead.callStatus || lead.roundProgress?.[0]?.callStatus || '').toUpperCase();
+                                           const centerStatus = (lead.callCenterStatus || '').toLowerCase();
+                                           if (centerStatus === 'completed' || ['ANSWERED', 'ANSWER', 'REJECT', 'REJECTED'].includes(cStatus)) {
+                                             return (
+                                               <span className="px-3 py-1.5 rounded-lg border bg-emerald-500/10 border-emerald-500/30 text-emerald-400 shadow-sm shadow-emerald-500/10">
+                                                 COMPLETED
+                                               </span>
+                                             );
+                                           }
+                                           if (cStatus === 'NO_ANSWER' || centerStatus === 'no_answer') {
+                                             return (
+                                               <span className="px-3 py-1.5 rounded-lg border bg-orange-500/10 border-orange-500/30 text-orange-400 shadow-sm shadow-orange-500/10">
+                                                 NO ANSWER
+                                               </span>
+                                             );
+                                           }
+                                           return (
+                                             <span className="px-3 py-1.5 rounded-lg border bg-amber-500/10 border-amber-500/30 text-amber-400 shadow-sm shadow-amber-500/10">
+                                               PENDING
+                                             </span>
+                                           );
+                                         })()}
+                                       </td>
+                                     )}
                                   </tr>
                                 ))}
                                 {filteredLeads.length === 0 && (
