@@ -1094,20 +1094,32 @@ exports.getCourseModules = async (req, res) => {
         const contents = Array.from(uniqueContentsMap.values());
 
         const groupIds = [...new Set(contents.map(c => c.contentGroupId).filter(Boolean))];
+        const groupTitles = [...new Set(contents.map(c => c.group?.title).filter(Boolean))];
+        
         const lessonGroups = await prisma.contentGroup.findMany({
-             where: { id: { in: groupIds } },
+             where: { 
+                 OR: [
+                     { id: { in: groupIds } },
+                     { title: { in: groupTitles } }
+                 ]
+             },
              orderBy: { itemOrder: 'asc' }
         });
 
-        const liveClasses = contents.filter(c => c.contentType === 'live' || c.contentType === '1');
-        const recordings = contents.filter(c => c.contentType === 'recording' || c.contentType === '2');
-        const documents = contents.filter(c => c.contentType === 'document' || c.contentType === '3');
-        const sPapers = contents.filter(c => c.contentType === 'sPaper' || c.contentType === '4');
-        const papers = contents.filter(c => c.contentType === 'paper' || c.contentType === '5');
+        const contentsProcessed = contents.map(c => ({
+            ...c,
+            groupTitle: c.group?.title || null
+        }));
+
+        const liveClasses = contentsProcessed.filter(c => c.contentType === 'live' || c.contentType === '1');
+        const recordings = contentsProcessed.filter(c => c.contentType === 'recording' || c.contentType === '2');
+        const documents = contentsProcessed.filter(c => c.contentType === 'document' || c.contentType === '3');
+        const sPapers = contentsProcessed.filter(c => c.contentType === 'sPaper' || c.contentType === '4');
+        const papers = contentsProcessed.filter(c => c.contentType === 'paper' || c.contentType === '5');
 
         const safeData = safeJson({ 
             lessonGroups, 
-            contents,
+            contents: contentsProcessed,
             liveClasses,
             recordings,
             documents,

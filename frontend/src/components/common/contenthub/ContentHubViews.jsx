@@ -26,6 +26,21 @@ export default function ContentHubViews({ state, actions }) {
         return 'https://imacampus.online/api';
     };
 
+    const isItemInFolder = (c, folder) => {
+        const fId = c.content_group_id ?? c.contentGroupId ?? c.folder_id;
+        if (fId && String(fId) === String(folder.id)) return true;
+        const itemGroupTitle = c.groupTitle || c.group?.title;
+        if (itemGroupTitle && folder?.title && itemGroupTitle.trim().toLowerCase() === folder.title.trim().toLowerCase()) return true;
+        return false;
+    };
+
+    const isUncategorized = (c) => {
+        const fId = c.content_group_id ?? c.contentGroupId ?? c.folder_id;
+        if (!fId) return true;
+        const hasMatch = (lessonGroups || []).some(folder => isItemInFolder(c, folder));
+        return !hasMatch;
+    };
+
     const copyToClipboard = (text) => {
         if (navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(text).then(() => {
@@ -417,7 +432,7 @@ export default function ContentHubViews({ state, actions }) {
                                           <div className="border-t border-white/10 bg-black/20 p-6 md:p-8 shadow-inner">
                                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                                                   {subjectContents
-                                                      .filter(c => isMatchedType(c) && getFolderId(c) === String(folder.id))
+                                                      .filter(c => isMatchedType(c) && isItemInFolder(c, folder))
                                                       .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1))
                                                       .map((content) => (
                                                         <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
@@ -487,7 +502,7 @@ export default function ContentHubViews({ state, actions }) {
                                                       ))}
                                               </div>
                                               
-                                              {subjectContents.filter(c => isMatchedType(c) && getFolderId(c) === String(folder.id)).length === 0 && <p className="text-sm text-gray-400 py-8 text-center font-bold bg-white/5 rounded-2xl border border-white/10 shadow-inner">This folder is empty.</p>}
+                                              {subjectContents.filter(c => isMatchedType(c) && isItemInFolder(c, folder)).length === 0 && <p className="text-sm text-gray-400 py-8 text-center font-bold bg-white/5 rounded-2xl border border-white/10 shadow-inner">This folder is empty.</p>}
                                           </div>
                                         )}
                                     </div>
@@ -501,7 +516,7 @@ export default function ContentHubViews({ state, actions }) {
                             <div className="bg-white/[0.02] backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                                     {subjectContents
-                                        .filter(c => isMatchedType(c) && (!getFolderId(c) || !lessonGroups.some(f => String(f.id) === getFolderId(c))))
+                                        .filter(c => isMatchedType(c) && isUncategorized(c))
                                         .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1))
                                         .map((content) => (
                                         <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
@@ -564,7 +579,7 @@ export default function ContentHubViews({ state, actions }) {
                                         </div>
                                         ))}
                                 </div>
-                                {subjectContents.filter(c => isMatchedType(c) && (!getFolderId(c) || !lessonGroups.some(f => String(f.id) === getFolderId(c)))).length === 0 && <p className="text-sm text-gray-400 py-8 text-center font-bold bg-white/5 rounded-2xl border border-white/10 shadow-inner">No uncategorized items.</p>}
+                                {subjectContents.filter(c => isMatchedType(c) && isUncategorized(c)).length === 0 && <p className="text-sm text-gray-400 py-8 text-center font-bold bg-white/5 rounded-2xl border border-white/10 shadow-inner">No uncategorized items.</p>}
                             </div>
                         </div>
                     </div>

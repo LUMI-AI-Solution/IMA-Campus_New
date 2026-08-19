@@ -279,12 +279,26 @@ export default function CourseView({ courseId, onBack }) {
         const groupedItems = mergedFolders.map(folder => ({ 
             folder, 
             items: currentData
-                .filter(item => folder.ids.includes(getFolderId(item)))
+                .filter(item => {
+                    const fId = getFolderId(item);
+                    if (folder.ids.includes(fId)) return true;
+                    const itemGroupTitle = item.groupTitle || item.group?.title;
+                    if (itemGroupTitle && folder.title && itemGroupTitle.trim().toLowerCase() === folder.title.trim().toLowerCase()) return true;
+                    return false;
+                })
                 .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1))
         }));
         
         const uncategorizedItems = currentData
-            .filter(item => !folders.find(f => String(f.id) === getFolderId(item)))
+            .filter(item => {
+                const fId = getFolderId(item);
+                const itemGroupTitle = item.groupTitle || item.group?.title;
+                const hasFolder = folders.some(f => 
+                    String(f.id) === fId || 
+                    (itemGroupTitle && f.title && itemGroupTitle.trim().toLowerCase() === f.title.trim().toLowerCase())
+                );
+                return !hasFolder;
+            })
             .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1));
 
         return (

@@ -732,11 +732,13 @@ exports.getContents = async (req, res) => {
         const contentsWithCourses = contents.map(c => {
             const cleanContent = { ...c };
             let finalGroupId = c.contentGroupId;
+            let groupTitle = c.group?.title || null;
             delete cleanContent.group;
 
             return {
                 ...cleanContent,
                 contentGroupId: finalGroupId,
+                groupTitle: groupTitle,
                 assignedCourses: allContentCourses.filter(cc => cc.content_id === c.id).map(cc => Number(cc.course_id))
             };
         });
