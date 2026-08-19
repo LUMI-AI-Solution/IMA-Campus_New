@@ -56,20 +56,47 @@ exports.getSchedule = async (req, res) => {
             include: { group: true }
         });
 
-        const mappedContentClasses = contentClasses.map(c => ({
-            id: `content_${c.id}`,
-            businessId: businessId ? parseInt(businessId) : 0,
-            batchId: c.batchId,
-            date: c.date,
-            subjectName: c.title,
-            title: 'Content Hub Live Class',
-            startTime: c.startTime || '00:00',
-            endTime: c.endTime || '00:00',
-            lecturerName: 'Content Hub',
-            hall: null,
-            deliveryStatus: c.link || c.meetingId ? 'DELIVERED' : 'PENDING',
-            isFromContentHub: true
-        }));
+        // Filter and map Content classes
+        // 1. Group by date + startTime to avoid showing multiple payment group instances as duplicates
+        // 2. Exclude Content records that overlap with a Timetable record (because they were generated from tasks)
+        const uniqueContentClassesMap = new Map();
+
+        contentClasses.forEach(c => {
+            // Ignore Content records created without a title (typically those auto-created via tasks)
+            // or if you want to include them, we at least deduplicate them.
+            // But since Timetable records already show the class, we should only show Content 
+            // if there's no Timetable record at the exact same date and time.
+            const dateStr = c.date ? new Date(c.date).toISOString().split('T')[0] : '';
+            const key = `${c.batchId}_${dateStr}_${c.startTime}`;
+
+            // Check if a Timetable record already exists for this slot
+            const hasTimetable = schedule.some(s => {
+                const sDateStr = s.date ? new Date(s.date).toISOString().split('T')[0] : '';
+                return s.batchId === c.batchId && sDateStr === dateStr && s.startTime === c.startTime;
+            });
+
+            if (!hasTimetable && !uniqueContentClassesMap.has(key)) {
+                // Determine a meaningful subject name. If c.title is empty, use 'Content Hub Live Class'
+                const subjectName = (c.title && c.title.trim() !== '' && c.title !== 'null') ? c.title : 'Content Hub Live Class';
+                
+                uniqueContentClassesMap.set(key, {
+                    id: `content_${c.id}`,
+                    businessId: businessId ? parseInt(businessId) : 0,
+                    batchId: c.batchId,
+                    date: c.date,
+                    subjectName: subjectName,
+                    title: 'Content Hub Live Class',
+                    startTime: c.startTime || '00:00',
+                    endTime: c.endTime || '00:00',
+                    lecturerName: 'Content Hub',
+                    hall: null,
+                    deliveryStatus: c.link || c.meetingId ? 'DELIVERED' : 'PENDING',
+                    isFromContentHub: true
+                });
+            }
+        });
+
+        const mappedContentClasses = Array.from(uniqueContentClassesMap.values());
 
         const mergedSchedule = [...schedule, ...mappedContentClasses].sort((a, b) => {
             if (!a.startTime || !b.startTime) return 0;
@@ -241,21 +268,32 @@ exports.deleteSchedule = async (req, res) => {
         const userRole = req.user.role;
         const businessType = req.user.businessType;
         
-        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
-        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/[\s_-]+/g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN', 'PHYSICAL_MANAGER', 'SOCIAL_MEDIA_MANAGER', 'CALL_CENTER_SUPERVISOR'].includes(roleUpper) || roleUpper.includes('MANAG');
         
-        const scheduleItem = await prisma.timetable.findUnique({ where: { id: parseInt(req.params.id) } });
+        const rawId = String(req.params.id);
+
+        if (rawId.startsWith('content_')) {
+            const contentId = parseInt(rawId.replace('content_', ''));
+            await prisma.content.delete({ where: { id: contentId } });
+            await prisma.contentCourse.deleteMany({ where: { content_id: contentId } });
+            return res.status(200).json({ message: "Content class removed from schedule" });
+        }
+
+        const scheduleItem = await prisma.timetable.findUnique({ where: { id: parseInt(rawId) } });
         if (!scheduleItem) return res.status(404).json({ error: "Schedule not found" });
         
         if (!isAdmin) {
             const allBiz = await prisma.business.findMany();
+            const userBizList = businessType ? String(businessType).split(',').map(s => s.trim().toLowerCase()).filter(Boolean) : [];
             const myBizs = allBiz.filter(biz => {
-                const isManagerOf = biz.head_manager_id === userId || biz.ass_manager_id === userId;
-                const matchesBizType = businessType && (
-                    String(biz.id) === String(businessType).trim() ||
-                    biz.name.toLowerCase().trim() === String(businessType).toLowerCase().trim() ||
-                    biz.name.toLowerCase().includes(String(businessType).toLowerCase().trim()) ||
-                    String(businessType).toLowerCase().trim().includes(biz.name.toLowerCase().trim())
+                const isManagerOf = (biz.head_manager_id && String(biz.head_manager_id) === String(userId)) ||
+                                    (biz.ass_manager_id && String(biz.ass_manager_id) === String(userId));
+                const matchesBizType = userBizList.some(b => 
+                    b === String(biz.id) ||
+                    b === biz.name.toLowerCase().trim() ||
+                    biz.name.toLowerCase().trim().includes(b) ||
+                    b.includes(biz.name.toLowerCase().trim())
                 );
                 return isManagerOf || matchesBizType;
             });
@@ -265,9 +303,10 @@ exports.deleteSchedule = async (req, res) => {
             }
         }
 
-        await prisma.timetable.delete({ where: { id: parseInt(req.params.id) } });
+        await prisma.timetable.delete({ where: { id: parseInt(rawId) } });
         res.status(200).json({ message: "Class removed from schedule" });
     } catch (error) {
+        console.error("Delete timetable error:", error);
         res.status(500).json({ error: "Failed to delete schedule" });
     }
 };

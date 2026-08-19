@@ -10,7 +10,7 @@ export default function CallCampaignModule({ loggedInUser, filters, setActiveMod
         rawRole = loggedInUser.role;
     } else {
         try {
-            const storedUser = JSON.parse(localStorage.getItem('user'));
+            const storedUser = JSON.parse(localStorage.getItem('user')) || {};
             rawRole = storedUser?.role || '';
         } catch (e) {
             console.error("Local storage error", e);

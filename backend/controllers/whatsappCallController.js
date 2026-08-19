@@ -410,10 +410,14 @@ exports.answerCall = async (req, res) => {
             const { getIo } = require('./chatController');
             const io = getIo();
             if (io && req.user) {
-                const userId = req.user.id || req.user.userId;
+                const userId = req.user.id || req.user.userId || req.user.studentId;
+                if (!userId) {
+                    console.warn("No userId found in req.user for answerCall notification");
+                    return;
+                }
                 const { PrismaClient } = require('@prisma/client');
                 const tempPrisma = new PrismaClient();
-                const user = await tempPrisma.user.findUnique({ where: { id: userId } });
+                const user = await tempPrisma.user.findUnique({ where: { id: parseInt(userId, 10) } });
                 const businessType = user?.businessType ? String(user.businessType).trim() : "ALL";
                 
                 io.to(`wa_call_agent_idle_${businessType}`).emit('whatsapp_call_answered_by_other', {
@@ -825,59 +829,93 @@ const processAiAnalysisInBackground = async (filePath, filename, callId, leadPho
         console.log(`[WhatsApp Call Background] Starting AI analysis for ${filename}`);
         const base64Data = fs.readFileSync(filePath, { encoding: 'base64' });
 
-        const saPath = require('path').join(__dirname, '..', 'gemini-service-account.json');
         let rawText = "";
 
-        if (fs.existsSync(saPath)) {
-            const { GoogleAuth } = require('google-auth-library');
-            const axios = require('axios');
-            const auth = new GoogleAuth({
-                keyFile: saPath,
-                scopes: ['https://www.googleapis.com/auth/generative-language']
-            });
-            const client = await auth.getClient();
-            const tokenInfo = await client.getAccessToken();
-            const token = tokenInfo.token;
+        // 1. Try Gemini API Keys from DB / env first
+        let apiKeys = [];
+        try {
+            const setting1 = await prisma.appSetting.findUnique({ where: { key: 'GEMINI_API_KEY' } });
+            const setting2 = await prisma.appSetting.findUnique({ where: { key: 'GEMINI_API_KEY_2' } });
+            if (setting1 && setting1.value) apiKeys.push(setting1.value);
+            if (setting2 && setting2.value) apiKeys.push(setting2.value);
+        } catch (dbErr) {
+            console.error("[WhatsApp Call Background] Error fetching Gemini keys from AppSetting:", dbErr.message);
+        }
 
-            const apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
-            const resData = await axios.post(apiUrl, {
-                contents: [
-                    { 
-                        role: "user", 
-                        parts: [ 
-                            { inlineData: { mimeType: "audio/webm", data: base64Data } },
-                            { text: prompt } 
-                        ] 
-                    }
-                ]
-            }, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-            rawText = resData.data.candidates[0].content.parts[0].text;
-        } else {
+        if (process.env.GEMINI_API_KEY && !apiKeys.includes(process.env.GEMINI_API_KEY)) {
+            apiKeys.push(process.env.GEMINI_API_KEY);
+        }
+
+        if (apiKeys.length > 0) {
             const { GoogleGenAI } = require('@google/genai');
-            const apiKeySetting = await prisma.appSetting.findUnique({ where: { key: 'GEMINI_API_KEY' } });
-            if (!apiKeySetting || !apiKeySetting.value) {
-                console.error("GEMINI_API_KEY not configured and Service Account missing");
-                return;
-            }
-            const ai = new GoogleGenAI({ apiKey: apiKeySetting.value });
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.5-flash',
-                contents: [
-                    {
-                        role: 'user',
-                        parts: [
-                            { inlineData: { mimeType: 'audio/webm', data: base64Data } },
-                            { text: prompt }
+            for (const key of apiKeys) {
+                try {
+                    const ai = new GoogleGenAI({ apiKey: key });
+                    const response = await ai.models.generateContent({
+                        model: 'gemini-2.5-flash',
+                        contents: [
+                            {
+                                role: 'user',
+                                parts: [
+                                    { inlineData: { mimeType: 'audio/webm', data: base64Data } },
+                                    { text: prompt }
+                                ]
+                            }
                         ]
+                    });
+                    if (response && response.text) {
+                        rawText = response.text;
+                        console.log(`[WhatsApp Call Background] Successfully analyzed call using Gemini API Key.`);
+                        break;
                     }
-                ]
-            });
-            rawText = response.text;
+                } catch (apiKeyErr) {
+                    console.error("[WhatsApp Call Background] Gemini API Key attempt failed:", apiKeyErr.message);
+                }
+            }
+        }
+
+        // 2. If API Key didn't succeed, fallback to service account if available
+        if (!rawText) {
+            const saPath = require('path').join(__dirname, '..', 'gemini-service-account.json');
+            if (fs.existsSync(saPath)) {
+                try {
+                    const { GoogleAuth } = require('google-auth-library');
+                    const axios = require('axios');
+                    const auth = new GoogleAuth({
+                        keyFile: saPath,
+                        scopes: ['https://www.googleapis.com/auth/generative-language']
+                    });
+                    const client = await auth.getClient();
+                    const tokenInfo = await client.getAccessToken();
+                    const token = tokenInfo.token;
+
+                    const apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+                    const resData = await axios.post(apiUrl, {
+                        contents: [
+                            { 
+                                role: "user", 
+                                parts: [ 
+                                    { inlineData: { mimeType: "audio/webm", data: base64Data } },
+                                    { text: prompt } 
+                                ] 
+                            }
+                        ]
+                    }, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    rawText = resData.data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                } catch (saErr) {
+                    console.error("[WhatsApp Call Background] Service account fallback also failed:", saErr.message);
+                }
+            }
+        }
+
+        if (!rawText) {
+            console.error("[WhatsApp Call Background] Failed to generate AI analysis: No working Gemini API key or credentials.");
+            return;
         }
 
         const jsonText = rawText.replace(/```json\n?|\n?```/g, '').trim();
@@ -1523,6 +1561,7 @@ exports.getCallReport = async (req, res) => {
         }
 
         // Fetch logs (up to 2000 for reports)
+        console.log("=== GET CALL REPORT ===", { startDate, endDate, where });
         const logs = await prisma.whatsAppCallRecord.findMany({
             where,
             include: {
@@ -1532,6 +1571,7 @@ exports.getCallReport = async (req, res) => {
             orderBy: { createdAt: 'desc' },
             take: 2000
         });
+        console.log("=== PRISMA RETURNED LOGS COUNT ===", logs.length);
 
         // Optional time-of-day filter if user specified time range across multi-day span
         let filteredLogs = logs;
@@ -1667,9 +1707,10 @@ exports.getCallReport = async (req, res) => {
         const missedRate = totalCalls > 0 ? ((totalMissedAndRejected / totalCalls) * 100).toFixed(1) : 0;
         const avgDuration = completedCount > 0 ? Math.round(totalDuration / completedCount) : 0;
 
+        console.log("=== SENDING RESPONSE WITH LOGS ===", enrichedLogs.length);
         res.status(200).json({
             summary: {
-                totalCalls,
+                totalCalls: inboundCount + outboundCount,
                 inboundTotal: inboundCount,
                 outboundTotal: outboundCount,
                 completedCalls: completedCount,

@@ -414,7 +414,8 @@ exports.getRetentionCampaignData = async (req, res) => {
             where: whereClause,
             include: { 
                 assignedUser: { select: { firstName: true, lastName: true, businessType: true } },
-                batch: { select: { name: true } }
+                batch: { select: { name: true } },
+                roundProgress: { where: { campaignCategory: 'PAID' } }
             }
         });
 
@@ -422,10 +423,28 @@ exports.getRetentionCampaignData = async (req, res) => {
             let phase = l.phase || 1;
             if (phase > 2) phase = 2; // Map Phase 3, 4 etc to Phase 2
             
-            if (l.assignedTo && !activeStaffIds.has(l.assignedTo)) {
-                return { ...l, phase, assignedTo: null, assignedUser: null };
+            // Extract attemptsData from roundProgress for PAID
+            let attemptsData = {};
+            if (l.roundProgress && l.roundProgress.length > 0) {
+                const paidProgs = l.roundProgress.filter(rp => rp.campaignCategory === 'PAID');
+                paidProgs.forEach(prog => {
+                    if (prog.attemptsData) {
+                        try {
+                            const parsed = JSON.parse(prog.attemptsData);
+                            // Merge objects deep
+                            for (const monthKey in parsed) {
+                                if (!attemptsData[monthKey]) attemptsData[monthKey] = {};
+                                attemptsData[monthKey] = { ...attemptsData[monthKey], ...parsed[monthKey] };
+                            }
+                        } catch(e) {}
+                    }
+                });
             }
-            return { ...l, phase };
+
+            if (l.assignedTo && !activeStaffIds.has(l.assignedTo)) {
+                return { ...l, phase, assignedTo: null, assignedUser: null, attemptsData };
+            }
+            return { ...l, phase, attemptsData };
         });
 
         // 4. Build payment-derived data for each lead
@@ -676,6 +695,7 @@ exports.getRetentionCampaignData = async (req, res) => {
                 feedback: l.paidFeedback || '',
                 callMethod: l.paidCallMethod || null,
                 callAttempt: l.paidCallAttempt || 1,
+                attemptsData: l.attemptsData || {},
                 enrolledSubjects: Array.from(baseSubjects), 
                 paymentHistory,
                 isUpgraded,

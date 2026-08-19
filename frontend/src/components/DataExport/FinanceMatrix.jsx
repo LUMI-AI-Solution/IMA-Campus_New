@@ -171,61 +171,27 @@ export default function FinanceMatrix({ loggedInUser }) {
     };
 
     const getSubjectBreakdown = (subjectName) => {
-        if (!activeMonth) {
-            return {
-                Full: { count: 0, amount: 0 },
-                Monthly: { count: 0, amount: 0 },
-                Installment: { count: 0, amount: 0 },
-                Mix: { count: 0, amount: 0 }
-            };
-        }
+        const breakdown = {};
 
-        let fullCount = 0, fullAmt = 0;
-        let monthlyCount = 0, monthlyAmt = 0;
-        let installmentCount = 0, installmentAmt = 0;
-        let mixCount = 0, mixAmt = 0;
+        if (!activeMonth) return breakdown;
 
         processedData.forEach(stu => {
             const val = stu.matrixValues?.[activeMonth.id]?.[subjectName];
             if (val && val.total > 0) {
-                if (stu.type === 'Full') {
-                    fullCount++;
-                    fullAmt += val.total;
-                } else if (stu.type === 'Monthly') {
-                    monthlyCount++;
-                    monthlyAmt += val.total;
-                } else if (stu.type === 'Installment') {
-                    installmentCount++;
-                    installmentAmt += val.total;
-                } else if (stu.type === 'Hybrid') {
-                    mixCount++;
-                    mixAmt += val.total;
-                }
+                const type = stu.type || 'Other';
+                if (!breakdown[type]) breakdown[type] = { count: 0, amount: 0 };
+                breakdown[type].count++;
+                breakdown[type].amount += val.total;
             }
         });
 
-        return {
-            Full: { count: fullCount, amount: fullAmt },
-            Monthly: { count: monthlyCount, amount: monthlyAmt },
-            Installment: { count: installmentCount, amount: installmentAmt },
-            Mix: { count: mixCount, amount: mixAmt }
-        };
+        return breakdown;
     };
 
     const getOverallActiveMonthBreakdown = () => {
-        if (!activeMonth) {
-            return {
-                Full: { count: 0, amount: 0 },
-                Monthly: { count: 0, amount: 0 },
-                Installment: { count: 0, amount: 0 },
-                Mix: { count: 0, amount: 0 }
-            };
-        }
+        const breakdown = {};
 
-        let fullCount = 0, fullAmt = 0;
-        let monthlyCount = 0, monthlyAmt = 0;
-        let installmentCount = 0, installmentAmt = 0;
-        let mixCount = 0, mixAmt = 0;
+        if (!activeMonth) return breakdown;
 
         processedData.forEach(stu => {
             let stuMonthTotal = 0;
@@ -235,250 +201,120 @@ export default function FinanceMatrix({ loggedInUser }) {
                 });
             }
             if (stuMonthTotal > 0) {
-                if (stu.type === 'Full') {
-                    fullCount++;
-                    fullAmt += stuMonthTotal;
-                } else if (stu.type === 'Monthly') {
-                    monthlyCount++;
-                    monthlyAmt += stuMonthTotal;
-                } else if (stu.type === 'Installment') {
-                    installmentCount++;
-                    installmentAmt += stuMonthTotal;
-                } else if (stu.type === 'Hybrid') {
-                    mixCount++;
-                    mixAmt += stuMonthTotal;
-                }
+                const type = stu.type || 'Other';
+                if (!breakdown[type]) breakdown[type] = { count: 0, amount: 0 };
+                breakdown[type].count++;
+                breakdown[type].amount += stuMonthTotal;
             }
         });
 
-        return {
-            Full: { count: fullCount, amount: fullAmt },
-            Monthly: { count: monthlyCount, amount: monthlyAmt },
-            Installment: { count: installmentCount, amount: installmentAmt },
-            Mix: { count: mixCount, amount: mixAmt }
-        };
+        return breakdown;
     };
 
     const exportToExcel = () => {
         if (processedData.length === 0) return;
 
-        // Calculate bottom aggregates for ALL columns
-        const colTotals = {}; // key: "mId_sub" -> { total, full, monthly, installment, hybrid }
+        const typeTotals = {};
+        const colTypeTotals = {}; // key: "mId_sub" -> { [type]: total }
         let overallGrandTotal = 0;
-        let overallFullGrand = 0;
-        let overallMonthlyGrand = 0;
-        let overallInstallmentGrand = 0;
-        let overallHybridGrand = 0;
 
         months.forEach(m => {
             subjects.forEach(sub => {
                 const key = `${m.id}_${sub}`;
-                colTotals[key] = { total: 0, full: 0, monthly: 0, installment: 0, hybrid: 0 };
+                colTypeTotals[key] = { total: 0 };
             });
         });
 
         processedData.forEach(stu => {
-            const isHybrid = stu.type === 'Hybrid';
-            const isFull = stu.type === 'Full';
-            const isMonthly = stu.type === 'Monthly';
-            const isInstallment = stu.type === 'Installment';
-
-            overallGrandTotal += Number(stu.totalPaid || 0);
-            if (isFull) overallFullGrand += Number(stu.totalPaid || 0);
-            if (isMonthly) overallMonthlyGrand += Number(stu.totalPaid || 0);
-            if (isInstallment) overallInstallmentGrand += Number(stu.totalPaid || 0);
-            if (isHybrid) overallHybridGrand += Number(stu.totalPaid || 0);
+            const type = stu.type || 'Other';
+            if (!typeTotals[type]) typeTotals[type] = 0;
+            
+            const totalPaid = Number(stu.totalPaid || 0);
+            overallGrandTotal += totalPaid;
+            typeTotals[type] += totalPaid;
 
             months.forEach(m => {
                 subjects.forEach(sub => {
                     const key = `${m.id}_${sub}`;
                     const cellData = stu.matrixValues?.[m.id]?.[sub];
                     if (cellData && cellData.total > 0) {
-                        colTotals[key].total += cellData.total;
+                        colTypeTotals[key].total += cellData.total;
                         
-                        if (isFull) colTotals[key].full += cellData.total;
-                        else if (isMonthly) colTotals[key].monthly += cellData.total;
-                        else if (isInstallment) colTotals[key].installment += cellData.total;
-                        else if (isHybrid) colTotals[key].hybrid += cellData.total;
+                        if (!colTypeTotals[key][type]) colTypeTotals[key][type] = 0;
+                        colTypeTotals[key][type] += cellData.total;
                     }
                 });
             });
         });
 
-        let html = `
-<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-<head>
-<meta charset="utf-8" />
-<!--[if gte mso 9]>
-<xml>
- <x:ExcelWorkbook>
-  <x:ExcelWorksheets>
-   <x:ExcelWorksheet>
-    <x:Name>Finance Matrix</x:Name>
-    <x:WorksheetOptions>
-     <x:DisplayGridlines/>
-    </x:WorksheetOptions>
-   </x:ExcelWorksheet>
-  </x:ExcelWorksheets>
- </x:ExcelWorkbook>
-</xml>
-<![endif]-->
-<style>
-  table { border-collapse: collapse; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-  th { background-color: #0F172A; color: #FFFFFF; font-weight: bold; border: 1px solid #334155; text-align: center; padding: 8px; }
-  td { border: 1px solid #CBD5E1; text-align: center; padding: 6px; font-size: 13px; color: #334155; }
-  .month-header { background-color: #1E293B; color: #F8FAFC; font-size: 14px; font-weight: 800; border: 1px solid #475569; }
-  .subject-header { background-color: #334155; color: #F1F5F9; font-size: 12px; font-weight: 700; border: 1px solid #475569; }
-  .meta-header { background-color: #0F172A; color: #FFFFFF; font-size: 13px; font-weight: 800; border: 1px solid #334155; }
-  .student-no { font-weight: bold; color: #0F172A; background-color: #F8FAFC; }
-  .student-name { text-align: left; font-weight: 600; }
-  .total-cell { background-color: #ECFDF5; color: #047857; font-weight: bold; }
-  .hybrid-cell { font-size: 11px; background-color: #FDF4FF; color: #701A75; }
-</style>
-</head>
-<body>
-<table>
-  <thead>
-    <!-- Row 1: Main Header (Nested Categories) -->
-    <tr>
-      <th rowspan="2" class="meta-header">Student ID</th>
-      <th rowspan="2" class="meta-header">Name</th>
-      <th rowspan="2" class="meta-header">Birth Year</th>
-      <th rowspan="2" class="meta-header">Phone</th>
-      <th rowspan="2" class="meta-header">WhatsApp</th>
-      <th rowspan="2" class="meta-header">Enrollment Type</th>
-`;
+        const escapeCSV = (str) => `"${String(str).replace(/"/g, '""')}"`;
+        let csvContent = "";
 
-        months.forEach(m => {
-            html += `      <th colspan="${subjects.length}" class="month-header">${m.name}</th>\n`;
-        });
-
-        html += `      <th rowspan="2" class="meta-header" style="background-color: #064E3B; color: #FFFFFF;">Net Total Paid</th>
-    </tr>
-    <!-- Row 2: Sub-categories (Subjects) -->
-    <tr>
-`;
-
+        const headers = ['Student ID', 'Name', 'Birth Year', 'Phone', 'WhatsApp', 'Enrollment Type'];
         months.forEach(m => {
             subjects.forEach(sub => {
-                html += `      <th class="subject-header">${sub}</th>\n`;
+                headers.push(`${m.name} - ${sub}`);
             });
         });
+        headers.push('Net Total Paid');
+        csvContent += headers.map(escapeCSV).join(',') + '\n';
 
-        html += `    </tr>
-  </thead>
-  <tbody>
-`;
-
-        // Add Student Rows
-        studentsData.forEach(stu => {
+        processedData.forEach(stu => {
             const isHybrid = stu.type === 'Hybrid';
-            html += `    <tr>
-      <td class="student-no">${stu.studentNo || '-'}</td>
-      <td class="student-name">${stu.studentName || '-'}</td>
-      <td>${stu.birthYear || '-'}</td>
-      <td style="mso-number-format:'\\@';">${stu.phone || '-'}</td>
-      <td style="mso-number-format:'\\@';">${stu.whatsapp || '-'}</td>
-      <td>${isHybrid ? 'Hybrid (Mixed)' : (stu.type || '-')}</td>
-`;
+            const row = [
+                stu.studentNo || '-',
+                stu.studentName || '-',
+                stu.birthYear || '-',
+                stu.phone ? `'${stu.phone}` : '-',
+                stu.whatsapp ? `'${stu.whatsapp}` : '-',
+                isHybrid ? 'Hybrid (Mixed)' : (stu.type || '-')
+            ];
 
             months.forEach(m => {
                 subjects.forEach(sub => {
                     const cellData = stu.matrixValues?.[m.id]?.[sub];
                     if (!cellData || cellData.total === 0) {
-                        html += `      <td style="mso-number-format:'\\#\\,\\#\\#0\\.00';">0</td>\n`;
+                        row.push('0.00');
                     } else if (isHybrid) {
                         let parts = [];
                         if (cellData.Full > 0) parts.push(`Full: ${cellData.Full.toFixed(2)}`);
                         if (cellData.Monthly > 0) parts.push(`Mon: ${cellData.Monthly.toFixed(2)}`);
                         if (cellData.Installment > 0) parts.push(`Inst: ${cellData.Installment.toFixed(2)}`);
-                        html += `      <td class="hybrid-cell">${parts.join(' | ')}</td>\n`;
+                        row.push(parts.join(' | '));
                     } else {
-                        html += `      <td style="mso-number-format:'\\#\\,\\#\\#0\\.00';">${cellData.total}</td>\n`;
+                        row.push(cellData.total.toFixed(2));
                     }
                 });
             });
-
-            html += `      <td class="total-cell" style="mso-number-format:'\\#\\,\\#\\#0\\.00';">${stu.totalPaid || 0}</td>
-    </tr>\n`;
+            row.push(Number(stu.totalPaid || 0).toFixed(2));
+            csvContent += row.map(escapeCSV).join(',') + '\n';
         });
 
-        // 🟢 Add Total Revenue Row at the very bottom
-        html += `    <tr style="background-color: #ECFDF5; font-weight: bold;">
-      <td colspan="6" style="font-weight: bold; background-color: #D1FAE5; text-align: right; border: 1px solid #34D399;">Total Revenue</td>
-`;
+        const totalRow = ['', '', '', '', '', 'Total Revenue'];
         months.forEach(m => {
             subjects.forEach(sub => {
-                const key = `${m.id}_${sub}`;
-                html += `      <td style="mso-number-format:'\\#\\,\\#\\#0\\.00'; font-weight: bold; background-color: #D1FAE5; border: 1px solid #34D399;">${colTotals[key].total}</td>\n`;
+                totalRow.push(colTypeTotals[`${m.id}_${sub}`].total.toFixed(2));
             });
         });
-        html += `      <td style="mso-number-format:'\\#\\,\\#\\#0\\.00'; font-weight: bold; background-color: #059669; color: #FFFFFF; border: 1px solid #059669;">${overallGrandTotal}</td>
-    </tr>\n`;
+        totalRow.push(overallGrandTotal.toFixed(2));
+        csvContent += totalRow.map(escapeCSV).join(',') + '\n';
 
-        // 🟢 Add Full Card Total Row
-        html += `    <tr style="background-color: #FAF5FF;">
-      <td colspan="6" style="font-weight: bold; text-align: right; color: #7E22CE; border: 1px solid #C084FC;">Full Card Total</td>
-`;
-        months.forEach(m => {
-            subjects.forEach(sub => {
-                const key = `${m.id}_${sub}`;
-                html += `      <td style="mso-number-format:'\\#\\,\\#\\#0\\.00'; font-weight: bold; color: #7E22CE; border: 1px solid #C084FC;">${colTotals[key].full}</td>\n`;
+        Object.keys(typeTotals).sort().forEach(type => {
+            const tRow = ['', '', '', '', '', `${type === 'Hybrid' ? 'Hybrid (Mixed)' : type} Total`];
+            months.forEach(m => {
+                subjects.forEach(sub => {
+                    tRow.push((colTypeTotals[`${m.id}_${sub}`][type] || 0).toFixed(2));
+                });
             });
+            tRow.push(typeTotals[type].toFixed(2));
+            csvContent += tRow.map(escapeCSV).join(',') + '\n';
         });
-        html += `      <td style="mso-number-format:'\\#\\,\\#\\#0\\.00'; font-weight: bold; color: #7E22CE; border: 1px solid #C084FC;">${overallFullGrand}</td>
-    </tr>\n`;
 
-        // 🟢 Add Monthly Card Total Row
-        html += `    <tr style="background-color: #F0F9FF;">
-      <td colspan="6" style="font-weight: bold; text-align: right; color: #0369A1; border: 1px solid #38BDF8;">Monthly Card Total</td>
-`;
-        months.forEach(m => {
-            subjects.forEach(sub => {
-                const key = `${m.id}_${sub}`;
-                html += `      <td style="mso-number-format:'\\#\\,\\#\\#0\\.00'; font-weight: bold; color: #0369A1; border: 1px solid #38BDF8;">${colTotals[key].monthly}</td>\n`;
-            });
-        });
-        html += `      <td style="mso-number-format:'\\#\\,\\#\\#0\\.00'; font-weight: bold; color: #0369A1; border: 1px solid #38BDF8;">${overallMonthlyGrand}</td>
-    </tr>\n`;
-
-        // 🟢 Add Installment Card Total Row
-        html += `    <tr style="background-color: #FFFBEB;">
-      <td colspan="6" style="font-weight: bold; text-align: right; color: #B45309; border: 1px solid #FBBF24;">Installment Card Total</td>
-`;
-        months.forEach(m => {
-            subjects.forEach(sub => {
-                const key = `${m.id}_${sub}`;
-                html += `      <td style="mso-number-format:'\\#\\,\\#\\#0\\.00'; font-weight: bold; color: #B45309; border: 1px solid #FBBF24;">${colTotals[key].installment}</td>\n`;
-            });
-        });
-        html += `      <td style="mso-number-format:'\\#\\,\\#\\#0\\.00'; font-weight: bold; color: #B45309; border: 1px solid #FBBF24;">${overallInstallmentGrand}</td>
-    </tr>\n`;
-
-        // 🟢 Add Hybrid (Mixed) Card Total Row
-        html += `    <tr style="background-color: #FDF4FF;">
-      <td colspan="6" style="font-weight: bold; text-align: right; color: #A21CAF; border: 1px solid #F472B6;">Hybrid (Mixed) Card Total</td>
-`;
-        months.forEach(m => {
-            subjects.forEach(sub => {
-                const key = `${m.id}_${sub}`;
-                html += `      <td style="mso-number-format:'\\#\\,\\#\\#0\\.00'; font-weight: bold; color: #A21CAF; border: 1px solid #F472B6;">${colTotals[key].hybrid}</td>\n`;
-            });
-        });
-        html += `      <td style="mso-number-format:'\\#\\,\\#\\#0\\.00'; font-weight: bold; color: #A21CAF; border: 1px solid #F472B6;">${overallHybridGrand}</td>
-    </tr>\n`;
-
-        html += `  </tbody>
-</table>
-</body>
-</html>
-`;
-
-        const blob = new Blob([html], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `Weighted_Finance_Matrix_Batch_${selectedBatch}.xls`;
+        link.download = `Weighted_Finance_Matrix_Batch_${selectedBatch}.csv`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -694,32 +530,27 @@ export default function FinanceMatrix({ loggedInUser }) {
                                             <span>Monthly Subject Revenue</span>
                                             {(() => {
                                                 const overall = getOverallActiveMonthBreakdown();
+                                                const overallTotal = Object.values(overall).reduce((sum, item) => sum + item.amount, 0);
                                                 return (
-                                                    <div className="mt-3 pt-3 border-t border-slate-800 flex flex-col gap-1.5 text-[11px] font-normal text-left text-slate-400 tracking-normal normal-case">
-                                                        {overall.Full.amount > 0 && (
-                                                            <div className="flex justify-between gap-4">
-                                                                <span className="text-purple-400 font-semibold">Full ({overall.Full.count}):</span>
-                                                                <span className="font-bold text-slate-300">{formatCurrency(overall.Full.amount)}</span>
-                                                            </div>
-                                                        )}
-                                                        {overall.Monthly.amount > 0 && (
-                                                            <div className="flex justify-between gap-4">
-                                                                <span className="text-blue-400 font-semibold">Monthly ({overall.Monthly.count}):</span>
-                                                                <span className="font-bold text-slate-300">{formatCurrency(overall.Monthly.amount)}</span>
-                                                            </div>
-                                                        )}
-                                                        {overall.Installment.amount > 0 && (
-                                                            <div className="flex justify-between gap-4">
-                                                                <span className="text-amber-400 font-semibold">Installment ({overall.Installment.count}):</span>
-                                                                <span className="font-bold text-slate-300">{formatCurrency(overall.Installment.amount)}</span>
-                                                            </div>
-                                                        )}
-                                                        {overall.Mix.amount > 0 && (
-                                                            <div className="flex justify-between gap-4">
-                                                                <span className="text-fuchsia-400 font-semibold">Mix ({overall.Mix.count}):</span>
-                                                                <span className="font-bold text-slate-300">{formatCurrency(overall.Mix.amount)}</span>
-                                                            </div>
-                                                        )}
+                                                    <div className="flex flex-col gap-1 mt-1">
+                                                        <span className="font-extrabold text-emerald-400 text-[15px]">{formatCurrency(overallTotal)}</span>
+                                                        <div className="mt-2 pt-3 border-t border-slate-800 flex flex-col gap-1.5 text-[11px] font-normal text-left text-slate-400 tracking-normal normal-case">
+                                                        {Object.entries(overall).sort((a,b) => b[1].amount - a[1].amount).map(([type, data]) => {
+                                                            let colorClass = "text-slate-400";
+                                                            if (type === 'Full') colorClass = "text-purple-400 font-semibold";
+                                                            else if (type === 'Monthly') colorClass = "text-blue-400 font-semibold";
+                                                            else if (type === 'Installment') colorClass = "text-amber-400 font-semibold";
+                                                            else if (type === 'Hybrid') colorClass = "text-fuchsia-400 font-semibold";
+                                                            else if (type === 'Upgrade') colorClass = "text-rose-400 font-semibold";
+                                                            const label = type === 'Hybrid' ? 'Mix' : type;
+                                                            return (
+                                                                <div key={type} className="flex justify-between gap-4">
+                                                                    <span className={colorClass}>{label} ({data.count}):</span>
+                                                                    <span className="font-bold text-slate-300">{formatCurrency(data.amount)}</span>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
                                                     </div>
                                                 );
                                             })()}
@@ -737,30 +568,21 @@ export default function FinanceMatrix({ loggedInUser }) {
                                                     <span className="font-extrabold">{formatCurrency(totalColVal)}</span>
                                                     
                                                     <div className="mt-3 pt-3 border-t border-slate-700/50 flex flex-col gap-1 text-[11px] font-normal text-left text-slate-300">
-                                                        {breakdown.Full.amount > 0 && (
-                                                            <div className="flex justify-between gap-2">
-                                                                <span className="text-purple-400">Full ({breakdown.Full.count}):</span>
-                                                                <span className="font-medium">{formatCurrency(breakdown.Full.amount)}</span>
-                                                            </div>
-                                                        )}
-                                                        {breakdown.Monthly.amount > 0 && (
-                                                            <div className="flex justify-between gap-2">
-                                                                <span className="text-blue-400">Monthly ({breakdown.Monthly.count}):</span>
-                                                                <span className="font-medium">{formatCurrency(breakdown.Monthly.amount)}</span>
-                                                            </div>
-                                                        )}
-                                                        {breakdown.Installment.amount > 0 && (
-                                                            <div className="flex justify-between gap-2">
-                                                                <span className="text-amber-400">Instal ({breakdown.Installment.count}):</span>
-                                                                <span className="font-medium">{formatCurrency(breakdown.Installment.amount)}</span>
-                                                            </div>
-                                                        )}
-                                                        {breakdown.Mix.amount > 0 && (
-                                                            <div className="flex justify-between gap-2">
-                                                                <span className="text-fuchsia-400">Mix ({breakdown.Mix.count}):</span>
-                                                                <span className="font-medium">{formatCurrency(breakdown.Mix.amount)}</span>
-                                                            </div>
-                                                        )}
+                                                        {Object.entries(breakdown).sort((a,b) => b[1].amount - a[1].amount).map(([type, data]) => {
+                                                            let colorClass = "text-slate-400";
+                                                            if (type === 'Full') colorClass = "text-purple-400";
+                                                            else if (type === 'Monthly') colorClass = "text-blue-400";
+                                                            else if (type === 'Installment') colorClass = "text-amber-400";
+                                                            else if (type === 'Hybrid') colorClass = "text-fuchsia-400";
+                                                            else if (type === 'Upgrade') colorClass = "text-rose-400";
+                                                            const label = type === 'Hybrid' ? 'Mix' : (type === 'Installment' ? 'Instal' : type);
+                                                            return (
+                                                                <div key={type} className="flex justify-between gap-2">
+                                                                    <span className={colorClass}>{label} ({data.count}):</span>
+                                                                    <span className="font-medium">{formatCurrency(data.amount)}</span>
+                                                                </div>
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
                                             </td>

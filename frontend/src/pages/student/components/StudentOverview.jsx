@@ -19,7 +19,7 @@ export default function StudentOverview() {
     // Popup State
     const [showAppPopup, setShowAppPopup] = useState(true);
 
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const user = JSON.parse(localStorage.getItem('user') || '{}') || {};
     const backendBaseUrl = axios.defaults.baseURL ? axios.defaults.baseURL.replace('/api', '') : 'https://imacampus.online';
 
     const profilePic = user.image && user.image !== 'default.png' && user.image !== 'null'

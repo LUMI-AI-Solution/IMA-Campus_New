@@ -245,7 +245,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         setReminderLead(lead);
         const loadToast = toast.loading("Loading reminder details...");
         try {
-            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
             const agentId = loggedUser.id || loggedUser.userId;
             const res = await axios.get(`/reminders/my-reminders?agentId=${agentId}`);
             const existing = res.data.find(r => r.leadId === lead.id);
@@ -273,7 +273,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         const loadToast = toast.loading(existingReminderId ? "Updating reminder..." : "Setting reminder...");
         try {
             const token = localStorage.getItem('token');
-            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
             const agentId = loggedUser.id || loggedUser.userId;
             const formattedDate = new Date(`${remindDate}T${remindTime}:00`).toISOString();
             

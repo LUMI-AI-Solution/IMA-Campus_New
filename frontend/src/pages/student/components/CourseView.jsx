@@ -26,7 +26,7 @@ export default function CourseView({ courseId, onBack }) {
     const [ytWarningAccepted, setYtWarningAccepted] = useState(false);
     const [watermarkPos, setWatermarkPos] = useState({ top: 50, left: 50 });
     const [playType, setPlayType] = useState('zoom'); // 'zoom' or 'yt'
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const user = JSON.parse(localStorage.getItem('user') || '{}') || {};
     const studentIdStr = user.id ? `IMA-STU-${user.id} ${user.firstName||''}` : 'IMA-STUDENT';
 
     useEffect(() => {

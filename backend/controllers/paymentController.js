@@ -22,7 +22,7 @@ const syncLeadEnrollment = async (studentId, paymentType, payment) => {
         // Find leads containing last 7 digits of the phone
         const leads = await prisma.lead.findMany({
             where: {
-                campaignType: 'AFTER_SEMINAR',
+                campaignType: { in: ['AFTER_SEMINAR', 'FREE_SEMINAR', 'OPEN_SEMINAR'] },
                 OR: validLast7Digits.map(last7 => ({ phone: { contains: last7 } }))
             }
         });

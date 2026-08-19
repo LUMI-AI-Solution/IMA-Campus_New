@@ -409,6 +409,7 @@ exports.startBulkVerification = async (req, res) => {
                 } else {
                     bulkState.failed++;
                     const errMsg = mockResData?.error || mockResData?.message || '';
+                    console.log(`[BULK DEBUG] Slip #${slip.id} Failed with mockResStatus=${mockResStatus}, Data=`, JSON.stringify(mockResData));
                     bulkState.logs.push(`⚠️ Slip #${slip.id} needs manual review. ${errMsg}`);
                 }
             } catch (err) {
@@ -1158,66 +1159,67 @@ Format:
                     }
                 };
 
-                const saPath = require('path').join(__dirname, '..', 'gemini-service-account.json');
-                if (require('fs').existsSync(saPath)) {
-                    try {
-                        const { GoogleAuth } = require('google-auth-library');
-                        const axios = require('axios');
-                        const auth = new GoogleAuth({
-                            keyFile: saPath,
-                            scopes: ['https://www.googleapis.com/auth/generative-language']
-                        });
+                const apiKeys = await getGeminiKeys();
+                if (apiKeys.length > 0) {
+                    const { GoogleGenAI } = require('@google/genai');
+                    for (const key of apiKeys) {
+                        try {
+                            const ai = new GoogleGenAI({ apiKey: key });
+                            const response = await ai.models.generateContent({
+                                model: "gemini-2.5-flash-lite",
+                                contents: [prompt, filePart]
+                            });
 
-                        const client = await auth.getClient();
-                        const tokenInfo = await client.getAccessToken();
-                        const token = tokenInfo.token;
+                            const text = response.text.trim();
+                            let cleanText = text;
+                            if (cleanText.startsWith("```json")) cleanText = cleanText.substring(7);
+                            if (cleanText.endsWith("```")) cleanText = cleanText.substring(0, cleanText.length - 3);
 
-                        const apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
-
-                        const res = await axios.post(apiUrl, {
-                            contents: [
-                                { role: "user", parts: [ { text: prompt }, filePart ] }
-                            ]
-                        }, {
-                            headers: {
-                                'Authorization': `Bearer ${token}`,
-                                'Content-Type': 'application/json'
-                            }
-                        });
-
-                        const text = res.data.candidates[0].content.parts[0].text;
-                        let cleanText = text.trim();
-                        if (cleanText.startsWith("```json")) cleanText = cleanText.substring(7);
-                        if (cleanText.endsWith("```")) cleanText = cleanText.substring(0, cleanText.length - 3);
-
-                        singleExtracted = JSON.parse(cleanText.trim());
-                    } catch(saError) {
-                        console.log(`[AI-Extraction] SA failed for slip ${cleanFileName}:`, saError.message);
+                            singleExtracted = JSON.parse(cleanText.trim());
+                            break;
+                        } catch(err) {
+                            console.log(`[AI-Extraction] Key failed for slip ${cleanFileName}:`, err.message);
+                            lastError = err;
+                        }
                     }
                 }
 
                 if (!singleExtracted) {
-                    const apiKeys = await getGeminiKeys();
-                    if (apiKeys.length > 0) {
-                        const { GoogleGenAI } = require('@google/genai');
-                        for (const key of apiKeys) {
-                            try {
-                                const ai = new GoogleGenAI({ apiKey: key });
-                                const response = await ai.models.generateContent({
-                                    model: "gemini-2.5-flash-lite",
-                                    contents: [prompt, filePart]
-                                });
+                    const saPath = require('path').join(__dirname, '..', 'gemini-service-account.json');
+                    if (require('fs').existsSync(saPath)) {
+                        try {
+                            const { GoogleAuth } = require('google-auth-library');
+                            const axios = require('axios');
+                            const auth = new GoogleAuth({
+                                keyFile: saPath,
+                                scopes: ['https://www.googleapis.com/auth/generative-language']
+                            });
 
-                                const text = response.text.trim();
-                                let cleanText = text;
-                                if (cleanText.startsWith("```json")) cleanText = cleanText.substring(7);
-                                if (cleanText.endsWith("```")) cleanText = cleanText.substring(0, cleanText.length - 3);
+                            const client = await auth.getClient();
+                            const tokenInfo = await client.getAccessToken();
+                            const token = tokenInfo.token;
 
-                                singleExtracted = JSON.parse(cleanText.trim());
-                                break;
-                            } catch(err) {
-                                lastError = err;
-                            }
+                            const apiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent';
+
+                            const res = await axios.post(apiUrl, {
+                                contents: [
+                                    { role: "user", parts: [ { text: prompt }, filePart ] }
+                                ]
+                            }, {
+                                headers: {
+                                    'Authorization': `Bearer ${token}`,
+                                    'Content-Type': 'application/json'
+                                }
+                            });
+
+                            const text = res.data.candidates[0].content.parts[0].text;
+                            let cleanText = text.trim();
+                            if (cleanText.startsWith("```json")) cleanText = cleanText.substring(7);
+                            if (cleanText.endsWith("```")) cleanText = cleanText.substring(0, cleanText.length - 3);
+
+                            singleExtracted = JSON.parse(cleanText.trim());
+                        } catch(saError) {
+                            console.log(`[AI-Extraction] SA failed for slip ${cleanFileName}:`, saError.message);
                         }
                     }
                 }
@@ -1355,6 +1357,22 @@ Format:
         
         const targetAmount = parseFloat(payment.amount);
 
+        // --- RULE 4: Validate Extracted Slip Amount against Target Amount ---
+        if (totalExtractedAmount > 0 && Math.abs(totalExtractedAmount - targetAmount) > 1.0) {
+            const remark = `[Amount Mismatch] Extracted slip amount (LKR ${totalExtractedAmount.toLocaleString()}) does not match target payment amount (LKR ${targetAmount.toLocaleString()}). Skipped.`;
+            await prisma.payment.update({
+                where: { id: payment.id },
+                data: { status: payment.status === 4 ? 4 : 0, aiVerified: false, remark }
+            });
+            return res.status(200).json({
+                success: false,
+                status: 'AMOUNT_MISMATCH',
+                error: `Skipped: Extracted slip amount (LKR ${totalExtractedAmount.toLocaleString()}) does not match target payment amount (LKR ${targetAmount.toLocaleString()}).`,
+                matched: false,
+                remark
+            });
+        }
+
         let matchedRow = null;
 
         if (!isBatchMismatch && gRows.length > 0) {
@@ -1443,10 +1461,13 @@ Format:
                 if (!matchFound && studentLastName && studentLastName.length >= 3 && normRowRef.includes(studentLastName)) {
                     matchFound = true; matchMethod = 'Last Name Match';
                 }
-                if (!matchFound && extractedRemark && extractedRemark.length >= 3 && normRowRef.includes(extractedRemark)) {
+
+                const genericWords = ['class', 'classes', 'payment', 'payments', 'fee', 'fees', 'month', 'monthly', 'tution', 'deposit', 'online', 'bank', 'transfer', 'boc', 'sampath', 'commercial', 'peoples', 'august', 'july', 'september', 'october', 'november', 'december', 'january', 'february', 'march', 'april', 'may', 'june', 'ol', 'al', 'paper', 'theory'];
+
+                if (!matchFound && extractedRemark && extractedRemark.length >= 3 && !genericWords.includes(extractedRemark) && normRowRef.includes(extractedRemark)) {
                     matchFound = true; matchMethod = 'Extracted Remark Match';
                 }
-                if (!matchFound && extractedNarration && extractedNarration.length >= 3 && normRowRef.includes(extractedNarration)) {
+                if (!matchFound && extractedNarration && extractedNarration.length >= 3 && !genericWords.includes(extractedNarration) && normRowRef.includes(extractedNarration)) {
                     matchFound = true; matchMethod = 'Extracted Narration Match';
                 }
 
@@ -1524,12 +1545,20 @@ Format:
                 // Trigger ContentHub Auto Delivery Creation
                 await createDeliveryForVerifiedPayment(updatedPay);
 
+                // Sync CRM Lead Enrollment
+                try {
+                    const { syncLeadEnrollment } = require('./paymentController');
+                    await syncLeadEnrollment(updatedPay.studentId, updatedPay.payment_type, updatedPay);
+                } catch (e) {
+                    console.error("CRM Sync Error in AI Verification:", e);
+                }
+
                 // Write back to GSheet
                 if (matchedRow && matchedRow._spreadsheetId) {
                 try {
                     // Fetch headers to find column indices
                     const { google } = require('googleapis');
-                    const saPath = require('path').join(__dirname, '..', 'gemini-service-account.json');
+                    const saPath = require('path').join(__dirname, '..', 'gsheet-service-account.json');
                     
                     let authClient;
                     try {
@@ -1538,7 +1567,7 @@ Format:
                             scopes: ['https://www.googleapis.com/auth/spreadsheets']
                         });
                     } catch (saErr) {
-                        console.error("Failed to load service-account.json for GSheets, falling back to API Key:", saErr);
+                        console.error("Failed to load gsheet-service-account.json for GSheets, falling back to API Key:", saErr);
                         authClient = 'AIzaSyDUfpDVy946hS3mxESKmgByMpS3UoZk6nw';
                     }
 

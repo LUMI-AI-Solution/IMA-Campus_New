@@ -109,6 +109,7 @@ router.get('/lead-chat/:leadId', afterSeminarManagerStatsController.getLeadChatH
 router.post('/assign-leads-to-batch', afterSeminarManagerStatsController.assignLeadsToBatch);
 router.get('/missing-paid-students', afterSeminarManagerStatsController.getMissingPaidStudents);
 router.post('/push-missing-student-to-crm', afterSeminarManagerStatsController.pushMissingStudentToCrm);
+router.post('/batch-goals', afterSeminarManagerStatsController.updateBatchGoals);
 
 router.get('/retention/campaign-data', afterSeminarRetentionController.getRetentionCampaignData);
 

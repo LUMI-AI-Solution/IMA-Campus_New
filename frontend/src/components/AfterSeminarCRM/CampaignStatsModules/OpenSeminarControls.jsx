@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from '../../../api/axios';
-import { FaUsers, FaUserTie, FaPhoneVolume, FaCheckCircle, FaExclamationCircle, FaChartBar, FaExclamationTriangle, FaCalendarAlt, FaChevronDown, FaChevronUp, FaFileExport, FaTimes, FaCheckSquare, FaRegSquare, FaLayerGroup, FaUserCheck } from 'react-icons/fa';
+import { FaUsers, FaUserTie, FaPhoneVolume, FaCheckCircle, FaExclamationCircle, FaChartBar, FaExclamationTriangle, FaCalendarAlt, FaChevronDown, FaChevronUp, FaFileExport, FaTimes, FaCheckSquare, FaRegSquare, FaLayerGroup, FaUserCheck, FaBullseye, FaCrown, FaTrophy } from 'react-icons/fa';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import toast from 'react-hot-toast';
 import BusinessBadge from '../../common/BusinessBadge';
 import UnassignedBatchModal from './UnassignedBatchModal';
 import MissingPaidStudentsModal from './MissingPaidStudentsModal';
+import SetBatchGoalsModal from './SetBatchGoalsModal';
 
 const getShiftData = (dateString) => {
     if (!dateString) return { dateStr: 'Unknown', label: 'Unknown Date', timestamp: 0 };
@@ -36,6 +37,28 @@ const getShiftData = (dateString) => {
     }
 };
 
+const CoordinatorAvatar = ({ image, name, rankNum, initials }) => {
+    const [imgFailed, setImgFailed] = React.useState(false);
+    const validImage = image && typeof image === 'string' && image !== 'undefined' && image !== 'null' && image.trim().length > 5;
+
+    if (validImage && !imgFailed) {
+        return (
+            <img
+                src={image.startsWith('http') ? image : `${import.meta.env.VITE_API_URL || ''}${image}`}
+                alt={name || 'Coordinator'}
+                className="w-12 h-12 rounded-2xl object-cover border-2 border-indigo-500/40 shadow-md flex-shrink-0"
+                onError={() => setImgFailed(true)}
+            />
+        );
+    }
+
+    return (
+        <div className={`w-12 h-12 rounded-2xl bg-gradient-to-tr ${rankNum === 1 ? 'from-amber-500 via-amber-600 to-yellow-400 border-2 border-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.4)]' : 'from-indigo-600 to-purple-600 border border-white/20'} flex items-center justify-center font-black text-white text-sm shadow-md flex-shrink-0`}>
+            {initials}
+        </div>
+    );
+};
+
 export default function OpenSeminarControls({ filters }) {
     const [loading, setLoading] = useState(true);
     const [startDate, setStartDate] = useState('');
@@ -46,6 +69,7 @@ export default function OpenSeminarControls({ filters }) {
     const [showExportModal, setShowExportModal] = useState(false);
     const [showUnassignedModal, setShowUnassignedModal] = useState(false);
     const [showMissingPaidModal, setShowMissingPaidModal] = useState(false);
+    const [showGoalsModal, setShowGoalsModal] = useState(false);
     const [exportMode, setExportMode] = useState('ALL'); // ALL, SINGLE, MULTIPLE
     const [selectedSingleStaff, setSelectedSingleStaff] = useState('');
     const [selectedMultipleStaff, setSelectedMultipleStaff] = useState([]);
@@ -248,6 +272,9 @@ export default function OpenSeminarControls({ filters }) {
                     <div className="w-px h-6 bg-white/10 mx-2 hidden md:block"></div>
 
                     {/* TOOLS BUTTONS */}
+                    <button onClick={() => setShowGoalsModal(true)} className="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white text-xs font-black uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-1.5 border border-purple-400/30">
+                        <FaBullseye size={13} className="text-amber-300 animate-pulse" /> Target Goals (Conversion)
+                    </button>
                     <button onClick={() => setShowUnassignedModal(true)} className="px-4 py-2 bg-amber-600/90 hover:bg-amber-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-1.5">
                         <FaLayerGroup size={12} /> Unassigned Batch Leads
                     </button>
@@ -405,70 +432,139 @@ export default function OpenSeminarControls({ filters }) {
                     <div className="flex-1">
                         {stats.staffBreakdown.length === 0 ? <div className="text-center py-10 text-slate-500 text-sm">No coordinator data available.</div> : (
                             <div className="flex flex-col gap-5">
-                                {stats.staffBreakdown.map((staff, idx) => {
-                                    const isExpanded = expandedRows[staff.name];
-                                    const rate = staff.overall.assigned > 0 ? Math.round((staff.overall.enrolled / staff.overall.assigned) * 100) : 0;
-                                    const isHighDelay = staff.overall.delayed > 10;
+                                {(() => {
+                                    // Sort Coordinators for Leaderboard ranking
+                                    const sortedStaff = [...stats.staffBreakdown].sort((a, b) => {
+                                        const rateA = a.overall.assigned > 0 ? (a.overall.enrolled / a.overall.assigned) : 0;
+                                        const rateB = b.overall.assigned > 0 ? (b.overall.enrolled / b.overall.assigned) : 0;
+                                        if (rateB !== rateA) return rateB - rateA;
+                                        return b.overall.enrolled - a.overall.enrolled;
+                                    });
 
-                                    return (
-                                        <div key={idx} className={`bg-black/40 backdrop-blur-3xl rounded-[2rem] border transition-all duration-500 overflow-hidden ${isExpanded ? 'border-indigo-500/30 shadow-[0_8px_32px_rgba(99,102,241,0.15)]' : 'border-white/10 shadow-xl hover:border-white/20'}`}>
-                                            
-                                            {/* Header Row / Main Overview */}
-                                            <div onClick={() => toggleRow(staff.name)} className={`p-5 cursor-pointer flex flex-col xl:flex-row items-center justify-between gap-6 transition-colors ${isExpanded ? 'bg-indigo-500/5' : 'hover:bg-white/5'}`}>
+                                    const targetIndGoal = stats.batchGoals?.targetIndividualGoal ?? 40;
+                                    const targetGrpGoal = stats.batchGoals?.targetGroupGoal ?? 50;
+
+                                    return sortedStaff.map((staff, idx) => {
+                                        const isExpanded = expandedRows[staff.name];
+                                        const rate = staff.overall.assigned > 0 ? Math.round((staff.overall.enrolled / staff.overall.assigned) * 100) : 0;
+                                        const isHighDelay = staff.overall.delayed > 10;
+
+                                        // Required enrollments for Single Goal
+                                        const reqSingleCount = Math.ceil((targetIndGoal / 100) * staff.overall.assigned);
+                                        const neededSingle = Math.max(0, reqSingleCount - staff.overall.enrolled);
+                                        const singleProgressPct = Math.min(100, Math.round((rate / targetIndGoal) * 100));
+
+                                        // Rank badges
+                                        const rankNum = idx + 1;
+                                        let rankBadge = null;
+                                        if (rankNum === 1) {
+                                            rankBadge = (
+                                                <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-400/40 shadow-[0_0_10px_rgba(251,191,36,0.3)]">
+                                                    <FaCrown className="text-amber-400 animate-bounce" size={10} /> #1 Top Performer
+                                                </span>
+                                            );
+                                        } else if (rankNum === 2) {
+                                            rankBadge = <span className="text-[10px] font-black text-slate-300 bg-slate-400/20 px-2 py-0.5 rounded-full border border-slate-400/30">#2 Leader</span>;
+                                        } else if (rankNum === 3) {
+                                            rankBadge = <span className="text-[10px] font-black text-amber-500 bg-amber-700/20 px-2 py-0.5 rounded-full border border-amber-600/30">#3 Contributor</span>;
+                                        }
+
+                                        // Bulletproof Initials for avatar fallback
+                                        const cleanStaffName = (staff.name || 'Coordinator').trim().replace(/\s+/g, ' ');
+                                        const nameParts = cleanStaffName.split(' ').filter(Boolean);
+                                        let initials = 'CO';
+                                        if (nameParts.length >= 2 && nameParts[0][0] && nameParts[1][0]) {
+                                            initials = (nameParts[0][0] + nameParts[1][0]).toUpperCase();
+                                        } else if (nameParts.length === 1 && nameParts[0].length >= 2) {
+                                            initials = nameParts[0].substring(0, 2).toUpperCase();
+                                        }
+
+                                        return (
+                                            <div key={idx} className={`bg-gradient-to-r from-[#0F172A] via-[#1E293B]/70 to-[#0F172A] rounded-3xl border transition-all duration-500 overflow-hidden shadow-xl ${isExpanded ? 'border-indigo-500/40 shadow-[0_8px_32px_rgba(99,102,241,0.2)]' : rankNum === 1 ? 'border-amber-400/40 shadow-amber-500/10' : 'border-white/10 hover:border-white/25'}`}>
                                                 
-                                                {/* Coordinator Name & Badge */}
-                                                <div className="flex items-center gap-4 w-full xl:w-1/4">
-                                                    <div className={`p-2.5 rounded-xl flex-shrink-0 transition-all duration-300 ${isExpanded ? 'bg-indigo-500/20 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.3)] rotate-180' : 'bg-white/5 text-slate-400'}`}>
-                                                        <FaChevronDown size={14} />
-                                                    </div>
-                                                    <div className="flex flex-col">
-                                                        <span className="font-black text-lg text-white tracking-wide">{staff.name}</span>
-                                                        <div className="mt-1 flex"><BusinessBadge businessType={staff.businessType} role={staff.role} /></div>
-                                                    </div>
-                                                </div>
+                                                {/* Header Row / Main Overview */}
+                                                <div onClick={() => toggleRow(staff.name)} className={`p-5 cursor-pointer flex flex-col xl:flex-row items-center justify-between gap-6 transition-colors ${isExpanded ? 'bg-indigo-500/10' : 'hover:bg-white/5'}`}>
+                                                    
+                                                    {/* Coordinator Avatar, Name & Rank */}
+                                                    <div className="flex items-center gap-4 w-full xl:w-1/3">
+                                                        <div className={`p-2.5 rounded-xl flex-shrink-0 transition-all duration-300 ${isExpanded ? 'bg-indigo-500/20 text-indigo-400 rotate-180' : 'bg-white/5 text-slate-400'}`}>
+                                                            <FaChevronDown size={14} />
+                                                        </div>
 
-                                                {/* Main Stats Grid */}
-                                                <div className="grid grid-cols-4 md:grid-cols-7 gap-4 w-full xl:w-3/4 flex-1 items-center">
-                                                    {(() => {
-                                                        const displayOverallPending = staff.rounds && staff.rounds['1'] ? staff.rounds['1'].pending : 0;
-                                                        const displayOverallAnswered = Math.max(0, staff.overall.assigned - displayOverallPending - staff.overall.noAnswer - staff.overall.reject);
-                                                        return (
-                                                            <>
-                                                                <div className="flex flex-col items-center">
-                                                                    <span className="text-[9px] uppercase font-bold text-slate-500 mb-1 tracking-widest">Assigned</span>
-                                                                    <span className="text-xl font-black text-slate-300">{staff.overall.assigned}</span>
-                                                                </div>
-                                                                <div className="flex flex-col items-center relative group">
-                                                                    <span className="text-[9px] uppercase font-bold text-indigo-400 mb-1 tracking-widest group-hover:text-indigo-300 transition-colors">Answered</span>
-                                                                    <span className="text-2xl font-black text-indigo-300 drop-shadow-[0_0_12px_rgba(99,102,241,0.5)]">{displayOverallAnswered}</span>
-                                                                </div>
-                                                                <div className="flex flex-col items-center">
-                                                                    <span className="text-[9px] uppercase font-bold text-slate-400 mb-1 tracking-widest">No Ans</span>
-                                                                    <span className="text-lg font-black text-slate-300">{staff.overall.noAnswer}</span>
-                                                                </div>
-                                                                <div className="flex flex-col items-center">
-                                                                    <span className="text-[9px] uppercase font-bold text-amber-500 mb-1 tracking-widest">Pending</span>
-                                                                    <span className="text-lg font-black text-amber-400">{displayOverallPending}</span>
-                                                                </div>
-                                                                <div className="flex flex-col items-center">
-                                                                    <span className="text-[9px] uppercase font-bold text-red-400/80 mb-1 tracking-widest">Reject</span>
-                                                                    <span className="text-lg font-black text-red-400">{staff.overall.reject}</span>
-                                                                </div>
-                                                                <div className="flex flex-col items-center">
-                                                                    <span className="text-[9px] uppercase font-bold text-rose-500 mb-1 tracking-widest">Delayed</span>
-                                                                    <span className={`text-lg font-black ${isHighDelay ? 'text-rose-400 bg-rose-500/10 px-3 py-0.5 rounded-lg border border-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.3)] animate-pulse' : 'text-rose-400/80'}`}>{staff.overall.delayed}</span>
-                                                                </div>
-                                                                <div className="flex flex-col items-center border-l border-white/5 pl-4">
-                                                                    <span className="text-[9px] uppercase font-bold text-emerald-500 mb-1 tracking-widest">Conversion</span>
-                                                                    <div className="bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-md flex items-center justify-center min-w-[3rem]">
-                                                                        <span className="text-sm font-black text-emerald-400">{staff.overall.assigned > 0 ? Math.round((staff.overall.enrolled / staff.overall.assigned) * 100) : 0}%</span>
+                                                        {/* Clean Avatar Component (No undefined bugs) */}
+                                                        <CoordinatorAvatar image={staff.image} name={staff.name} rankNum={rankNum} initials={initials} />
+
+                                                        <div className="flex flex-col min-w-0">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className="font-black text-base text-white tracking-wide truncate">{staff.name}</span>
+                                                                {rankBadge}
+                                                            </div>
+                                                            <div className="mt-1 flex items-center gap-2">
+                                                                <BusinessBadge businessType={staff.businessType} role={staff.role} />
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Main Stats Grid */}
+                                                    <div className="grid grid-cols-4 md:grid-cols-7 gap-3 w-full xl:w-3/4 flex-1 items-center">
+                                                        {(() => {
+                                                            const displayOverallPending = staff.rounds && staff.rounds['1'] ? staff.rounds['1'].pending : 0;
+                                                            const displayOverallAnswered = Math.max(0, staff.overall.assigned - displayOverallPending - staff.overall.noAnswer - staff.overall.reject);
+                                                            return (
+                                                                <>
+                                                                    <div className="flex flex-col items-center bg-black/20 p-2 rounded-xl border border-white/5">
+                                                                        <span className="text-[9px] uppercase font-black text-slate-400 mb-0.5 tracking-wider">Assigned</span>
+                                                                        <span className="text-lg font-black text-slate-200">{staff.overall.assigned}</span>
                                                                     </div>
-                                                                </div>
-                                                            </>
-                                                        );
-                                                    })()}
+                                                                    <div className="flex flex-col items-center bg-indigo-500/10 p-2 rounded-xl border border-indigo-500/20">
+                                                                        <span className="text-[9px] uppercase font-black text-indigo-300 mb-0.5 tracking-wider">Answered</span>
+                                                                        <span className="text-xl font-black text-indigo-300 drop-shadow-[0_0_10px_rgba(99,102,241,0.5)]">{displayOverallAnswered}</span>
+                                                                    </div>
+                                                                    <div className="flex flex-col items-center bg-black/20 p-2 rounded-xl border border-white/5">
+                                                                        <span className="text-[9px] uppercase font-black text-slate-400 mb-0.5 tracking-wider">No Ans</span>
+                                                                        <span className="text-base font-black text-slate-300">{staff.overall.noAnswer}</span>
+                                                                    </div>
+                                                                    <div className="flex flex-col items-center bg-amber-500/10 p-2 rounded-xl border border-amber-500/20">
+                                                                        <span className="text-[9px] uppercase font-black text-amber-400 mb-0.5 tracking-wider">Pending</span>
+                                                                        <span className="text-base font-black text-amber-300">{displayOverallPending}</span>
+                                                                    </div>
+                                                                    <div className="flex flex-col items-center bg-red-500/10 p-2 rounded-xl border border-red-500/20">
+                                                                        <span className="text-[9px] uppercase font-black text-red-400 mb-0.5 tracking-wider">Reject</span>
+                                                                        <span className="text-base font-black text-red-400">{staff.overall.reject}</span>
+                                                                    </div>
+                                                                    <div className="flex flex-col items-center bg-rose-500/10 p-2 rounded-xl border border-rose-500/20">
+                                                                        <span className="text-[9px] uppercase font-black text-rose-400 mb-0.5 tracking-wider">Delayed</span>
+                                                                        <span className={`text-base font-black ${isHighDelay ? 'text-rose-300 animate-pulse' : 'text-rose-400'}`}>{staff.overall.delayed}</span>
+                                                                    </div>
+                                                                    <div className="flex flex-col items-center bg-emerald-500/10 p-2 rounded-xl border border-emerald-500/20">
+                                                                        <span className="text-[9px] uppercase font-black text-emerald-400 mb-0.5 tracking-wider">Conversion</span>
+                                                                        <span className="text-base font-black text-emerald-300">{rate}%</span>
+                                                                    </div>
+
+                                                                    {/* Dedicated Single Goal Progress Pill */}
+                                                                    <div className="col-span-4 md:col-span-7 xl:col-span-2 flex flex-col justify-center bg-indigo-950/40 p-2.5 rounded-2xl border border-indigo-500/30">
+                                                                        <div className="flex justify-between items-center text-[10px] font-black mb-1">
+                                                                            <span className="text-cyan-300 flex items-center gap-1">
+                                                                                <FaBullseye size={11} className="text-cyan-400" /> Single Goal ({targetIndGoal}%)
+                                                                            </span>
+                                                                            {neededSingle > 0 ? (
+                                                                                <span className="text-amber-300 font-bold bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-400/30">Need {neededSingle} more</span>
+                                                                            ) : (
+                                                                                <span className="text-emerald-300 font-black bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-400/30">🎯 Achieved!</span>
+                                                                            )}
+                                                                        </div>
+                                                                        <div className="w-full h-2.5 bg-black/60 rounded-full p-0.5 border border-white/10 relative overflow-hidden">
+                                                                            <div 
+                                                                                className={`h-full rounded-full ${neededSingle === 0 ? 'bg-gradient-to-r from-emerald-400 to-teal-300' : 'bg-gradient-to-r from-indigo-500 via-cyan-400 to-emerald-400'} transition-all duration-700`}
+                                                                                style={{ width: `${singleProgressPct}%` }}
+                                                                            ></div>
+                                                                        </div>
+                                                                    </div>
+                                                                </>
+                                                            );
+                                                        })()}
+                                                    </div>
                                                 </div>
-                                            </div>
 
                                             {/* Expanded Section */}
                                             {isExpanded && (
@@ -629,7 +725,8 @@ export default function OpenSeminarControls({ filters }) {
                                             )}
                                         </div>
                                     );
-                                })}
+                                });
+                            })()}
                             </div>
                         )}
                     </div>
@@ -736,6 +833,14 @@ export default function OpenSeminarControls({ filters }) {
                 businessId={filters?.selectedBusiness}
                 batchId={filters?.selectedBatch || 'ALL'}
                 onStudentPushed={fetchOpenSemStats}
+            />
+
+            <SetBatchGoalsModal
+                isOpen={showGoalsModal}
+                onClose={() => setShowGoalsModal(false)}
+                filters={filters}
+                batchGoals={stats?.batchGoals}
+                onGoalsUpdated={fetchOpenSemStats}
             />
 
         </div>

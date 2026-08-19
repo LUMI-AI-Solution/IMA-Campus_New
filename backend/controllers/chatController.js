@@ -173,7 +173,7 @@ const initSocket = (server) => {
             const user = await prisma.user.findUnique({ where: { id: userId } });
             if (user && user.agentStatus === 'ACTIVE') {
                 const roleUpper = user.role ? String(user.role).toUpperCase().replace(/ /g, '_') : "";
-                const isRestrictedRole = ['SYSTEM_ADMIN', 'DELIVERY', 'FINANCE'].some(r => roleUpper.includes(r));
+                const isRestrictedRole = ['SYSTEM_ADMIN'].some(r => roleUpper.includes(r));
                 if (!isRestrictedRole) {
                     const businessType = user.businessType ? String(user.businessType).trim() : "ALL";
                     socket.join(`wa_call_agent_idle_${businessType}`);
@@ -513,7 +513,7 @@ const initSocket = (server) => {
                 const businessType = user?.businessType ? String(user.businessType).trim() : "ALL";
                 const roleUpper = user?.role ? String(user.role).toUpperCase().replace(/ /g, '_') : "";
                 
-                const isRestrictedRole = ['SYSTEM_ADMIN', 'DELIVERY', 'FINANCE'].some(r => roleUpper.includes(r));
+                const isRestrictedRole = ['SYSTEM_ADMIN'].some(r => roleUpper.includes(r));
                 
                 // Save status in DB
                 await prisma.user.update({

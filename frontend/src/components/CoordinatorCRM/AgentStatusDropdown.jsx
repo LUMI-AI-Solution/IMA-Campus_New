@@ -5,39 +5,21 @@ import { Activity, Coffee, UserX, PhoneOff, ChevronDown } from 'lucide-react';
 import api from '../../api/axios';
 
 export default function AgentStatusDropdown() {
-    const [status, setStatus] = useState('OFFLINE');
-    const statusRef = useRef('OFFLINE');
+    const getInitialStatus = () => localStorage.getItem('agentStatus') || 'OFFLINE';
+    const [status, setStatus] = useState(getInitialStatus);
+    const statusRef = useRef(getInitialStatus());
     const { socket } = useCall();
     const [isOpen, setIsOpen] = useState(false);
 
     useEffect(() => {
         if (!socket) return;
 
-        // Fetch current status from DB
         const handleConnect = () => {
             console.log('Agent Status Socket Connected');
             if (statusRef.current !== 'OFFLINE') {
                 socket.emit('join_wa_agent_pool', { status: statusRef.current });
             }
         };
-
-        const fetchStatus = async () => {
-            try {
-                const res = await api.get('/admin/profile'); // Using existing profile endpoint if possible
-                if (res.data && res.data.profile && res.data.profile.agentStatus) {
-                    setStatus(res.data.profile.agentStatus);
-                    statusRef.current = res.data.profile.agentStatus;
-                    // Emit immediately, socket.io will queue if not connected yet
-                    if (res.data.profile.agentStatus !== 'OFFLINE') {
-                        socket.emit('join_wa_agent_pool', { status: res.data.profile.agentStatus });
-                    }
-                }
-            } catch (err) {
-                console.error("Failed to fetch agent status");
-            }
-        };
-
-        fetchStatus();
 
         socket.on('connect', handleConnect);
         
@@ -54,6 +36,7 @@ export default function AgentStatusDropdown() {
     const handleStatusChange = (newStatus) => {
         setStatus(newStatus);
         statusRef.current = newStatus;
+        localStorage.setItem('agentStatus', newStatus);
         setIsOpen(false);
         if (socket) {
             if (newStatus === 'OFFLINE') {

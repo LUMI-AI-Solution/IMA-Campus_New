@@ -70,10 +70,38 @@ export default function PaymentManagement({ loggedInUser }) {
     const [sendToDeliveryModal, setSendToDeliveryModal] = useState(null);
     const [deliverySelectedSubjects, setDeliverySelectedSubjects] = useState([]);
 
+    // Ghost Login State
+    const [ghostIframe, setGhostIframe] = useState(null);
+    const [originalAdminSession, setOriginalAdminSession] = useState(null);
+
     // AI Verification Mode
     const [verificationMode, setVerificationMode] = useState('manual');
     const [showPasswordModal, setShowPasswordModal] = useState(false);
     const [verificationPassword, setVerificationPassword] = useState('');
+
+    const handleGhostLogin = async (student) => {
+        if(!window.confirm(`Ghost Login as ${student.studentName}?`)) return;
+        try {
+            toast.loading("Initiating Ghost Login...", { id: "ghost" });
+            const res = await axios.post('/admin/ghost-login', { studentId: student.studentId });
+            const currentToken = localStorage.getItem('token');
+            const currentUser = localStorage.getItem('user');
+            setOriginalAdminSession({ token: currentToken, user: currentUser });
+            localStorage.setItem('token', res.data.token);
+            localStorage.setItem('user', JSON.stringify(res.data.user));
+            setGhostIframe('/student/dashboard');
+            toast.success("Ghost Login Active!", { id: "ghost" });
+        } catch (error) { toast.error("Ghost login failed.", { id: "ghost" }); }
+    };
+
+    const closeGhostLogin = () => {
+        if (originalAdminSession) {
+            localStorage.setItem('token', originalAdminSession.token);
+            localStorage.setItem('user', originalAdminSession.user);
+        }
+        setGhostIframe(null);
+        toast.success("Restored Admin Session.");
+    };
 
     const fetchData = async () => {
         setLoading(true);
@@ -1153,12 +1181,14 @@ export default function PaymentManagement({ loggedInUser }) {
                             {paginatedStudents.map(student => {
                                 const latestPayment = student.allPayments[0];
                                 return (
-                                    <div key={student.studentId} className="bg-white/5 backdrop-blur-md border border-white/10 hover:border-brand-accent/40 p-6 md:p-8 rounded-[2rem] flex flex-col md:flex-row items-start justify-between gap-6 transition-all duration-300 shadow-lg hover:shadow-brand-accentLight/5 hover:-translate-y-0.5 group">
+                                    <div key={student.studentId} className="bg-white/5 backdrop-blur-md border border-white/10 hover:border-brand-accent/40 p-6 md:p-8 rounded-[2rem] flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 transition-all duration-300 shadow-lg hover:shadow-brand-accentLight/5 hover:-translate-y-0.5 group relative overflow-hidden">
+                                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-accent/5 rounded-bl-full -z-10 group-hover:scale-110 transition-transform"></div>
+                                        
                                         <div className="flex items-start gap-5 flex-1 w-full">
-                                            <div className="w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 border border-white/10 bg-white/5 text-rose-400 shadow-inner group-hover:border-rose-500/20 transition-all duration-300">
+                                            <div className="w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 border border-white/10 bg-white/5 text-rose-400 shadow-inner group-hover:border-rose-500/20 transition-all duration-300 relative z-10">
                                                 <User size={30} strokeWidth={1.5} />
                                             </div>
-                                            <div className="flex-1 mt-1">
+                                            <div className="flex-1 mt-1 relative z-10">
                                                 <h4 className="font-extrabold text-xl text-white flex items-center flex-wrap gap-3">
                                                     <span className="text-rose-400 text-xs font-mono font-semibold bg-rose-500/15 border border-rose-500/20 px-3 py-1 rounded-full tracking-wide shadow-[0_0_10px_rgba(244,63,94,0.08)]">
                                                         ID: {student.allPayments.map(p => p.id).join(', ')}
@@ -1168,8 +1198,8 @@ export default function PaymentManagement({ loggedInUser }) {
                                                     {student.phone && student.phone !== 'N/A' && <span className="text-[10px] font-black text-sky-400 bg-sky-500/10 px-3 py-1.5 rounded-lg border border-sky-500/20 tracking-widest uppercase shadow-sm">{student.phone}</span>}
                                                 </h4>
                                                 {latestPayment && (
-                                                    <>
-                                                        <p className="text-sm font-bold text-slate-400 mt-3 flex flex-wrap items-center gap-3">
+                                                    <div className="mt-3">
+                                                        <p className="text-sm font-bold text-slate-400 flex flex-wrap items-center gap-3">
                                                             <span className="text-emerald-400 font-extrabold bg-emerald-500/15 px-3 py-1 rounded-lg border border-emerald-500/20 shadow-sm">{latestPayment.date}</span>
                                                             <span className="truncate max-w-[150px] sm:max-w-[300px] text-slate-300 font-semibold">{latestPayment.business}</span>
                                                             <span className="truncate max-w-[100px] sm:max-w-[200px] text-slate-400 font-medium">({latestPayment.batch})</span>
@@ -1178,23 +1208,35 @@ export default function PaymentManagement({ loggedInUser }) {
                                                                     Group: {latestPayment.groupName}
                                                                 </span>
                                                             )}
-                                                            <span className="text-brand-accent dark:text-blue-400 font-black tracking-widest text-sm bg-blue-500/10 px-3 py-1 rounded-lg border border-blue-500/20 shadow-sm ml-auto">
-                                                                LKR {parseFloat(latestPayment.amount).toLocaleString()}
-                                                            </span>
                                                         </p>
-                                                        <div className="flex flex-wrap gap-2 mt-4 items-center">
-                                                            <span className="text-[10px] font-black bg-blue-500/15 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/20 uppercase tracking-widest shadow-sm">Type: {latestPayment.type}</span>
-                                                            <span className="text-[10px] font-black bg-purple-500/15 text-purple-400 px-3 py-1.5 rounded-lg border border-purple-500/20 uppercase tracking-widest shadow-sm">Method: {latestPayment.method}</span>
+                                                        <div className="flex flex-wrap gap-2 mt-3 items-center">
+                                                            <span className="text-[10px] font-black bg-blue-500/15 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/20 uppercase tracking-widest shadow-sm flex items-center gap-1.5"><Tag size={12}/> {latestPayment.type}</span>
+                                                            <span className="text-[10px] font-black bg-purple-500/15 text-purple-400 px-3 py-1.5 rounded-lg border border-purple-500/20 uppercase tracking-widest shadow-sm flex items-center gap-1.5"><Wallet size={12}/> {latestPayment.method}</span>
                                                             {student.allPayments.length > 1 && <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/15 px-3 py-1.5 rounded-lg border border-emerald-500/20 uppercase tracking-widest shadow-sm">+{student.allPayments.length - 1} More</span>}
                                                         </div>
-                                                    </>
+                                                    </div>
                                                 )}
                                             </div>
                                         </div>
-                                        <div className="flex items-center justify-between md:justify-end gap-6 w-full md:w-auto border-t border-white/5 md:border-t-0 pt-6 md:pt-0 shrink-0">
-                                            <button onClick={() => setStudentActionModal({ ...student, allPayments: payments.filter(p => p.studentId === student.studentId) })} className="w-full md:w-auto bg-linear-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-extrabold py-4 md:py-3.5 px-8 rounded-xl hover:shadow-[0_0_20px_rgba(225,29,72,0.4)] active:scale-[0.98] transition-all duration-200 text-xs uppercase tracking-widest whitespace-nowrap outline-none shadow-lg border border-rose-500/30">
-                                                Review Payments
-                                            </button>
+                                        
+                                        <div className="flex flex-col sm:flex-row lg:flex-col xl:flex-row items-center justify-between lg:justify-end gap-6 w-full lg:w-auto border-t border-white/5 lg:border-t-0 pt-6 lg:pt-0 shrink-0 relative z-10">
+                                            {latestPayment && (
+                                                <div className="flex flex-col items-center sm:items-start lg:items-end xl:items-start mr-0 xl:mr-4">
+                                                    <span className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Total Amount</span>
+                                                    <span className="text-3xl md:text-4xl text-white font-black tracking-tight drop-shadow-md">
+                                                        <span className="text-brand-accent text-xl mr-1">LKR</span>{parseFloat(latestPayment.amount).toLocaleString()}
+                                                    </span>
+                                                </div>
+                                            )}
+                                            
+                                            <div className="flex items-center gap-3 w-full sm:w-auto mt-4 sm:mt-0">
+                                                <button onClick={() => handleGhostLogin(student)} title="Login as Student" className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white p-3.5 md:py-4 rounded-xl border border-slate-700 transition-all shadow-md group/ghost">
+                                                    <Unlock size={20} className="group-hover/ghost:scale-110 transition-transform" />
+                                                </button>
+                                                <button onClick={() => setStudentActionModal({ ...student, allPayments: payments.filter(p => p.studentId === student.studentId) })} className="flex-1 sm:flex-none bg-linear-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-extrabold py-4 px-8 rounded-xl hover:shadow-[0_0_20px_rgba(225,29,72,0.4)] active:scale-[0.98] transition-all duration-200 text-xs uppercase tracking-widest whitespace-nowrap outline-none shadow-lg border border-rose-500/30 flex items-center justify-center gap-2">
+                                                    Review Payments <ChevronRight size={16} />
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 )
@@ -1975,6 +2017,25 @@ export default function PaymentManagement({ loggedInUser }) {
                 />
             )}
                 </>
+            )}
+
+            {/* Ghost Login Iframe Overlay */}
+            {ghostIframe && createPortal(
+                <div className="fixed inset-0 z-[999999] bg-black">
+                    <div className="h-14 bg-slate-900 flex items-center justify-between px-6 border-b border-white/10">
+                        <div className="flex items-center gap-3">
+                            <span className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span className="text-white font-bold tracking-widest text-sm uppercase">Ghost Session Active</span>
+                        </div>
+                        <button onClick={closeGhostLogin} className="bg-rose-500/20 hover:bg-rose-500 text-rose-400 hover:text-white px-4 py-1.5 rounded-lg text-xs font-bold uppercase tracking-widest transition-all">
+                            End Session
+                        </button>
+                    </div>
+                    <div className="h-[calc(100vh-3.5rem)] w-full">
+                        <iframe src={ghostIframe} className="w-full h-full border-none" title="Ghost Login View"></iframe>
+                    </div>
+                </div>,
+                document.body
             )}
 
             {/* Password Modal for AI Verification */}

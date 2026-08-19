@@ -19,7 +19,9 @@ import axios from '../../api/axios';
 // Helper to get initials
 const getInitials = (name) => {
     if (!name || name === 'Unknown') return 'U';
-    return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    const parts = name.trim().split(' ').filter(Boolean);
+    if (parts.length === 0) return 'U';
+    return parts.map(n => n[0]).join('').substring(0, 2).toUpperCase();
 };
 
 // Helper for consistent avatar colors based on string

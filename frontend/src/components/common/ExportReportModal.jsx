@@ -37,22 +37,32 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
         let validPays = payments;
         if (localFilters.businessId !== 'All') validPays = validPays.filter(p => (p.businessId || p.business_id)?.toString() === localFilters.businessId.toString());
         if (localFilters.batchId !== 'All') validPays = validPays.filter(p => (p.batchId || p.batch_id)?.toString() === localFilters.batchId.toString());
+        if (localFilters.type !== 'All') validPays = validPays.filter(p => p.type === localFilters.type);
 
         const extracted = new Map();
         validPays.forEach(p => {
-            const subs = p.subjectsList || p.subjects || p.courses || [];
-            subs.forEach(s => {
-                const sName = s.name || s.courseName;
-                if (sName) {
-                    const cleanName = sName.replace(/\s*-\s*(Full|Monthly|Installment)/i, '').trim();
-                    if (!extracted.has(cleanName)) {
-                        extracted.set(cleanName, { name: cleanName });
+            if (localFilters.type === 'Monthly') {
+                const gName = p.groupName || p.group;
+                if (gName && gName !== 'Unknown' && gName !== 'No Group') {
+                    if (!extracted.has(gName)) {
+                        extracted.set(gName, { name: gName });
                     }
                 }
-            });
+            } else {
+                const subs = p.subjectsList || p.subjects || p.courses || [];
+                subs.forEach(s => {
+                    const sName = s.name || s.courseName;
+                    if (sName) {
+                        const cleanName = sName.replace(/\s*-\s*(Full|Monthly|Installment)/i, '').trim();
+                        if (!extracted.has(cleanName)) {
+                            extracted.set(cleanName, { name: cleanName });
+                        }
+                    }
+                });
+            }
         });
         return Array.from(extracted.values());
-    }, [payments, localFilters.businessId, localFilters.batchId]);
+    }, [payments, localFilters.businessId, localFilters.batchId, localFilters.type]);
 
     const handleLocalChange = (field, value) => {
         setLocalFilters(prev => {
@@ -61,6 +71,9 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                 updated.batchId = 'All'; updated.subjectNames = [];
             }
             if (field === 'batchId') {
+                updated.subjectNames = [];
+            }
+            if (field === 'type') {
                 updated.subjectNames = [];
             }
             return updated;
@@ -82,11 +95,16 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
             if (localFilters.subjectNames.length === 0 || localFilters.subjectNames.length === localSubjects.length) {
                 matchesSubject = true;
             } else {
-                const subs = p.subjectsList || p.subjects || p.courses || [];
-                matchesSubject = subs.some(s => {
-                    const cleanName = (s.name || s.courseName || '').replace(/\s*-\s*(Full|Monthly|Installment)/i, '').trim();
-                    return localFilters.subjectNames.includes(cleanName);
-                });
+                if (localFilters.type === 'Monthly') {
+                    const gName = p.groupName || p.group;
+                    matchesSubject = localFilters.subjectNames.includes(gName);
+                } else {
+                    const subs = p.subjectsList || p.subjects || p.courses || [];
+                    matchesSubject = subs.some(s => {
+                        const cleanName = (s.name || s.courseName || '').replace(/\s*-\s*(Full|Monthly|Installment)/i, '').trim();
+                        return localFilters.subjectNames.includes(cleanName);
+                    });
+                }
             }
 
             let matchesDate = true;
@@ -488,7 +506,9 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                             </div>
 
                             <div className="space-y-1.5 pt-2">
-                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Subjects (Multi-Select)</label>
+                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">
+                                    {localFilters.type === 'Monthly' ? 'Monthly Groups' : 'Subjects'} (Multi-Select)
+                                </label>
                                 <div className="bg-black/40 border border-white/10 rounded-xl p-3 max-h-40 overflow-y-auto custom-scrollbar flex flex-col gap-2">
                                     {localSubjects.map((s, idx) => {
                                         const isChecked = localFilters.subjectNames.length === 0 || localFilters.subjectNames.includes(s.name);

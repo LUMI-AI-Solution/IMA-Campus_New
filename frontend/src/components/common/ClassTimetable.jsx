@@ -5,11 +5,11 @@ import api from '../../api/axios';
 
 export default function ClassTimetable() {
     const [loading, setLoading] = useState(false);
-    const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
-    const userRole = storedUser.role ? storedUser.role.toUpperCase().replace(/ /g, '_') : 'STAFF';
+    const storedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
+    const userRole = storedUser.role ? storedUser.role.toUpperCase().replace(/[\s_-]+/g, '_') : 'STAFF';
 
     // Role Permissions
-    const canEdit = userRole === 'SYSTEM_ADMIN' || userRole === 'MANAGER' || userRole === 'ASS_MANAGER';
+    const canEdit = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN', 'PHYSICAL_MANAGER', 'SOCIAL_MEDIA_MANAGER', 'CALL_CENTER_SUPERVISOR'].includes(userRole) || userRole.includes('MANAG');
 
     // Calendar State
     const [currentDate, setCurrentDate] = useState(new Date());
@@ -32,6 +32,8 @@ export default function ClassTimetable() {
     
     // Form State (New Class)
     const [selectedBatchesForNew, setSelectedBatchesForNew] = useState([]);
+    const [newClassSubject, setNewClassSubject] = useState('');
+    const [newClassLecturer, setNewClassLecturer] = useState('');
 
     useEffect(() => {
         fetchInitialData();
@@ -193,6 +195,18 @@ export default function ClassTimetable() {
 
     const getBusinessName = () => businesses.find(b => b.id.toString() === selectedBiz?.toString())?.name || '';
 
+    const handleSubjectChange = (e) => {
+        const selectedSub = e.target.value;
+        setNewClassSubject(selectedSub);
+        
+        const foundSub = subjects.find(s => s.name === selectedSub);
+        if (foundSub && foundSub.lecturerName) {
+            setNewClassLecturer(foundSub.lecturerName);
+        } else {
+            setNewClassLecturer('');
+        }
+    };
+
     return (
         <div className="w-full text-gray-900 dark:text-slate-200 font-sans pb-10 animate-in fade-in duration-300 transition-colors">
             
@@ -283,7 +297,7 @@ export default function ClassTimetable() {
                             return (
                                 <div 
                                     key={day} 
-                                    onClick={() => { if(canEdit) { setSelectedDay(day); setSelectedBatchesForNew([]); setShowAddModal(true); } }}
+                                    onClick={() => { if(canEdit) { setSelectedDay(day); setSelectedBatchesForNew([]); setNewClassSubject(''); setNewClassLecturer(''); setShowAddModal(true); } }}
                                     className={`min-h-[110px] md:min-h-[140px] p-2 md:p-3 rounded-2xl border transition-all relative flex flex-col group overflow-hidden ${
                                         canEdit ? 'cursor-pointer hover:border-brand-accent/50 dark:hover:border-brand-accent/50 hover:bg-gray-50 dark:hover:bg-brand-darkHover/40 hover:shadow-md' : ''
                                     } ${isToday ? 'bg-brand-accentLight/50 dark:bg-brand-accentLight border-brand-accent/40 shadow-[inset_0_0_20px_var(--theme-light)]' : 'bg-white dark:bg-brand-darkBg border-gray-200 dark:border-brand-darkBorder shadow-sm'}`}
@@ -312,11 +326,22 @@ export default function ClassTimetable() {
                                                 onClick={(e) => { e.stopPropagation(); setSelectedEvent(event); setShowViewModal(true); }}
                                                 className="bg-gray-50 dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder hover:border-brand-accent/50 dark:hover:border-brand-accent/50 hover:bg-brand-accentLight dark:hover:bg-brand-accentLight p-2 md:p-2.5 rounded-xl cursor-pointer transition-all shadow-sm flex flex-col gap-1.5"
                                             >
-                                                <div className="flex justify-between items-start">
-                                                    <h4 className="font-bold text-gray-900 dark:text-white text-[10px] md:text-xs truncate leading-tight transition-colors" title={event.subjectName}>{event.subjectName}</h4>
-                                                    <span className="text-[8px] bg-brand-accent/10 text-brand-accent border border-brand-accent/20 px-1 py-0.5 rounded font-bold uppercase shrink-0" title={event.batch?.name}>
-                                                        {event.batch?.name?.substring(0, 4) || 'BATCH'}
-                                                    </span>
+                                                <div className="flex justify-between items-start gap-1">
+                                                    <h4 className="font-bold text-gray-900 dark:text-white text-[10px] md:text-xs truncate leading-tight transition-colors flex-1" title={event.subjectName}>{event.subjectName}</h4>
+                                                    <div className="flex items-center gap-1 shrink-0">
+                                                        <span className="text-[8px] bg-brand-accent/10 text-brand-accent border border-brand-accent/20 px-1 py-0.5 rounded font-bold uppercase" title={event.batch?.name}>
+                                                            {event.batch?.name?.substring(0, 4) || 'BATCH'}
+                                                        </span>
+                                                        {canEdit && (
+                                                            <button 
+                                                                onClick={(e) => { e.stopPropagation(); handleDeleteEvent(event.id); }} 
+                                                                className="text-gray-400 hover:text-red-500 hover:bg-red-500/10 p-0.5 rounded transition-colors"
+                                                                title="Delete Class"
+                                                            >
+                                                                <Trash2 size={11}/>
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 
                                                 {/* TECH DEPT STATUS BADGES */}
@@ -376,7 +401,7 @@ export default function ClassTimetable() {
             {/* SCHEDULE ADD MODAL */}
             {showAddModal && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 dark:bg-[#0a0f1c]/95 p-4 backdrop-blur-sm animate-in fade-in duration-200 transition-colors">
-                    <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-3xl p-8 w-full max-w-md shadow-2xl relative transition-colors">
+                    <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-3xl p-8 w-full max-w-5xl shadow-2xl relative transition-colors">
                         <div className="flex justify-between items-start mb-8 transition-colors">
                             <div>
                                 <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-2 transition-colors">Schedule Class</h3>
@@ -387,74 +412,84 @@ export default function ClassTimetable() {
                             <button onClick={() => setShowAddModal(false)} className="bg-gray-100 dark:bg-brand-darkBg p-2.5 rounded-xl border border-gray-200 dark:border-brand-darkBorder text-gray-500 dark:text-slate-400 hover:text-white hover:bg-red-500 dark:hover:text-white dark:hover:bg-red-500 transition-colors outline-none"><X size={18}/></button>
                         </div>
 
-                        <form onSubmit={handleAddSubmit} className="space-y-5">
-                            {/* MULTI-BATCH SELECTION */}
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Allocate to Batches *</label>
-                                <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar p-1">
-                                    {batches.map(b => (
-                                        <label key={b.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${selectedBatchesForNew.includes(b.id) ? 'bg-brand-accentLight border-brand-accent/40 shadow-sm' : 'bg-gray-50 dark:bg-brand-darkBg border-gray-200 dark:border-brand-darkBorder hover:border-gray-300 dark:hover:border-slate-500'}`}>
-                                            <input 
-                                                type="checkbox" 
-                                                className="w-4 h-4 accent-brand-accent"
-                                                checked={selectedBatchesForNew.includes(b.id)}
-                                                onChange={(e) => {
-                                                    if (e.target.checked) setSelectedBatchesForNew([...selectedBatchesForNew, b.id]);
-                                                    else setSelectedBatchesForNew(selectedBatchesForNew.filter(id => id !== b.id));
-                                                }}
-                                            />
-                                            <span className="text-sm font-bold text-gray-700 dark:text-white">{b.name}</span>
+                        <form onSubmit={handleAddSubmit} className="flex flex-col gap-5">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                {/* Left Column */}
+                                <div className="space-y-5">
+                                    {/* MULTI-BATCH SELECTION */}
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Allocate to Batches *</label>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar p-1">
+                                            {batches.map(b => (
+                                                <label key={b.id} className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${selectedBatchesForNew.includes(b.id) ? 'bg-brand-accentLight border-brand-accent/40 shadow-sm' : 'bg-gray-50 dark:bg-brand-darkBg border-gray-200 dark:border-brand-darkBorder hover:border-gray-300 dark:hover:border-slate-500'}`}>
+                                                    <input 
+                                                        type="checkbox" 
+                                                        className="w-4 h-4 accent-brand-accent"
+                                                        checked={selectedBatchesForNew.includes(b.id)}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) setSelectedBatchesForNew([...selectedBatchesForNew, b.id]);
+                                                            else setSelectedBatchesForNew(selectedBatchesForNew.filter(id => id !== b.id));
+                                                        }}
+                                                    />
+                                                    <span className="text-sm font-bold text-gray-700 dark:text-white">{b.name}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Subject *</label>
+                                        <select name="subjectName" value={newClassSubject} onChange={handleSubjectChange} required className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors cursor-pointer shadow-sm">
+                                            <option value="" className="text-gray-500 dark:text-slate-500">-- Select Subject --</option>
+                                            {subjects.map((sub, i) => <option key={i} value={sub.name} className="text-gray-900 dark:text-white">{sub.name}</option>)}
+                                        </select>
+                                    </div>
+                                    
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Lecturer (Optional)</label>
+                                        <select name="lecturerName" value={newClassLecturer} onChange={(e) => setNewClassLecturer(e.target.value)} className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors cursor-pointer shadow-sm">
+                                            <option value="" className="text-gray-500 dark:text-slate-500">Not Assigned</option>
+                                            {lecturers.map((lec, i) => <option key={i} value={lec.name} className="text-gray-900 dark:text-white">{lec.name}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {/* Right Column */}
+                                <div className="space-y-5">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Title/Topic *</label>
+                                        <input type="text" name="title" required placeholder="e.g. Mechanics Part 1" className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm placeholder-gray-400 dark:placeholder-slate-500" />
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1 transition-colors"><Clock size={12}/> Start Time</label>
+                                            <input type="time" name="startTime" required className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent [color-scheme:light] dark:[color-scheme:dark] transition-colors shadow-sm" />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1 transition-colors"><Clock size={12}/> End Time</label>
+                                            <input type="time" name="endTime" required className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent [color-scheme:light] dark:[color-scheme:dark] transition-colors shadow-sm" />
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-col gap-3 p-4 bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl shadow-sm transition-colors mt-2">
+                                        <label className="flex items-center gap-3 cursor-pointer group">
+                                            <input type="checkbox" name="optionalMCQ" className="w-5 h-5 accent-brand-accent shrink-0" />
+                                            <span className="text-sm font-semibold text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">Require <span className="text-brand-accent">MCQ Paper</span> Task</span>
                                         </label>
-                                    ))}
+                                        <label className="flex items-center gap-3 cursor-pointer group">
+                                            <input type="checkbox" name="optionalPaper" className="w-5 h-5 accent-brand-accent shrink-0" />
+                                            <span className="text-sm font-semibold text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">Require <span className="text-brand-accent">Structured Paper</span> Task</span>
+                                        </label>
+                                    </div>
+
+                                    <div className="pt-2">
+                                        <button type="submit" className="w-full bg-brand-accent hover:bg-brand-accentHover text-white font-black py-4 rounded-xl transition-transform hover:scale-[1.02] text-sm uppercase tracking-widest shadow-md outline-none">
+                                            Save to Schedule
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
-
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Subject *</label>
-                                <select name="subjectName" required className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors cursor-pointer shadow-sm">
-                                    <option value="" className="text-gray-500 dark:text-slate-500">-- Select Subject --</option>
-                                    {subjects.map((sub, i) => <option key={i} value={sub.name} className="text-gray-900 dark:text-white">{sub.name}</option>)}
-                                </select>
-                            </div>
-                            
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Title/Topic *</label>
-                                <input type="text" name="title" required placeholder="e.g. Mechanics Part 1" className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm placeholder-gray-400 dark:placeholder-slate-500" />
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1 transition-colors"><Clock size={12}/> Start Time</label>
-                                    <input type="time" name="startTime" required className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent [color-scheme:light] dark:[color-scheme:dark] transition-colors shadow-sm" />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block flex items-center gap-1 transition-colors"><Clock size={12}/> End Time</label>
-                                    <input type="time" name="endTime" required className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent [color-scheme:light] dark:[color-scheme:dark] transition-colors shadow-sm" />
-                                </div>
-                            </div>
-
-                            <div className="flex flex-col gap-3 p-4 bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl shadow-sm transition-colors">
-                                <label className="flex items-center gap-3 cursor-pointer group">
-                                    <input type="checkbox" name="optionalMCQ" className="w-5 h-5 accent-brand-accent shrink-0" />
-                                    <span className="text-sm font-semibold text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">Require <span className="text-brand-accent">MCQ Paper</span> Task</span>
-                                </label>
-                                <label className="flex items-center gap-3 cursor-pointer group">
-                                    <input type="checkbox" name="optionalPaper" className="w-5 h-5 accent-brand-accent shrink-0" />
-                                    <span className="text-sm font-semibold text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">Require <span className="text-brand-accent">Structured Paper</span> Task</span>
-                                </label>
-                            </div>
-
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Lecturer (Optional)</label>
-                                <select name="lecturerName" className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors cursor-pointer shadow-sm">
-                                    <option value="" className="text-gray-500 dark:text-slate-500">Not Assigned</option>
-                                    {lecturers.map((lec, i) => <option key={i} value={lec.name} className="text-gray-900 dark:text-white">{lec.name}</option>)}
-                                </select>
-                            </div>
-
-                            <button type="submit" className="w-full bg-brand-accent hover:bg-brand-accentHover text-white font-black py-4 rounded-xl mt-4 transition-transform hover:scale-[1.02] text-sm uppercase tracking-widest shadow-md outline-none">
-                                Save to Schedule
-                            </button>
                         </form>
                     </div>
                 </div>

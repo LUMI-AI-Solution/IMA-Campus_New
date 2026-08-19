@@ -429,11 +429,11 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
       return currentLeads;
   }, [leads, searchQuery, selectedLead]);
 
-  useEffect(() => {
-      if (searchQuery && filteredLeads.length === 1 && (!selectedLead || selectedLead.id !== filteredLeads[0].id)) {
-          setSelectedLead(filteredLeads[0]);
-      }
-  }, [searchQuery, filteredLeads, selectedLead]);
+  // useEffect(() => {
+  //     if (searchQuery && filteredLeads.length === 1 && (!selectedLead || selectedLead.id !== filteredLeads[0].id)) {
+  //         setSelectedLead(filteredLeads[0]);
+  //     }
+  // }, [searchQuery, filteredLeads, selectedLead]);
 
   // 🔥 LOAD MORE LOGIC 🔥
   const displayedLeads = filteredLeads.slice(0, visibleCount);

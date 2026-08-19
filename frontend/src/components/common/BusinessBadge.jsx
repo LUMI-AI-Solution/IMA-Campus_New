@@ -12,10 +12,10 @@ const fallbackColors = [
 ];
 
 const getBusinessConfig = (bizString) => {
-    if (!bizString || bizString === 'ALL') {
+    if (!bizString || bizString === 'ALL' || bizString.toString().toLowerCase().includes('undefined') || bizString.toString().toLowerCase().includes('null')) {
         return { 
             Icon: FaGlobe, 
-            label: 'ALL', 
+            label: 'GENERAL', 
             colors: 'from-slate-600 to-slate-800 text-white border-slate-500' 
         };
     }

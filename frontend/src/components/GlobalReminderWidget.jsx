@@ -23,10 +23,19 @@ export default function GlobalReminderWidget({ asModal, onClose }) {
     const [editTime, setEditTime] = useState('');
     const [editNote, setEditNote] = useState('');
 
-    const loggedUser = JSON.parse(localStorage.getItem('user') || '{}');
-    const agentId = loggedUser.id || loggedUser.userId;
-    const roleUpper = (loggedUser.role || '').toUpperCase().replace(/[\s_-]+/g, '_');
-    const deptUpper = (loggedUser.department || '').toUpperCase().replace(/[\s_-]+/g, '_');
+    const [isCreatingPersonal, setIsCreatingPersonal] = useState(false);
+    const [newPersonalDate, setNewPersonalDate] = useState('');
+    const [newPersonalTime, setNewPersonalTime] = useState('');
+    const [newPersonalNote, setNewPersonalNote] = useState('');
+    const [newPersonalRepeat, setNewPersonalRepeat] = useState(false);
+
+    const audioRef = React.useRef(null);
+    const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+
+    const loggedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
+    const agentId = loggedUser?.id || loggedUser?.userId;
+    const roleUpper = (loggedUser?.role || '').toUpperCase().replace(/[\s_-]+/g, '_');
+    const deptUpper = (loggedUser?.department || '').toUpperCase().replace(/[\s_-]+/g, '_');
     const isStudent = roleUpper === 'STUDENT' || roleUpper === 'USER';
     const isExcludedDept = ['DELIVERY', 'FINANCE', 'PHYSICAL', 'SOCIAL_MEDIA', 'TECHNICAL'].includes(deptUpper);
     const isSuperOrAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER_ADMIN', 'ADMIN'].includes(roleUpper);
@@ -45,22 +54,38 @@ export default function GlobalReminderWidget({ asModal, onClose }) {
         return () => clearInterval(interval);
     }, [agentId, isCrmEligible]);
 
-    const hasNotifiedInitial = React.useRef(false);
+    const notifiedReminders = React.useRef(new Set());
 
     useEffect(() => {
         if (!reminders.length || !isCrmEligible) return;
         const now = new Date().getTime();
-        const dueReminders = reminders.filter(r => new Date(r.remindAt).getTime() <= now);
+        const dueReminders = reminders.filter(r => new Date(r.remindAt).getTime() <= now && !r.isCompleted);
         
-        if (dueReminders.length > 0 && !hasNotifiedInitial.current) {
-            hasNotifiedInitial.current = true;
-            toast(`⏰ You have ${dueReminders.length} due call reminder${dueReminders.length > 1 ? 's' : ''}`, {
-                id: 'reminders_due_summary',
+        const newDueReminders = dueReminders.filter(r => !notifiedReminders.current.has(r.id));
+
+        if (newDueReminders.length > 0) {
+            newDueReminders.forEach(r => notifiedReminders.current.add(r.id));
+            
+            toast(`⏰ You have ${newDueReminders.length} new due call reminder${newDueReminders.length > 1 ? 's' : ''}`, {
+                id: 'reminders_due_summary_' + Date.now(),
                 duration: 4500,
                 icon: '🔔'
             });
+            
+            if (audioRef.current) {
+                audioRef.current.currentTime = 0;
+                audioRef.current.play().catch(e => console.error("Audio play error", e));
+                setIsPlayingAudio(true);
+            }
+        } else if (dueReminders.length === 0) {
+            notifiedReminders.current.clear();
+            if (audioRef.current && isPlayingAudio) {
+                audioRef.current.pause();
+                audioRef.current.currentTime = 0;
+                setIsPlayingAudio(false);
+            }
         }
-    }, [reminders]);
+    }, [reminders, isCrmEligible]);
 
     const fetchReminders = async () => {
         try {
@@ -121,6 +146,7 @@ export default function GlobalReminderWidget({ asModal, onClose }) {
         try {
             const formattedDate = new Date(`${editDate}T${editTime}:00`).toISOString();
             await axios.put('/reminders/edit', { reminderId: id, remindAt: formattedDate, note: editNote });
+            notifiedReminders.current.delete(id); // Allow it to trigger again after editing
             toast.success("Reminder Updated!");
             setEditingId(null);
             fetchReminders();
@@ -166,6 +192,52 @@ export default function GlobalReminderWidget({ asModal, onClose }) {
         else setIsOpen(false);
     };
 
+    const handleCreatePersonal = async () => {
+        try {
+            if (!newPersonalTime || !newPersonalNote) return toast.error("Time and Note are required");
+            if (!newPersonalRepeat && !newPersonalDate) return toast.error("Date is required for one-time reminders");
+            
+            let dateToUse = newPersonalDate;
+            if (newPersonalRepeat) {
+                const now = new Date();
+                const [h, m] = newPersonalTime.split(':');
+                const target = new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(h), parseInt(m), 0);
+                if (target < now) {
+                    target.setDate(target.getDate() + 1);
+                }
+                dateToUse = target.toISOString().split('T')[0];
+            }
+
+            const formattedDate = new Date(`${dateToUse}T${newPersonalTime}:00`).toISOString();
+            
+            await axios.post('/reminders/create', {
+                agentId,
+                note: newPersonalNote,
+                remindAt: formattedDate,
+                isPersonal: true,
+                isRepeat: newPersonalRepeat,
+                repeatTime: newPersonalRepeat ? newPersonalTime : null,
+                phone: 'PERSONAL',
+                name: 'My Reminder'
+            });
+            toast.success("Personal Reminder Created!");
+            setIsCreatingPersonal(false);
+            setNewPersonalNote('');
+            setNewPersonalTime('');
+            setNewPersonalDate('');
+            setNewPersonalRepeat(false);
+            fetchReminders();
+        } catch (error) { toast.error("Failed to create reminder"); }
+    };
+
+    const stopAudio = () => {
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+            setIsPlayingAudio(false);
+        }
+    };
+
     if (!agentId || !isCrmEligible) return null;
 
     return (
@@ -186,6 +258,7 @@ export default function GlobalReminderWidget({ asModal, onClose }) {
 
             {isOpen && (
                 <div className={asModal ? "fixed bottom-24 right-6 w-96 max-w-[calc(100vw-2rem)] bg-[#111827] border border-slate-700 rounded-2xl shadow-2xl animate-fade-in-up flex flex-col max-h-[550px] h-[520px] z-[9999] overflow-hidden" : "absolute bottom-16 right-0 w-96 max-w-[calc(100vw-2rem)] bg-[#111827] border border-slate-700 rounded-2xl shadow-2xl animate-fade-in-up flex flex-col max-h-[550px] h-[520px] z-[9999] overflow-hidden"}>
+                    <audio ref={audioRef} src="/reminder_ringtone.mp3" onEnded={() => setIsPlayingAudio(false)} />
                     {/* Header */}
                     <div className="p-3.5 bg-slate-800/90 border-b border-slate-700 rounded-t-2xl flex justify-between items-center shrink-0">
                         <div className="flex items-center gap-2">
@@ -193,6 +266,9 @@ export default function GlobalReminderWidget({ asModal, onClose }) {
                             <h3 className="text-white font-bold text-sm">Reminders & Call Permissions</h3>
                         </div>
                         <div className="flex items-center gap-2">
+                            {isPlayingAudio && (
+                                <button onClick={stopAudio} className="text-rose-400 font-bold text-xs border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 rounded shadow animate-pulse">Stop Alarm</button>
+                            )}
                             <button onClick={() => { fetchReminders(); fetchCallAllowed(); }} className="text-slate-400 hover:text-white p-1" title="Refresh">
                                 <FaSyncAlt size={12}/>
                             </button>
@@ -235,9 +311,34 @@ export default function GlobalReminderWidget({ asModal, onClose }) {
                                         Completed / Past ({completedReminders.length})
                                     </button>
                                 </div>
+                                <button onClick={() => setIsCreatingPersonal(true)} className="bg-amber-500 hover:bg-amber-400 text-black px-2 py-1 rounded font-bold transition-colors">+ Personal</button>
                             </div>
 
                             <div className="p-3 overflow-y-auto custom-scrollbar flex-1 space-y-2.5">
+                                {isCreatingPersonal && (
+                                    <div className="p-3 rounded-xl border bg-black/40 border-amber-500/30 space-y-3 mb-2 animate-fade-in-up">
+                                        <h4 className="text-white text-xs font-bold border-b border-white/10 pb-1 flex justify-between">
+                                            <span>Create Personal Reminder</span>
+                                            <button onClick={() => setIsCreatingPersonal(false)} className="text-slate-500 hover:text-white"><FaTimes size={10}/></button>
+                                        </h4>
+                                        <div className="flex items-center gap-2">
+                                            <label className="text-[10px] text-slate-300 flex items-center gap-1 cursor-pointer">
+                                                <input type="checkbox" checked={newPersonalRepeat} onChange={(e) => setNewPersonalRepeat(e.target.checked)} className="accent-amber-500"/>
+                                                Repeat Daily
+                                            </label>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            {!newPersonalRepeat && (
+                                                <input type="date" value={newPersonalDate} onChange={e=>setNewPersonalDate(e.target.value)} className="flex-1 bg-slate-800/80 border border-slate-700 text-xs text-white p-1.5 rounded outline-none focus:border-amber-500" />
+                                            )}
+                                            <input type="time" value={newPersonalTime} onChange={e=>setNewPersonalTime(e.target.value)} className="w-24 bg-slate-800/80 border border-slate-700 text-xs text-white p-1.5 rounded outline-none focus:border-amber-500" />
+                                        </div>
+                                        <textarea value={newPersonalNote} onChange={e=>setNewPersonalNote(e.target.value)} placeholder="What needs to be done?" className="w-full bg-slate-800/80 border border-slate-700 text-xs text-white p-1.5 rounded outline-none focus:border-amber-500 resize-none h-16"></textarea>
+                                        <button onClick={handleCreatePersonal} className="w-full bg-amber-500 hover:bg-amber-400 text-black text-[11px] font-black py-2 rounded flex justify-center items-center shadow-lg transition-colors">
+                                            Save Reminder
+                                        </button>
+                                    </div>
+                                )}
                                 {reminderSubTab === 'ACTIVE' ? (
                                     reminders.length === 0 ? (
                                         <p className="text-center text-slate-500 text-xs py-10 font-medium">No upcoming reminders scheduled.</p>
@@ -252,13 +353,18 @@ export default function GlobalReminderWidget({ asModal, onClose }) {
                                                         <>
                                                             <div className="flex justify-between items-start mb-2">
                                                                 <div 
-                                                                    className="cursor-pointer group" 
-                                                                    onClick={() => handleRedirect(r.leadType, r.phone)}
+                                                                    className={`cursor-pointer group ${r.isPersonal ? '' : 'hover:underline'}`}
+                                                                    onClick={() => {
+                                                                        if(!r.isPersonal) handleRedirect(r.leadType, r.phone);
+                                                                    }}
                                                                 >
-                                                                    <p className={`font-black text-sm group-hover:underline ${isPastDue ? 'text-rose-400' : 'text-white'}`}>{r.phone}</p>
-                                                                    <p className="text-[10px] text-slate-400 uppercase tracking-widest">{r.name || 'Student'}</p>
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <p className={`font-black text-sm ${isPastDue ? 'text-rose-400' : 'text-white'}`}>{r.phone === 'PERSONAL' ? 'Personal Note' : r.phone}</p>
+                                                                        {r.isRepeat && <span className="text-[8px] bg-amber-500/20 text-amber-300 px-1 py-0.5 rounded border border-amber-500/30 uppercase font-black">Daily</span>}
+                                                                    </div>
+                                                                    <p className="text-[10px] text-slate-400 uppercase tracking-widest">{r.name || 'Personal'}</p>
                                                                 </div>
-                                                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold ${isPastDue ? 'bg-rose-500 text-white' : 'bg-amber-500/20 text-amber-400'}`}>
+                                                                <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold flex shrink-0 h-fit ${isPastDue ? 'bg-rose-500 text-white' : 'bg-amber-500/20 text-amber-400'}`}>
                                                                     {new Date(r.remindAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                                                                 </span>
                                                             </div>
@@ -273,7 +379,7 @@ export default function GlobalReminderWidget({ asModal, onClose }) {
                                                     ) : (
                                                         <div className="space-y-2">
                                                             <div className="flex gap-2">
-                                                                <input type="date" value={editDate} onChange={e=>setEditDate(e.target.value)} className="flex-1 bg-black/40 border border-slate-700 text-xs text-white p-1.5 rounded outline-none focus:border-amber-500" />
+                                                                {!r.isRepeat && <input type="date" value={editDate} onChange={e=>setEditDate(e.target.value)} className="flex-1 bg-black/40 border border-slate-700 text-xs text-white p-1.5 rounded outline-none focus:border-amber-500" />}
                                                                 <input type="time" value={editTime} onChange={e=>setEditTime(e.target.value)} className="w-20 bg-black/40 border border-slate-700 text-xs text-white p-1.5 rounded outline-none focus:border-amber-500" />
                                                             </div>
                                                             <textarea value={editNote} onChange={e=>setEditNote(e.target.value)} className="w-full bg-black/40 border border-slate-700 text-xs text-white p-1.5 rounded outline-none focus:border-amber-500 resize-none h-12"></textarea>

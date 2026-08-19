@@ -5,6 +5,7 @@ import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash
 import { Target, PhoneCall, Check, Loader, BookOpen, Loader2, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
+import CoordinatorGoalTrackerWidget from '../../CampaignStatsModules/CoordinatorGoalTrackerWidget';
 
 export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts, setDrafts, handleUpdateLocalLead, handleSaveCallData, setChatModalLead, isManager, handleTempUnlock, externalSearch }) {
 
@@ -17,6 +18,24 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
     const [guidanceLang, setGuidanceLang] = useState('SI');
 
     const [currentTime, setCurrentTime] = useState(new Date().getTime());
+    const [campaignStats, setCampaignStats] = useState(null);
+
+    useEffect(() => {
+        if (filters?.selectedBusiness) {
+            const token = localStorage.getItem('token');
+            axios.get('/after-seminar-crm/stats/open-seminar', {
+                headers: { Authorization: `Bearer ${token}` },
+                params: {
+                    businessId: filters.selectedBusiness,
+                    batchId: filters.selectedBatch || 'ALL'
+                }
+            }).then(res => {
+                if (res.data) setCampaignStats(res.data);
+            }).catch(err => {
+                console.error("Failed to fetch open seminar stats for tracker widget", err);
+            });
+        }
+    }, [filters?.selectedBusiness, filters?.selectedBatch]);
 
     const handleCopy = (text, label) => {
         if (navigator.clipboard && window.isSecureContext) {
@@ -93,7 +112,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
 
     const ITEMS_PER_PAGE = 20;
 
-    const openSemLeads = Array.isArray(leads) ? leads.filter(l => l?.inquiryType === 'OPEN_SEMINAR') : [];
+    const openSemLeads = Array.isArray(leads) ? leads.filter(l => l?.inquiryType === 'OPEN_SEMINAR' || l?.inquiryType === 'NORMAL' || !l?.inquiryType) : [];
 
     const isLeadDelayed = (l) => {
         if (((((l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_')))) || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'))))) return false;
@@ -206,13 +225,40 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
             filtered = filtered.filter(l => l?.phone?.includes(sq) || (l?.name && l?.name?.toLowerCase().includes(sq)));
         }
 
+        const checkIsFrozen = (l) => {
+            if (!l || !l.assignedAt) return false;
+            if (l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID') return false;
+            const round = l.openSemRound || l.coordinationRound || 1;
+            if (round === 2) {
+                const startTime = new Date(l.assignedAt).getTime();
+                const diffDays = (new Date().getTime() - startTime) / (1000 * 60 * 60 * 24);
+                return diffDays < 6;
+            }
+            return false;
+        };
+
         filtered.sort((a, b) => {
+            const aFrozen = checkIsFrozen(a) ? 1 : 0;
+            const bFrozen = checkIsFrozen(b) ? 1 : 0;
+
+            // 1. Unfrozen (Active) leads come FIRST (0), Frozen leads come LAST (1)
+            if (aFrozen !== bFrozen) {
+                return aFrozen - bFrozen;
+            }
+
             const aRejected = a?.callStatus === 'reject';
             const bRejected = b?.callStatus === 'reject';
             
-            // 1. Always put rejected leads at the very bottom
+            // 2. Always put rejected leads at the very bottom
             if (aRejected && !bRejected) return 1;
             if (!aRejected && bRejected) return -1;
+
+            // 3. If BOTH are frozen: sort by unfreezing SOONEST first (oldest assignedAt first: 1D, 2D... then 5D, 6D)
+            if (aFrozen && bFrozen) {
+                const aTime = new Date(a?.assignedAt || a?.createdAt || 0).getTime();
+                const bTime = new Date(b?.assignedAt || b?.createdAt || 0).getTime();
+                return aTime - bTime;
+            }
 
             if (activeRound === 'r2') {
                 const aAnswered = a?.callStatus === 'answered';
@@ -422,7 +468,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
         setReminderLead(lead);
         const loadToast = toast.loading("Loading reminder details...");
         try {
-            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
             const agentId = loggedUser.id || loggedUser.userId;
             const res = await axios.get(`/reminders/my-reminders?agentId=${agentId}`);
             const existing = res.data.find(r => r.leadId === lead.id);
@@ -450,7 +496,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
         const loadToast = toast.loading(existingReminderId ? "Updating reminder..." : "Setting reminder...");
         try {
             const token = localStorage.getItem('token');
-            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
             const agentId = loggedUser.id || loggedUser.userId;
             const formattedDate = new Date(`${remindDate}T${remindTime}:00`).toISOString();
             
@@ -577,6 +623,30 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                         </button>
                     </div>
                 </div>
+
+                {/* 🔥 CONVERSION GOALS & LEVEL PROGRESS TRACKER WIDGET 🔥 */}
+                {(() => {
+                    const myAssignedCount = openSemLeads.length;
+                    const myEnrolledCount = openSemLeads.filter(l => l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'))).length;
+                    
+                    const totalGroupAssigned = campaignStats?.totalAssigned || myAssignedCount;
+                    const totalGroupEnrolled = campaignStats?.totalEnrolled || myEnrolledCount;
+                    
+                    const targetIndGoal = campaignStats?.batchGoals?.targetIndividualGoal ?? 40;
+                    const targetGrpGoal = campaignStats?.batchGoals?.targetGroupGoal ?? 50;
+
+                    return (
+                        <CoordinatorGoalTrackerWidget
+                            myAssigned={myAssignedCount}
+                            myEnrolled={myEnrolledCount}
+                            totalGroupAssigned={totalGroupAssigned}
+                            totalGroupEnrolled={totalGroupEnrolled}
+                            targetIndividualGoal={targetIndGoal}
+                            targetGroupGoal={targetGrpGoal}
+                            staffBreakdown={campaignStats?.staffBreakdown || []}
+                        />
+                    );
+                })()}
 
                 {/* Top Round Buttons (Moved Outside) */}
                 <div className="flex gap-2 bg-[#0F172A]/80 p-2 rounded-2xl flex-wrap shadow-inner mb-6 w-max border border-white/5">

@@ -17,8 +17,8 @@ import CoordinatorProgressSheet from "./CampaignStatsModules/CoordinatorProgress
 export default function AfterSeminarManagerCampaignStats({ filters = {}, allBatches, campaignType }) {
     // 🔥 උඩ තියෙන filters = {} කෑල්ල තමයි Error එක නැති කරන්නේ 🔥
 
-    const loggedUser = JSON.parse(localStorage.getItem('user') || '{}');
-    const userRole = (loggedUser.role || '').toUpperCase().replace(/ /g, '_');
+    const loggedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
+    const userRole = (loggedUser?.role || '').toUpperCase().replace(/ /g, '_');
     
     // Admin හෝ Manager ද කියලා බලනවා
     const isHigherManagement = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER'].includes(userRole);

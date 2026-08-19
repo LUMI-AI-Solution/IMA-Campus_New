@@ -33,10 +33,11 @@ export default function MyClassroom() {
     const handleBusinessSelect = (biz) => {
         setSelectedBusiness(biz);
 
+        const streams = getEnrolledStreams(biz);
+
         if (biz.batches && biz.batches.length === 1) {
             setSelectedBatch(biz.batches[0]);
 
-            const streams = getEnrolledStreams(biz);
             if (streams.length === 1) {
                 setSelectedStream(streams[0]);
                 setSelectionLevel(3);
@@ -44,7 +45,12 @@ export default function MyClassroom() {
                 setSelectionLevel(1);
             }
         } else if (biz.batches && biz.batches.length > 1) {
-            setSelectionLevel(1);
+            if (streams.length === 1) {
+                setSelectedStream(streams[0]);
+                setSelectionLevel(2); // Skip stream selection
+            } else {
+                setSelectionLevel(1);
+            }
         } else {
             toast.error("No batches found for this business.");
         }
@@ -84,16 +90,37 @@ export default function MyClassroom() {
             return;
         }
         if (selectionLevel > 0) {
-            setSelectionLevel(prev => prev - 1);
-            if (selectionLevel === 1) setSelectedBusiness(null);
-            if (selectionLevel === 2) { setSelectedStream(null); setSelectedBatch(null); setActiveStream('All'); }
-            if (selectionLevel === 3) {
-                if (selectedBusiness?.batches?.length === 1 && getEnrolledStreams(selectedBusiness).length === 1) {
+            if (selectionLevel === 1) {
+                setSelectionLevel(0);
+                setSelectedBusiness(null);
+            } else if (selectionLevel === 2) {
+                const streams = getEnrolledStreams(selectedBusiness);
+                if (streams.length === 1) {
                     setSelectionLevel(0);
                     setSelectedBusiness(null);
-                    setSelectedBatch(null);
                     setSelectedStream(null);
                 } else {
+                    setSelectionLevel(1);
+                    setSelectedStream(null);
+                }
+                setSelectedBatch(null);
+                setActiveStream('All');
+            } else if (selectionLevel === 3) {
+                if (selectedBusiness?.batches?.length === 1) {
+                    const streams = getEnrolledStreams(selectedBusiness);
+                    if (streams.length === 1) {
+                        setSelectionLevel(0);
+                        setSelectedBusiness(null);
+                        setSelectedBatch(null);
+                        setSelectedStream(null);
+                    } else {
+                        setSelectionLevel(1);
+                        setSelectedBatch(null);
+                        setSelectedStream(null);
+                        setActiveStream('All');
+                    }
+                } else {
+                    setSelectionLevel(2);
                     setSelectedBatch(null);
                     setActiveStream('All');
                 }

@@ -50,9 +50,21 @@ exports.getCoordinatorV2Stats = async (req, res) => {
             if (batchId && batchId !== '' && batchId !== 'undefined' && batchId !== 'null') {
                 baseLeadFilter.batchId = parseInt(batchId);
             } else if (businessId && businessId !== '' && businessId !== 'undefined' && businessId !== 'null') {
-                baseLeadFilter.batch = { businessId: parseInt(businessId) };
+                const bizBatches = await prisma.batch.findMany({ where: { businessId: parseInt(businessId) }, select: { id: true } });
+                baseLeadFilter.OR = [
+                    { batchId: { in: bizBatches.map(b => b.id) } },
+                    { phone: { endsWith: `_BIZ_${businessId}` } },
+                    { phone: { contains: `_BIZ_${businessId}_` } }
+                ];
             } else if (assignedBusinessIds.length > 0) {
-                baseLeadFilter.batch = { businessId: { in: assignedBusinessIds } };
+                const bizBatches = await prisma.batch.findMany({ where: { businessId: { in: assignedBusinessIds } }, select: { id: true } });
+                baseLeadFilter.OR = [
+                    { batchId: { in: bizBatches.map(b => b.id) } },
+                    ...assignedBusinessIds.flatMap(id => [
+                        { phone: { endsWith: `_BIZ_${id}` } },
+                        { phone: { contains: `_BIZ_${id}_` } }
+                    ])
+                ];
             } else {
                 baseLeadFilter.batch = { businessId: -1 };
             }

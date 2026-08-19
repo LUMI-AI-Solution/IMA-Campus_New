@@ -73,7 +73,7 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
         e.preventDefault();
         const loadToast = toast.loading("Loading reminder details...");
         try {
-            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
             const agentId = loggedUser.id || loggedUser.userId;
             
             const res = await axios.get(`/reminders/my-reminders?agentId=${agentId}`);
@@ -103,7 +103,7 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
         
         try {
             const token = localStorage.getItem('token');
-            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
             const agentId = loggedUser.id || loggedUser.userId;
             const formattedDate = new Date(`${remindDate}T${remindTime}:00`).toISOString();
             

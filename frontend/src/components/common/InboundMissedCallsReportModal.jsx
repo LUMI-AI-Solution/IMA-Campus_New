@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import api from '../../api/axios';
 import toast from 'react-hot-toast';
+import { FaPhoneAlt, FaWhatsapp } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import { useCall } from '../../contexts/CallContext';
@@ -132,8 +133,11 @@ export default function InboundMissedCallsReportModal({ isOpen, onClose }) {
             if (selectedStatus !== 'ALL') params.append('status', selectedStatus);
             if (selectedDirection !== 'ALL') params.append('direction', selectedDirection);
 
+            params.append('_t', Date.now());
+            console.log("=== FRONTEND FETCH REPORT URL ===", `/admin/whatsapp-call/report?${params.toString()}`);
             const res = await api.get(`/admin/whatsapp-call/report?${params.toString()}`);
             if (res.data) {
+                console.log("=== FRONTEND RECEIVED LOGS ===", res.data.logs?.length);
                 setReportData(res.data);
             }
         } catch (error) {
@@ -555,10 +559,17 @@ export default function InboundMissedCallsReportModal({ isOpen, onClose }) {
                             </div>
 
                             {activeViewTab === 'LOGS' && (
-                                <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 text-[11px] font-semibold">
-                                    <button onClick={() => setSelectedDirection('INBOUND')} className={`px-2.5 py-0.5 rounded-lg transition-all ${selectedDirection === 'INBOUND' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}>Inbound</button>
-                                    <button onClick={() => setSelectedDirection('OUTBOUND')} className={`px-2.5 py-0.5 rounded-lg transition-all ${selectedDirection === 'OUTBOUND' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}>Outbound</button>
-                                    <button onClick={() => setSelectedDirection('ALL')} className={`px-2.5 py-0.5 rounded-lg transition-all ${selectedDirection === 'ALL' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}>All</button>
+                                <div className="flex gap-2">
+                                    <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 text-[11px] font-semibold">
+                                        <button onClick={() => setSelectedDirection('INBOUND')} className={`px-2.5 py-0.5 rounded-lg transition-all cursor-pointer ${selectedDirection === 'INBOUND' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}>Inbound</button>
+                                        <button onClick={() => setSelectedDirection('OUTBOUND')} className={`px-2.5 py-0.5 rounded-lg transition-all cursor-pointer ${selectedDirection === 'OUTBOUND' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}>Outbound</button>
+                                        <button onClick={() => setSelectedDirection('ALL')} className={`px-2.5 py-0.5 rounded-lg transition-all cursor-pointer ${selectedDirection === 'ALL' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}>All</button>
+                                    </div>
+                                    <div className="flex bg-black/40 p-1 rounded-xl border border-white/10 text-[11px] font-semibold">
+                                        <button onClick={() => setSelectedStatus('ALL')} className={`px-2.5 py-0.5 rounded-lg transition-all cursor-pointer ${selectedStatus === 'ALL' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}>All Status</button>
+                                        <button onClick={() => setSelectedStatus('MISSED')} className={`px-2.5 py-0.5 rounded-lg transition-all cursor-pointer ${selectedStatus === 'MISSED' ? 'bg-rose-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}>Missed</button>
+                                        <button onClick={() => setSelectedStatus('COMPLETED')} className={`px-2.5 py-0.5 rounded-lg transition-all cursor-pointer ${selectedStatus === 'COMPLETED' ? 'bg-emerald-600 text-white font-bold' : 'text-slate-400 hover:text-white'}`}>Answered</button>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -654,8 +665,20 @@ export default function InboundMissedCallsReportModal({ isOpen, onClose }) {
                                                     </td>
                                                     <td className="px-4 py-3 text-right">
                                                         <div className="flex items-center justify-end gap-1.5">
-                                                            <button onClick={() => handleCallBack(log)} className="p-1.5 bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-lg border border-emerald-500/30 transition-all cursor-pointer" title="Call Student"><PhoneCall size={13} /></button>
-                                                            <button onClick={() => handleOpenChat(log)} className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-white/10 transition-colors cursor-pointer" title="Open CRM Chat"><ExternalLink size={13} /></button>
+                                                            <button 
+                                                                onClick={() => handleCallBack(log)} 
+                                                                className="p-1.5 bg-emerald-600/30 hover:bg-emerald-600 text-emerald-300 hover:text-white rounded-lg border border-emerald-500/30 transition-all cursor-pointer" 
+                                                                title="WhatsApp Call Student"
+                                                            >
+                                                                <PhoneCall size={13} />
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleOpenChat(log)} 
+                                                                className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-white/10 transition-colors cursor-pointer" 
+                                                                title="Open CRM Chat"
+                                                            >
+                                                                <ExternalLink size={13} />
+                                                            </button>
                                                         </div>
                                                     </td>
                                                 </tr>

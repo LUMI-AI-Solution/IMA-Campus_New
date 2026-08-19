@@ -13,6 +13,7 @@ export const CallProvider = ({ children }) => {
     const [incomingCall, setIncomingCall] = useState(null); // { callId, from, leadName, businessType, sdp }
     const [activeCall, setActiveCall] = useState(null);
     const [isRinging, setIsRinging] = useState(false);
+    const [isOnHold, setIsOnHold] = useState(false);
 
     // Outbound Call State
     const [outboundCall, setOutboundCall] = useState(null);
@@ -42,6 +43,8 @@ export const CallProvider = ({ children }) => {
     
     // Audio ref for ringtone
     const ringAudioRef = useRef(null);
+    const holdAudioRef = useRef(null);
+    const holdStreamRef = useRef(null);
     const remoteAudioRef = useRef(null);
     const mediaRecorderRef = useRef(null);
     const recordedChunksRef = useRef([]);
@@ -54,11 +57,14 @@ export const CallProvider = ({ children }) => {
 
         const handleWaStatus = (data) => {
             console.log("[Global Outbound] Call Status Update:", data);
-            if (data.status === 'RINGING') setOutboundCall(prev => prev ? { ...prev, status: 'RINGING' } : null);
-            if (data.status === 'REJECTED') {
+            if (!data || !data.status) return;
+            const status = data.status.toUpperCase();
+            
+            if (status === 'RINGING') {
+                setOutboundCall(prev => prev ? { ...prev, status: 'RINGING' } : null);
+            } else if (status === 'REJECTED' || status === 'FAILED' || status === 'COMPLETED') {
                 endOutboundCall();
-            }
-            if (data.status === 'ACCEPTED') {
+            } else if (status === 'ACCEPTED' || status === 'IN_PROGRESS' || status === 'CONNECTED') {
                 setOutboundCall(prev => prev ? { ...prev, status: 'CONNECTED' } : null);
                 startOutboundTimer();
             }
@@ -172,6 +178,12 @@ export const CallProvider = ({ children }) => {
             clearInterval(outboundTimerRef.current);
         }
 
+        setIsOnHold(false);
+        if (holdAudioRef.current) {
+            holdAudioRef.current.pause();
+            holdAudioRef.current.currentTime = 0;
+        }
+
         if (outboundCallIdRef.current) {
             try {
                 await api.post('/admin/whatsapp-call/terminate', {
@@ -193,6 +205,10 @@ export const CallProvider = ({ children }) => {
 
     const startOutboundCall = async ({ lead, businessId, campaignType }) => {
         if (!lead || !lead.phone) return;
+        if (outboundCall) {
+            console.warn("[Global Outbound] Call already in progress. Ignoring duplicate click.");
+            return;
+        }
 
         const resolvedBusinessId = businessId || lead.batch?.businessId || lead.businessId || lead.batch?.business?.id || null;
         const resolvedCampaignType = campaignType || lead.campaignType || 'FREE_SEMINAR';
@@ -215,8 +231,19 @@ export const CallProvider = ({ children }) => {
             outboundStreamRef.current = stream;
 
             // 2. PeerConnection
-            const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+            const pc = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' }
+                ]
+            });
             outboundPcRef.current = pc;
+            
+            pc.oniceconnectionstatechange = () => {
+                console.log(`[Global Outbound] ICE State: ${pc.iceConnectionState}`);
+            };
 
             stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
@@ -268,16 +295,80 @@ export const CallProvider = ({ children }) => {
                 triggerOffer();
             } else {
                 pc.onicegatheringstatechange = () => {
-                    if (pc.iceGatheringState === 'complete' || pc.iceGatheringState === 'interactive') {
+                    if (pc.iceGatheringState === 'complete') {
                         triggerOffer();
                     }
                 };
-                setTimeout(triggerOffer, 1000);
+                setTimeout(triggerOffer, 8000); // Increased timeout to 8s to ensure STUN gathering
             }
 
         } catch (err) {
             console.error("[Global Outbound] Setup error:", err);
             setOutboundCall(null);
+        }
+    };
+
+    const toggleHold = async () => {
+        let pc, localStream;
+        if (activeCall && activeCall.peerConnection) {
+            pc = activeCall.peerConnection;
+            localStream = activeCall.localStream;
+        } else if (outboundCall && outboundPcRef.current) {
+            pc = outboundPcRef.current;
+            localStream = outboundStreamRef.current;
+        } else {
+            return;
+        }
+
+        if (!pc || !localStream) return;
+
+        if (isOnHold) {
+            if (holdAudioRef.current) {
+                holdAudioRef.current.pause();
+                holdAudioRef.current.currentTime = 0;
+            }
+            const micTrack = outboundStreamRef.current?.getAudioTracks()[0];
+            if (micTrack) {
+                micTrack.enabled = !outboundCall?.isMuted; // Restore original mute state
+                const sender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+                if (sender) await sender.replaceTrack(micTrack);
+            }
+            setIsOnHold(false);
+        } else {
+            if (!holdAudioRef.current) {
+                holdAudioRef.current = new Audio('/assets/audio/hold-music.mp3');
+                holdAudioRef.current.loop = true;
+                
+                try {
+                    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    const source = audioCtx.createMediaElementSource(holdAudioRef.current);
+                    const destination = audioCtx.createMediaStreamDestination();
+                    source.connect(destination);
+                    holdStreamRef.current = destination.stream;
+                } catch(e) {
+                    console.error("Audio Routing Error", e);
+                }
+            }
+            try {
+                await holdAudioRef.current.play();
+            } catch(e) { console.error("Hold music block", e); }
+
+            const stream = holdStreamRef.current || (holdAudioRef.current.captureStream ? holdAudioRef.current.captureStream() : (holdAudioRef.current.mozCaptureStream ? holdAudioRef.current.mozCaptureStream() : null));
+            if (stream) {
+                const holdTrack = stream.getAudioTracks()[0];
+                if (holdTrack) {
+                    const sender = pc.getSenders().find(s => s.track && s.track.kind === 'audio');
+                    if (sender) await sender.replaceTrack(holdTrack);
+                }
+            }
+            
+            // Explicitly mute the microphone track
+            const micTrack = outboundStreamRef.current?.getAudioTracks()[0];
+            if (micTrack) {
+                micTrack.enabled = false;
+            }
+            
+            setIsOnHold(true);
         }
     };
 
@@ -313,6 +404,12 @@ export const CallProvider = ({ children }) => {
         if (remoteAudioRef.current) {
             remoteAudioRef.current.pause();
             remoteAudioRef.current.srcObject = null;
+        }
+        
+        setIsOnHold(false);
+        if (holdAudioRef.current) {
+            holdAudioRef.current.pause();
+            holdAudioRef.current.currentTime = 0;
         }
 
         setActiveCall(null);
@@ -441,8 +538,17 @@ export const CallProvider = ({ children }) => {
         try {
             // Setup WebRTC RTCPeerConnection to generate answer SDP
             const pc = new RTCPeerConnection({
-                iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' }
+                ]
             });
+            
+            pc.oniceconnectionstatechange = () => {
+                console.log(`[Global Incoming] ICE State: ${pc.iceConnectionState}`);
+            };
             
             // NOTE: Must get user media to accept properly, otherwise Meta API fails.
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -465,13 +571,34 @@ export const CallProvider = ({ children }) => {
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
 
-            // Send answer SDP to backend
-            await api.post('/admin/whatsapp-call/answer', {
-                callId: callId,
-                sdp: answer.sdp,
-                businessType: incomingCall.businessType,
-                receivingWaNumId: incomingCall.receivingWaNumId
-            });
+            // Function to send answer
+            const sendAnswer = async (sdp) => {
+                await api.post('/admin/whatsapp-call/answer', {
+                    callId: callId,
+                    sdp: sdp,
+                    businessType: incomingCall.businessType,
+                    receivingWaNumId: incomingCall.receivingWaNumId
+                });
+            };
+
+            let answerSent = false;
+            const triggerAnswer = () => {
+                if (!answerSent && pc.localDescription?.sdp) {
+                    answerSent = true;
+                    sendAnswer(pc.localDescription.sdp);
+                }
+            };
+
+            if (pc.iceGatheringState === 'complete') {
+                triggerAnswer();
+            } else {
+                pc.onicegatheringstatechange = () => {
+                    if (pc.iceGatheringState === 'complete') {
+                        triggerAnswer();
+                    }
+                };
+                setTimeout(triggerAnswer, 5000); // Wait up to 5s for candidates
+            }
 
             // Set as active call
             setActiveCall({
@@ -585,7 +712,9 @@ export const CallProvider = ({ children }) => {
             outboundCall,
             startOutboundCall,
             endOutboundCall,
-            toggleOutboundMute
+            toggleOutboundMute,
+            isOnHold,
+            toggleHold
         }}>
             {children}
         </CallContext.Provider>

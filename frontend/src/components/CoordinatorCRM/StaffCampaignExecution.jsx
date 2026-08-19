@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import axios from '../../api/axios';
-import { PhoneCall, Loader, PieChart, Target, Calendar, PhoneForwarded, Megaphone, Activity, Repeat, Search } from 'lucide-react';
+import { PhoneCall, Loader, PieChart, Target, Calendar, PhoneForwarded, Megaphone, Activity, Repeat, Search, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import LeadCallCard from '../CallCenter/LeadCallCard';
 import ChatArea from './ChatArea';
 import RightSidePanel from './RightSidePanel';
 import ContactSidebar from './ContactSidebar';
-import { FaTimes } from 'react-icons/fa';
+import { FaTimes, FaBell, FaSave, FaTrash, FaCheckCircle } from 'react-icons/fa';
 
 export default function StaffCampaignExecution({ filters, redirectLead }) {
   const currentUserId = JSON.parse(localStorage.getItem('user'))?.id;
@@ -23,6 +24,15 @@ export default function StaffCampaignExecution({ filters, redirectLead }) {
   const [statusFilter, setStatusFilter] = useState('ALL');
 
   const [chatModalLead, setChatModalLead] = useState(null);
+
+  // Reminder Logic
+  const [showReminder, setShowReminder] = useState(false);
+  const [reminderLead, setReminderLead] = useState(null);
+  const [existingReminderId, setExistingReminderId] = useState(null);
+  const [remindDate, setRemindDate] = useState('');
+  const [remindTime, setRemindTime] = useState('');
+  const [remindNote, setRemindNote] = useState('');
+  const [isSubmittingReminder, setIsSubmittingReminder] = useState(false);
 
   useEffect(() => {
     fetchAssignedLeads();
@@ -111,6 +121,63 @@ export default function StaffCampaignExecution({ filters, redirectLead }) {
 
   const handleOpenChat = (lead) => {
     setChatModalLead(lead);
+  };
+
+  const handleOpenReminderModal = async (lead) => {
+      setReminderLead(lead);
+      const now = new Date();
+      setRemindDate(now.toISOString().split('T')[0]);
+      setRemindTime('');
+      setRemindNote('');
+      setExistingReminderId(null);
+      
+      try {
+          const token = localStorage.getItem('token');
+          const res = await axios.get(`/reminders/my-reminders?agentId=${currentUserId}&status=active`, { headers: { Authorization: `Bearer ${token}` } });
+          const existing = res.data.find(r => r.leadId === lead.id);
+          if (existing) {
+              const d = new Date(existing.remindAt);
+              setRemindDate(d.toISOString().split('T')[0]);
+              setRemindTime(d.toTimeString().slice(0, 5));
+              setRemindNote(existing.note || '');
+              setExistingReminderId(existing.id);
+          }
+      } catch (e) {
+          console.error("Failed to check existing reminder", e);
+      }
+      setShowReminder(true);
+  };
+
+  const handleSetReminder = async () => {
+      if (!remindDate || !remindTime || !remindNote) return toast.error("Date, Time and Note are required");
+      setIsSubmittingReminder(true);
+      const loadToast = toast.loading(existingReminderId ? "Updating reminder..." : "Setting reminder...");
+      try {
+          const token = localStorage.getItem('token');
+          const formattedDate = new Date(`${remindDate}T${remindTime}:00`).toISOString();
+          
+          if (existingReminderId) {
+              await axios.put('/reminders/edit', { reminderId: existingReminderId, remindAt: formattedDate, note: remindNote }, { headers: { Authorization: `Bearer ${token}` } });
+              toast.success("Reminder updated successfully!", { id: loadToast });
+          } else {
+              await axios.post('/reminders/create', { leadId: reminderLead.id, agentId: currentUserId, leadType: 'FREE_SEMINAR', phone: reminderLead.phone, name: reminderLead.name, remindAt: formattedDate, note: remindNote }, { headers: { Authorization: `Bearer ${token}` } });
+              toast.success("Reminder set successfully!", { id: loadToast });
+          }
+          setShowReminder(false);
+      } catch (e) { toast.error("Failed to set reminder", { id: loadToast }); }
+      finally { setIsSubmittingReminder(false); }
+  };
+
+  const handleDeleteReminder = async () => {
+      if (!window.confirm("Delete this reminder?")) return;
+      setIsSubmittingReminder(true);
+      const loadToast = toast.loading("Deleting reminder...");
+      try {
+          await axios.delete(`/reminders/delete/${existingReminderId}`);
+          toast.success("Reminder deleted!", { id: loadToast });
+          setShowReminder(false);
+      } catch (e) { toast.error("Failed to delete", { id: loadToast }); }
+      finally { setIsSubmittingReminder(false); }
   };
 
     // Calculate phase-specific leads
@@ -247,21 +314,22 @@ export default function StaffCampaignExecution({ filters, redirectLead }) {
           ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                 {paginatedLeads.map((lead, index) => (
-                  <LeadCallCard 
-                    key={lead.id} 
-                    lead={{
-                      ...lead,
-                      businessId: lead.businessId || lead.batch?.businessId || filters?.selectedBusiness,
-                      batch: lead.batch ? {
-                        ...lead.batch,
-                        businessId: lead.batch?.businessId || lead.businessId || filters?.selectedBusiness
-                      } : { businessId: filters?.selectedBusiness }
-                    }} 
-                    activeRound={activePhase}
-                    index={(currentPage - 1) * ITEMS_PER_PAGE + index} 
-                    onSave={handleSaveLead}
-                    onOpenChat={handleOpenChat}
-                  />
+                    <LeadCallCard 
+                      key={lead.id} 
+                      lead={{
+                        ...lead,
+                        businessId: lead.businessId || lead.batch?.businessId || filters?.selectedBusiness,
+                        batch: lead.batch ? {
+                          ...lead.batch,
+                          businessId: lead.batch?.businessId || lead.businessId || filters?.selectedBusiness
+                        } : { businessId: filters?.selectedBusiness }
+                      }} 
+                      activeRound={activePhase}
+                      index={(currentPage - 1) * ITEMS_PER_PAGE + index} 
+                      onSave={handleSaveLead}
+                      onOpenChat={handleOpenChat}
+                      onOpenReminder={handleOpenReminderModal}
+                    />
                 ))}
               </div>
           )}
@@ -336,6 +404,55 @@ export default function StaffCampaignExecution({ filters, redirectLead }) {
           </div>
         </div>
       )}
+
+      {/* Reminder Popup */}
+      {showReminder && reminderLead && createPortal(
+          <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-[#1e293b] w-full max-w-md rounded-2xl border border-slate-700 shadow-2xl overflow-hidden animate-fade-in-up">
+                  <div className="bg-[#0f172a] p-4 flex justify-between items-center border-b border-slate-700">
+                      <h3 className="text-white font-bold flex items-center gap-2 text-lg"><FaBell className="text-amber-500"/> {existingReminderId ? 'Update Reminder' : 'Set Reminder'}</h3>
+                      <button onClick={() => setShowReminder(false)} className="text-slate-400 hover:text-rose-400 bg-white/5 hover:bg-white/10 p-2 rounded-lg transition-colors"><FaTimes size={14}/></button>
+                  </div>
+                  <div className="p-5 space-y-4">
+                      <div className="bg-slate-900 p-3 rounded-xl border border-slate-800">
+                          <p className="text-slate-400 text-xs uppercase tracking-widest mb-1">Student / Lead</p>
+                          <p className="text-white font-black">{reminderLead.phone}</p>
+                          <p className="text-slate-500 text-sm">{reminderLead.name || 'Unknown'}</p>
+                      </div>
+                      <div className="flex gap-4">
+                          <div className="flex-1">
+                              <label className="block text-slate-400 text-xs font-bold uppercase mb-1">Date</label>
+                              <input type="date" value={remindDate} onChange={(e) => setRemindDate(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white outline-none focus:border-amber-500 transition-colors" />
+                          </div>
+                          <div className="flex-1">
+                              <label className="block text-slate-400 text-xs font-bold uppercase mb-1">Time</label>
+                              <input type="time" value={remindTime} onChange={(e) => setRemindTime(e.target.value)} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white outline-none focus:border-amber-500 transition-colors" />
+                          </div>
+                      </div>
+                      <div>
+                          <label className="block text-slate-400 text-xs font-bold uppercase mb-1">Note to yourself</label>
+                          <textarea value={remindNote} onChange={(e) => setRemindNote(e.target.value)} placeholder="e.g. Call back about installment plan..." className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-white outline-none focus:border-amber-500 transition-colors h-24 resize-none" />
+                      </div>
+                      {existingReminderId ? (
+                          <div className="flex gap-2 pt-2">
+                              <button disabled={isSubmittingReminder} onClick={handleSetReminder} className="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs uppercase tracking-widest py-3 rounded-xl transition-all shadow-lg shadow-amber-500/20 flex justify-center items-center gap-2">
+                                  {isSubmittingReminder ? <Loader2 className="animate-spin" size={16}/> : <FaSave size={14}/>} Update
+                              </button>
+                              <button disabled={isSubmittingReminder} onClick={handleDeleteReminder} className="px-4 bg-rose-600 hover:bg-rose-500 text-white rounded-xl transition-all shadow-lg shadow-rose-500/20 flex justify-center items-center">
+                                  {isSubmittingReminder ? <Loader2 className="animate-spin" size={16}/> : <FaTrash size={14}/>}
+                              </button>
+                          </div>
+                      ) : (
+                          <button disabled={isSubmittingReminder} onClick={handleSetReminder} className="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs uppercase tracking-widest py-3.5 rounded-xl mt-2 transition-all flex justify-center items-center gap-2 shadow-lg shadow-amber-500/20 disabled:opacity-50">
+                              {isSubmittingReminder ? <Loader2 className="animate-spin" size={16}/> : <FaCheckCircle size={16}/>} Save Reminder
+                          </button>
+                      )}
+                  </div>
+              </div>
+          </div>,
+          document.body
+      )}
+
     </div>
   );
 }

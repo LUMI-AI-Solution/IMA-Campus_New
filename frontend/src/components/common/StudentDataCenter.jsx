@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
-import { Search, Edit3, KeyRound, LogIn, MessageSquare, Loader2, X, CheckCircle, Database, ChevronLeft, ChevronRight, MonitorPlay, Palette, Trash2, BarChart3, FileText, Download, Sparkles } from 'lucide-react';
+import { Search, Edit3, KeyRound, LogIn, MessageSquare, Loader2, X, CheckCircle, Database, ChevronLeft, ChevronRight, ChevronDown, MonitorPlay, Palette, Trash2, BarChart3, FileText, Download, Sparkles } from 'lucide-react';
 import axios from '../../api/axios';
 import toast from 'react-hot-toast';
 
@@ -20,9 +20,16 @@ export default function StudentDataCenter({ loggedInUser }) {
     const [searchQuery, setSearchQuery] = useState('');
     const [filterBusinessId, setFilterBusinessId] = useState('All');
     const [filterBatch, setFilterBatch] = useState('All');
+    const [filterPaymentGroups, setFilterPaymentGroups] = useState([]);
+    const [filterSubjects, setFilterSubjects] = useState([]);
+
+    const [isSubjectsDropdownOpen, setIsSubjectsDropdownOpen] = useState(false);
 
     const [currentPage, setCurrentPage] = useState(1);
     const itemsPerPage = 10;
+
+    const [availableSubjects, setAvailableSubjects] = useState([]);
+    const [availablePaymentGroups, setAvailablePaymentGroups] = useState([]);
 
     const [editModal, setEditModal] = useState(null);
     const [passwordModal, setPasswordModal] = useState(null);
@@ -38,6 +45,7 @@ export default function StudentDataCenter({ loggedInUser }) {
     const [analyticsBatchFilter, setAnalyticsBatchFilter] = useState('All');
     const [analyticsAvailableBatches, setAnalyticsAvailableBatches] = useState([]);
     const [analyticsSearchQuery, setAnalyticsSearchQuery] = useState('');
+    const [analyticsActiveAgeFilter, setAnalyticsActiveAgeFilter] = useState(null);
 
     const fetchData = async () => {
         setLoading(true);
@@ -73,6 +81,37 @@ export default function StudentDataCenter({ loggedInUser }) {
                 }).catch(err => console.error(err));
         }
     }, [filterBusinessId, students]);
+
+    useEffect(() => {
+        const uniqueSubjects = new Set();
+        const uniqueGroupsMap = new Map();
+
+        students.forEach(s => {
+            let matchesBiz = true;
+            if (filterBusinessId !== 'All') {
+                const selectedBiz = businesses.find(b => b.id.toString() === filterBusinessId);
+                if (selectedBiz) matchesBiz = (s.enrolledBusinesses || []).includes(selectedBiz.name);
+            }
+            let matchesBatch = true;
+            if (filterBatch !== 'All') matchesBatch = (s.enrolledBatches || []).includes(filterBatch);
+            
+            if (matchesBiz && matchesBatch) {
+                (s.enrolledSubjects || []).forEach(sub => uniqueSubjects.add(sub));
+                
+                (s.enrolledGroups || []).forEach(g => {
+                    if (filterBatch === 'All' || g.batchName === filterBatch) {
+                        uniqueGroupsMap.set(g.id, g.name);
+                    }
+                });
+            }
+        });
+        
+        setAvailableSubjects([...uniqueSubjects]);
+        setAvailablePaymentGroups(Array.from(uniqueGroupsMap.entries()).map(([id, name]) => ({ id, name })));
+        
+        setFilterSubjects([]);
+        setFilterPaymentGroups([]);
+    }, [filterBusinessId, filterBatch, students, businesses]);
 
     useEffect(() => {
         if (analyticsBizFilter === 'All') {
@@ -144,57 +183,52 @@ export default function StudentDataCenter({ loggedInUser }) {
 
     // Compute dynamic Age breakdown on report students
     const ageBreakdown = useMemo(() => {
-        const counts = {
-            '15-19': 0,
-            '20-24': 0,
-            '25-29': 0,
-            '30-34': 0,
-            '35-39': 0,
-            '40-44': 0,
-            '45-49': 0,
-            'Over 50': 0,
-            'Unknown': 0
-        };
-
+        const counts = {};
         let parsedCount = 0;
 
         reportStudents.forEach(s => {
             const age = getAge(s.nic);
             if (age === null || isNaN(age)) {
-                counts['Unknown']++;
+                counts['Unknown'] = (counts['Unknown'] || 0) + 1;
             } else {
                 parsedCount++;
-                if (age >= 15 && age <= 19) counts['15-19']++;
-                else if (age >= 20 && age <= 24) counts['20-24']++;
-                else if (age >= 25 && age <= 29) counts['25-29']++;
-                else if (age >= 30 && age <= 34) counts['30-34']++;
-                else if (age >= 35 && age <= 39) counts['35-39']++;
-                else if (age >= 40 && age <= 44) counts['40-44']++;
-                else if (age >= 45 && age <= 49) counts['45-49']++;
-                else if (age >= 50) counts['Over 50']++;
-                else {
-                    counts['Unknown']++;
-                }
+                const ageKey = age.toString();
+                counts[ageKey] = (counts[ageKey] || 0) + 1;
             }
         });
 
+        const sortedEntries = Object.entries(counts).sort((a, b) => {
+            if (a[0] === 'Unknown') return 1;
+            if (b[0] === 'Unknown') return -1;
+            return parseInt(a[0]) - parseInt(b[0]);
+        });
+
         return {
-            counts,
+            entries: sortedEntries,
             total: reportStudents.length,
             parsedCount
         };
     }, [reportStudents]);
 
+    const displayedReportStudents = useMemo(() => {
+        if (!analyticsActiveAgeFilter) return reportStudents;
+        return reportStudents.filter(s => {
+            const age = getAge(s.nic);
+            if (analyticsActiveAgeFilter === 'Unknown') return age === null || isNaN(age);
+            return age?.toString() === analyticsActiveAgeFilter;
+        });
+    }, [reportStudents, analyticsActiveAgeFilter]);
+
     // Export report data to CSV
     const exportCSV = () => {
-        if (reportStudents.length === 0) {
+        if (displayedReportStudents.length === 0) {
             toast.error("No data to export");
             return;
         }
 
         const headers = ["Student ID", "Full Name", "Phone", "NIC", "Age", "Enrolled Businesses", "Enrolled Batches", "Enrolled Subjects"];
         
-        const rows = reportStudents.map(s => {
+        const rows = displayedReportStudents.map(s => {
             const age = getAge(s.nic);
             return [
                 `STU-${s.id}`,
@@ -244,7 +278,19 @@ export default function StudentDataCenter({ loggedInUser }) {
         let matchesBatch = true;
         if (canManageStudents && filterBatch !== 'All') matchesBatch = (student.enrolledBatches || []).includes(filterBatch);
 
-        return matchesSearch && matchesBiz && matchesBatch;
+        let matchesGroup = true;
+        if (filterPaymentGroups.length > 0) {
+            matchesGroup = filterPaymentGroups.some(groupId => 
+                (student.enrolledGroups || []).some(g => g.id === groupId)
+            );
+        }
+
+        let matchesSubjects = true;
+        if (filterSubjects.length > 0) {
+            matchesSubjects = filterSubjects.some(sub => (student.enrolledSubjects || []).includes(sub));
+        }
+
+        return matchesSearch && matchesBiz && matchesBatch && matchesGroup && matchesSubjects;
     });
 
     const totalPages = Math.ceil(filteredStudents.length / itemsPerPage) || 1;
@@ -357,36 +403,112 @@ const handleDeleteStudent = async (studentId, studentName) => {
             </div>
 
             {/* Filters & Search */}
-            <div className="mb-6 bg-black/20 backdrop-blur-xl p-5 rounded-2xl border border-white/10 shadow-lg flex flex-col md:flex-row gap-4 items-center">
-                <div className="flex-1 w-full relative">
-                    <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18}/>
-                    <input 
-                        type="text" 
-                        placeholder="Search Name, Phone, NIC or STU-ID..." 
-                        value={searchQuery} 
-                        onChange={e => setSearchQuery(e.target.value)} 
-                        className="w-full bg-black/20 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white outline-none focus:border-white/30 transition-all text-sm placeholder-gray-500 shadow-inner" 
-                    />
+            <div className="mb-6 bg-black/20 backdrop-blur-xl p-5 rounded-2xl border border-white/10 shadow-lg flex flex-col gap-4 relative z-50">
+                {/* Top Row: Search and Dropdowns */}
+                <div className="flex flex-col md:flex-row gap-4 w-full">
+                    {/* Search */}
+                    <div className="flex-1 w-full relative">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" size={18}/>
+                        <input 
+                            type="text" 
+                            placeholder="Search Name, Phone, NIC or STU-ID..." 
+                            value={searchQuery} 
+                            onChange={e => setSearchQuery(e.target.value)} 
+                            className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white outline-none focus:border-white/30 transition-all text-sm placeholder-gray-500 shadow-inner" 
+                        />
+                    </div>
+                    
+                    {/* Dropdowns */}
+                    {canManageStudents && (
+                        <div className="flex flex-wrap gap-3">
+                            <select 
+                                value={filterBusinessId} 
+                                onChange={e => {setFilterBusinessId(e.target.value); setFilterBatch('All');}} 
+                                className="bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-medium text-white outline-none focus:border-white/30 cursor-pointer min-w-[180px] transition-all shadow-md appearance-none"
+                            >
+                                <option value="All" className="bg-[#1e1e1e]">All Businesses</option>
+                                {businesses.map(biz => <option key={biz.id} value={biz.id} className="bg-[#1e1e1e]">{biz.name}</option>)}
+                            </select>
+                            <select 
+                                value={filterBatch} 
+                                onChange={e => setFilterBatch(e.target.value)} 
+                                className="bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-medium text-white outline-none focus:border-white/30 cursor-pointer min-w-[180px] transition-all shadow-md appearance-none"
+                            >
+                                <option value="All" className="bg-[#1e1e1e]">All Batches</option>
+                                {availableBatches.map(batchName => <option key={batchName} value={batchName} className="bg-[#1e1e1e]">{batchName}</option>)}
+                            </select>
+                        </div>
+                    )}
                 </div>
-                
-                {canManageStudents && (
-                    <div className="flex flex-wrap gap-3 w-full md:w-auto">
-                        <select 
-                            value={filterBusinessId} 
-                            onChange={e => {setFilterBusinessId(e.target.value); setFilterBatch('All');}} 
-                            className="bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-medium text-white outline-none focus:border-white/30 cursor-pointer min-w-[180px] transition-all shadow-md appearance-none"
-                        >
-                            <option value="All" className="bg-[#1e1e1e]">All Businesses</option>
-                            {businesses.map(biz => <option key={biz.id} value={biz.id} className="bg-[#1e1e1e]">{biz.name}</option>)}
-                        </select>
-                        <select 
-                            value={filterBatch} 
-                            onChange={e => setFilterBatch(e.target.value)} 
-                            className="bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm font-medium text-white outline-none focus:border-white/30 cursor-pointer min-w-[180px] transition-all shadow-md appearance-none"
-                        >
-                            <option value="All" className="bg-[#1e1e1e]">All Batches</option>
-                            {availableBatches.map(batchName => <option key={batchName} value={batchName} className="bg-[#1e1e1e]">{batchName}</option>)}
-                        </select>
+
+                {/* Bottom Row: Payment Groups & Subjects */}
+                {canManageStudents && filterBatch !== 'All' && (
+                    <div className="flex flex-col gap-4 pt-2 border-t border-white/5">
+                        {availablePaymentGroups.length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2 mt-2">
+                                <span className="text-sm font-semibold text-gray-400 mr-2">Payment Groups:</span>
+                                {availablePaymentGroups.map(group => {
+                                    const isSelected = filterPaymentGroups.includes(group.id);
+                                    return (
+                                        <button
+                                            key={group.id}
+                                            onClick={() => {
+                                                if (isSelected) setFilterPaymentGroups(prev => prev.filter(id => id !== group.id));
+                                                else setFilterPaymentGroups(prev => [...prev, group.id]);
+                                            }}
+                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                                isSelected 
+                                                    ? 'bg-amber-500/20 text-amber-300 border-amber-500/50 hover:bg-amber-500/30' 
+                                                    : 'bg-white/5 text-gray-400 border-white/10 hover:bg-white/10 hover:text-white'
+                                            }`}
+                                        >
+                                            {group.name}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                        
+                        {availableSubjects.length > 0 && (
+                            <div className="flex items-center gap-2 relative mt-2">
+                                <span className="text-sm font-semibold text-gray-400 mr-2">Subjects:</span>
+                                
+                                <div className="relative">
+                                    <button 
+                                        onClick={() => setIsSubjectsDropdownOpen(!isSubjectsDropdownOpen)}
+                                        className="bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-sm font-medium text-white flex items-center justify-between min-w-[200px] hover:bg-white/5 transition-all outline-none"
+                                    >
+                                        <span>{filterSubjects.length > 0 ? `${filterSubjects.length} Selected` : 'Select Subjects'}</span>
+                                        <ChevronDown size={16} className={`transition-transform text-gray-400 ml-3 ${isSubjectsDropdownOpen ? 'rotate-180' : ''}`} />
+                                    </button>
+
+                                    {isSubjectsDropdownOpen && (
+                                        <div className="absolute top-full left-0 mt-2 w-72 bg-[#1a1a1a] border border-white/10 rounded-xl p-2 shadow-2xl z-50 max-h-64 overflow-y-auto custom-scrollbar flex flex-col gap-1">
+                                            {availableSubjects.map(sub => {
+                                                const isSelected = filterSubjects.includes(sub);
+                                                return (
+                                                    <label key={sub} className="flex items-center gap-3 p-2.5 hover:bg-white/5 rounded-lg cursor-pointer transition-colors w-full group">
+                                                        <div className={`w-4 h-4 rounded flex items-center justify-center transition-colors border shrink-0 ${isSelected ? 'bg-indigo-500 border-indigo-500' : 'border-white/20 group-hover:border-white/40'}`}>
+                                                            {isSelected && <CheckCircle size={12} className="text-white" />}
+                                                        </div>
+                                                        <input 
+                                                            type="checkbox" 
+                                                            className="hidden" 
+                                                            checked={isSelected}
+                                                            onChange={() => {
+                                                                if (isSelected) setFilterSubjects(prev => prev.filter(s => s !== sub));
+                                                                else setFilterSubjects(prev => [...prev, sub]);
+                                                            }}
+                                                        />
+                                                        <span className={`text-sm select-none ${isSelected ? 'text-white font-medium' : 'text-gray-400 group-hover:text-gray-300'}`}>{sub}</span>
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
             </div>
@@ -692,7 +814,7 @@ const handleDeleteStudent = async (studentId, studentName) => {
                                     <div className="relative">
                                         <select 
                                             value={analyticsBizFilter} 
-                                            onChange={e => { setAnalyticsBizFilter(e.target.value); setAnalyticsBatchFilter('All'); }}
+                                            onChange={e => { setAnalyticsBizFilter(e.target.value); setAnalyticsBatchFilter('All'); setAnalyticsActiveAgeFilter(null); }}
                                             className="bg-[#14182b] border border-white/10 rounded-xl px-4 py-2.5 text-xs font-semibold text-white outline-none focus:border-indigo-500/80 cursor-pointer appearance-none pr-8 hover:bg-[#181d33] transition-all shadow-inner"
                                         >
                                             <option value="All" className="bg-[#0b0e1b]">All Businesses</option>
@@ -705,7 +827,7 @@ const handleDeleteStudent = async (studentId, studentName) => {
                                     <div className="relative">
                                         <select 
                                             value={analyticsBatchFilter} 
-                                            onChange={e => setAnalyticsBatchFilter(e.target.value)}
+                                            onChange={e => { setAnalyticsBatchFilter(e.target.value); setAnalyticsActiveAgeFilter(null); }}
                                             className="bg-[#14182b] border border-white/10 rounded-xl px-4 py-2.5 text-xs font-semibold text-white outline-none focus:border-indigo-500/80 cursor-pointer appearance-none pr-8 hover:bg-[#181d33] transition-all shadow-inner"
                                         >
                                             <option value="All" className="bg-[#0b0e1b]">All Batches</option>
@@ -745,89 +867,43 @@ const handleDeleteStudent = async (studentId, studentName) => {
                             </div>
                         </div>
 
-                        {/* 3. Fixed Age Distribution Panels (KPI Grid Layout - Spacious and Highly Readable) */}
                         <div className="p-5 bg-[#080a13]/85 border-b border-white/5 shrink-0">
                             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4 w-full">
-                                {Object.entries(ageBreakdown.counts).map(([range, count]) => {
+                                {ageBreakdown.entries.map(([range, count], idx) => {
                                     const percentage = ageBreakdown.total > 0 
                                         ? ((count / ageBreakdown.total) * 100).toFixed(1)
                                         : '0.0';
                                     
-                                    let colorClasses = {
-                                        bg: "from-pink-500/12 to-rose-500/5 text-pink-400 border-pink-500/25 hover:border-pink-500/50",
-                                        progress: "from-pink-500 to-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.4)]",
-                                        badge: "bg-pink-500/15 text-pink-300 border border-pink-500/20"
-                                    };
-                                    
-                                    if (range === '15-19') {
-                                        colorClasses = {
-                                            bg: "from-pink-500/12 to-rose-500/5 text-pink-400 border-pink-500/25 hover:border-pink-500/50",
-                                            progress: "from-pink-500 to-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.4)]",
-                                            badge: "bg-pink-500/15 text-pink-300 border border-pink-500/20"
-                                        };
-                                    } else if (range === '20-24') {
-                                        colorClasses = {
-                                            bg: "from-orange-500/12 to-amber-500/5 text-orange-400 border-orange-500/25 hover:border-orange-500/50",
-                                            progress: "from-orange-500 to-amber-500 shadow-[0_0_12px_rgba(249,115,22,0.4)]",
-                                            badge: "bg-orange-500/15 text-orange-300 border border-orange-500/20"
-                                        };
-                                    } else if (range === '25-29') {
-                                        colorClasses = {
-                                            bg: "from-yellow-500/12 to-lime-500/5 text-yellow-400 border-yellow-500/25 hover:border-yellow-500/50",
-                                            progress: "from-yellow-500 to-lime-500 shadow-[0_0_12px_rgba(234,179,8,0.4)]",
-                                            badge: "bg-yellow-500/15 text-yellow-300 border border-yellow-500/20"
-                                        };
-                                    } else if (range === '30-34') {
-                                        colorClasses = {
-                                            bg: "from-emerald-500/12 to-teal-500/5 text-emerald-400 border-emerald-500/25 hover:border-emerald-500/50",
-                                            progress: "from-emerald-500 to-teal-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]",
-                                            badge: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/20"
-                                        };
-                                    } else if (range === '35-39') {
-                                        colorClasses = {
-                                            bg: "from-cyan-500/12 to-blue-500/5 text-cyan-400 border-cyan-500/25 hover:border-cyan-500/50",
-                                            progress: "from-cyan-500 to-blue-500 shadow-[0_0_12px_rgba(6,182,212,0.4)]",
-                                            badge: "bg-cyan-500/15 text-cyan-300 border border-cyan-500/20"
-                                        };
-                                    } else if (range === '40-44') {
-                                        colorClasses = {
-                                            bg: "from-blue-500/12 to-indigo-500/5 text-blue-400 border-blue-500/25 hover:border-blue-500/50",
-                                            progress: "from-blue-500 to-indigo-500 shadow-[0_0_12px_rgba(59,130,246,0.4)]",
-                                            badge: "bg-blue-500/15 text-blue-300 border border-blue-500/20"
-                                        };
-                                    } else if (range === '45-49') {
-                                        colorClasses = {
-                                            bg: "from-indigo-500/12 to-purple-500/5 text-indigo-400 border-indigo-500/25 hover:border-indigo-500/50",
-                                            progress: "from-indigo-500 to-purple-500 shadow-[0_0_12px_rgba(99,102,241,0.4)]",
-                                            badge: "bg-indigo-500/15 text-indigo-300 border border-indigo-500/20"
-                                        };
-                                    } else if (range === 'Over 50') {
-                                        colorClasses = {
-                                            bg: "from-purple-500/12 to-fuchsia-500/5 text-purple-400 border-purple-500/25 hover:border-purple-500/50",
-                                            progress: "from-purple-500 to-fuchsia-500 shadow-[0_0_12px_rgba(168,85,247,0.4)]",
-                                            badge: "bg-purple-500/15 text-purple-300 border border-purple-500/20"
-                                        };
-                                    } else {
-                                        // Unknown / No NIC
-                                        colorClasses = {
-                                            bg: "from-slate-700/10 to-slate-800/5 text-slate-300 border-slate-700/25 hover:border-slate-700/40",
-                                            progress: "from-slate-600 to-slate-500 shadow-none",
-                                            badge: "bg-slate-700/25 text-slate-300 border border-slate-700/30"
-                                        };
-                                    }
+                                    const colorPalettes = [
+                                        { bg: "from-pink-500/12 to-rose-500/5 text-pink-400 border-pink-500/25 hover:border-pink-500/50", progress: "from-pink-500 to-rose-500 shadow-[0_0_12px_rgba(244,63,94,0.4)]", badge: "bg-pink-500/15 text-pink-300 border border-pink-500/20" },
+                                        { bg: "from-orange-500/12 to-amber-500/5 text-orange-400 border-orange-500/25 hover:border-orange-500/50", progress: "from-orange-500 to-amber-500 shadow-[0_0_12px_rgba(249,115,22,0.4)]", badge: "bg-orange-500/15 text-orange-300 border border-orange-500/20" },
+                                        { bg: "from-emerald-500/12 to-teal-500/5 text-emerald-400 border-emerald-500/25 hover:border-emerald-500/50", progress: "from-emerald-500 to-teal-500 shadow-[0_0_12px_rgba(16,185,129,0.4)]", badge: "bg-emerald-500/15 text-emerald-300 border border-emerald-500/20" },
+                                        { bg: "from-cyan-500/12 to-blue-500/5 text-cyan-400 border-cyan-500/25 hover:border-cyan-500/50", progress: "from-cyan-500 to-blue-500 shadow-[0_0_12px_rgba(6,182,212,0.4)]", badge: "bg-cyan-500/15 text-cyan-300 border border-cyan-500/20" },
+                                        { bg: "from-indigo-500/12 to-purple-500/5 text-indigo-400 border-indigo-500/25 hover:border-indigo-500/50", progress: "from-indigo-500 to-purple-500 shadow-[0_0_12px_rgba(99,102,241,0.4)]", badge: "bg-indigo-500/15 text-indigo-300 border border-indigo-500/20" }
+                                    ];
+
+                                    let colorClasses = range === 'Unknown' ? {
+                                        bg: "from-slate-700/10 to-slate-800/5 text-slate-300 border-slate-700/25 hover:border-slate-700/40",
+                                        progress: "from-slate-600 to-slate-500 shadow-none",
+                                        badge: "bg-slate-700/25 text-slate-300 border border-slate-700/30"
+                                    } : colorPalettes[idx % colorPalettes.length];
 
                                     const isZero = count === 0;
+                                    const isActive = analyticsActiveAgeFilter === range;
 
                                     return (
-                                        <div 
+                                        <button 
                                             key={range} 
-                                            className={`rounded-2xl p-4 flex flex-col justify-between transition-all duration-300 hover:scale-[1.03] min-h-[110px] shadow-lg ${
+                                            onClick={() => setAnalyticsActiveAgeFilter(isActive ? null : range)}
+                                            className={`rounded-2xl p-4 flex flex-col justify-between transition-all duration-300 min-h-[110px] text-left outline-none cursor-pointer ${
+                                                isActive ? 'ring-2 ring-white/50 scale-[1.02] shadow-[0_0_30px_rgba(255,255,255,0.1)] ' : 'hover:scale-[1.03] '
+                                            } ${
                                                 isZero 
                                                     ? 'bg-[#0f1225]/40 border border-white/[0.04] text-slate-500' 
-                                                    : `bg-gradient-to-br ${colorClasses.bg} border shadow-xl`
+                                                    : 'bg-gradient-to-br ' + colorClasses.bg + ' border shadow-xl'
                                             }`}
                                         >
-                                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                                            <div className="flex items-center justify-between gap-2 mb-1.5 w-full">
                                                 <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg ${
                                                     isZero ? 'bg-white/[0.03] border border-white/[0.05] text-slate-500' : colorClasses.badge
                                                 }`}>
@@ -855,7 +931,7 @@ const handleDeleteStudent = async (studentId, studentName) => {
                                                     ></div>
                                                 </div>
                                             </div>
-                                        </div>
+                                        </button>
                                     );
                                 })}
                             </div>
@@ -870,7 +946,7 @@ const handleDeleteStudent = async (studentId, studentName) => {
                                         Report Student Directory
                                     </h4>
                                     <span className="text-xs bg-white/5 text-gray-400 font-semibold px-3 py-1 rounded-lg border border-white/5">
-                                        Showing <strong className="text-white font-bold">{reportStudents.length}</strong> verified entries
+                                        Showing <strong className="text-white font-bold">{displayedReportStudents.length}</strong> verified entries
                                     </span>
                                 </div>
                                 
@@ -888,14 +964,14 @@ const handleDeleteStudent = async (studentId, studentName) => {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-white/[0.04] bg-[#0c0f1e]/40 font-medium">
-                                            {reportStudents.length === 0 ? (
+                                            {displayedReportStudents.length === 0 ? (
                                                 <tr>
                                                     <td colSpan="7" className="text-center py-20 text-slate-500 font-bold text-sm bg-[#090c17]/30">
                                                         No students match the selected filters or search query.
                                                     </td>
                                                 </tr>
                                             ) : (
-                                                reportStudents.map((s) => {
+                                                displayedReportStudents.map((s) => {
                                                     const age = getAge(s.nic);
                                                     
                                                     // Determine visual glowing border classes depending on age group

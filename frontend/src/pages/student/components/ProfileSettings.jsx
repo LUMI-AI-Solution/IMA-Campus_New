@@ -4,7 +4,7 @@ import { User, Lock, Save, Loader2, Camera, Settings, MapPin } from 'lucide-reac
 import toast from 'react-hot-toast';
 
 export default function ProfileSettings() {
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const user = JSON.parse(localStorage.getItem('user') || '{}') || {};
     const [loading, setLoading] = useState(false);
     const [passLoading, setPassLoading] = useState(false);
 

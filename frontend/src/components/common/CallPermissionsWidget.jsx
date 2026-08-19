@@ -28,7 +28,7 @@ export default function CallPermissionsWidget({ asModal = false, onClose }) {
 
     const loggedUser = useMemo(() => {
         try {
-            return JSON.parse(localStorage.getItem('user') || '{}');
+            return JSON.parse(localStorage.getItem('user') || '{}') || {};
         } catch {
             return {};
         }

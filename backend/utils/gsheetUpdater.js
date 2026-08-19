@@ -155,10 +155,15 @@ const markPaymentOnGSheet = async (paymentId) => {
             if (!hasMatchingAmount) continue;
 
             const normRowRef = Object.values(row).join(' ').replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+            const numbersOnlyRef = normRowRef.replace(/[^0-9]/g, '');
+            const cleanTxnAlphanumeric = cleanTxnId ? cleanTxnId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase() : '';
+            const cleanTxnNumbers = cleanTxnId ? cleanTxnId.replace(/[^0-9]/g, '').replace(/^0+/, '') : '';
             
             let matchFound = false;
-            if (cleanTxnId && cleanTxnId.length >= 4) {
-                if (normRowRef.includes(cleanTxnId.toLowerCase())) matchFound = true;
+            if (cleanTxnAlphanumeric && cleanTxnAlphanumeric.length >= 4 && normRowRef.includes(cleanTxnAlphanumeric)) {
+                matchFound = true;
+            } else if (cleanTxnNumbers && cleanTxnNumbers.length >= 6 && numbersOnlyRef.includes(cleanTxnNumbers)) {
+                matchFound = true;
             } else if (fullPayment.student) {
                 const phoneMatch = fullPayment.student.phone.replace(/[^0-9]/g, '');
                 if (phoneMatch && phoneMatch.length >= 7 && normRowRef.includes(phoneMatch)) matchFound = true;
@@ -216,15 +221,6 @@ const markPaymentOnGSheet = async (paymentId) => {
                     missingHeaders.forEach(sh => headers.push(sh));
                 }
 
-                const rowResponse = await sheets.spreadsheets.values.get({
-                    spreadsheetId: matchedRow._spreadsheetId,
-                    range: `'${matchedRow._sheetName}'!A${matchedRowIndex}:Z${matchedRowIndex}`,
-                });
-
-                if (rowResponse.data.values && rowResponse.data.values.length > 0) {
-                    let rowData = rowResponse.data.values[0];
-                    while (rowData.length < startColIndex) rowData.push('');
-
                     const statusStr = fullPayment.status === 1 ? 'Verified' : (fullPayment.status === 2 ? 'Rejected' : 'Pending');
                     const actionedByStr = fullPayment.actionedUser ? `${fullPayment.actionedUser.firstName} ${fullPayment.actionedUser.lastName}` : 'Manual Admin';
                     const studentNameStr = fullPayment.student ? `${fullPayment.student.firstName} ${fullPayment.student.lastName}` : 'N/A';
@@ -244,21 +240,40 @@ const markPaymentOnGSheet = async (paymentId) => {
                         } catch (e) {}
                     }
 
+                    const getColumnLetter = (colIndex) => {
+                        let letter = '';
+                        let temp = colIndex;
+                        while (temp >= 0) {
+                            letter = String.fromCharCode(temp % 26 + 65) + letter;
+                            temp = Math.floor(temp / 26) - 1;
+                        }
+                        return letter;
+                    };
+
+                    const updateData = [];
                     sysHeaders.forEach((sh, idx) => {
                         const aliases = getHeaderAliases(sh);
-                        const hIdx = headers.findIndex(h => h && aliases.includes(h.toString().trim().toLowerCase()));
+                        let hIdx = headers.findIndex(h => h && aliases.includes(h.toString().trim().toLowerCase()));
                         const vals = [statusStr, actionedByStr, studentNameStr, numberStr, businessStr, batchStr, subjectsStr];
-                        if (hIdx !== -1) rowData[hIdx] = vals[idx];
-                        else rowData.push(vals[idx]);
+                        
+                        if (hIdx === -1) {
+                            hIdx = startColIndex++;
+                            headers.push(sh); // in case we append multiple missing headers
+                        }
+                        
+                        const colLetter = getColumnLetter(hIdx);
+                        updateData.push({
+                            range: `'${matchedRow._sheetName}'!${colLetter}${matchedRowIndex}`,
+                            values: [[vals[idx]]]
+                        });
                     });
 
-                    const endColLetter = String.fromCharCode(65 + rowData.length - 1);
-                    
-                    await sheets.spreadsheets.values.update({
+                    await sheets.spreadsheets.values.batchUpdate({
                         spreadsheetId: matchedRow._spreadsheetId,
-                        range: `'${matchedRow._sheetName}'!A${matchedRowIndex}:${endColLetter}${matchedRowIndex}`,
-                        valueInputOption: 'USER_ENTERED',
-                        requestBody: { values: [rowData] }
+                        requestBody: {
+                            valueInputOption: 'USER_ENTERED',
+                            data: updateData
+                        }
                     });
 
                     if (fullPayment.status === 1) {
@@ -277,7 +292,7 @@ const markPaymentOnGSheet = async (paymentId) => {
                                                     startRowIndex: matchedRowIndex - 1,
                                                     endRowIndex: matchedRowIndex,
                                                     startColumnIndex: 0,
-                                                    endColumnIndex: rowData.length
+                                                    endColumnIndex: headers.length
                                                 },
                                                 cell: {
                                                     userEnteredFormat: {
@@ -293,7 +308,6 @@ const markPaymentOnGSheet = async (paymentId) => {
                         } catch (e) {}
                     }
                     console.log('Successfully wrote back to GSheet manually.');
-                }
             }
         }
     } catch (e) {

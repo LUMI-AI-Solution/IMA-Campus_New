@@ -7,9 +7,9 @@ import CallPermissionsWidget from './CallPermissionsWidget';
 
 export default function WhatsAppPermissionPopup() {
     const { socket, startOutboundCall } = useCall();
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-    const roleUpper = (user.role || '').toUpperCase().replace(/[\s_-]+/g, '_');
-    const deptUpper = (user.department || '').toUpperCase().replace(/[\s_-]+/g, '_');
+    const user = JSON.parse(localStorage.getItem('user') || '{}') || {};
+    const roleUpper = (user?.role || '').toUpperCase().replace(/[\s_-]+/g, '_');
+    const deptUpper = (user?.department || '').toUpperCase().replace(/[\s_-]+/g, '_');
 
     const isExcludedDept = ['DELIVERY', 'FINANCE', 'PHYSICAL', 'SOCIAL_MEDIA', 'TECHNICAL'].includes(deptUpper);
     const isStudent = roleUpper === 'STUDENT' || roleUpper === 'USER';
@@ -72,7 +72,7 @@ export default function WhatsAppPermissionPopup() {
         if (!socket || !isEligible) return;
         
         const handlePermissionGranted = (data) => {
-            if (!isManagerOrAdmin && data.assignedTo && String(data.assignedTo) !== String(user.id)) {
+            if (!isManagerOrAdmin && data.assignedTo && String(data.assignedTo) !== String(user?.id)) {
                 return;
             }
             playChime();
@@ -89,7 +89,7 @@ export default function WhatsAppPermissionPopup() {
         return () => {
             socket.off('wa_call_permission_granted', handlePermissionGranted);
         };
-    }, [socket, user.id, isManagerOrAdmin, isEligible]);
+    }, [socket, user?.id, isManagerOrAdmin, isEligible]);
 
     const handleDismiss = async (id, e) => {
         if (e) e.stopPropagation();

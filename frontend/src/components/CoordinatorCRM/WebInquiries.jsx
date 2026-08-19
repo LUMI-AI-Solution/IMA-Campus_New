@@ -13,7 +13,7 @@ import {
     FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic, 
     FaSmile, FaStop, FaPhoneAlt, FaChevronDown, FaCheckCircle, FaTimesCircle, 
     FaUserSecret, FaKey, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, 
-    FaArrowsAlt, FaChevronRight, FaChevronLeft
+    FaArrowsAlt, FaChevronRight, FaChevronLeft, FaGoogle
 } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import { convertSinglishToSinhala } from '../../utils/singlishConverter';
@@ -109,25 +109,31 @@ export default function WebInquiries() {
             .catch(err => console.error("Error fetching businesses", err));
 
         const token = localStorage.getItem('token');
-        socketRef.current = io(BACKEND_URL, { auth: { token }, transports: ['websocket', 'polling'] });
+        let timeoutId;
 
-        socketRef.current.on('new_web_inquiry_message', (msg) => {
-            setMessages(prev => {
-                if (prev.find(m => m.id === msg.id)) return prev;
-                return [...prev, msg];
+        // Delay socket creation to prevent Strict Mode double-connect errors
+        timeoutId = setTimeout(() => {
+            socketRef.current = io(BACKEND_URL, { auth: { token }, transports: ['websocket', 'polling'] });
+
+            socketRef.current.on('new_web_inquiry_message', (msg) => {
+                setMessages(prev => {
+                    if (prev.find(m => m.id === msg.id)) return prev;
+                    return [...prev, msg];
+                });
+                fetchInquiries(false); 
             });
-            fetchInquiries(false); 
-        });
 
-        socketRef.current.on('web_inquiry_message_updated', (data) => {
-            setMessages(prev => prev.map(m => m.id === data.messageId ? { ...m, reactions: data.reactions } : m));
-        });
+            socketRef.current.on('web_inquiry_message_updated', (data) => {
+                setMessages(prev => prev.map(m => m.id === data.messageId ? { ...m, reactions: data.reactions } : m));
+            });
 
-        socketRef.current.on('web_inquiry_notification', (data) => {
-            fetchInquiries(false);
-        });
+            socketRef.current.on('web_inquiry_notification', (data) => {
+                fetchInquiries(false);
+            });
+        }, 300);
 
         return () => {
+            clearTimeout(timeoutId);
             if (socketRef.current) socketRef.current.disconnect();
         };
     }, []);

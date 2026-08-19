@@ -480,11 +480,11 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
       });
   }, [leads, searchQuery, selectedLead]);
 
-  useEffect(() => {
-      if (searchQuery && filteredLeads.length === 1 && (!selectedLead || selectedLead.id !== filteredLeads[0].id)) {
-          setSelectedLead(filteredLeads[0]);
-      }
-  }, [searchQuery, filteredLeads, selectedLead, setSelectedLead]);
+  // useEffect(() => {
+  //     if (searchQuery && filteredLeads.length === 1 && (!selectedLead || selectedLead.id !== filteredLeads[0].id)) {
+  //         setSelectedLead(filteredLeads[0]);
+  //     }
+  // }, [searchQuery, filteredLeads, selectedLead, setSelectedLead]);
 
   const getAssignedStats = () => {
       if (activeTab === 'ASSIGNED' && (staffFilter || groupFilter || statusFilter || assignedInqFilter || roundFilter)) {

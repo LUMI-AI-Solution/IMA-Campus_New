@@ -149,12 +149,12 @@ export default function ManagerCampaignStats({ filters }) {
                 const bizName = selectedBizObj ? selectedBizObj.name : '';
 
                 coords = coords.filter(c => {
-                    const cBiz = String(c.businessType || '').toLowerCase().trim();
+                    const cBizList = String(c.businessType || '').toLowerCase().split(',').map(b => b.trim());
                     const selBizName = String(bizName).toLowerCase().trim();
                     const selBizId = String(targetBusinessId).toLowerCase().trim();
                     const cBizIdStr = String(c.businessId || '').toLowerCase().trim();
                     
-                    return (cBizIdStr === selBizId) || (cBiz === selBizName) || (cBiz === selBizId);
+                    return (cBizIdStr === selBizId) || cBizList.includes(selBizId) || cBizList.some(biz => biz === selBizName || biz.includes(selBizName));
                 });
             }
             setTeamMembers(coords); 

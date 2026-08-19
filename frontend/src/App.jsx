@@ -21,9 +21,7 @@ import SystemTasksAdmin from './pages/admin/SystemTasksAdmin';
 
 // Call Handling Context & UI
 import { CallProvider } from './contexts/CallContext';
-import GlobalCallPopup from './components/common/GlobalCallPopup';
-import ActiveCallSidebar from './components/common/ActiveCallSidebar';
-import GlobalOutboundCallWidget from './components/common/GlobalOutboundCallWidget';
+import WhatsAppCallScreen from './components/common/WhatsAppCallScreen';
 import HeadlessIvrBot from './components/common/HeadlessIvrBot';
 
 // Dashboards & Modules
@@ -177,10 +175,8 @@ export default function App() {
         <BrowserRouter>
           <Toaster position="top-right" />
 
-          <GlobalCallPopup />
+          <WhatsAppCallScreen />
           <WhatsAppPermissionPopup />
-          <ActiveCallSidebar />
-          <GlobalOutboundCallWidget />
 
           <GhostModeBanner />
 

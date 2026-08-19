@@ -29,6 +29,7 @@ exports.getFinanceMatrix = async (req, res) => {
         if (!batchObj) return res.status(404).json({ error: "Batch not found" });
 
         const isOLBusiness = batchObj.business && batchObj.business.name.toUpperCase().includes('O/L');
+        const isCommerceBusiness = batchObj.business && (batchObj.business.name.toUpperCase().includes('COMMERCE') || batchObj.business.name.includes('වාණිජ'));
 
         if (!isAdmin) {
             const allBiz = await prisma.business.findMany();
@@ -246,6 +247,14 @@ exports.getFinanceMatrix = async (req, res) => {
                 // 3. Active Months walin bedeema
                 let activeGroupIds = subjectActiveMonthsMap[sub] || monthlyGroups.map(g => g.id);
                 let activeMonthCount = activeGroupIds.length || 1;
+                
+                // For Commerce business, use exactly the course's activeMonths to calculate divisor if available
+                if (isCommerceBusiness) {
+                    const dbCourseForMonths = courses.find(c => c.name.trim().toUpperCase() === sub.trim().toUpperCase());
+                    if (dbCourseForMonths && dbCourseForMonths.activeMonths && dbCourseForMonths.activeMonths > 0) {
+                        activeMonthCount = dbCourseForMonths.activeMonths;
+                    }
+                }
 
                 if (isIsolatedEnglish) {
                     if (payType === 1) { // MONTHLY for English

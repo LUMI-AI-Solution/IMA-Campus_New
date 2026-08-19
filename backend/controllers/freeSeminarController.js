@@ -256,21 +256,25 @@ exports.getLeads = async (req, res) => {
             phone: l.phone ? l.phone.split('_BIZ')[0] : ''
         }));
 
-        let countWhere = {};
-        countWhere.campaignType = campaignType || 'FREE_SEMINAR';
+        let countWhere = { campaignType: campaignType || 'FREE_SEMINAR' };
 
         if (batchId && batchId !== '') {
             countWhere.batchId = parseInt(batchId);
         } else if (businessId && businessId !== '') {
             const bizBatches = await prisma.batch.findMany({ where: { businessId: parseInt(businessId) }, select: { id: true } });
-            countWhere.batchId = { in: bizBatches.map(b => b.id) };
+            countWhere.AND = [
+                {
+                    OR: [
+                        { batchId: { in: bizBatches.map(b => b.id) } },
+                        { phone: { endsWith: `_BIZ_${businessId}` } },
+                        { phone: { contains: `_BIZ_${businessId}_` } }
+                    ]
+                }
+            ];
         }
 
         const allLeadsForCounts = await prisma.lead.findMany({
-            where: {
-                campaignType: countWhere.campaignType,
-                batchId: countWhere.batchId
-            }
+            where: countWhere
         });
 
         let counts = { NEW: 0, IMPORTED: 0, ASSIGNED: 0, ALL: 0 };
@@ -2153,7 +2157,11 @@ exports.getCampaignStats = async (req, res) => {
                 sentWhere.lead.batchId = batchFilter;
             } else if (bizFilter) {
                 const bizBatches = await prisma.batch.findMany({ where: { businessId: bizFilter }, select: { id: true } });
-                sentWhere.lead.batchId = { in: bizBatches.map(b => b.id) };
+                sentWhere.lead.OR = [
+                    { batchId: { in: bizBatches.map(b => b.id) } },
+                    { phone: { endsWith: `_BIZ_${bizFilter}` } },
+                    { phone: { contains: `_BIZ_${bizFilter}_` } }
+                ];
             }
 
             const sentMessages = await prisma.chatMessage.groupBy({
@@ -2170,7 +2178,11 @@ exports.getCampaignStats = async (req, res) => {
             leadWhere.batchId = batchFilter;
         } else if (bizFilter) {
             const bizBatches = await prisma.batch.findMany({ where: { businessId: bizFilter }, select: { id: true } });
-            leadWhere.batchId = { in: bizBatches.map(b => b.id) };
+            leadWhere.OR = [
+                { batchId: { in: bizBatches.map(b => b.id) } },
+                { phone: { endsWith: `_BIZ_${bizFilter}` } },
+                { phone: { contains: `_BIZ_${bizFilter}_` } }
+            ];
         }
 
         // 🔥 Frontend eken ena Phase filter eka add kara
@@ -2512,7 +2524,11 @@ exports.getAllCampaignLeads = async (req, res) => {
             whereClause.batchId = parseInt(batchId);
         } else if (businessId && businessId !== '') {
             const bizBatches = await prisma.batch.findMany({ where: { businessId: parseInt(businessId) } });
-            whereClause.batchId = { in: bizBatches.map(b => b.id) };
+            whereClause.OR = [
+                { batchId: { in: bizBatches.map(b => b.id) } },
+                { phone: { endsWith: `_BIZ_${businessId}` } },
+                { phone: { contains: `_BIZ_${businessId}_` } }
+            ];
         }
 
         console.log('WHERE:', JSON.stringify(whereClause, null, 2));
@@ -2847,7 +2863,11 @@ exports.getUniqueNumbersCount = async (req, res) => {
             dbSearchWhere.batchId = parseInt(settings.batchId);
         } else {
             const bizBatches = await prisma.batch.findMany({ where: { businessId: settings.businessId }, select: { id: true } });
-            dbSearchWhere.batchId = { in: bizBatches.map(b => b.id) };
+            dbSearchWhere.OR = [
+                { batchId: { in: bizBatches.map(b => b.id) } },
+                { phone: { endsWith: `_BIZ_${settings.businessId}` } },
+                { phone: { contains: `_BIZ_${settings.businessId}_` } }
+            ];
         }
 
         const savedLeadRecords = await prisma.lead.findMany({
@@ -2937,9 +2957,21 @@ exports.getCoordinatorOverviewStats = async (req, res) => {
             if (batchId && batchId !== '' && batchId !== 'undefined' && batchId !== 'null') {
                 baseLeadFilter.batchId = parseInt(batchId);
             } else if (businessId && businessId !== '' && businessId !== 'undefined' && businessId !== 'null') {
-                baseLeadFilter.batch = { businessId: parseInt(businessId) };
+                const bizBatches = await prisma.batch.findMany({ where: { businessId: parseInt(businessId) }, select: { id: true } });
+                baseLeadFilter.OR = [
+                    { batchId: { in: bizBatches.map(b => b.id) } },
+                    { phone: { endsWith: `_BIZ_${businessId}` } },
+                    { phone: { contains: `_BIZ_${businessId}_` } }
+                ];
             } else if (assignedBusinessIds.length > 0) {
-                baseLeadFilter.batch = { businessId: { in: assignedBusinessIds } };
+                const bizBatches = await prisma.batch.findMany({ where: { businessId: { in: assignedBusinessIds } }, select: { id: true } });
+                baseLeadFilter.OR = [
+                    { batchId: { in: bizBatches.map(b => b.id) } },
+                    ...assignedBusinessIds.flatMap(id => [
+                        { phone: { endsWith: `_BIZ_${id}` } },
+                        { phone: { contains: `_BIZ_${id}_` } }
+                    ])
+                ];
             } else {
                 // If a manager has no assigned business, restrict them to an empty set
                 baseLeadFilter.batch = { businessId: -1 };

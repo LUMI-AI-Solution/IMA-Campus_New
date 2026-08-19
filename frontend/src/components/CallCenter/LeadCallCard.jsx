@@ -6,7 +6,7 @@ import axios from '../../api/axios';
 import OutboundDialerModal from '../AfterSeminarCRM/CRM/OutboundDialerModal';
 import { useCall } from '../../contexts/CallContext';
 
-export default function LeadCallCard({ lead, roundData, activeRound, index, onSave, onOpenChat, onInitiateCall, isReadOnly = false, isFrozen = false }) {
+export default function LeadCallCard({ lead, roundData, activeRound, index, onSave, onOpenChat, onInitiateCall, isReadOnly = false, isFrozen = false, onOpenReminder }) {
   const { startOutboundCall } = useCall();
   // Use roundData if available (passed from dashboard), else fallback to lead base fields
   const data = roundData || lead;
@@ -158,6 +158,14 @@ export default function LeadCallCard({ lead, roundData, activeRound, index, onSa
           className="flex-1 bg-slate-800 hover:bg-slate-700 text-blue-400 border border-slate-700/80 rounded-xl py-2 text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-sm group"
         >
           <MessageCircle size={14} className="group-hover:scale-110 transition-transform" /> Chat
+        </button>
+
+        <button 
+          onClick={() => onOpenReminder && onOpenReminder(lead)}
+          title="Set a Reminder"
+          className="bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 px-3.5 rounded-xl flex items-center justify-center transition-colors shadow-sm group"
+        >
+          <Bell size={14} className="group-hover:scale-110 transition-transform" />
         </button>
         
         {!isReadOnly && (

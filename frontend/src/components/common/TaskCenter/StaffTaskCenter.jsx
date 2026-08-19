@@ -35,8 +35,9 @@ export default function StaffTaskCenter({ loggedInUser }) {
 
             const res = await api.get(url);
             const sorted = (res.data || []).sort((a,b) => {
-                if(!a.deadline) return 1; if(!b.deadline) return -1;
-                return new Date(a.deadline) - new Date(b.deadline);
+                const dateA = new Date(a.createdAt || a.deadline || 0);
+                const dateB = new Date(b.createdAt || b.deadline || 0);
+                return dateB - dateA;
             });
             setTasks(sorted);
         } catch (e) { toast.error("Failed to load tasks"); } finally { setLoading(false); }
@@ -312,21 +313,33 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                 const monthNames = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
                 const classMonth = monthNames[classDate.getMonth()];
 
-                if (batchData && task.timetable?.subjectName) {
+                if (batchData) {
                     batchData.groups?.forEach(g => {
                         g.courses?.forEach(c => {
-                            if (c.name === task.timetable.subjectName) {
-                                const gName = g.name.toUpperCase();
-                                const isFull = gName.includes('FULL');
-                                const isMatchingMonth = gName.includes(classMonth);
-                                
-                                paymentGroups[c.id] = {
-                                    isChecked: isFull || isMatchingMonth,
+                            const gName = g.name.toUpperCase();
+                            const isFull = gName.includes('FULL');
+                            const isMatchingMonth = gName.includes(classMonth);
+                            const isMatchingSubject = task.timetable?.subjectName && c.name?.trim().toLowerCase() === task.timetable.subjectName?.trim().toLowerCase();
+                            
+                            if (task.timetable?.subjectName && !isMatchingSubject) {
+                                return;
+                            }
+                            
+                            const uniqueKey = `${c.id}_${g.name.toUpperCase()}`;
+                            
+                            if (!paymentGroups[uniqueKey]) {
+                                paymentGroups[uniqueKey] = {
+                                    isChecked: isMatchingSubject && (isFull || isMatchingMonth),
                                     folderId: '',
                                     courseCode: c.code || `SUB_${c.id}`,
                                     groupName: g.name,
-                                    courseName: c.name
+                                    courseName: c.name,
+                                    courseIds: [c.id]
                                 };
+                            } else {
+                                if (!paymentGroups[uniqueKey].courseIds.includes(c.id)) {
+                                    paymentGroups[uniqueKey].courseIds.push(c.id);
+                                }
                             }
                         });
                     });
@@ -383,8 +396,17 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
     const togglePaymentGroup = (bId, cId) => {
         setBatchConfigs(prev => {
             const newConfig = { ...prev };
-            if (newConfig[bId] && newConfig[bId].paymentGroups[cId]) {
-                newConfig[bId].paymentGroups[cId].isChecked = !newConfig[bId].paymentGroups[cId].isChecked;
+            if (newConfig[bId] && newConfig[bId].paymentGroups && newConfig[bId].paymentGroups[cId]) {
+                newConfig[bId] = {
+                    ...newConfig[bId],
+                    paymentGroups: {
+                        ...newConfig[bId].paymentGroups,
+                        [cId]: {
+                            ...newConfig[bId].paymentGroups[cId],
+                            isChecked: !newConfig[bId].paymentGroups[cId].isChecked
+                        }
+                    }
+                };
             }
             return newConfig;
         });
@@ -393,8 +415,17 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
     const setFolderForGroup = (bId, cId, folderId) => {
         setBatchConfigs(prev => {
             const newConfig = { ...prev };
-            if (newConfig[bId] && newConfig[bId].paymentGroups[cId]) {
-                newConfig[bId].paymentGroups[cId].folderId = folderId;
+            if (newConfig[bId] && newConfig[bId].paymentGroups && newConfig[bId].paymentGroups[cId]) {
+                newConfig[bId] = {
+                    ...newConfig[bId],
+                    paymentGroups: {
+                        ...newConfig[bId].paymentGroups,
+                        [cId]: {
+                            ...newConfig[bId].paymentGroups[cId],
+                            folderId: folderId
+                        }
+                    }
+                };
             }
             return newConfig;
         });
@@ -441,12 +472,12 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                 const folderGroups = {}; // { [folderId]: [courseId1, courseId2] }
                 
                 let hasCheckedGroup = false;
-                Object.entries(config.paymentGroups).forEach(([cId, pg]) => {
+                Object.entries(config.paymentGroups).forEach(([uniqueKey, pg]) => {
                     if (pg.isChecked) {
                         hasCheckedGroup = true;
                         const fId = pg.folderId || 'uncategorized';
                         if (!folderGroups[fId]) folderGroups[fId] = [];
-                        folderGroups[fId].push(cId);
+                        folderGroups[fId].push(...pg.courseIds);
                     }
                 });
 
@@ -723,40 +754,46 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                                             {Object.entries(activeConfig.paymentGroups || {}).length === 0 ? (
                                                 <p className="text-sm text-gray-500 dark:text-slate-400">No matching subjects found in this batch.</p>
                                             ) : (
-                                                Object.entries(activeConfig.paymentGroups).map(([cId, pg]) => {
+                                                Object.entries(activeConfig.paymentGroups).map(([uniqueKey, pg]) => {
                                                     const courseCodeFolders = (activeConfig.folders || []).filter(f => !f.courseCode || f.courseCode === pg.courseCode);
                                                     
                                                     return (
-                                                        <div key={cId} className={`mb-4 last:mb-0 p-4 rounded-2xl border transition-all ${pg.isChecked ? 'bg-gray-50 dark:bg-slate-900 border-brand-accent/30 shadow-sm' : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 opacity-60'}`}>
-                                                            <label className="flex items-center gap-3 cursor-pointer mb-3 w-max">
+                                                        <div key={uniqueKey} className={`mb-3 last:mb-0 p-3.5 rounded-2xl border transition-all ${pg.isChecked ? 'bg-gradient-to-r from-gray-50 to-white dark:from-slate-800/80 dark:to-slate-900 border-brand-accent/40 shadow-sm' : 'bg-white dark:bg-slate-800/50 border-gray-200 dark:border-slate-700/60 opacity-70 hover:opacity-100'}`}>
+                                                            <label className="flex items-center gap-3.5 cursor-pointer mb-3 w-max group">
+                                                                <div className={`w-5 h-5 flex items-center justify-center rounded-md border-2 transition-colors ${pg.isChecked ? 'bg-brand-accent border-brand-accent' : 'border-gray-300 dark:border-slate-600 group-hover:border-brand-accent/50'}`}>
+                                                                    {pg.isChecked && <Check size={14} className="text-white" strokeWidth={3}/>}
+                                                                </div>
                                                                 <input 
                                                                     type="checkbox" 
                                                                     checked={pg.isChecked} 
-                                                                    onChange={() => togglePaymentGroup(activeBatchTab, cId)} 
-                                                                    className="w-4 h-4 accent-brand-accent rounded border-gray-300 dark:border-slate-600"
+                                                                    onChange={() => togglePaymentGroup(activeBatchTab, uniqueKey)} 
+                                                                    className="hidden"
                                                                 />
-                                                                <span className="text-[11px] font-black text-gray-900 dark:text-white uppercase tracking-wider">{pg.groupName}</span>
+                                                                <span className={`text-xs font-black tracking-wide uppercase transition-colors flex items-center gap-1.5 ${pg.isChecked ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-slate-400 group-hover:text-gray-800 dark:group-hover:text-slate-300'}`}>
+                                                                    {pg.groupName} 
+                                                                    <span className="text-[10px] bg-gray-100 dark:bg-slate-700/50 px-1.5 py-0.5 rounded text-gray-500 font-semibold">{pg.courseName}</span>
+                                                                </span>
                                                             </label>
                                                             
                                                             {pg.isChecked && (
-                                                                <div className="flex gap-2 pl-7 transition-all">
-                                                                    {isCreatingFolder === cId ? (
+                                                                <div className="flex gap-2 pl-8 transition-all animate-in slide-in-from-top-2 duration-200">
+                                                                    {isCreatingFolder === uniqueKey ? (
                                                                         <div className="flex w-full gap-2 transition-all">
-                                                                            <input type="text" value={newFolderName} onChange={e=>setNewFolderName(e.target.value)} placeholder="Folder Name..." className="flex-1 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-2.5 text-xs outline-none focus:border-brand-accent dark:focus:border-brand-accent text-gray-900 dark:text-white shadow-sm" />
-                                                                            <button type="button" onClick={() => handleCreateFolder(cId, pg.courseCode)} className="bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30 px-3 rounded-xl hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-500 dark:hover:text-white transition-all shadow-sm outline-none"><CheckCircle2 size={16}/></button>
-                                                                            <button type="button" onClick={() => setIsCreatingFolder(null)} className="bg-white dark:bg-slate-800 text-gray-500 dark:text-slate-400 border border-gray-200 dark:border-slate-700 px-3 rounded-xl hover:bg-gray-100 dark:hover:bg-slate-700 hover:text-gray-900 dark:hover:text-white transition-all shadow-sm outline-none"><X size={16}/></button>
+                                                                            <input type="text" value={newFolderName} onChange={e=>setNewFolderName(e.target.value)} placeholder="Folder Name..." className="flex-1 bg-white dark:bg-slate-900 border border-brand-accent/30 dark:border-brand-accent/30 rounded-xl p-2.5 text-xs outline-none focus:border-brand-accent text-gray-900 dark:text-white shadow-inner" />
+                                                                            <button type="button" onClick={() => handleCreateFolder(uniqueKey, pg.courseCode)} className="bg-emerald-500 text-white px-4 rounded-xl hover:bg-emerald-600 transition-all shadow-md outline-none font-bold text-xs flex items-center gap-1.5"><CheckCircle2 size={14}/> Save</button>
+                                                                            <button type="button" onClick={() => setIsCreatingFolder(null)} className="bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 px-3 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-all outline-none"><X size={16}/></button>
                                                                         </div>
                                                                     ) : (
                                                                         <>
                                                                             <select 
                                                                                 value={pg.folderId} 
-                                                                                onChange={(e) => setFolderForGroup(activeBatchTab, cId, e.target.value)} 
-                                                                                className="flex-1 bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-2.5 text-xs outline-none focus:border-brand-accent dark:focus:border-brand-accent text-gray-900 dark:text-white cursor-pointer shadow-sm"
+                                                                                onChange={(e) => setFolderForGroup(activeBatchTab, uniqueKey, e.target.value)} 
+                                                                                className="flex-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl p-2.5 text-xs font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent text-gray-800 dark:text-slate-200 cursor-pointer shadow-sm"
                                                                             >
-                                                                                <option value="" className="bg-white dark:bg-slate-800">Uncategorized</option>
-                                                                                {courseCodeFolders.map(f => <option key={f.id} value={f.id} className="bg-white dark:bg-slate-800">{f.title || f.name}</option>)}
+                                                                                <option value="" className="text-gray-500">Uncategorized (Root)</option>
+                                                                                {courseCodeFolders.map(f => <option key={f.id} value={f.id}>{f.title || f.name}</option>)}
                                                                             </select>
-                                                                            <button type="button" onClick={() => setIsCreatingFolder(cId)} className="bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 px-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 outline-none shrink-0 shadow-sm transition-all"><Plus size={14}/> New</button>
+                                                                            <button type="button" onClick={() => setIsCreatingFolder(uniqueKey)} className="bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 px-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 outline-none shrink-0 shadow-sm transition-colors border border-blue-200 dark:border-blue-500/20"><Plus size={14}/> New Folder</button>
                                                                         </>
                                                                     )}
                                                                 </div>

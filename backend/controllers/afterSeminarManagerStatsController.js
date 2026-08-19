@@ -24,7 +24,7 @@ const getVerifiedPhones = async (businessId, batchId) => {
 
     const verifiedPayments = await prisma.payment.findMany({
         where: paymentWhere,
-        include: { student: true }
+        include: { student: true, group: true }
     });
 
     const verifiedStudentNics = [];
@@ -83,17 +83,25 @@ const getVerifiedPhones = async (businessId, batchId) => {
 
     const verifiedPhones = new Set();
     const phoneSuffixToStudentId = {};
+    const phoneSuffixToPaymentType = {};
     verifiedPayments.forEach(p => {
         if (p.student) {
+            const isFull = p.payment_type === 3 || (p.group?.name && p.group.name.toUpperCase().includes('FULL'));
+            const isUpgrade = p.payment_type === 4 || (p.group?.name && p.group.name.toUpperCase().includes('UPGRADE'));
+            const isInstallment = p.payment_type === 2 || (p.group?.name && p.group.name.toUpperCase().includes('INSTALLMENT'));
+            const typeStr = isFull ? 'FULL' : (isUpgrade ? 'UPGRADE' : (isInstallment ? 'INSTALLMENT' : 'MONTHLY'));
+
             const relatedSuffixes = studentIdToRelatedPhonesMap[p.student.id] || new Set();
             relatedSuffixes.forEach(suffix => {
                 verifiedPhones.add(suffix);
                 phoneSuffixToStudentId[suffix] = p.student.id;
+                phoneSuffixToPaymentType[suffix] = typeStr;
             });
         }
     });
 
     verifiedPhones.studentIdMap = phoneSuffixToStudentId;
+    verifiedPhones.paymentTypeMap = phoneSuffixToPaymentType;
     return verifiedPhones;
 };
 
@@ -141,8 +149,8 @@ const buildStatsWhereClause = (businessId, batchId, startDate, endDate, baseCond
         const bId = parseInt(batchId);
         const batchOrConditions = [
             { batchId: bId },
-            { phone: { endsWith: `_BATCH_${bId}` } },
-            { phone: { contains: `_BATCH_${bId}_` } }
+            { batchId: null, phone: { endsWith: `_BATCH_${bId}` } },
+            { batchId: null, phone: { contains: `_BATCH_${bId}_` } }
         ];
 
         if (hasBiz) {
@@ -212,7 +220,7 @@ exports.getManagerDashboardStats = async (req, res) => {
 
         const leads = await prisma.lead.findMany({
             where: whereClause,
-            include: { assignedUser: { select: { firstName: true, lastName: true, businessType: true, role: true } } }
+            include: { assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true, image: true, appChatDp: true } } }
         });
 
         // 🔥 1. PAYMENT VERIFICATION (Get all verified phones first) 🔥
@@ -377,13 +385,17 @@ exports.getManagerDashboardStats = async (req, res) => {
 
             if (l.assignedTo) {
                 stats.assignedLeads++;
-                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}`.trim() : `Staff #${l.assignedTo}`;
+                const fName = (l.assignedUser?.firstName || '').trim();
+                const lName = (l.assignedUser?.lastName || '').trim();
+                const staffName = l.assignedUser ? `${fName} ${lName}`.trim() : `Staff #${l.assignedTo}`;
                 
                 if (!staffMap[staffName]) {
                     staffMap[staffName] = {
+                        id: l.assignedUser?.id || null,
                         name: staffName,
                         businessType: l.assignedUser?.businessType || 'OTHER',
                         role: l.assignedUser?.role || 'COORDINATOR',
+                        image: l.assignedUser?.image || l.assignedUser?.appChatDp || null,
                         overall: {
                             assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, delayed: 0, enrolled: 0, full: 0, upgrade: 0, monthly: 0, installment: 0, directPaid: 0, r1HistoricalDelays: 0, r2HistoricalDelays: 0
                         },
@@ -455,10 +467,13 @@ exports.getManagerDashboardStats = async (req, res) => {
                 if (isDirectPaid) staffMap[staffName].overall.directPaid++;
                 if (isEnrolled) {
                     staffMap[staffName].overall.enrolled++;
-                    if (l.paymentIntention === 'FULL') staffMap[staffName].overall.full++;
-                    else if (l.paymentIntention === 'UPGRADE') staffMap[staffName].overall.upgrade++;
-                    else if (l.paymentIntention === 'MONTHLY') staffMap[staffName].overall.monthly++;
-                    else if (l.paymentIntention === 'INSTALLMENTS' || l.paymentIntention === 'INSTALLMENT') staffMap[staffName].overall.installment++;
+                    const cleanPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '').slice(-7) : '';
+                    const mappedType = verifiedPhones.paymentTypeMap ? verifiedPhones.paymentTypeMap[cleanPhone] : null;
+                    const determinedType = mappedType || (l.paymentIntention === 'FULL' ? 'FULL' : (l.paymentIntention === 'UPGRADE' ? 'UPGRADE' : (l.paymentIntention === 'INSTALLMENTS' || l.paymentIntention === 'INSTALLMENT' ? 'INSTALLMENT' : (l.paymentIntention === 'MONTHLY' ? 'MONTHLY' : 'MONTHLY'))));
+                    if (determinedType === 'FULL') staffMap[staffName].overall.full++;
+                    else if (determinedType === 'UPGRADE') staffMap[staffName].overall.upgrade++;
+                    else if (determinedType === 'INSTALLMENT') staffMap[staffName].overall.installment++;
+                    else staffMap[staffName].overall.monthly++;
                 }
 
                 if (l.r1DelayedDays > 0) staffMap[staffName].overall.r1HistoricalDelays++;
@@ -532,6 +547,36 @@ exports.getManagerDashboardStats = async (req, res) => {
             realMixerData.push({ paymentIntention: studentData.typeStr, subjects: subArray });
         });
 
+        // 4. Batch Goals
+        let batchGoals = { targetIndividualGoal: 40, targetGroupGoal: 50 };
+        try {
+            if (batchId && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null') {
+                const targetBatch = await prisma.batch.findUnique({
+                    where: { id: parseInt(batchId) },
+                    select: { targetIndividualGoal: true, targetGroupGoal: true }
+                });
+                if (targetBatch) {
+                    batchGoals = {
+                        targetIndividualGoal: targetBatch.targetIndividualGoal ?? 40,
+                        targetGroupGoal: targetBatch.targetGroupGoal ?? 50
+                    };
+                }
+            } else if (businessId && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null') {
+                const firstBatch = await prisma.batch.findFirst({
+                    where: { businessId: parseInt(businessId) },
+                    select: { targetIndividualGoal: true, targetGroupGoal: true }
+                });
+                if (firstBatch) {
+                    batchGoals = {
+                        targetIndividualGoal: firstBatch.targetIndividualGoal ?? 40,
+                        targetGroupGoal: firstBatch.targetGroupGoal ?? 50
+                    };
+                }
+            }
+        } catch (e) {
+            console.error("Batch goals fetch error:", e);
+        }
+
         res.status(200).json({
             ...stats,
             totalContacted, 
@@ -546,11 +591,49 @@ exports.getManagerDashboardStats = async (req, res) => {
             subjectEnrollments: Object.values(subjectAggregates),
             mixerData: realMixerData,
             realEnrollmentTotals: { full: realFullCount, monthly: realMonthlyCount, installment: realInstallCount, total: realTotalEnrolled },
-            verifiedStudentsNotInCrm
+            verifiedStudentsNotInCrm,
+            batchGoals
         });
     } catch (error) {
         console.error("Manager Stats Error:", error);
         res.status(500).json({ error: "Failed to fetch manager stats" });
+    }
+};
+
+// Update Batch Goals
+exports.updateBatchGoals = async (req, res) => {
+    try {
+        const { batchId, businessId, targetIndividualGoal, targetGroupGoal } = req.body;
+        const indVal = parseFloat(targetIndividualGoal) || 40;
+        const grpVal = parseFloat(targetGroupGoal) || 50;
+
+        if (batchId && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null') {
+            await prisma.batch.update({
+                where: { id: parseInt(batchId) },
+                data: {
+                    targetIndividualGoal: indVal,
+                    targetGroupGoal: grpVal
+                }
+            });
+        }
+        if (businessId && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null') {
+            await prisma.batch.updateMany({
+                where: { businessId: parseInt(businessId) },
+                data: {
+                    targetIndividualGoal: indVal,
+                    targetGroupGoal: grpVal
+                }
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            message: "Batch conversion goals updated successfully!",
+            batchGoals: { targetIndividualGoal: indVal, targetGroupGoal: grpVal }
+        });
+    } catch (error) {
+        console.error("Update Batch Goals Error:", error);
+        res.status(500).json({ error: "Failed to update batch conversion goals" });
     }
 };
 
@@ -598,7 +681,7 @@ exports.getNewInquiryStats = async (req, res) => {
             const isReject = l.newInqCallStatus === 'reject';
 
             const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
-            const isEnrolled = isReallyEnrolled || l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID';
+            const isEnrolled = isReallyEnrolled; // Strict tally with Manage Payments
 
             const isDirectPaid = isEnrolled && isPending;
             const isActualPending = isPending && !isEnrolled;
@@ -667,9 +750,12 @@ exports.getNewInquiryStats = async (req, res) => {
                 if (isDirectPaid) staffMap[staffName].overall.directPaid++;
                 if (isEnrolled) {
                     staffMap[staffName].overall.enrolled++;
-                    if (l.paymentIntention === 'FULL') staffMap[staffName].overall.full++;
-                    else if (l.paymentIntention === 'UPGRADE') staffMap[staffName].overall.upgrade++;
-                    else if (l.paymentIntention === 'INSTALLMENTS' || l.paymentIntention === 'INSTALLMENT') staffMap[staffName].overall.installment++;
+                    const cleanPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '').slice(-7) : '';
+                    const mappedType = verifiedPhones.paymentTypeMap ? verifiedPhones.paymentTypeMap[cleanPhone] : null;
+                    const determinedType = mappedType || (l.paymentIntention === 'FULL' ? 'FULL' : (l.paymentIntention === 'UPGRADE' ? 'UPGRADE' : (l.paymentIntention === 'INSTALLMENTS' || l.paymentIntention === 'INSTALLMENT' ? 'INSTALLMENT' : (l.paymentIntention === 'MONTHLY' ? 'MONTHLY' : 'MONTHLY'))));
+                    if (determinedType === 'FULL') staffMap[staffName].overall.full++;
+                    else if (determinedType === 'UPGRADE') staffMap[staffName].overall.upgrade++;
+                    else if (determinedType === 'INSTALLMENT') staffMap[staffName].overall.installment++;
                     else staffMap[staffName].overall.monthly++;
                 }
 
@@ -776,7 +862,7 @@ exports.getOpenSeminarStats = async (req, res) => {
             const isPending = l.openSemCallStatus === 'pending' || !l.openSemCallStatus;
 
             const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
-            const isEnrolled = isReallyEnrolled || l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID';
+            const isEnrolled = isReallyEnrolled; // Strict tally with Manage Payments
 
             const isDirectPaid = isEnrolled && isPending;
             const isActualPending = isPending && !isEnrolled;
@@ -825,11 +911,13 @@ exports.getOpenSeminarStats = async (req, res) => {
 
                 // Determine the Mutually Exclusive Bucket for this Lead
                 let bucket = 'pending';
-                if (l.openSemCallStatus === 'reject') {
+                if (isEnrolled) {
+                    bucket = 'answered';
+                } else if (l.openSemCallStatus === 'reject') {
                     bucket = 'reject';
                 } else if (l.openSemCallStatus === 'no_answer') {
                     bucket = 'noAnswer';
-                } else if (l.openSemCallStatus === 'answered' || isEnrolled || (isContacted && l.openSemCallStatus !== 'no_answer' && l.openSemCallStatus !== 'reject')) {
+                } else if (l.openSemCallStatus === 'answered' || (isContacted && l.openSemCallStatus !== 'no_answer' && l.openSemCallStatus !== 'reject')) {
                     bucket = 'answered';
                 } else {
                     bucket = 'pending';
@@ -850,10 +938,13 @@ exports.getOpenSeminarStats = async (req, res) => {
                 if (isDirectPaid) staffMap[staffName].overall.directPaid++;
                 if (isEnrolled) {
                     staffMap[staffName].overall.enrolled++;
-                    if (l.paymentIntention === 'FULL') staffMap[staffName].overall.full++;
-                    else if (l.paymentIntention === 'UPGRADE') staffMap[staffName].overall.upgrade++;
-                    else if (l.paymentIntention === 'MONTHLY') staffMap[staffName].overall.monthly++;
-                    else if (l.paymentIntention === 'INSTALLMENTS' || l.paymentIntention === 'INSTALLMENT') staffMap[staffName].overall.installment++;
+                    const cleanPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '').slice(-7) : '';
+                    const mappedType = verifiedPhones.paymentTypeMap ? verifiedPhones.paymentTypeMap[cleanPhone] : null;
+                    const determinedType = mappedType || (l.paymentIntention === 'FULL' ? 'FULL' : (l.paymentIntention === 'UPGRADE' ? 'UPGRADE' : (l.paymentIntention === 'INSTALLMENTS' || l.paymentIntention === 'INSTALLMENT' ? 'INSTALLMENT' : (l.paymentIntention === 'MONTHLY' ? 'MONTHLY' : 'MONTHLY'))));
+                    if (determinedType === 'FULL') staffMap[staffName].overall.full++;
+                    else if (determinedType === 'UPGRADE') staffMap[staffName].overall.upgrade++;
+                    else if (determinedType === 'INSTALLMENT') staffMap[staffName].overall.installment++;
+                    else staffMap[staffName].overall.monthly++;
                 }
 
                 if (l.r1DelayedDays > 0) staffMap[staffName].overall.r1HistoricalDelays++;
@@ -958,16 +1049,41 @@ exports.getOpenSeminarStats = async (req, res) => {
         campaignRounds.nonEnrolled.reject = neLeads.filter(l => l.openSemCallStatus === 'reject').length;
         campaignRounds.nonEnrolled.delayed = neLeads.filter(l => isDelayedFn(l) && (l.openSemCallStatus === 'pending' || !l.openSemCallStatus)).length;
 
-        // Paid
-        const paidLeads = leads.filter(l => l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || primaryEnrolledLeadIds.has(l.id));
-        campaignRounds.paid.assigned = paidLeads.length;
-        campaignRounds.paid.currentlyInRound = paidLeads.length;
+        let batchGoals = { targetIndividualGoal: 40, targetGroupGoal: 50 };
+        try {
+            if (batchId && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null') {
+                const targetBatch = await prisma.batch.findUnique({
+                    where: { id: parseInt(batchId) },
+                    select: { targetIndividualGoal: true, targetGroupGoal: true }
+                });
+                if (targetBatch) {
+                    batchGoals = {
+                        targetIndividualGoal: targetBatch.targetIndividualGoal ?? 40,
+                        targetGroupGoal: targetBatch.targetGroupGoal ?? 50
+                    };
+                }
+            } else if (businessId && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null') {
+                const firstBatch = await prisma.batch.findFirst({
+                    where: { businessId: parseInt(businessId) },
+                    select: { targetIndividualGoal: true, targetGroupGoal: true }
+                });
+                if (firstBatch) {
+                    batchGoals = {
+                        targetIndividualGoal: firstBatch.targetIndividualGoal ?? 40,
+                        targetGroupGoal: firstBatch.targetGroupGoal ?? 50
+                    };
+                }
+            }
+        } catch (e) {
+            console.error("Batch goals fetch error in open sem stats:", e);
+        }
 
         res.status(200).json({
             totalOpenSem, totalAssigned, totalContacted, totalPending: totalActualPending, totalDirectPaid, totalEnrolled, totalDelayed,
             campaignRounds,
             staffBreakdown: Object.values(staffMap),
-            rawLeads: rawLeadsForExport // 🔥 Export එකට මේක අත්‍යවශ්‍යයි
+            rawLeads: rawLeadsForExport,
+            batchGoals
         });
     } catch (error) {
         console.error("Open Sem Stats Error:", error);
@@ -1019,7 +1135,7 @@ exports.getBridgePerformanceStats = async (req, res) => {
             const isPending = l.callStatus === 'pending' || !l.callStatus;
 
             const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
-            const isEnrolled = isReallyEnrolled || l.enrollmentStatus === 'ENROLLED';
+            const isEnrolled = isReallyEnrolled; // Strict tally with Manage Payments
 
             const isContacted = !isPending;
 

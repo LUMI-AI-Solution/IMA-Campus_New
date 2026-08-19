@@ -865,6 +865,13 @@ exports.enrollStudent = async (req, res) => {
             }
         }
 
+        try {
+            const { syncLeadEnrollment } = require('./paymentController');
+            await syncLeadEnrollment(parseInt(studentId), parsedPaymentType, newPayment);
+        } catch (e) {
+            console.error("CRM Sync Error in enrollStudent:", e);
+        }
+
         res.status(200).json({ message: safeMethod === 'payhere' ? "Payment Approved & Enrolled" : "Enrolled Successfully" });
     } catch (error) {
         console.error("Enrollment Save Error:", error);
@@ -937,7 +944,8 @@ exports.getStudentClassroom = async (req, res) => {
                         const hasFullGroupPayment = validPayments.some(p => p.groupId === group.id && (!p.subjects || p.subjects === '[]'));
                         if (hasFullGroupPayment) return true;
 
-                        if (allowedSubjectIds.includes(c.id)) return true;
+                        // Check if THIS specific group's payment included this subject
+                        if (paidSubjectIdsInThisGroup.includes(c.id)) return true;
                         
                         // Fallback: match by code/name ONLY against subjects paid for in THIS group
                         for (const paidCourse of paidCoursesInThisGroup) {
@@ -959,19 +967,21 @@ exports.getStudentClassroom = async (req, res) => {
                         const courseName = course.name;
 
                         const coursePayments = validPayments.filter(p => {
-                            if (!p.subjects) return true;
+                            if (p.groupId !== group.id) return false;
+                            if (!p.subjects || p.subjects === '[]') return true;
                             try {
                                 const subs = JSON.parse(p.subjects).map(id => parseInt(id));
                                 // Check if exact ID matches, OR if the payment contains a subject with the same code or name
                                 return subs.includes(course.id) || subs.some(subId => {
                                     const paidCourse = paidCourseMap.get(subId);
                                     if (!paidCourse) return false;
-                                    if (courseCode && paidCourse.code === courseCode) return true;
-                                    if (courseName && paidCourse.name === courseName) return true;
-                                    return false;
+                                    const codeMatch = courseCode && paidCourse.code && courseCode.trim().toLowerCase() === paidCourse.code.trim().toLowerCase();
+                                    const nameMatch = courseName && paidCourse.name && courseName.trim().toLowerCase() === paidCourse.name.trim().toLowerCase();
+                                    if (courseCode && paidCourse.code) return codeMatch && nameMatch;
+                                    return nameMatch;
                                 });
                             } catch (e) {
-                                return true;
+                                return false;
                             }
                         });
 
@@ -1022,7 +1032,7 @@ exports.getCourseModules = async (req, res) => {
 
             if (fullPayments.length > 0) {
                 // If Full Payment, fetch all courses in this batch with the same code OR same name
-                const similarCourses = await prisma.course.findMany({
+                const similarCoursesRaw = await prisma.course.findMany({
                     where: {
                         OR: [
                             requestedCourse.code ? { code: requestedCourse.code } : undefined,
@@ -1030,6 +1040,17 @@ exports.getCourseModules = async (req, res) => {
                         ].filter(Boolean),
                         group: { batchId: batchId }
                     }
+                });
+
+                // 🔥 FIX: Filter out courses that clearly belong to a different subject despite having the same code
+                const similarCourses = similarCoursesRaw.filter(c => {
+                    if (c.name === requestedCourse.name) return true;
+                    if (requestedCourse.code && c.code === requestedCourse.code) {
+                        const reqFirstWord = requestedCourse.name.trim().split(/[\s-]+/)[0].toLowerCase();
+                        const cFirstWord = (c.name || '').trim().split(/[\s-]+/)[0].toLowerCase();
+                        return reqFirstWord === cFirstWord;
+                    }
+                    return false;
                 });
                 
                 const similarCourseIds = similarCourses.map(c => parseInt(c.id));
@@ -1515,7 +1536,8 @@ exports.getStudentsDataCenter = async (req, res) => {
                     where: { status: { in: [1, 4] } },
                     include: {
                         business: true,
-                        batch: true
+                        batch: true,
+                        group: { select: { id: true, name: true, type: true } }
                     }
                 }
             },
@@ -1532,10 +1554,19 @@ exports.getStudentsDataCenter = async (req, res) => {
             const enrolledBusinesses = new Set();
             const enrolledBatches = new Set();
             const enrolledSubjects = new Set();
+            const enrolledGroupsMap = new Map(); // Use Map to prevent duplicates by group ID
 
             student.payments.forEach(p => {
                 if (p.business) enrolledBusinesses.add(p.business.name);
                 if (p.batch) enrolledBatches.add(p.batch.name);
+                if (p.group) {
+                    enrolledGroupsMap.set(p.group.id, {
+                        id: p.group.id,
+                        name: p.group.name,
+                        type: p.group.type,
+                        batchName: p.batch?.name
+                    });
+                }
                 if (p.subjects) {
                     try {
                         const parsed = JSON.parse(p.subjects);
@@ -1555,7 +1586,8 @@ exports.getStudentsDataCenter = async (req, res) => {
                 ...student,
                 enrolledBusinesses: Array.from(enrolledBusinesses),
                 enrolledBatches: Array.from(enrolledBatches),
-                enrolledSubjects: Array.from(enrolledSubjects)
+                enrolledSubjects: Array.from(enrolledSubjects),
+                enrolledGroups: Array.from(enrolledGroupsMap.values())
             };
         });
 

@@ -146,7 +146,41 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
             filtered = filtered.filter(l => l?.phone?.includes(sq) || (l?.name && l?.name?.toLowerCase().includes(sq)));
         }
 
+        const checkIsFrozen = (l) => {
+            if (!l || !l.assignedAt) return false;
+            if (l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID') return false;
+            const round = l.coordinationRound || 1;
+            if (round === 2) {
+                const startTime = new Date(l.assignedAt).getTime();
+                const diffDays = (new Date().getTime() - startTime) / (1000 * 60 * 60 * 24);
+                return diffDays < 6;
+            }
+            return false;
+        };
+
         filtered.sort((a, b) => {
+            const aFrozen = checkIsFrozen(a) ? 1 : 0;
+            const bFrozen = checkIsFrozen(b) ? 1 : 0;
+
+            // 1. Unfrozen (Active) leads come FIRST (0), Frozen leads come LAST (1)
+            if (aFrozen !== bFrozen) {
+                return aFrozen - bFrozen;
+            }
+
+            // 2. Rejected leads go to the very bottom
+            const aRejected = a?.callStatus === 'reject';
+            const bRejected = b?.callStatus === 'reject';
+            if (aRejected && !bRejected) return 1;
+            if (!aRejected && bRejected) return -1;
+
+            // 3. If BOTH are frozen: sort by unfreezing SOONEST first (oldest assignedAt first: 1D, 2D... then 5D, 6D)
+            if (aFrozen && bFrozen) {
+                const aTime = new Date(a?.assignedAt || a?.createdAt || 0).getTime();
+                const bTime = new Date(b?.assignedAt || b?.createdAt || 0).getTime();
+                return aTime - bTime;
+            }
+
+            // 4. For unfrozen leads: newest assigned first
             const aTime = new Date(a?.assignedAt || a?.createdAt || 0).getTime();
             const bTime = new Date(b?.assignedAt || b?.createdAt || 0).getTime();
             return bTime - aTime;
@@ -346,7 +380,7 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
         setReminderLead(lead);
         const loadToast = toast.loading("Loading reminder details...");
         try {
-            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
             const agentId = loggedUser.id || loggedUser.userId;
             const res = await axios.get(`/reminders/my-reminders?agentId=${agentId}`);
             const existing = res.data.find(r => r.leadId === lead.id);
@@ -374,7 +408,7 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
         const loadToast = toast.loading(existingReminderId ? "Updating reminder..." : "Setting reminder...");
         try {
             const token = localStorage.getItem('token');
-            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
             const agentId = loggedUser.id || loggedUser.userId;
             const formattedDate = new Date(`${remindDate}T${remindTime}:00`).toISOString();
             

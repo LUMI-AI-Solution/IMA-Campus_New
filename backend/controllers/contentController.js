@@ -626,152 +626,16 @@ exports.addContentMassAssign = async (req, res) => {
 
 exports.updateContentMassAssign = async (req, res) => {
     try {
-        // 🔥 මේ DEBUG ටික අනිවාර්යයෙන්ම දාන්න 🔥
-        console.log(`\n================ UPDATE CONTENT TRIGGERED ================`);
-        console.log(`Frontend එකෙන් ආපු ඔක්කොම Data:`, req.body);
-
         const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, paperTime, questionCount, isFree, itemOrder, selectedCourses, youtubeLink, vimeoLink } = req.body;
         
         const sanitizedMeetingId = zoomMeetingId ? zoomMeetingId.replace(/\s+/g, '') : null;
-        console.log(`[DEBUG] Meeting ID එක: "${sanitizedMeetingId}"`);
-
-        // 🔥 ZOOM DIRECT LINK 🔥
-        let finalVideoLink = link;
-        if (sanitizedMeetingId && sanitizedMeetingId !== 'undefined' && sanitizedMeetingId !== 'null' && sanitizedMeetingId !== '') {
-            console.log(`[DEBUG] Meeting ID එකක් තියෙනවා! දැන් Zoom API එකට කතා කරනවා...`);
-            const directMp4 = await getZoomDirectMp4Link(sanitizedMeetingId);
-            if (directMp4) {
-                finalVideoLink = directMp4; 
-            }
-        } else {
-            console.log(`[DEBUG] Meeting ID එක හිස්! ඒක නිසා Zoom API එකට කතා කරන්නේ නෑ.`);
-        }
 
         let updateData = { 
             title, 
             contentType: type, 
-            link: finalVideoLink, 
-            youtubeLink,
-            vimeoLink,
-            meetingId: sanitizedMeetingId,
-            date: date ? new Date(date) : null, 
-            startTime, 
-            endTime, 
-            paperTime: paperTime ? parseInt(paperTime) : null, 
-            questionCount: questionCount ? parseInt(questionCount) : null, 
-            isFree: isFree === '1',
-            itemOrder: parseInt(itemOrder || 1)
-        };
-
-        // Reset reminder flag so cron jobs can send the notification again for updated times
-        if (type === 'live') {
-            updateData.reminderSent = false;
-        }
-
-        if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined') {
-            updateData.contentGroupId = parseInt(contentGroupId);
-        } else {
-            updateData.contentGroupId = null;
-        }
-
-        if (req.files && !Array.isArray(req.files)) {
-            if (req.files['file'] && req.files['file'].length > 0) updateData.fileName = req.files['file'][0].filename;
-            if (req.files['thumbnail'] && req.files['thumbnail'].length > 0) updateData.thumbnail = req.files['thumbnail'][0].filename;
-        } else if (req.file) {
-            updateData.fileName = req.file.filename;
-        }
-
-        const updated = await prisma.content.update({ where: { id: parseInt(content_id) }, data: updateData });
-
-        if (selectedCourses) {
-            const coursesArray = JSON.parse(selectedCourses);
-            await prisma.contentCourse.deleteMany({ where: { content_id: parseInt(content_id) } });
-            
-            if (coursesArray.length > 0) {
-                const contentCourseData = coursesArray.map(cId => ({ 
-                    content_id: parseInt(content_id), 
-                    course_id: BigInt(cId), 
-                    type: getTypeInt(type) 
-                }));
-                await prisma.contentCourse.createMany({ data: contentCourseData });
-            }
-        }
-
-        res.status(200).json(updated);
-    } catch (e) { 
-        console.error(e);
-        res.status(500).json({ error: "Failed to update content" }); 
-    }
-};
-
-exports.updateContentMassAssign = async (req, res) => {
-    try {
-        const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, paperTime, questionCount, isFree, itemOrder, selectedCourses } = req.body;
-        
-        // 🔥 FIX: Meeting ID එකේ මැද තියෙන හිස්තැන් ඔක්කොම අයින් කිරීම 🔥
-        const sanitizedMeetingId = zoomMeetingId ? zoomMeetingId.replace(/\s+/g, '') : null;
-
-        let updateData = { 
-            title, 
-            contentType: type, 
-            link, 
-            meetingId: sanitizedMeetingId, // හිස්තැන් අයින් කරපු ID එක
-            date: date ? new Date(date) : null, 
-            startTime, 
-            endTime, 
-            paperTime: paperTime ? parseInt(paperTime) : null, 
-            questionCount: questionCount ? parseInt(questionCount) : null, 
-            isFree: isFree === '1',
-            itemOrder: parseInt(itemOrder || 1)
-        };
-
-        if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined') {
-            updateData.contentGroupId = parseInt(contentGroupId);
-        } else {
-            updateData.contentGroupId = null;
-        }
-
-        if (req.files && !Array.isArray(req.files)) {
-            if (req.files['file'] && req.files['file'].length > 0) updateData.fileName = req.files['file'][0].filename;
-            if (req.files['thumbnail'] && req.files['thumbnail'].length > 0) updateData.thumbnail = req.files['thumbnail'][0].filename;
-        } else if (req.file) {
-            updateData.fileName = req.file.filename;
-        }
-
-        const updated = await prisma.content.update({ where: { id: parseInt(content_id) }, data: updateData });
-
-        if (selectedCourses) {
-            const coursesArray = JSON.parse(selectedCourses);
-            await prisma.contentCourse.deleteMany({ where: { content_id: parseInt(content_id) } });
-            
-            if (coursesArray.length > 0) {
-                const contentCourseData = coursesArray.map(cId => ({ 
-                    content_id: parseInt(content_id), 
-                    course_id: BigInt(cId), 
-                    type: getTypeInt(type) 
-                }));
-                await prisma.contentCourse.createMany({ data: contentCourseData });
-            }
-        }
-
-        res.status(200).json(updated);
-    } catch (e) { 
-        console.error(e);
-        res.status(500).json({ error: "Failed to update content" }); 
-    }
-};
-
-exports.updateContentMassAssign = async (req, res) => {
-    try {
-        const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, paperTime, questionCount, isFree, itemOrder, selectedCourses } = req.body;
-        
-        const sanitizedMeetingId = zoomMeetingId ? zoomMeetingId.replace(/\s+/g, '') : null;
-
-        // 🔥 FIX: Update එකෙදිත් Zoom direct link එක fetch කරලා save කරන එක අයින් කළා.
-        let updateData = { 
-            title, 
-            contentType: type, 
-            link: link, // Normal Link එක විතරක් update කරනවා
+            link: link, 
+            youtubeLink: youtubeLink || null,
+            vimeoLink: vimeoLink || null,
             meetingId: sanitizedMeetingId, 
             date: date ? new Date(date) : null, 
             startTime, 
@@ -782,7 +646,11 @@ exports.updateContentMassAssign = async (req, res) => {
             itemOrder: parseInt(itemOrder || 1)
         };
 
-        if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined') {
+        if (type === 'live') {
+            updateData.reminderSent = false;
+        }
+
+        if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined' && contentGroupId !== '' && contentGroupId !== '0') {
             updateData.contentGroupId = parseInt(contentGroupId);
         } else {
             updateData.contentGroupId = null;
@@ -813,7 +681,7 @@ exports.updateContentMassAssign = async (req, res) => {
 
         res.status(200).json(updated);
     } catch (e) { 
-        console.error(e);
+        console.error(e); 
         res.status(500).json({ error: "Failed to update content" }); 
     }
 };

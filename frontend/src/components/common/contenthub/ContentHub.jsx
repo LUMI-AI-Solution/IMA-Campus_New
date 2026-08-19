@@ -8,11 +8,11 @@ import ContentHubModals from './ContentHubModals';
 export default function ContentHub() {
   const [loading, setLoading] = useState(true);
 
-  const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
-  const userRole = storedUser.role ? storedUser.role.toUpperCase() : 'STAFF'; 
+  const storedUser = JSON.parse(localStorage.getItem('user') || '{}') || {};
+  const userRole = storedUser.role ? storedUser.role.toUpperCase().replace(/[\s_-]+/g, '_') : 'STAFF'; 
 
-  const isSystemAdmin = userRole === 'SYSTEM_ADMIN' || userRole === 'SYSTEM ADMIN' || userRole === 'DIRECTOR';
-  const isManager = userRole === 'MANAGER' || userRole === 'ASS MANAGER' || userRole === 'ASS_MANAGER';
+  const isSystemAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'ADMIN', 'SUPER_ADMIN'].includes(userRole);
+  const isManager = ['MANAGER', 'ASS_MANAGER', 'SUPER', 'SUPERVISOR', 'PHYSICAL_MANAGER', 'SOCIAL_MEDIA_MANAGER', 'CALL_CENTER_SUPERVISOR'].includes(userRole) || userRole.includes('MANAG');
   const isStaff = userRole === 'COORDINATOR' || userRole === 'STAFF';
 
   const canManageBusiness = isSystemAdmin;
@@ -614,18 +614,25 @@ export default function ContentHub() {
               formData.set('selectedCourses', JSON.stringify(massAssignSubjects));
               formData.set('selectedBatches', JSON.stringify(selectedBatchesForContent));
               if (editData?.id) formData.set('content_id', editData.id);
+              const topF = formData.get('contentGroupId') || (editData?.contentGroupId ? String(editData.contentGroupId) : '');
+              if (topF && topF !== 'null' && topF !== 'undefined' && topF !== '') {
+                  formData.set('contentGroupId', topF);
+              } else {
+                  formData.set('contentGroupId', '');
+              }
               await api.put('/admin/manager/contents/update', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
           } else {
               // Group selections by folderId for multi-batch, multi-folder creation
               const folderGroups = {}; 
               let hasSelections = false;
+              const defaultTopFolder = formData.get('contentGroupId') || prefilledFolder || '';
 
               Object.keys(hubBatchConfigs).forEach(bId => {
                   Object.keys(hubBatchConfigs[bId]).forEach(cId => {
                       const config = hubBatchConfigs[bId][cId];
                       if (config.isChecked) {
                           hasSelections = true;
-                          const folderKey = config.folderId || 'uncategorized';
+                          const folderKey = config.folderId || defaultTopFolder || 'uncategorized';
                           if (!folderGroups[folderKey]) folderGroups[folderKey] = { batches: new Set(), courses: new Set() };
                           folderGroups[folderKey].batches.add(bId);
                           folderGroups[folderKey].courses.add(cId);
@@ -640,8 +647,11 @@ export default function ContentHub() {
                   fd.set('type', contentType);
                   fd.set('batch_id', activeBatch.id);
                   
-                  if (folderKey !== 'uncategorized') fd.set('contentGroupId', folderKey);
-                  else fd.delete('contentGroupId');
+                  if (folderKey && folderKey !== 'uncategorized' && folderKey !== 'null' && folderKey !== 'undefined') {
+                      fd.set('contentGroupId', folderKey);
+                  } else {
+                      fd.delete('contentGroupId');
+                  }
                   
                   fd.set('selectedBatches', JSON.stringify(Array.from(folderGroups[folderKey].batches)));
                   fd.set('selectedCourses', JSON.stringify(Array.from(folderGroups[folderKey].courses)));

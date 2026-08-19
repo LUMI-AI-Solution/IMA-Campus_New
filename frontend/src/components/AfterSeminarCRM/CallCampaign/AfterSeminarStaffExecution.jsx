@@ -15,7 +15,7 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
     const [drafts, setDrafts] = useState({});
     const activeLoadingTabRef = useRef('OPEN_SEM');
 
-    const currentUser = JSON.parse(localStorage.getItem('user'));
+    const currentUser = JSON.parse(localStorage.getItem('user')) || {};
     const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN'].includes(currentUser?.role?.toUpperCase().replace(/ /g, '_'));
 
     useEffect(() => {
