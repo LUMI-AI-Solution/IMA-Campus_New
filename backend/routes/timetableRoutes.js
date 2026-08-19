@@ -7,6 +7,7 @@ router.use(verifyToken);
 
 router.get('/timetable', controller.getSchedule);
 router.post('/timetable', controller.createSchedule);
+router.put('/timetable/:id', controller.updateSchedule);
 router.delete('/timetable/:id', controller.deleteSchedule);
 
 module.exports = router;

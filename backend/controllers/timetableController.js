@@ -310,3 +310,53 @@ exports.deleteSchedule = async (req, res) => {
         res.status(500).json({ error: "Failed to delete schedule" });
     }
 };
+
+exports.updateSchedule = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { subjectName, title, startTime, endTime, lecturerName, date } = req.body;
+        const userId = req.user.userId || req.user.id;
+        const userRole = req.user.role;
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/[\s_-]+/g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN', 'PHYSICAL_MANAGER', 'SOCIAL_MEDIA_MANAGER', 'CALL_CENTER_SUPERVISOR'].includes(roleUpper) || roleUpper.includes('MANAG');
+
+        const rawId = String(id);
+        if (rawId.startsWith('content_')) {
+            const contentId = parseInt(rawId.replace('content_', ''));
+            await prisma.content.update({
+                where: { id: contentId },
+                data: {
+                    title: subjectName || title,
+                    startTime,
+                    endTime
+                }
+            });
+            return res.status(200).json({ message: "Content class updated" });
+        }
+
+        const scheduleItem = await prisma.timetable.findUnique({ where: { id: parseInt(rawId) } });
+        if (!scheduleItem) return res.status(404).json({ error: "Schedule not found" });
+
+        if (!isAdmin) {
+            return res.status(403).json({ error: "Access Denied." });
+        }
+
+        let updateData = {};
+        if (subjectName) updateData.subjectName = subjectName;
+        if (title) updateData.title = title;
+        if (startTime) updateData.startTime = startTime;
+        if (endTime) updateData.endTime = endTime;
+        if (lecturerName !== undefined) updateData.lecturerName = lecturerName;
+        if (date) updateData.date = parseSLTDate(date, "00:00");
+
+        const updated = await prisma.timetable.update({
+            where: { id: parseInt(rawId) },
+            data: updateData
+        });
+
+        res.status(200).json(updated);
+    } catch (error) {
+        console.error("Update timetable error:", error);
+        res.status(500).json({ error: "Failed to update schedule" });
+    }
+};

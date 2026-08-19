@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, BookOpen, User, X, Trash2, Filter, Building2, Layers } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, BookOpen, User, X, Trash2, Filter, Building2, Layers, Pencil } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
 
@@ -27,13 +27,22 @@ export default function ClassTimetable() {
     // Modal States
     const [showAddModal, setShowAddModal] = useState(false);
     const [showViewModal, setShowViewModal] = useState(false);
+    const [isEditing, setIsEditing] = useState(false);
     const [selectedDay, setSelectedDay] = useState(null);
     const [selectedEvent, setSelectedEvent] = useState(null);
     
-    // Form State (New Class)
+    // Form State (New & Edit Class)
     const [selectedBatchesForNew, setSelectedBatchesForNew] = useState([]);
     const [newClassSubject, setNewClassSubject] = useState('');
     const [newClassLecturer, setNewClassLecturer] = useState('');
+
+    // Edit Form State
+    const [editSubject, setEditSubject] = useState('');
+    const [editTitle, setEditTitle] = useState('');
+    const [editStartTime, setEditStartTime] = useState('');
+    const [editEndTime, setEditEndTime] = useState('');
+    const [editLecturer, setEditLecturer] = useState('');
+    const [editDate, setEditDate] = useState('');
 
     useEffect(() => {
         fetchInitialData();
@@ -204,6 +213,36 @@ export default function ClassTimetable() {
             setNewClassLecturer(foundSub.lecturerName);
         } else {
             setNewClassLecturer('');
+        }
+    };
+
+    const startEditing = (evt) => {
+        setEditSubject(evt.subjectName || '');
+        setEditTitle(evt.title || '');
+        setEditStartTime(evt.startTime || '');
+        setEditEndTime(evt.endTime || '');
+        setEditLecturer(evt.lecturerName || '');
+        setEditDate(evt.date ? evt.date.split('T')[0] : '');
+        setIsEditing(true);
+    };
+
+    const handleEditSubmit = async (e) => {
+        e.preventDefault();
+        try {
+            await api.put(`/admin/timetable/${selectedEvent.id}`, {
+                subjectName: editSubject,
+                title: editTitle,
+                startTime: editStartTime,
+                endTime: editEndTime,
+                lecturerName: editLecturer,
+                date: editDate
+            });
+            toast.success("Class timetable updated successfully!");
+            setShowViewModal(false);
+            setIsEditing(false);
+            fetchSchedule();
+        } catch (err) {
+            toast.error(err.response?.data?.error || "Failed to update timetable class");
         }
     };
 
@@ -509,87 +548,179 @@ export default function ClassTimetable() {
                             <button onClick={() => setShowViewModal(false)} className="bg-gray-100 dark:bg-brand-darkBg p-2.5 rounded-xl border border-gray-200 dark:border-brand-darkBorder text-gray-500 dark:text-slate-400 hover:text-gray-900 hover:bg-gray-200 dark:hover:text-white dark:hover:bg-brand-darkHover transition-colors shrink-0 outline-none"><X size={18}/></button>
                         </div>
 
-                        <div className="space-y-4 bg-gray-50 dark:bg-brand-darkBg p-5 rounded-2xl border border-gray-200 dark:border-brand-darkBorder mb-6 shadow-sm transition-colors">
-                            <div className="flex items-start gap-4 transition-colors">
-                                <div className="bg-brand-accentLight p-2.5 rounded-xl text-brand-accent border border-brand-accent/20 transition-colors"><BookOpen size={20} /></div>
+                        {isEditing ? (
+                            <form onSubmit={handleEditSubmit} className="space-y-4">
                                 <div>
-                                    <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-0.5 transition-colors">Topic / Details</p>
-                                    <p className="text-base text-gray-900 dark:text-white font-bold transition-colors">{selectedEvent.title}</p>
+                                    <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Subject Name</label>
+                                    <input 
+                                        type="text" 
+                                        value={editSubject} 
+                                        onChange={(e) => setEditSubject(e.target.value)} 
+                                        required 
+                                        className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3 text-sm font-bold text-gray-900 dark:text-white outline-none focus:border-brand-accent"
+                                    />
                                 </div>
-                            </div>
-
-                            <div className="flex items-start gap-4 transition-colors">
-                                <div className="bg-orange-50 dark:bg-orange-500/10 p-2.5 rounded-xl text-orange-500 border border-orange-200 dark:border-orange-500/20 transition-colors"><Clock size={20} /></div>
                                 <div>
-                                    <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-0.5 transition-colors">Time Allocation</p>
-                                    <p className="text-base text-gray-900 dark:text-white font-bold transition-colors">{selectedEvent.startTime} — {selectedEvent.endTime}</p>
+                                    <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Topic / Title</label>
+                                    <input 
+                                        type="text" 
+                                        value={editTitle} 
+                                        onChange={(e) => setEditTitle(e.target.value)} 
+                                        required 
+                                        className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3 text-sm font-bold text-gray-900 dark:text-white outline-none focus:border-brand-accent"
+                                    />
                                 </div>
-                            </div>
-
-                            {/* TECH DEPT ALLOCATION DETAILS */}
-                            <div className="flex items-start gap-4 transition-colors">
-                                <div className="bg-indigo-50 dark:bg-indigo-500/10 p-2.5 rounded-xl text-indigo-500 border border-indigo-200 dark:border-indigo-500/20 transition-colors"><Building2 size={20} /></div>
-                                <div className="flex-1">
-                                    <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-0.5 transition-colors">Technical Department Status</p>
-                                    <div className="flex gap-2 mt-1">
-                                        {selectedEvent.batch ? (
-                                            <span className="text-xs bg-brand-accent/10 text-brand-accent border border-brand-accent/20 px-2 py-1 rounded-md font-bold">
-                                                📚 {selectedEvent.batch.name}
-                                                {selectedEvent.additionalBatchIds && (() => {
-                                                    try {
-                                                        const p = JSON.parse(selectedEvent.additionalBatchIds);
-                                                        return p.length > 0 ? ` + ${p.length} more` : '';
-                                                    } catch(e){return '';}
-                                                })()}
-                                            </span>
-                                        ) : null}
-
-                                        {selectedEvent.hall ? (
-                                            <span className="text-xs bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 px-2 py-1 rounded-md font-bold">
-                                                📍 {selectedEvent.hall.name}
-                                            </span>
-                                        ) : (
-                                            <span className="text-xs bg-slate-500/10 text-slate-500 border border-slate-500/20 px-2 py-1 rounded-md font-bold">
-                                                ⏳ Hall Not Assigned
-                                            </span>
-                                        )}
-                                        
-                                        {selectedEvent.deliveryStatus === 'DELIVERED' ? (
-                                            <span className="text-xs bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-1 rounded-md font-bold">
-                                                ✅ Live Link Sent
-                                            </span>
-                                        ) : (
-                                            <span className="text-xs bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-1 rounded-md font-bold">
-                                                ⚠️ Submit Link in Tasks
-                                            </span>
-                                        )}
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Class Date</label>
+                                    <input 
+                                        type="date" 
+                                        value={editDate} 
+                                        onChange={(e) => setEditDate(e.target.value)} 
+                                        required 
+                                        className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3 text-sm font-bold text-gray-900 dark:text-white outline-none focus:border-brand-accent"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Start Time</label>
+                                        <input 
+                                            type="time" 
+                                            value={editStartTime} 
+                                            onChange={(e) => setEditStartTime(e.target.value)} 
+                                            required 
+                                            className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3 text-sm font-bold text-gray-900 dark:text-white outline-none focus:border-brand-accent"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">End Time</label>
+                                        <input 
+                                            type="time" 
+                                            value={editEndTime} 
+                                            onChange={(e) => setEditEndTime(e.target.value)} 
+                                            required 
+                                            className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3 text-sm font-bold text-gray-900 dark:text-white outline-none focus:border-brand-accent"
+                                        />
                                     </div>
                                 </div>
-                            </div>
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Lecturer Name</label>
+                                    <input 
+                                        type="text" 
+                                        value={editLecturer} 
+                                        onChange={(e) => setEditLecturer(e.target.value)} 
+                                        placeholder="e.g. Dr. Silva" 
+                                        className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3 text-sm font-bold text-gray-900 dark:text-white outline-none focus:border-brand-accent"
+                                    />
+                                </div>
+                                <div className="flex gap-3 pt-2">
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setIsEditing(false)} 
+                                        className="flex-1 bg-gray-100 dark:bg-brand-darkHover text-gray-700 dark:text-slate-300 font-bold py-3 rounded-xl transition-all text-xs uppercase tracking-widest"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button 
+                                        type="submit" 
+                                        className="flex-1 bg-brand-accent hover:bg-brand-accentHover text-white font-black py-3 rounded-xl transition-all text-xs uppercase tracking-widest shadow-md"
+                                    >
+                                        Save Changes
+                                    </button>
+                                </div>
+                            </form>
+                        ) : (
+                            <>
+                                <div className="space-y-4 bg-gray-50 dark:bg-brand-darkBg p-5 rounded-2xl border border-gray-200 dark:border-brand-darkBorder mb-6 shadow-sm transition-colors">
+                                    <div className="flex items-start gap-4 transition-colors">
+                                        <div className="bg-brand-accentLight p-2.5 rounded-xl text-brand-accent border border-brand-accent/20 transition-colors"><BookOpen size={20} /></div>
+                                        <div>
+                                            <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-0.5 transition-colors">Topic / Details</p>
+                                            <p className="text-base text-gray-900 dark:text-white font-bold transition-colors">{selectedEvent.title}</p>
+                                        </div>
+                                    </div>
 
-                            <div className="flex items-start gap-4 transition-colors">
-                                <div className="bg-emerald-50 dark:bg-emerald-500/10 p-2.5 rounded-xl text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 transition-colors"><User size={20} /></div>
-                                <div className="flex-1">
-                                    <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-0.5 transition-colors">Lecturer</p>
-                                    <div className="flex items-center gap-3 mt-1">
-                                        {getLecturerImage(selectedEvent.lecturerName) ? (
-                                            <img src={getLecturerImage(selectedEvent.lecturerName)} className="w-8 h-8 rounded-full border border-gray-200 dark:border-brand-darkBorder object-cover shadow-sm transition-colors" alt="Lec"/>
-                                        ) : (
-                                            <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-brand-darkHover flex items-center justify-center border border-gray-200 dark:border-brand-darkBorder transition-colors shadow-sm"><User size={14} className="text-gray-400 dark:text-slate-400"/></div>
-                                        )}
-                                        <p className="text-base text-gray-900 dark:text-white font-bold transition-colors">{selectedEvent.lecturerName || 'TBA'}</p>
+                                    <div className="flex items-start gap-4 transition-colors">
+                                        <div className="bg-orange-50 dark:bg-orange-500/10 p-2.5 rounded-xl text-orange-500 border border-orange-200 dark:border-orange-500/20 transition-colors"><Clock size={20} /></div>
+                                        <div>
+                                            <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-0.5 transition-colors">Time Allocation</p>
+                                            <p className="text-base text-gray-900 dark:text-white font-bold transition-colors">{selectedEvent.startTime} — {selectedEvent.endTime}</p>
+                                        </div>
+                                    </div>
+
+                                    {/* TECH DEPT ALLOCATION DETAILS */}
+                                    <div className="flex items-start gap-4 transition-colors">
+                                        <div className="bg-indigo-50 dark:bg-indigo-500/10 p-2.5 rounded-xl text-indigo-500 border border-indigo-200 dark:border-indigo-500/20 transition-colors"><Building2 size={20} /></div>
+                                        <div className="flex-1">
+                                            <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-0.5 transition-colors">Technical Department Status</p>
+                                            <div className="flex gap-2 mt-1">
+                                                {selectedEvent.batch ? (
+                                                    <span className="text-xs bg-brand-accent/10 text-brand-accent border border-brand-accent/20 px-2 py-1 rounded-md font-bold">
+                                                        📚 {selectedEvent.batch.name}
+                                                        {selectedEvent.additionalBatchIds && (() => {
+                                                            try {
+                                                                const p = JSON.parse(selectedEvent.additionalBatchIds);
+                                                                return p.length > 0 ? ` + ${p.length} more` : '';
+                                                            } catch(e){return '';}
+                                                        })()}
+                                                    </span>
+                                                ) : null}
+
+                                                {selectedEvent.hall ? (
+                                                    <span className="text-xs bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 px-2 py-1 rounded-md font-bold">
+                                                        📍 {selectedEvent.hall.name}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs bg-slate-500/10 text-slate-500 border border-slate-500/20 px-2 py-1 rounded-md font-bold">
+                                                        ⏳ Hall Not Assigned
+                                                    </span>
+                                                )}
+                                                
+                                                {selectedEvent.deliveryStatus === 'DELIVERED' ? (
+                                                    <span className="text-xs bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-2 py-1 rounded-md font-bold">
+                                                        ✅ Live Link Sent
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-xs bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-1 rounded-md font-bold">
+                                                        ⚠️ Submit Link in Tasks
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex items-start gap-4 transition-colors">
+                                        <div className="bg-emerald-50 dark:bg-emerald-500/10 p-2.5 rounded-xl text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 transition-colors"><User size={20} /></div>
+                                        <div className="flex-1">
+                                            <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-0.5 transition-colors">Lecturer</p>
+                                            <div className="flex items-center gap-3 mt-1">
+                                                {getLecturerImage(selectedEvent.lecturerName) ? (
+                                                    <img src={getLecturerImage(selectedEvent.lecturerName)} className="w-8 h-8 rounded-full border border-gray-200 dark:border-brand-darkBorder object-cover shadow-sm transition-colors" alt="Lec"/>
+                                                ) : (
+                                                    <div className="w-8 h-8 rounded-full bg-gray-100 dark:bg-brand-darkHover flex items-center justify-center border border-gray-200 dark:border-brand-darkBorder transition-colors shadow-sm"><User size={14} className="text-gray-400 dark:text-slate-400"/></div>
+                                                )}
+                                                <p className="text-base text-gray-900 dark:text-white font-bold transition-colors">{selectedEvent.lecturerName || 'TBA'}</p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
 
-                        {canEdit && (
-                            <button 
-                                onClick={() => handleDeleteEvent(selectedEvent.id)} 
-                                className="w-full bg-red-50 dark:bg-red-500/10 hover:bg-red-500 dark:hover:bg-red-600 text-red-600 dark:text-red-400 hover:text-white border border-red-200 dark:border-red-500/30 font-black py-4 rounded-xl transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-widest shadow-sm outline-none"
-                            >
-                                <Trash2 size={18}/> Cancel Class
-                            </button>
+                                {canEdit && (
+                                    <div className="flex gap-3">
+                                        <button 
+                                            onClick={() => startEditing(selectedEvent)} 
+                                            className="flex-1 bg-sky-50 dark:bg-sky-500/10 hover:bg-sky-500 dark:hover:bg-sky-600 text-sky-600 dark:text-sky-400 hover:text-white border border-sky-200 dark:border-sky-500/30 font-black py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-xs uppercase tracking-widest shadow-sm outline-none"
+                                        >
+                                            <Pencil size={16}/> Edit Class
+                                        </button>
+                                        <button 
+                                            onClick={() => handleDeleteEvent(selectedEvent.id)} 
+                                            className="flex-1 bg-red-50 dark:bg-red-500/10 hover:bg-red-500 dark:hover:bg-red-600 text-red-600 dark:text-red-400 hover:text-white border border-red-200 dark:border-red-500/30 font-black py-3 rounded-xl transition-all flex items-center justify-center gap-2 text-xs uppercase tracking-widest shadow-sm outline-none"
+                                        >
+                                            <Trash2 size={16}/> Cancel
+                                        </button>
+                                    </div>
+                                )}
+                            </>
                         )}
                     </div>
                 </div>

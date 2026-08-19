@@ -10,13 +10,16 @@ const syncLeadEnrollment = async (studentId, paymentType, payment) => {
     try {
         if (!studentId) return;
         const student = await prisma.user.findUnique({ where: { id: parseInt(studentId) } });
-        if (!student || (!student.phone && !student.whatsapp)) return;
-
+        const rawPhones = [student.phone, student.whatsapp, student.optionalPhone, student.addressHouseNo];
         const phonesToCheck = [];
-        if (student.phone) phonesToCheck.push(student.phone.replace(/[^0-9]/g, ''));
-        if (student.whatsapp) phonesToCheck.push(student.whatsapp.replace(/[^0-9]/g, ''));
+        rawPhones.forEach(raw => {
+            if (raw) {
+                const cleaned = raw.replace(/[^0-9]/g, '');
+                if (cleaned.length >= 7) phonesToCheck.push(cleaned);
+            }
+        });
 
-        const validLast7Digits = phonesToCheck.map(p => p.slice(-7)).filter(p => p.length >= 7);
+        const validLast7Digits = [...new Set(phonesToCheck.map(p => p.slice(-7)).filter(p => p.length >= 7))];
         if (validLast7Digits.length === 0) return;
 
         // Find leads containing last 7 digits of the phone
