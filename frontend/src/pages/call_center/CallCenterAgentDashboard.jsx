@@ -3,7 +3,8 @@ import axios from '../../api/axios';
 import { useParams, useNavigate } from 'react-router-dom';
 import { 
   PhoneCall, Loader, ChevronLeft, Calendar,
-  PhoneForwarded, Megaphone, Target, PieChart, Activity, Repeat
+  PhoneForwarded, Megaphone, Target, PieChart, Activity, Repeat,
+  Filter, Clock, CheckCircle, UserMinus, Sparkles
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import LeadCallCard from '../../components/CallCenter/LeadCallCard';
@@ -32,6 +33,7 @@ export default function CallCenterAgentDashboard() {
   const [activeRound, setActiveRound] = useState(1);
   const [activePhase, setActivePhase] = useState(1);
   const [batchFilter, setBatchFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('ALL');
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -148,7 +150,26 @@ export default function CallCenterAgentDashboard() {
     return { ...l, roundData: rData };
   }).filter(Boolean); // Remove leads that don't have this round
 
-  const phaseLeads = roundLeads.filter(l => l.roundData.phase === activePhase);
+  const phaseLeadsAll = roundLeads.filter(l => l.roundData.phase === activePhase);
+  
+  // Dynamic outcome counts for current phase
+  const countPending = phaseLeadsAll.filter(l => (l.roundData.callStatus || 'PENDING').toUpperCase() === 'PENDING').length;
+  const countNoAnswer = phaseLeadsAll.filter(l => (l.roundData.callStatus || '').toUpperCase() === 'NO_ANSWER').length;
+  const countAnswered = phaseLeadsAll.filter(l => ['ANSWERED', 'ANSWER', 'CALL_AGAIN', 'FOLLOW_UP'].includes((l.roundData.callStatus || '').toUpperCase())).length;
+  const countReject = phaseLeadsAll.filter(l => ['REJECT', 'REJECTED', 'NOT_INTERESTED'].includes((l.roundData.callStatus || '').toUpperCase())).length;
+  const countPaid = phaseLeadsAll.filter(l => l.enrollmentStatus === 'ENROLLED' || l.roundData.enrollmentStatus === 'ENROLLED').length;
+
+  const phaseLeads = phaseLeadsAll.filter(l => {
+    const statusUpper = (l.roundData.callStatus || 'PENDING').toUpperCase();
+    if (statusFilter === 'ALL') return true;
+    if (statusFilter === 'PENDING') return statusUpper === 'PENDING';
+    if (statusFilter === 'NO_ANSWER') return statusUpper === 'NO_ANSWER';
+    if (statusFilter === 'ANSWERED') return ['ANSWERED', 'ANSWER', 'CALL_AGAIN', 'FOLLOW_UP'].includes(statusUpper);
+    if (statusFilter === 'REJECT') return ['REJECT', 'REJECTED', 'NOT_INTERESTED'].includes(statusUpper);
+    if (statusFilter === 'PAID') return l.enrollmentStatus === 'ENROLLED' || l.roundData.enrollmentStatus === 'ENROLLED';
+    return true;
+  });
+
   const paginatedLeads = phaseLeads.slice((currentPage - 1) * ITEMS_PER_PAGE, currentPage * ITEMS_PER_PAGE);
   const totalPages = Math.ceil(phaseLeads.length / ITEMS_PER_PAGE);
 
@@ -330,17 +351,53 @@ export default function CallCenterAgentDashboard() {
                   </div>
                 )}
 
-                <div className="flex gap-6 items-center bg-[#0F172A]/50 p-4 px-8 rounded-3xl border border-white/5 shadow-inner">
-                  <div className="text-slate-500 font-black uppercase tracking-[0.2em] text-xs mr-4">Round Stats</div>
-                  <div className="flex flex-col items-center"><span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">Assigned</span><span className="text-2xl font-black text-white">{totalAssigned}</span></div>
-                  <div className="w-px h-10 bg-white/10 mx-2"></div>
-                  <div className="flex flex-col items-center"><span className="text-[10px] text-rose-500 font-bold uppercase tracking-wider mb-1">Pending</span><span className="text-2xl font-black text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]">{pending}</span></div>
-                  <div className="w-px h-10 bg-white/10 mx-2"></div>
-                  <div className="flex flex-col items-center"><span className="text-[10px] text-orange-500 font-bold uppercase tracking-wider mb-1">No Answer</span><span className="text-2xl font-black text-orange-400 drop-shadow-[0_0_8px_rgba(249,115,22,0.4)]">{noAnswer}</span></div>
-                  <div className="w-px h-10 bg-white/10 mx-2"></div>
-                  <div className="flex flex-col items-center"><span className="text-[10px] text-emerald-500 font-bold uppercase tracking-wider mb-1">Covered</span><span className="text-2xl font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.4)]">{covered}</span></div>
-                  <div className="w-px h-10 bg-white/10 mx-2"></div>
-                  <div className="flex flex-col items-center"><span className="text-[10px] text-blue-500 font-bold uppercase tracking-wider mb-1">Response</span><span className="text-2xl font-black text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]">{responseRate}%</span></div>
+                <div className="flex gap-4 items-center bg-[#0F172A]/80 p-3 px-6 rounded-3xl border border-white/10 shadow-inner">
+                  <div className="text-slate-500 font-black uppercase tracking-[0.2em] text-xs mr-2">Round Stats</div>
+                  
+                  <button 
+                    onClick={() => { setStatusFilter('ALL'); setCurrentPage(1); }}
+                    className={`flex flex-col items-center px-3 py-1.5 rounded-xl transition-all ${statusFilter === 'ALL' ? 'bg-white/15 ring-1 ring-white/30 text-white' : 'hover:bg-white/5 opacity-80'}`}
+                  >
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-0.5">Assigned</span>
+                    <span className="text-xl font-black text-white">{totalAssigned}</span>
+                  </button>
+                  
+                  <div className="w-px h-8 bg-white/10 mx-1"></div>
+                  
+                  <button 
+                    onClick={() => { setStatusFilter('PENDING'); setCurrentPage(1); }}
+                    className={`flex flex-col items-center px-3 py-1.5 rounded-xl transition-all ${statusFilter === 'PENDING' ? 'bg-rose-500/25 ring-1 ring-rose-500/50 text-rose-300' : 'hover:bg-rose-500/10 opacity-80'}`}
+                  >
+                    <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wider mb-0.5">Pending</span>
+                    <span className="text-xl font-black text-rose-400 drop-shadow-[0_0_8px_rgba(244,63,94,0.4)]">{pending}</span>
+                  </button>
+                  
+                  <div className="w-px h-8 bg-white/10 mx-1"></div>
+                  
+                  <button 
+                    onClick={() => { setStatusFilter('NO_ANSWER'); setCurrentPage(1); }}
+                    className={`flex flex-col items-center px-3 py-1.5 rounded-xl transition-all ${statusFilter === 'NO_ANSWER' ? 'bg-orange-500/25 ring-1 ring-orange-500/50 text-orange-300' : 'hover:bg-orange-500/10 opacity-80'}`}
+                  >
+                    <span className="text-[10px] text-orange-400 font-bold uppercase tracking-wider mb-0.5">No Answer</span>
+                    <span className="text-xl font-black text-orange-400 drop-shadow-[0_0_8px_rgba(249,115,22,0.4)]">{noAnswer}</span>
+                  </button>
+                  
+                  <div className="w-px h-8 bg-white/10 mx-1"></div>
+                  
+                  <button 
+                    onClick={() => { setStatusFilter('ANSWERED'); setCurrentPage(1); }}
+                    className={`flex flex-col items-center px-3 py-1.5 rounded-xl transition-all ${statusFilter === 'ANSWERED' ? 'bg-emerald-500/25 ring-1 ring-emerald-500/50 text-emerald-300' : 'hover:bg-emerald-500/10 opacity-80'}`}
+                  >
+                    <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider mb-0.5">Covered</span>
+                    <span className="text-xl font-black text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.4)]">{covered}</span>
+                  </button>
+                  
+                  <div className="w-px h-8 bg-white/10 mx-1"></div>
+                  
+                  <div className="flex flex-col items-center px-3 py-1.5">
+                    <span className="text-[10px] text-blue-400 font-bold uppercase tracking-wider mb-0.5">Response</span>
+                    <span className="text-xl font-black text-blue-400 drop-shadow-[0_0_8px_rgba(59,130,246,0.4)]">{responseRate}%</span>
+                  </div>
                 </div>
               </div>
 
@@ -350,7 +407,7 @@ export default function CallCenterAgentDashboard() {
                 <div className="relative">
                   <select 
                     value={batchFilter}
-                    onChange={(e) => setBatchFilter(e.target.value)}
+                    onChange={(e) => { setBatchFilter(e.target.value); setCurrentPage(1); }}
                     className="w-full bg-[#0F172A] border border-white/10 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-indigo-500 appearance-none"
                   >
                     <option value="All">All Batches</option>
@@ -366,6 +423,85 @@ export default function CallCenterAgentDashboard() {
             </div>
           </div>
 
+          {/* Outcome Filter Pills Bar */}
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 bg-[#0F172A]/70 p-3 px-5 rounded-2xl border border-white/10 backdrop-blur-md">
+            <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar py-1">
+              <span className="text-xs font-black text-slate-400 uppercase tracking-wider mr-2 flex items-center gap-1.5 shrink-0">
+                <Filter size={14} className="text-emerald-400" /> Filter Outcome:
+              </span>
+              <button
+                onClick={() => { setStatusFilter('ALL'); setCurrentPage(1); }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 border ${
+                  statusFilter === 'ALL'
+                    ? 'bg-slate-200 text-slate-900 border-white shadow-md font-black'
+                    : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                }`}
+              >
+                All ({phaseLeadsAll.length})
+              </button>
+              <button
+                onClick={() => { setStatusFilter('PENDING'); setCurrentPage(1); }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 border flex items-center gap-1.5 ${
+                  statusFilter === 'PENDING'
+                    ? 'bg-rose-500 text-white border-rose-400 shadow-md shadow-rose-500/30 font-black'
+                    : 'bg-rose-500/10 text-rose-300 border-rose-500/20 hover:bg-rose-500/20'
+                }`}
+              >
+                <Clock size={12}/> Pending ({countPending})
+              </button>
+              <button
+                onClick={() => { setStatusFilter('NO_ANSWER'); setCurrentPage(1); }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 border flex items-center gap-1.5 ${
+                  statusFilter === 'NO_ANSWER'
+                    ? 'bg-orange-500 text-white border-orange-400 shadow-md shadow-orange-500/30 font-black'
+                    : 'bg-orange-500/10 text-orange-300 border-orange-500/20 hover:bg-orange-500/20'
+                }`}
+              >
+                <PhoneCall size={12}/> No Answer ({countNoAnswer})
+              </button>
+              <button
+                onClick={() => { setStatusFilter('ANSWERED'); setCurrentPage(1); }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 border flex items-center gap-1.5 ${
+                  statusFilter === 'ANSWERED'
+                    ? 'bg-emerald-500 text-white border-emerald-400 shadow-md shadow-emerald-500/30 font-black'
+                    : 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20 hover:bg-emerald-500/20'
+                }`}
+              >
+                <CheckCircle size={12}/> Answered / Follow up ({countAnswered})
+              </button>
+              <button
+                onClick={() => { setStatusFilter('REJECT'); setCurrentPage(1); }}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 border flex items-center gap-1.5 ${
+                  statusFilter === 'REJECT'
+                    ? 'bg-purple-600 text-white border-purple-400 shadow-md shadow-purple-500/30 font-black'
+                    : 'bg-purple-500/10 text-purple-300 border-purple-500/20 hover:bg-purple-500/20'
+                }`}
+              >
+                <UserMinus size={12}/> Rejected ({countReject})
+              </button>
+              {countPaid > 0 && (
+                <button
+                  onClick={() => { setStatusFilter('PAID'); setCurrentPage(1); }}
+                  className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 border flex items-center gap-1.5 ${
+                    statusFilter === 'PAID'
+                      ? 'bg-sky-500 text-white border-sky-400 shadow-md shadow-sky-500/30 font-black'
+                      : 'bg-sky-500/10 text-sky-300 border-sky-500/20 hover:bg-sky-500/20'
+                  }`}
+                >
+                  <Sparkles size={12}/> Paid ({countPaid})
+                </button>
+              )}
+            </div>
+            {statusFilter !== 'ALL' && (
+              <button
+                onClick={() => { setStatusFilter('ALL'); setCurrentPage(1); }}
+                className="text-xs text-slate-400 hover:text-white underline font-bold px-2 shrink-0"
+              >
+                Reset Filter
+              </button>
+            )}
+          </div>
+
           <div className="flex gap-6">
             {/* Left Sidebar for Phases */}
             <div className="w-24 shrink-0 flex flex-col gap-3">
@@ -374,7 +510,7 @@ export default function CallCenterAgentDashboard() {
                 return (
                   <button
                     key={ph}
-                    onClick={() => { setActivePhase(ph); setCurrentPage(1); }}
+                    onClick={() => { setActivePhase(ph); setCurrentPage(1); setStatusFilter('ALL'); }}
                     className={`flex flex-col items-center justify-center py-4 rounded-2xl transition-all relative overflow-hidden ${
                       activePhase === ph 
                         ? 'bg-gradient-to-b from-rose-500 to-red-600 text-white shadow-lg shadow-rose-500/20' 
