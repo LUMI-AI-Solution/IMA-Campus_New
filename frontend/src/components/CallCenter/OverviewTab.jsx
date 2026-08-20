@@ -452,10 +452,30 @@ export default function OverviewTab() {
 
             if (startDate || endDate) {
               const startTs = startDate ? new Date(startDate).getTime() : 0;
-              const endTs = endDate ? new Date(endDate).getTime() : Infinity;
+              let endTs = Infinity;
+              if (endDate) {
+                const endD = new Date(endDate);
+                if (endDate.length <= 16) {
+                  endD.setSeconds(59, 999);
+                }
+                endTs = endD.getTime();
+              }
+
               filtered = filtered.filter(l => {
-                const lTs = new Date(l.createdAt || l.created_at || l.updatedAt || 0).getTime();
-                return lTs >= startTs && lTs <= endTs;
+                const timestamps = [
+                  l.updatedAt,
+                  l.createdAt,
+                  l.created_at,
+                  l.assignedAt,
+                  l.lastAttemptAt,
+                  l.lastMessageAt,
+                  ...(l.roundProgress || []).map(r => r.updatedAt || r.createdAt)
+                ].filter(Boolean);
+
+                return timestamps.some(tsVal => {
+                  const ts = new Date(tsVal).getTime();
+                  return ts >= startTs && ts <= endTs;
+                });
               });
             }
 
