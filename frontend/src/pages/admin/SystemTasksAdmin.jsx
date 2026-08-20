@@ -231,37 +231,93 @@ export default function SystemTasksAdmin() {
                 </button>
             </div>
 
-            {/* Premium Date Filters Card */}
-            <div className="flex flex-col sm:flex-row items-center gap-4 bg-white/5 border border-white/10 p-4 rounded-2xl mb-6 shadow-xl backdrop-blur-md">
-                <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
-                    <span className="text-xs font-bold text-gray-300 uppercase tracking-widest block whitespace-nowrap">Filter by Date:</span>
-                    <div className="flex items-center gap-2">
-                        <input 
-                            type="date" 
-                            value={startDate} 
-                            onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
-                            className="bg-black/45 border border-white/10 text-xs text-gray-300 px-3.5 py-2 rounded-xl outline-none focus:border-brand-accent transition-all cursor-pointer w-full sm:w-36 focus:text-white"
-                        />
-                        <span className="text-gray-500 text-xs font-black uppercase">to</span>
-                        <input 
-                            type="date" 
-                            value={endDate} 
-                            onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
-                            className="bg-black/45 border border-white/10 text-xs text-gray-300 px-3.5 py-2 rounded-xl outline-none focus:border-brand-accent transition-all cursor-pointer w-full sm:w-36 focus:text-white"
-                        />
+            {/* Premium Date Filters Card & Calendar Shortcuts */}
+            <div className="flex flex-col gap-4 bg-white/5 border border-white/10 p-5 rounded-2xl mb-6 shadow-xl backdrop-blur-md">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="flex flex-wrap items-center gap-3">
+                        <span className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-1.5">
+                            <Clock size={14} className="text-brand-accent" /> Calendar Filter:
+                        </span>
+                        <div className="flex items-center gap-2">
+                            <input 
+                                type="date" 
+                                value={startDate} 
+                                onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
+                                className="bg-black/60 border border-white/15 text-xs text-white px-3.5 py-2 rounded-xl outline-none focus:border-brand-accent transition-all cursor-pointer shadow-inner"
+                            />
+                            <span className="text-gray-500 text-xs font-black uppercase">to</span>
+                            <input 
+                                type="date" 
+                                value={endDate} 
+                                onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
+                                className="bg-black/60 border border-white/15 text-xs text-white px-3.5 py-2 rounded-xl outline-none focus:border-brand-accent transition-all cursor-pointer shadow-inner"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Quick Date Presets */}
+                    <div className="flex flex-wrap gap-1.5">
+                        <button
+                            onClick={() => {
+                                const today = new Date().toISOString().split('T')[0];
+                                setStartDate(today);
+                                setEndDate(today);
+                                setPage(1);
+                            }}
+                            className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold rounded-lg transition-colors border border-white/5"
+                        >
+                            Today
+                        </button>
+                        <button
+                            onClick={() => {
+                                const yest = new Date();
+                                yest.setDate(yest.getDate() - 1);
+                                const dateStr = yest.toISOString().split('T')[0];
+                                setStartDate(dateStr);
+                                setEndDate(dateStr);
+                                setPage(1);
+                            }}
+                            className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold rounded-lg transition-colors border border-white/5"
+                        >
+                            Yesterday
+                        </button>
+                        <button
+                            onClick={() => {
+                                const p7 = new Date();
+                                p7.setDate(p7.getDate() - 7);
+                                setStartDate(p7.toISOString().split('T')[0]);
+                                setEndDate(new Date().toISOString().split('T')[0]);
+                                setPage(1);
+                            }}
+                            className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold rounded-lg transition-colors border border-white/5"
+                        >
+                            Last 7 Days
+                        </button>
+                        <button
+                            onClick={() => {
+                                const p30 = new Date();
+                                p30.setDate(p30.getDate() - 30);
+                                setStartDate(p30.toISOString().split('T')[0]);
+                                setEndDate(new Date().toISOString().split('T')[0]);
+                                setPage(1);
+                            }}
+                            className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold rounded-lg transition-colors border border-white/5"
+                        >
+                            Last 30 Days
+                        </button>
+                        {(startDate || endDate) && (
+                            <button
+                                onClick={() => { setStartDate(''); setEndDate(''); setPage(1); }}
+                                className="px-3 py-1.5 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[11px] font-bold rounded-lg transition-colors border border-rose-500/30 flex items-center gap-1"
+                            >
+                                <X size={12} /> Clear Filter
+                            </button>
+                        )}
                     </div>
                 </div>
-                {(startDate || endDate) && (
-                    <button
-                        onClick={() => { setStartDate(''); setEndDate(''); setPage(1); }}
-                        className="text-xs font-bold text-rose-400 hover:text-rose-300 cursor-pointer flex items-center gap-1.5 transition-colors border border-rose-500/20 px-4 py-2 rounded-xl bg-rose-500/5 hover:bg-rose-500/10 shrink-0 self-start sm:self-center"
-                    >
-                        <X size={12} /> Clear Filters
-                    </button>
-                )}
             </div>
 
-            {/* List Body */}
+            {/* List Body with Date Breakdown */}
             {loading ? (
                 <div className="min-h-[40vh] flex items-center justify-center">
                     <Loader2 size={40} className="animate-spin text-brand-accent" />
@@ -270,14 +326,41 @@ export default function SystemTasksAdmin() {
                 <div className="bg-black/20 border border-white/10 backdrop-blur-xl rounded-2xl p-16 text-center text-gray-400">
                     <MessageSquare size={48} className="mx-auto mb-4 opacity-30 text-white" />
                     <p className="font-bold text-lg text-white">No tasks found</p>
-                    <p className="text-xs text-gray-400 mt-1">There are no operational tasks registered under this status.</p>
+                    <p className="text-xs text-gray-400 mt-1">There are no operational tasks registered under this status for the selected period.</p>
                 </div>
             ) : (
-                <div className="space-y-6">
-                    {tasks.map((task) => {
-                        const taskImages = parseImages(task.images);
-                        
-                        return (
+                <div className="space-y-8">
+                    {/* Render Tasks grouped by Date for Breakdown View */}
+                    {Object.entries(
+                        tasks.reduce((groups, task) => {
+                            const dateStr = new Date(task.updatedAt || task.createdAt).toLocaleDateString('en-US', {
+                                weekday: 'short',
+                                year: 'numeric',
+                                month: 'short',
+                                day: 'numeric'
+                            });
+                            if (!groups[dateStr]) groups[dateStr] = [];
+                            groups[dateStr].push(task);
+                            return groups;
+                        }, {})
+                    ).map(([dateLabel, dateTasks]) => (
+                        <div key={dateLabel} className="space-y-4">
+                            {/* Date Header Badge */}
+                            <div className="flex items-center gap-3 border-b border-white/10 pb-2">
+                                <div className="bg-brand-accent/20 border border-brand-accent/30 text-brand-accent text-xs font-black px-3.5 py-1.5 rounded-xl flex items-center gap-2">
+                                    <Clock size={14} />
+                                    <span>{dateLabel}</span>
+                                </div>
+                                <span className="text-xs font-bold text-gray-400">
+                                    {dateTasks.length} {dateTasks.length === 1 ? 'task' : 'tasks'} {activeTab === 'RESOLVED' ? 'resolved' : 'pending'}
+                                </span>
+                            </div>
+
+                            <div className="space-y-4">
+                                {dateTasks.map((task) => {
+                                    const taskImages = parseImages(task.images);
+                                    
+                                    return (
                             <div key={task.id} className="bg-black/20 border border-white/10 backdrop-blur-xl rounded-2xl p-5 md:p-6 transition-all hover:bg-black/30 shadow-md">
                                 {/* Submitter Details Block & Date */}
                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-white/5 pb-4 mb-4">
@@ -375,6 +458,9 @@ export default function SystemTasksAdmin() {
                             </div>
                         );
                     })}
+                            </div>
+                        </div>
+                    ))}
 
                     {/* Pagination */}
                     {pagination.pages > 1 && (

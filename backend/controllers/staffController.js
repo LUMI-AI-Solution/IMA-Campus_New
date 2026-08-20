@@ -72,6 +72,13 @@ console.log("[DEBUG] /admin/staff query:", req.query);
             role: { notIn: ['STUDENT', 'USER', 'Student', 'student', 'user'] }
         };
 
+        const queryDept = req.query.department;
+        if (queryDept) {
+            whereClause.department = queryDept;
+        } else if (!isAdmin && req.user.department) {
+            whereClause.department = req.user.department;
+        }
+
         const allStaff = await prisma.user.findMany({
             where: whereClause,
             select: { id: true, firstName: true, lastName: true, phone: true, nic: true, role: true, department: true, businessType: true, extension: true, hasCallChannel: true, agentStatus: true, image: true }

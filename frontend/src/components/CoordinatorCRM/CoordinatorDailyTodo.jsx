@@ -5,7 +5,7 @@ import {
     ChevronRight, Activity, Zap, Star 
 } from 'lucide-react';
 
-const CoordinatorDailyTodo = ({ staffId, isManager = false }) => {
+const CoordinatorDailyTodo = ({ staffId, isManager = false, selectedBusiness, selectedBatch }) => {
     const [todoData, setTodoData] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -14,7 +14,11 @@ const CoordinatorDailyTodo = ({ staffId, isManager = false }) => {
             try {
                 const token = localStorage.getItem('token');
                 const response = await axios.get('/coordinator-crm/master-todo-stats', {
-                    headers: { Authorization: `Bearer ${token}` }
+                    headers: { Authorization: `Bearer ${token}` },
+                    params: {
+                        businessId: selectedBusiness || 'ALL',
+                        batchId: selectedBatch || 'ALL'
+                    }
                 });
                 
                 let data = response.data;
@@ -32,7 +36,7 @@ const CoordinatorDailyTodo = ({ staffId, isManager = false }) => {
         fetchTodoStats();
         const interval = setInterval(fetchTodoStats, 30000);
         return () => clearInterval(interval);
-    }, [staffId, isManager]);
+    }, [staffId, isManager, selectedBusiness, selectedBatch]);
 
     if (loading) {
         return (

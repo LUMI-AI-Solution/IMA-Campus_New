@@ -1096,3 +1096,47 @@ model CallCampaignAuditLog {
   
   createdAt        DateTime @default(now())
 }
+
+model SocialMediaCalendarPost {
+  id            Int      @id @default(autoincrement())
+  title         String
+  description   String?  @db.Text
+  imageUrl      String?  @db.Text
+  scheduledDate DateTime
+  createdById   Int?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model SocialMediaTask {
+  id                      Int       @id @default(autoincrement())
+  title                   String
+  description             String?   @db.Text
+  businessId              Int?
+  businessName            String?
+  requestedById           Int
+  requestedByName         String
+  assignedToId            Int?
+  assignedToName          String?
+  dueDate                 DateTime?
+  attachmentUrl           String?   @db.Text
+  taskType                String    @default("POST") // "POST" or "VIDEO"
+  status                  String    @default("PENDING_APPROVAL")
+  
+  // Stages & Audit Timestamps
+  requestDate             DateTime  @default(now())
+  assignedDate            DateTime?
+  startedDate             DateTime?
+  finishedDate            DateTime?
+  completedDate           DateTime?
+  correctionRequestedDate DateTime?
+  correctionCompletedDate DateTime?
+  correctionNote          String?   @db.Text
+  
+  // Full Audit Log Timeline Array
+  history                 Json?
+  
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+}
+

@@ -8,13 +8,15 @@ import {
   Wallet, MessageCircle, Database, Truck, Package, Clock, CheckCircle,
   Archive, HardDrive, CalendarDays, CalendarCheck, CheckSquare, History,
   Music, Palette, ChevronLeft, ChevronRight, Megaphone, X, BarChart, PieChart, Calendar,
-  PhoneCall, UserPlus, Repeat, GraduationCap, TrendingUp, Box, Activity, ShieldCheck, RefreshCw, Layers, Mic, Upload, Video
+  PhoneCall, UserPlus, Repeat, GraduationCap, TrendingUp, Box, Activity, ShieldCheck, RefreshCw, Layers, Mic, Upload, Video, Sun, Moon
 } from 'lucide-react';
 
-export default function Sidebar({ userRole, loggedInUser, handleLogout, isSidebarOpen, setIsSidebarOpen, currentBg, setBgImage, isSpotifyOpen, setIsSpotifyOpen }) {
+export default function Sidebar({ userRole, loggedInUser, handleLogout, isSidebarOpen, setIsSidebarOpen, currentBg, setBgImage, isSpotifyOpen, setIsSpotifyOpen, isSocialMedia, isDarkMode, toggleThemeMode }) {
   const location = useLocation();
   const displayName = loggedInUser?.firstName || 'User';
   const roleName = loggedInUser?.role || 'Staff';
+
+  const isSocialRoute = isSocialMedia || location.pathname.includes('/social-media') || location.pathname.includes('/workspace/social-media-delegation');
 
   const [isThemeOpen, setIsThemeOpen] = useState(false);
   const [todayClasses, setTodayClasses] = useState([]);
@@ -424,9 +426,20 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
         )}
       </nav>
 
-      {/* Theme Popup & Profile Section remains same... */}
+      {/* Theme Popup & Profile Section */}
       <div className={`px-3 py-3 border-t border-white/20 flex ${isSidebarOpen ? 'flex-row items-center justify-between' : 'flex-col items-center'} gap-2 shrink-0 bg-transparent relative`}>
         <div className={`flex ${isSidebarOpen ? 'flex-row' : 'flex-col'} items-center gap-2`}>
+          <button 
+            onClick={toggleThemeMode} 
+            className={`p-2.5 rounded-full transition-all flex items-center justify-center outline-none border ${
+              isDarkMode 
+                ? 'bg-slate-800 text-amber-400 border-slate-700 hover:bg-slate-700' 
+                : 'bg-slate-200 text-slate-900 border-slate-300 hover:bg-slate-300'
+            }`} 
+            title={isDarkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+          >
+            {isDarkMode ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
           <button onClick={() => setIsThemeOpen(!isThemeOpen)} className={`p-2.5 rounded-full transition-all flex items-center justify-center outline-none border ${isThemeOpen ? 'bg-white/20 text-white border-white/30 shadow-[0_4px_15px_rgba(0,0,0,0.2)]' : 'text-gray-300 border-transparent hover:bg-white/10'}`} title="Themes">
             <Palette size={16} className={isThemeOpen ? 'text-brand-accent' : ''} />
           </button>

@@ -7,12 +7,21 @@ exports.getMasterTodoStats = async (req, res) => {
         const userId = parseInt(req.user?.userId || req.user?.id || req.query.loggedUserId);
         const userRole = (req.user?.role || '').toUpperCase().replace(/ /g, '_');
         const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN'].includes(userRole);
+        const { businessId, batchId } = req.query;
 
         let userWhere = { role: { in: ['coordinator', 'manager', 'admin', 'Coordinator', 'Caller', 'COORDINATOR'] } };
         
         // If not manager, only fetch the logged-in user's stats
         if (!isManager && userId) {
             userWhere.id = userId;
+        }
+
+        const hasBatch = batchId && batchId !== '' && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null';
+        const hasBiz = businessId && businessId !== '' && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null';
+
+        if (hasBiz && isManager) {
+            const bizIdStr = String(businessId);
+            userWhere.businessType = { contains: bizIdStr };
         }
 
         const coordinators = await prisma.user.findMany({
@@ -36,9 +45,45 @@ exports.getMasterTodoStats = async (req, res) => {
             };
         });
 
+        // Build lead filter conditions
+        let leadBaseFilter = {};
+        if (hasBatch) {
+            const bId = parseInt(batchId);
+            const batchOrConditions = [
+                { batchId: bId },
+                { batchId: null, phone: { endsWith: `_BATCH_${bId}` } },
+                { batchId: null, phone: { contains: `_BATCH_${bId}_` } }
+            ];
+
+            if (hasBiz) {
+                const bizId = parseInt(businessId);
+                leadBaseFilter.AND = [
+                    { OR: batchOrConditions },
+                    {
+                        OR: [
+                            { batch: { businessId: bizId } },
+                            { phone: { endsWith: `_BIZ_${bizId}` } },
+                            { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+                            { phone: { contains: `_BIZ_${bizId}_` } }
+                        ]
+                    }
+                ];
+            } else {
+                leadBaseFilter.OR = batchOrConditions;
+            }
+        } else if (hasBiz) {
+            const bizId = parseInt(businessId);
+            leadBaseFilter.OR = [
+                { batch: { businessId: bizId } },
+                { phone: { endsWith: `_BIZ_${bizId}` } },
+                { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+                { phone: { contains: `_BIZ_${bizId}_` } }
+            ];
+        }
+
         // 1. FREE SEMINAR (FREE_SEMINAR campaignType)
         const freeSemLeads = await prisma.lead.findMany({
-            where: { campaignType: 'FREE_SEMINAR', callStatus: 'pending', assignedTo: { not: null } },
+            where: { ...leadBaseFilter, campaignType: 'FREE_SEMINAR', callStatus: 'pending', assignedTo: { not: null } },
             select: { assignedTo: true }
         });
         freeSemLeads.forEach(l => {
@@ -47,7 +92,7 @@ exports.getMasterTodoStats = async (req, res) => {
 
         // 2. OPEN SEMINAR (AFTER_SEMINAR, inquiryType: OPEN_SEMINAR)
         const openSemLeads = await prisma.lead.findMany({
-            where: { campaignType: 'AFTER_SEMINAR', inquiryType: 'OPEN_SEMINAR', callStatus: 'pending', assignedTo: { not: null } },
+            where: { ...leadBaseFilter, campaignType: 'AFTER_SEMINAR', inquiryType: 'OPEN_SEMINAR', callStatus: 'pending', assignedTo: { not: null } },
             select: { assignedTo: true }
         });
         openSemLeads.forEach(l => {
@@ -57,7 +102,7 @@ exports.getMasterTodoStats = async (req, res) => {
         // 3. NEW INQUIRY (AFTER_SEMINAR, inquiryType: NEW_INQ)
         // Need to check RoundProgress
         const newInqLeads = await prisma.lead.findMany({
-            where: { campaignType: 'AFTER_SEMINAR', inquiryType: 'NEW_INQ', assignedTo: { not: null } },
+            where: { ...leadBaseFilter, campaignType: 'AFTER_SEMINAR', inquiryType: 'NEW_INQ', assignedTo: { not: null } },
             select: { 
                 assignedTo: true, 
                 callStatus: true,
@@ -102,7 +147,7 @@ exports.getMasterTodoStats = async (req, res) => {
             where: { 
                 isRead: false, 
                 direction: { in: ['inbound', 'in', 'IN'] }, 
-                lead: { assignedTo: { not: null } }
+                lead: { ...leadBaseFilter, assignedTo: { not: null } }
             },
             select: { lead: { select: { assignedTo: true, id: true } } }
         });

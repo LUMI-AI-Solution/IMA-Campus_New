@@ -72,7 +72,7 @@ export default function CallCampaignDashboard({ campaignType }) {
     let activeBusinessId = selectedBusiness || '';
     
     // For admins, they MUST select a business if they want to view leads, unless it's COORD_PROGRESS
-    const needsToSelectBusiness = isAdmin && !selectedBusiness && campaignType !== 'COORD_PROGRESS';
+    const needsToSelectBusiness = isAdmin && !selectedBusiness && campaignType !== 'COORD_PROGRESS' && campaignType !== 'COORD_TRACKING';
 
     const getCampaignTitle = () => {
         if (campaignType === 'OVERALL') return 'Campaign Master Analytics';
@@ -80,7 +80,7 @@ export default function CallCampaignDashboard({ campaignType }) {
         if (campaignType === 'NEW_INQ') return 'New Inquiries Campaign';
         if (campaignType === 'BRIDGE') return 'Bridge Transfers Campaign';
         if (campaignType === 'PAID') return 'Enrolled Students Campaign';
-        if (campaignType === 'COORD_PROGRESS') return 'Coordinator Progress Sheet';
+        if (campaignType === 'COORD_PROGRESS' || campaignType === 'COORD_TRACKING') return 'Class Coordination Managers - Coordinator Tracking';
         return 'Call Campaign';
     };
 

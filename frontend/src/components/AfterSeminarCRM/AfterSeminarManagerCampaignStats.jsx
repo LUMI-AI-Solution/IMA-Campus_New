@@ -636,7 +636,7 @@ export default function AfterSeminarManagerCampaignStats({ filters = {}, allBatc
             {campaignType === 'NEW_INQ' && <div className="animate-fade-in-up"><NewInquiriesPerformance filters={filters} allBatches={allBatches} isManager={true} /></div>}
             {campaignType === 'BRIDGE' && <div className="animate-fade-in-up"><BridgeTransfersTab filters={filters} allBatches={allBatches} /></div>}
             {campaignType === 'PAID' && <div className="animate-fade-in-up"><PaidCampaignPerformance filters={filters} /></div>}
-            {campaignType === 'COORD_PROGRESS' && <div className="animate-fade-in-up"><CoordinatorProgressSheet filters={filters} /></div>}
+            {(campaignType === 'COORD_PROGRESS' || campaignType === 'COORD_TRACKING') && <div className="animate-fade-in-up"><CoordinatorProgressSheet filters={filters} /></div>}
 
             {/* 🔥 FULL SCREEN MODAL: MASTER LEAD DIRECTORY (ONLY FOR OVERALL) 🔥 */}
             {showMasterModal && isHigherManagement && (

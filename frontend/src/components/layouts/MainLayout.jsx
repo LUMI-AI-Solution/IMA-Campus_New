@@ -1,10 +1,31 @@
 import React, { useState, useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import { Music, X } from 'lucide-react';
 import GlobalToolsMenu from '../GlobalToolsMenu';
 
 export default function MainLayout({ loggedInUser, handleLogout }) {
+  const location = useLocation();
+  const isSocialMedia = location.pathname.includes('/social-media') || location.pathname.includes('/workspace/social-media-delegation');
+
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('themeMode');
+    return saved ? saved === 'dark' : true;
+  });
+
+  const toggleThemeMode = () => {
+    setIsDarkMode(prev => {
+      const next = !prev;
+      localStorage.setItem('themeMode', next ? 'dark' : 'light');
+      if (next) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      return next;
+    });
+  };
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
 
   const getZoomLevel = () => {
@@ -40,10 +61,20 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
 
   useEffect(() => {
     localStorage.setItem('adminTheme', bgImage);
-    document.documentElement.classList.add('dark');
-  }, [bgImage]);
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [bgImage, isDarkMode]);
 
   const getBackgroundStyle = () => {
+    if (isSocialMedia) {
+      return isDarkMode 
+        ? { background: '#0B0F19' } 
+        : { background: '#F1F5F9' };
+    }
+
     let liveSkyStyle = {};
     if (bgImage === 'anim1') {
         if (currentHour >= 6 && currentHour < 8) {
@@ -80,15 +111,16 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
   };
 
   const getBackgroundClass = () => {
+    if (isSocialMedia) return '';
     if (bgImage === 'anim2') return 'bg-anim-color-shift'; 
     return '';
   };
 
   return (
-    <div className={`font-sans flex items-center justify-center w-full overflow-hidden antialiased text-gray-100 transition-all duration-1000 fixed inset-0 m-0 p-0 ${getBackgroundClass()}`} style={{ ...getBackgroundStyle(), zoom: zoomLevel }}>
+    <div className={`font-sans flex items-center justify-center w-full overflow-hidden antialiased transition-all duration-300 fixed inset-0 m-0 p-0 ${getBackgroundClass()}`} style={{ ...getBackgroundStyle(), zoom: zoomLevel }}>
       
       {/* ⛅ LIVE SKY ANIMATION */}
-      {bgImage === 'anim1' && (
+      {!isSocialMedia && bgImage === 'anim1' && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
           {currentHour >= 6 && currentHour <= 18 ? (
             <div className="absolute rounded-full bg-gradient-to-br from-yellow-100 to-orange-400 w-32 h-32 blur-[2px]"
@@ -106,7 +138,7 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
       )}
 
       {/* 🎾 NEW: FLOATING BALLS ANIMATION (Anim 3) */}
-      {bgImage === 'anim3' && (
+      {!isSocialMedia && bgImage === 'anim3' && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
             <div className="absolute w-[400px] h-[400px] rounded-full bg-blue-500/20 blur-[80px] animate-float-ball-1"></div>
             <div className="absolute w-[350px] h-[350px] rounded-full bg-purple-500/20 blur-[80px] animate-float-ball-2"></div>
@@ -114,7 +146,13 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
         </div>
       )}
 
-      <div className="flex w-full h-full sm:w-[98%] sm:h-[96vh] bg-[#0B101E]/90 sm:bg-black/40 backdrop-blur-md sm:backdrop-blur-2xl border border-white/10 sm:rounded-[20px] shadow-[0_8px_32px_0_rgba(0,0,0,0.7)] overflow-hidden relative z-10 transition-colors duration-500">
+      <div className={`flex w-full h-full sm:w-[98%] sm:h-[96vh] ${
+        isSocialMedia 
+          ? (isDarkMode 
+              ? 'bg-[#0F172A] border border-slate-800 text-slate-100 shadow-2xl' 
+              : 'bg-[#F8FAFC] border border-slate-200 text-slate-800 shadow-xl') 
+          : 'bg-[#0B101E]/90 sm:bg-black/40 border border-white/10 text-gray-100'
+      } sm:rounded-[20px] overflow-hidden relative z-10 transition-all duration-300`}>
         <Sidebar 
           isSidebarOpen={isSidebarOpen} 
           setIsSidebarOpen={setIsSidebarOpen}
@@ -125,6 +163,9 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
           setBgImage={setBgImage}
           isSpotifyOpen={isSpotifyOpen}
           setIsSpotifyOpen={setIsSpotifyOpen}
+          isSocialMedia={isSocialMedia}
+          isDarkMode={isDarkMode}
+          toggleThemeMode={toggleThemeMode}
         />
         <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
           <div className="flex-1 overflow-auto p-4 lg:p-6 relative custom-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>

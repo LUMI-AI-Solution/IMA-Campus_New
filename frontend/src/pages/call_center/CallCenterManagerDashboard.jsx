@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useSearchParams, useParams, useNavigate } from 'react-router-dom';
+import { useSearchParams, useParams, useNavigate, useLocation } from 'react-router-dom';
 import axios from '../../api/axios';
 import { 
   LayoutDashboard, Users, CheckCircle, Clock, ArrowRightLeft, 
@@ -11,11 +11,16 @@ import toast from 'react-hot-toast';
 import OverviewTab from '../../components/CallCenter/OverviewTab';
 import BridgeHandOversTab from '../../components/CallCenter/BridgeHandOversTab';
 
+import DelegateSocialMediaTaskModal from '../../components/common/DelegateSocialMediaTaskModal';
+
 export default function CallCenterManagerDashboard() {
   const { tab } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
   const activeTab = tab || 'overview';
 
+  const [loggedInUser, setLoggedInUser] = useState(null);
+  const [isDelegateModalOpen, setIsDelegateModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   const [stats, setStats] = useState({
@@ -394,14 +399,22 @@ export default function CallCenterManagerDashboard() {
                   {activeTab === 'free-sem' && 'Free Seminar Leads Pool'}
                   {activeTab === 'after-sem' && 'After Seminar Leads Pool'}
                 </span>
-                {selectedBizCard && (
+                <div className="flex items-center gap-3">
                   <button 
-                    onClick={() => { setSelectedBizCard(null); setSelectedBatch('All'); setCheckedLeads([]); setActiveSubTab('pending'); }}
-                    className="bg-white/10 hover:bg-white/20 px-4 py-1.5 rounded-lg text-sm font-bold transition-colors text-slate-200 flex items-center gap-2"
+                    onClick={() => setIsDelegateModalOpen(true)}
+                    className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black uppercase tracking-wider px-4 py-2 rounded-xl border border-indigo-400/30 flex items-center gap-2 shadow-lg shadow-indigo-500/20 transition-all cursor-pointer"
                   >
-                    <ChevronRight className="rotate-180" size={16}/> Back to Businesses
+                    <span>🚀</span> Delegate Work to Social Media
                   </button>
-                )}
+                  {selectedBizCard && (
+                    <button 
+                      onClick={() => { setSelectedBizCard(null); setSelectedBatch('All'); setCheckedLeads([]); setActiveSubTab('pending'); }}
+                      className="bg-white/10 hover:bg-white/20 px-4 py-1.5 rounded-lg text-sm font-bold transition-colors text-slate-200 flex items-center gap-2"
+                    >
+                      <ChevronRight className="rotate-180" size={16}/> Back to Businesses
+                    </button>
+                  )}
+                </div>
               </h2>
 
               <div className="flex-1 overflow-y-auto custom-scrollbar pr-2">
@@ -924,6 +937,12 @@ export default function CallCenterManagerDashboard() {
           </div>
         </div>
       )}
+      {/* Delegate Social Media Task Modal */}
+      <DelegateSocialMediaTaskModal 
+        isOpen={isDelegateModalOpen} 
+        onClose={() => setIsDelegateModalOpen(false)} 
+        loggedInUser={loggedInUser} 
+      />
     </div>
   );
 }

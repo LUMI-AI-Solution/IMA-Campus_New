@@ -102,6 +102,7 @@ router.get('/stats/open-seminar', afterSeminarManagerStatsController.getOpenSemi
 router.get('/stats/bridge', afterSeminarManagerStatsController.getBridgePerformanceStats);
 router.get('/stats/paid-campaign', afterSeminarManagerStatsController.getPaidCampaignStats);
 router.get('/stats/coordinator-progress', afterSeminarManagerStatsController.getCoordinatorProgressSheetStats);
+router.get('/export-coordinator-word-doc', afterSeminarManagerStatsController.exportCoordinatorWordDoc);
 router.get('/unassigned-batch-leads', afterSeminarManagerStatsController.getUnassignedBatchLeads);
 router.get('/business-batches', afterSeminarManagerStatsController.getBusinessBatches);
 router.get('/coordinators', afterSeminarManagerStatsController.getCoordinators);

@@ -23,7 +23,7 @@ export default function SocialMediaManagerDashboard({ loggedInUser }) {
         
         {activeTab === 'overview' && (
           <div className="h-full">
-            <SocialMediaTaskOverview />
+            <SocialMediaTaskOverview loggedInUser={loggedInUser} />
           </div>
         )}
 

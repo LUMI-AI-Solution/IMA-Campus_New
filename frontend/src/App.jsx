@@ -83,6 +83,7 @@ import SecureYoutubePlayerTest from './pages/test/SecureYoutubePlayerTest';
 // Social Media Department
 import SocialMediaManagerDashboard from './pages/social_media/SocialMediaManagerDashboard';
 import SocialMediaStaffDashboard from './pages/social_media/SocialMediaStaffDashboard';
+import SocialMediaDelegationHub from './pages/class_coordinator/SocialMediaDelegationHub';
 import VideoEditor from './pages/social_media/components/VideoEditor';
 
 // 🔥 GHOST MODE BANNER COMPONENT 🔥
@@ -256,11 +257,15 @@ export default function App() {
             <Route path="/workspace/campaign/bridge-transfers" element={<CallCampaignDashboard campaignType="BRIDGE" loggedInUser={loggedInUser} />} />
             <Route path="/workspace/campaign/paid-students" element={<CallCampaignDashboard campaignType="PAID" loggedInUser={loggedInUser} />} />
             <Route path="/workspace/campaign/coordinator-progress" element={<CallCampaignDashboard campaignType="COORD_PROGRESS" loggedInUser={loggedInUser} />} />
+            <Route path="/workspace/campaign/coordinator-tracking" element={<CallCampaignDashboard campaignType="COORD_TRACKING" loggedInUser={loggedInUser} />} />
 
             {/* Physical CRM Routes */}
             <Route path="/physical/dashboard/:tab?" element={<PhysicalManagerDashboard loggedInUser={loggedInUser} />} />
             <Route path="/physical/student-registration" element={<StudentRegistration />} />
             <Route path="/physical/staff-management" element={<ClassTeacherManagement />} />
+
+            {/* Social Media Task Delegation Hub for Managers */}
+            <Route path="/workspace/social-media-delegation" element={<SocialMediaDelegationHub loggedInUser={loggedInUser} />} />
 
             {/* Social Media Routes */}
             <Route path="/social-media/manager/dashboard" element={<SocialMediaManagerDashboard loggedInUser={loggedInUser} />} />

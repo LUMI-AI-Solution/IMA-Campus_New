@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, HeadingLevel, AlignmentType, WidthType, ShadingType } = require('docx');
 
 // Helper: Get all active staff IDs (No strict business filtering to prevent breaking cross-business assignments)
 const getActiveStaffIds = async (businessId, batchId) => {
@@ -171,6 +172,7 @@ const buildStatsWhereClause = (businessId, batchId, startDate, endDate, baseCond
     } else if (hasBiz) {
         const bizId = parseInt(businessId);
         whereClause.OR = [
+            { batch: { businessId: bizId } },
             { phone: { endsWith: `_BIZ_${bizId}` } },
             { phone: { endsWith: `_BIZ_${bizId}_AS` } },
             { phone: { contains: `_BIZ_${bizId}_` } }
@@ -837,7 +839,7 @@ exports.getOpenSeminarStats = async (req, res) => {
 
         let leads = await prisma.lead.findMany({
             where: whereClause,
-            include: { assignedUser: { select: { firstName: true, lastName: true, businessType: true, role: true } } }
+            include: { assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true, image: true, appChatDp: true } } }
         });
 
         // Bridge Transfers අනිවාර්යයෙන්ම අයින් කරන්න
@@ -887,12 +889,15 @@ exports.getOpenSeminarStats = async (req, res) => {
                 if (isDirectPaid) totalDirectPaid++;
                 if (isDelayed) totalDelayed++;
 
-                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}`.trim() : `Staff #${l.assignedTo}`;
+                const fName = (l.assignedUser?.firstName || '').trim();
+                const lName = (l.assignedUser?.lastName || '').trim();
+                const staffName = l.assignedUser ? `${fName} ${lName}`.trim() : `Staff #${l.assignedTo}`;
 
                 // Initialize Staff Object if not exists
                 if (!staffMap[staffName]) {
                     staffMap[staffName] = {
                         name: staffName,
+                        image: l.assignedUser?.image || l.assignedUser?.appChatDp || null,
                         businessType: l.assignedUser?.businessType,
                         role: l.assignedUser?.role,
                         overall: { 
@@ -1505,79 +1510,486 @@ exports.getB2BTransferHistory = async (req, res) => {
 // ==========================================
 exports.getCoordinatorProgressSheetStats = async (req, res) => {
     try {
-        const { businessId, batchId, startDate, endDate } = req.query;
+        const { businessId, batchId, startDate, endDate, coordinatorId } = req.query;
 
-        // Fetch leads using the existing filter builder
-        const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, {
-            campaignType: 'AFTER_SEMINAR'
-        });
+        // Build base where clause for business & batch filtering (all assigned leads)
+        const baseWhere = buildStatsWhereClause(businessId, batchId, null, null);
 
         // Bridge Transfers should be excluded from performance tracking to maintain accuracy
-        whereClause.NOT = {
+        baseWhere.NOT = {
             source: 'bridge_transfer',
             lastMessage: null
         };
 
+        // Fetch both FREE_SEMINAR and AFTER_SEMINAR leads
         const leads = await prisma.lead.findMany({
-            where: whereClause,
-            include: { assignedUser: { select: { firstName: true, lastName: true, businessType: true, role: true } } }
+            where: baseWhere,
+            include: { 
+                assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true } }
+            }
         });
 
-        const activeStaffIds = await getActiveStaffIds(businessId, batchId);
+        // Get chat message counts per lead (Inbound vs Outbound)
+        const leadIds = leads.map(l => l.id);
+        
+        let messageCountsMap = {};
+        if (leadIds.length > 0) {
+            const chatStats = await prisma.chatMessage.groupBy({
+                by: ['leadId', 'direction'],
+                where: { leadId: { in: leadIds } },
+                _count: { id: true }
+            });
+
+            chatStats.forEach(c => {
+                if (!messageCountsMap[c.leadId]) {
+                    messageCountsMap[c.leadId] = { inbound: 0, outbound: 0 };
+                }
+                if (c.direction === 'inbound') {
+                    messageCountsMap[c.leadId].inbound += c._count.id;
+                } else {
+                    messageCountsMap[c.leadId].outbound += c._count.id;
+                }
+            });
+        }
+
+        // Fetch Call Campaign Audit Logs for Date-Wise Coverage Calendar (Last 30 days or range)
+        let calendarLogsWhere = {
+            actionType: { in: ['STATUS_UPDATED', 'CALL_ATTEMPTED', 'COVERED'] }
+        };
+        if (leadIds.length > 0) {
+            calendarLogsWhere.leadId = { in: leadIds };
+        }
+        if (startDate && endDate) {
+            calendarLogsWhere.createdAt = {
+                gte: new Date(startDate),
+                lte: new Date(endDate)
+            };
+        } else {
+            // Default last 30 days
+            const past30 = new Date();
+            past30.setDate(past30.getDate() - 30);
+            calendarLogsWhere.createdAt = { gte: past30 };
+        }
+
+        const auditLogs = await prisma.callCampaignAuditLog.findMany({
+            where: calendarLogsWhere,
+            select: {
+                leadId: true,
+                actionedById: true,
+                campaignCategory: true,
+                createdAt: true,
+                newStatus: true
+            }
+        });
+
         let coordinatorMap = {};
 
-        leads.forEach(l => {
-            // Only aggregate if lead is assigned to active staff
-            if (l.assignedTo) {
-                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}`.trim() : `Staff #${l.assignedTo}`;
+        const createEmptyCoordStats = (staffId, staffName) => ({
+            id: staffId,
+            name: staffName,
+            totalAssigned: 0,
+            freeSem: {
+                assignedCount: 0,
+                messagesReceived: 0,
+                messagesSent: 0,
+                coveredCount: 0,
+                attemptedCount: 0,
+                answeredCount: 0,
+                callAnswerRate: 0,
+                phase1: { answer: 0, noAnswer: 0, pending: 0, reject: 0, total: 0 },
+                phase2: { answer: 0, noAnswer: 0, pending: 0, reject: 0, total: 0 }
+            },
+            afterSem: {
+                assignedCount: 0,
+                messagesReceived: 0,
+                messagesSent: 0,
+                openSem: {
+                    assignedCount: 0,
+                    round1: { active: 0, pending: 0, noAnswer: 0, reject: 0 },
+                    round2: { active: 0, pending: 0, noAnswer: 0, reject: 0 },
+                    paidCount: 0,
+                    nonEnrolledCount: 0,
+                    paidPercentage: 0,
+                    nonEnrolledPercentage: 0
+                },
+                newInq: {
+                    assignedCount: 0,
+                    round1: { active: 0, pending: 0, noAnswer: 0, reject: 0 },
+                    round2: { active: 0, pending: 0, noAnswer: 0, reject: 0 },
+                    paidCount: 0,
+                    nonEnrolledCount: 0,
+                    paidPercentage: 0,
+                    nonEnrolledPercentage: 0
+                },
+                combinedTotals: {
+                    totalLeads: 0,
+                    totalPaid: 0,
+                    totalNonEnrolled: 0
+                }
+            },
+            calendarDailyCoverage: {}
+        });
 
-                if (!coordinatorMap[staffName]) {
-                    coordinatorMap[staffName] = {
+        // If a business filter is specified, fetch staff registered under that business to initialize Map
+        if (businessId && businessId !== 'ALL' && businessId !== 'null' && businessId !== 'undefined') {
+            const bizIdStr = String(businessId);
+            const bizStaff = await prisma.user.findMany({
+                where: {
+                    role: { notIn: ['Student', 'USER', 'STUDENT', 'user', 'student'] },
+                    businessType: { contains: bizIdStr }
+                },
+                select: { id: true, firstName: true, lastName: true }
+            });
+
+            bizStaff.forEach(s => {
+                const staffName = `${s.firstName} ${s.lastName}`.trim();
+                coordinatorMap[s.id] = createEmptyCoordStats(s.id, staffName);
+            });
+        }
+
+        // Helper to normalize call status into: 'answer', 'no_answer', 'pending', 'reject'
+        const normalizeStatus = (status) => {
+            if (!status || status === 'pending') return 'pending';
+            const s = String(status).toLowerCase();
+            if (s.includes('answer') && !s.includes('no')) return 'answer';
+            if (s.includes('no_ans') || s.includes('no answer') || s.includes('unanswered') || s.includes('r1_unanswered') || s.includes('r2_unanswered')) return 'no_answer';
+            if (s.includes('reject') || s.includes('not_interested') || s.includes('drop')) return 'reject';
+            if (s.includes('enrolled') || s.includes('paid') || s.includes('completed') || s.includes('covered')) return 'answer';
+            return 'pending';
+        };
+
+        leads.forEach(l => {
+            if (l.assignedTo) {
+                const staffId = l.assignedTo;
+                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}`.trim() : `Staff #${staffId}`;
+
+                if (!coordinatorMap[staffId]) {
+                    coordinatorMap[staffId] = {
+                        id: staffId,
                         name: staffName,
                         totalAssigned: 0,
-                        openSem: { total: 0, pending: 0, covered: 0, rounds: {} },
-                        newInq: { total: 0, pending: 0, covered: 0 },
-                        paid: { total: 0, pending: 0, covered: 0 }
+                        
+                        // 01 & 03: Free Sem CRM Stats
+                        freeSem: {
+                            assignedCount: 0,
+                            messagesReceived: 0,
+                            messagesSent: 0,
+                            coveredCount: 0,
+                            attemptedCount: 0,
+                            answeredCount: 0,
+                            callAnswerRate: 0,
+                            phase1: { answer: 0, noAnswer: 0, pending: 0, reject: 0, total: 0 },
+                            phase2: { answer: 0, noAnswer: 0, pending: 0, reject: 0, total: 0 }
+                        },
+
+                        // 02 & 04 & 06: After Sem CRM Stats
+                        afterSem: {
+                            assignedCount: 0,
+                            messagesReceived: 0,
+                            messagesSent: 0,
+                            openSem: {
+                                assignedCount: 0,
+                                round1: { active: 0, pending: 0, noAnswer: 0, reject: 0 },
+                                round2: { active: 0, pending: 0, noAnswer: 0, reject: 0 },
+                                paidCount: 0,
+                                nonEnrolledCount: 0,
+                                paidPercentage: 0,
+                                nonEnrolledPercentage: 0
+                            },
+                            newInq: {
+                                assignedCount: 0,
+                                round1: { active: 0, pending: 0, noAnswer: 0, reject: 0 },
+                                round2: { active: 0, pending: 0, noAnswer: 0, reject: 0 },
+                                paidCount: 0,
+                                nonEnrolledCount: 0,
+                                paidPercentage: 0,
+                                nonEnrolledPercentage: 0
+                            },
+                            combinedTotals: {
+                                totalLeads: 0,
+                                totalPaid: 0,
+                                totalNonEnrolled: 0
+                            }
+                        },
+
+                        // 07: Call Summary Calendar (dateString -> { freeSemCovered, afterSemCovered, totalCovered })
+                        calendarDailyCoverage: {}
                     };
                 }
 
-                const staffStats = coordinatorMap[staffName];
-                staffStats.totalAssigned++;
+                const coord = coordinatorMap[staffId];
+                coord.totalAssigned++;
 
-                const isPending = l.callStatus === 'pending' || !l.callStatus;
+                const msgStats = messageCountsMap[l.id] || { inbound: 0, outbound: 0 };
+                const isPaid = l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || l.status === 'ENROLLED';
 
-                if (l.inquiryType === 'NEW_INQ') {
-                    staffStats.newInq.total++;
-                    if (isPending) staffStats.newInq.pending++;
-                    else staffStats.newInq.covered++;
-                } else if (l.inquiryType === 'PAID_CAMP') {
-                    staffStats.paid.total++;
-                    if (isPending) staffStats.paid.pending++;
-                    else staffStats.paid.covered++;
-                } else {
-                    // Treat everything else (like OPEN_SEMINAR, NORMAL) as Open Seminar
-                    staffStats.openSem.total++;
-                    if (isPending) staffStats.openSem.pending++;
-                    else staffStats.openSem.covered++;
+                if (l.campaignType === 'FREE_SEMINAR') {
+                    // --- FREE SEMINAR ---
+                    coord.freeSem.assignedCount++;
+                    coord.freeSem.messagesReceived += msgStats.inbound;
+                    coord.freeSem.messagesSent += msgStats.outbound;
 
-                    // Breakdown by round
-                    const round = l.coordinationRound || 1;
-                    if (!staffStats.openSem.rounds[round]) {
-                        staffStats.openSem.rounds[round] = { total: 0, pending: 0, covered: 0 };
+                    const callStat = normalizeStatus(l.callStatus);
+                    const phase = l.phase || 1;
+                    const phaseObj = phase === 2 ? coord.freeSem.phase2 : coord.freeSem.phase1;
+                    phaseObj.total++;
+
+                    if (callStat === 'answer') {
+                        phaseObj.answer++;
+                        coord.freeSem.coveredCount++;
+                        coord.freeSem.answeredCount++;
+                        coord.freeSem.attemptedCount++;
+                    } else if (callStat === 'no_answer') {
+                        phaseObj.noAnswer++;
+                        coord.freeSem.attemptedCount++;
+                    } else if (callStat === 'reject') {
+                        phaseObj.reject++;
+                        coord.freeSem.coveredCount++;
+                        coord.freeSem.attemptedCount++;
+                    } else {
+                        phaseObj.pending++;
                     }
-                    staffStats.openSem.rounds[round].total++;
-                    if (isPending) staffStats.openSem.rounds[round].pending++;
-                    else staffStats.openSem.rounds[round].covered++;
+
+                } else {
+                    // --- AFTER SEMINAR ---
+                    coord.afterSem.assignedCount++;
+                    coord.afterSem.messagesReceived += msgStats.inbound;
+                    coord.afterSem.messagesSent += msgStats.outbound;
+
+                    const isNewInq = l.inquiryType === 'NEW_INQ';
+                    const targetSection = isNewInq ? coord.afterSem.newInq : coord.afterSem.openSem;
+
+                    targetSection.assignedCount++;
+                    coord.afterSem.combinedTotals.totalLeads++;
+
+                    if (isPaid) {
+                        targetSection.paidCount++;
+                        coord.afterSem.combinedTotals.totalPaid++;
+                    } else {
+                        targetSection.nonEnrolledCount++;
+                        coord.afterSem.combinedTotals.totalNonEnrolled++;
+                    }
+
+                    // Round breakdown
+                    const roundNum = isNewInq ? (l.newInqRound || l.coordinationRound || 1) : (l.openSemRound || l.coordinationRound || 1);
+                    const rawStatus = isNewInq ? (l.newInqCallStatus || l.callStatus) : (l.openSemCallStatus || l.callStatus);
+                    const normalized = normalizeStatus(rawStatus);
+
+                    const roundObj = roundNum === 2 ? targetSection.round2 : targetSection.round1;
+
+                    if (normalized === 'pending') {
+                        roundObj.pending++;
+                    } else if (normalized === 'no_answer') {
+                        roundObj.noAnswer++;
+                        roundObj.active++;
+                    } else if (normalized === 'reject') {
+                        roundObj.reject++;
+                    } else {
+                        // Answer / Active Covered
+                        roundObj.active++;
+                    }
                 }
             }
         });
 
-        // Prepare raw leads for Export Data Sheet
+        // Compute percentages and call answer rates
+        Object.values(coordinatorMap).forEach(coord => {
+            // Free sem call answer rate
+            if (coord.freeSem.attemptedCount > 0) {
+                coord.freeSem.callAnswerRate = Math.round((coord.freeSem.answeredCount / coord.freeSem.attemptedCount) * 100);
+            }
+
+            // Open Sem %
+            if (coord.afterSem.openSem.assignedCount > 0) {
+                coord.afterSem.openSem.paidPercentage = Math.round((coord.afterSem.openSem.paidCount / coord.afterSem.openSem.assignedCount) * 100);
+                coord.afterSem.openSem.nonEnrolledPercentage = Math.round((coord.afterSem.openSem.nonEnrolledCount / coord.afterSem.openSem.assignedCount) * 100);
+            }
+
+            // New Inq %
+            if (coord.afterSem.newInq.assignedCount > 0) {
+                coord.afterSem.newInq.paidPercentage = Math.round((coord.afterSem.newInq.paidCount / coord.afterSem.newInq.assignedCount) * 100);
+                coord.afterSem.newInq.nonEnrolledPercentage = Math.round((coord.afterSem.newInq.nonEnrolledCount / coord.afterSem.newInq.assignedCount) * 100);
+            }
+        });
+
+        // Process Audit Logs into Calendar Daily Coverage for each coordinator
+        auditLogs.forEach(log => {
+            if (log.actionedById && coordinatorMap[log.actionedById]) {
+                const dateKey = log.createdAt.toISOString().split('T')[0];
+                const coord = coordinatorMap[log.actionedById];
+
+                if (!coord.calendarDailyCoverage[dateKey]) {
+                    coord.calendarDailyCoverage[dateKey] = { freeSemCovered: 0, afterSemCovered: 0, totalCovered: 0 };
+                }
+
+                if (log.campaignCategory === 'FREE_SEMINAR') {
+                    coord.calendarDailyCoverage[dateKey].freeSemCovered++;
+                } else {
+                    coord.calendarDailyCoverage[dateKey].afterSemCovered++;
+                }
+                coord.calendarDailyCoverage[dateKey].totalCovered++;
+            }
+        });
+
+        // Fallback calendar entries from lead updated dates if audit logs are empty
+        leads.forEach(l => {
+            if (l.assignedTo && coordinatorMap[l.assignedTo] && (l.callStatus !== 'pending' && l.callStatus)) {
+                const dateKey = (l.lastAttemptAt || l.updatedAt).toISOString().split('T')[0];
+                const coord = coordinatorMap[l.assignedTo];
+                if (!coord.calendarDailyCoverage[dateKey]) {
+                    coord.calendarDailyCoverage[dateKey] = { freeSemCovered: 0, afterSemCovered: 0, totalCovered: 0 };
+                }
+                if (coord.calendarDailyCoverage[dateKey].totalCovered === 0) {
+                    if (l.campaignType === 'FREE_SEMINAR') {
+                        coord.calendarDailyCoverage[dateKey].freeSemCovered++;
+                    } else {
+                        coord.calendarDailyCoverage[dateKey].afterSemCovered++;
+                    }
+                    coord.calendarDailyCoverage[dateKey].totalCovered++;
+                }
+            }
+        });
+
+        // Build date-wise breakdown list
+        let datesList = [];
+        if (startDate && endDate) {
+            let cur = new Date(startDate);
+            const endD = new Date(endDate);
+            while (cur <= endD) {
+                datesList.push(cur.toISOString().split('T')[0]);
+                cur.setDate(cur.getDate() + 1);
+            }
+        } else {
+            for (let i = 13; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                datesList.push(d.toISOString().split('T')[0]);
+            }
+        }
+
+        const coordIds = Object.keys(coordinatorMap).map(id => parseInt(id)).filter(id => !isNaN(id));
+
+        if (coordIds.length > 0 && datesList.length > 0) {
+            const rangeStart = new Date(datesList[0] + 'T00:00:00.000Z');
+            const rangeEnd = new Date(datesList[datesList.length - 1] + 'T23:59:59.999Z');
+
+            const rangeMessages = await prisma.chatMessage.findMany({
+                where: {
+                    senderId: { in: coordIds },
+                    direction: { in: ['outbound', 'out', 'OUT'] },
+                    createdAt: { gte: rangeStart, lte: rangeEnd }
+                },
+                select: { senderId: true, leadId: true, createdAt: true, lead: { select: { campaignType: true, phone: true } } }
+            });
+
+            const rangeCalls = await prisma.callCampaignAuditLog.findMany({
+                where: {
+                    actionedById: { in: coordIds },
+                    createdAt: { gte: rangeStart, lte: rangeEnd }
+                },
+                select: { actionedById: true, leadId: true, campaignCategory: true, createdAt: true }
+            });
+
+            Object.values(coordinatorMap).forEach(coord => {
+                const cId = coord.id;
+                const dailyMap = {};
+                datesList.forEach(d => {
+                    dailyMap[d] = {
+                        date: d,
+                        freeMsgUnique: new Set(),
+                        freeMsgTotal: 0,
+                        allMsgUnique: new Set(),
+                        allMsgTotal: 0,
+                        freeCallsUnique: new Set(),
+                        freeCallsTotal: 0,
+                        allCallsUnique: new Set(),
+                        allCallsTotal: 0
+                    };
+                });
+
+                const cMsgs = rangeMessages.filter(m => m.senderId === cId);
+                cMsgs.forEach(m => {
+                    const dKey = m.createdAt.toISOString().split('T')[0];
+                    if (dailyMap[dKey]) {
+                        dailyMap[dKey].allMsgTotal++;
+                        if (m.leadId) dailyMap[dKey].allMsgUnique.add(m.leadId);
+                        const isFree = m.lead?.campaignType === 'FREE_SEMINAR' || (m.lead?.phone && !m.lead.phone.includes('_AS'));
+                        if (isFree) {
+                            dailyMap[dKey].freeMsgTotal++;
+                            if (m.leadId) dailyMap[dKey].freeMsgUnique.add(m.leadId);
+                        }
+                    }
+                });
+
+                const cCalls = rangeCalls.filter(c => c.actionedById === cId);
+                cCalls.forEach(c => {
+                    const dKey = c.createdAt.toISOString().split('T')[0];
+                    if (dailyMap[dKey]) {
+                        dailyMap[dKey].allCallsTotal++;
+                        if (c.leadId) dailyMap[dKey].allCallsUnique.add(c.leadId);
+                        const isFree = c.campaignCategory === 'FREE_SEMINAR';
+                        if (isFree) {
+                            dailyMap[dKey].freeCallsTotal++;
+                            if (c.leadId) dailyMap[dKey].freeCallsUnique.add(c.leadId);
+                        }
+                    }
+                });
+
+                const overallFreeMsgUnq = new Set();
+                const overallAllMsgUnq = new Set();
+                const overallFreeCallsUnq = new Set();
+                const overallAllCallsUnq = new Set();
+
+                cMsgs.forEach(m => {
+                    if (m.leadId) {
+                        overallAllMsgUnq.add(m.leadId);
+                        if (m.lead?.campaignType === 'FREE_SEMINAR' || (m.lead?.phone && !m.lead.phone.includes('_AS'))) {
+                            overallFreeMsgUnq.add(m.leadId);
+                        }
+                    }
+                });
+
+                cCalls.forEach(c => {
+                    if (c.leadId) {
+                        overallAllCallsUnq.add(c.leadId);
+                        if (c.campaignCategory === 'FREE_SEMINAR') {
+                            overallFreeCallsUnq.add(c.leadId);
+                        }
+                    }
+                });
+
+                coord.dateWiseBreakdown = datesList.map(d => ({
+                    date: d,
+                    freeMsgUnique: dailyMap[d].freeMsgUnique.size,
+                    freeMsgTotal: dailyMap[d].freeMsgTotal,
+                    allMsgUnique: dailyMap[d].allMsgUnique.size,
+                    allMsgTotal: dailyMap[d].allMsgTotal,
+                    freeCallsUnique: dailyMap[d].freeCallsUnique.size,
+                    freeCallsTotal: dailyMap[d].freeCallsTotal,
+                    allCallsUnique: dailyMap[d].allCallsUnique.size,
+                    allCallsTotal: dailyMap[d].allCallsTotal
+                }));
+
+                coord.dateWiseTotals = {
+                    freeMsgUniqueNet: overallFreeMsgUnq.size,
+                    freeMsgTotal: cMsgs.filter(m => m.lead?.campaignType === 'FREE_SEMINAR' || (m.lead?.phone && !m.lead.phone.includes('_AS'))).length,
+                    allMsgUniqueNet: overallAllMsgUnq.size,
+                    allMsgTotal: cMsgs.length,
+                    freeCallsUniqueNet: overallFreeCallsUnq.size,
+                    freeCallsTotal: cCalls.filter(c => c.campaignCategory === 'FREE_SEMINAR').length,
+                    allCallsUniqueNet: overallAllCallsUnq.size,
+                    allCallsTotal: cCalls.length
+                };
+            });
+        }
+
+        // Raw leads for export
         const rawLeadsForExport = leads.map(l => ({
             id: l.id,
             coordinatorName: l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : 'Unassigned',
-            phone: l.phone ? l.phone.split('_')[0] : '', // Clean Phone
+            phone: l.phone ? l.phone.split('_')[0] : '',
             name: l.name || 'Unknown',
+            campaignType: l.campaignType || 'FREE_SEMINAR',
             inquiryType: l.inquiryType || 'OPEN_SEMINAR',
             round: l.coordinationRound || 1,
             phase: l.phase || 1,
@@ -1587,14 +1999,378 @@ exports.getCoordinatorProgressSheetStats = async (req, res) => {
             remark: l.feedback || 'No Remark'
         }));
 
+        // Filter active coordinators (exclude staff with 0 assigned leads and 0 messages/calls in selected business/batch)
+        let activeCoordinatorsList = Object.values(coordinatorMap).filter(coord => {
+            if (coordinatorId && coordinatorId !== 'ALL' && coordinatorId !== 'null') {
+                return String(coord.id) === String(coordinatorId);
+            }
+            return coord.totalAssigned > 0 || 
+                   (coord.dateWiseTotals && (coord.dateWiseTotals.allMsgTotal > 0 || coord.dateWiseTotals.allCallsTotal > 0));
+        });
+
         res.status(200).json({
-            coordinators: Object.values(coordinatorMap),
+            coordinators: activeCoordinatorsList,
             rawLeads: rawLeadsForExport
         });
 
     } catch (error) {
         console.error("Coordinator Progress Stats Error:", error);
         res.status(500).json({ error: "Failed to fetch coordinator progress stats" });
+    }
+};
+
+// ==========================================
+// EXPORT COORDINATOR WORD DOC (.DOCX) CONTROLLER
+// ==========================================
+exports.exportCoordinatorWordDoc = async (req, res) => {
+    try {
+        const { businessId, batchId, startDate, endDate, coordinatorId } = req.query;
+
+        // Build base where clause
+        const baseWhere = buildStatsWhereClause(businessId, batchId, null, null);
+        baseWhere.NOT = { source: 'bridge_transfer', lastMessage: null };
+
+        const leads = await prisma.lead.findMany({
+            where: baseWhere,
+            include: { assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true } } }
+        });
+
+        const leadIds = leads.map(l => l.id);
+        let messageCountsMap = {};
+        if (leadIds.length > 0) {
+            const chatStats = await prisma.chatMessage.groupBy({
+                by: ['leadId', 'direction'],
+                where: { leadId: { in: leadIds } },
+                _count: { id: true }
+            });
+            chatStats.forEach(c => {
+                if (!messageCountsMap[c.leadId]) messageCountsMap[c.leadId] = { inbound: 0, outbound: 0 };
+                if (c.direction === 'inbound') messageCountsMap[c.leadId].inbound += c._count.id;
+                else messageCountsMap[c.leadId].outbound += c._count.id;
+            });
+        }
+
+        let coordinatorMap = {};
+        const createEmptyCoordStats = (staffId, staffName) => ({
+            id: staffId, name: staffName, totalAssigned: 0,
+            freeSem: { assignedCount: 0, messagesReceived: 0, messagesSent: 0, coveredCount: 0, attemptedCount: 0, answeredCount: 0, callAnswerRate: 0, phase1: { answer: 0, noAnswer: 0, pending: 0, reject: 0, total: 0 }, phase2: { answer: 0, noAnswer: 0, pending: 0, reject: 0, total: 0 } },
+            afterSem: { assignedCount: 0, messagesReceived: 0, messagesSent: 0, openSem: { assignedCount: 0, round1: { active: 0, pending: 0, noAnswer: 0, reject: 0 }, round2: { active: 0, pending: 0, noAnswer: 0, reject: 0 }, paidCount: 0, nonEnrolledCount: 0, paidPercentage: 0, nonEnrolledPercentage: 0 }, newInq: { assignedCount: 0, round1: { active: 0, pending: 0, noAnswer: 0, reject: 0 }, round2: { active: 0, pending: 0, noAnswer: 0, reject: 0 }, paidCount: 0, nonEnrolledCount: 0, paidPercentage: 0, nonEnrolledPercentage: 0 }, combinedTotals: { totalLeads: 0, totalPaid: 0, totalNonEnrolled: 0 } },
+            calendarDailyCoverage: {}
+        });
+
+        if (businessId && businessId !== 'ALL' && businessId !== 'null' && businessId !== 'undefined') {
+            const bizIdStr = String(businessId);
+            const bizStaff = await prisma.user.findMany({
+                where: { role: { notIn: ['Student', 'USER', 'STUDENT'] }, businessType: { contains: bizIdStr } },
+                select: { id: true, firstName: true, lastName: true }
+            });
+            bizStaff.forEach(s => {
+                coordinatorMap[s.id] = createEmptyCoordStats(s.id, `${s.firstName} ${s.lastName}`.trim());
+            });
+        }
+
+        const normalizeStatus = (status) => {
+            if (!status || status === 'pending') return 'pending';
+            const s = String(status).toLowerCase();
+            if (s.includes('answer') && !s.includes('no')) return 'answer';
+            if (s.includes('no_ans') || s.includes('no answer') || s.includes('unanswered')) return 'no_answer';
+            if (s.includes('reject') || s.includes('not_interested') || s.includes('drop')) return 'reject';
+            if (s.includes('enrolled') || s.includes('paid') || s.includes('completed') || s.includes('covered')) return 'answer';
+            return 'pending';
+        };
+
+        leads.forEach(l => {
+            if (l.assignedTo) {
+                const staffId = l.assignedTo;
+                const staffName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}`.trim() : `Staff #${staffId}`;
+                if (!coordinatorMap[staffId]) coordinatorMap[staffId] = createEmptyCoordStats(staffId, staffName);
+
+                const coord = coordinatorMap[staffId];
+                coord.totalAssigned++;
+                const msgStats = messageCountsMap[l.id] || { inbound: 0, outbound: 0 };
+                const isPaid = l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || l.status === 'ENROLLED';
+
+                if (l.campaignType === 'FREE_SEMINAR') {
+                    coord.freeSem.assignedCount++;
+                    coord.freeSem.messagesReceived += msgStats.inbound;
+                    coord.freeSem.messagesSent += msgStats.outbound;
+                    const callStat = normalizeStatus(l.callStatus);
+                    const phase = l.phase || 1;
+                    const phaseObj = phase === 2 ? coord.freeSem.phase2 : coord.freeSem.phase1;
+                    phaseObj.total++;
+                    if (callStat === 'answer') { phaseObj.answer++; coord.freeSem.coveredCount++; coord.freeSem.answeredCount++; coord.freeSem.attemptedCount++; }
+                    else if (callStat === 'no_answer') { phaseObj.noAnswer++; coord.freeSem.attemptedCount++; }
+                    else if (callStat === 'reject') { phaseObj.reject++; coord.freeSem.coveredCount++; coord.freeSem.attemptedCount++; }
+                    else { phaseObj.pending++; }
+                } else {
+                    coord.afterSem.assignedCount++;
+                    coord.afterSem.messagesReceived += msgStats.inbound;
+                    coord.afterSem.messagesSent += msgStats.outbound;
+                    const isNewInq = l.inquiryType === 'NEW_INQ';
+                    const targetSection = isNewInq ? coord.afterSem.newInq : coord.afterSem.openSem;
+                    targetSection.assignedCount++;
+                    coord.afterSem.combinedTotals.totalLeads++;
+                    if (isPaid) { targetSection.paidCount++; coord.afterSem.combinedTotals.totalPaid++; }
+                    else { targetSection.nonEnrolledCount++; coord.afterSem.combinedTotals.totalNonEnrolled++; }
+
+                    const roundNum = isNewInq ? (l.newInqRound || l.coordinationRound || 1) : (l.openSemRound || l.coordinationRound || 1);
+                    const rawStatus = isNewInq ? (l.newInqCallStatus || l.callStatus) : (l.openSemCallStatus || l.callStatus);
+                    const normalized = normalizeStatus(rawStatus);
+                    const roundObj = roundNum === 2 ? targetSection.round2 : targetSection.round1;
+                    if (normalized === 'pending') roundObj.pending++;
+                    else if (normalized === 'no_answer') { roundObj.noAnswer++; roundObj.active++; }
+                    else if (normalized === 'reject') roundObj.reject++;
+                    else roundObj.active++;
+                }
+            }
+        });
+
+        // Compute percentages
+        Object.values(coordinatorMap).forEach(coord => {
+            if (coord.freeSem.attemptedCount > 0) coord.freeSem.callAnswerRate = Math.round((coord.freeSem.answeredCount / coord.freeSem.attemptedCount) * 100);
+            if (coord.afterSem.openSem.assignedCount > 0) {
+                coord.afterSem.openSem.paidPercentage = Math.round((coord.afterSem.openSem.paidCount / coord.afterSem.openSem.assignedCount) * 100);
+                coord.afterSem.openSem.nonEnrolledPercentage = Math.round((coord.afterSem.openSem.nonEnrolledCount / coord.afterSem.openSem.assignedCount) * 100);
+            }
+            if (coord.afterSem.newInq.assignedCount > 0) {
+                coord.afterSem.newInq.paidPercentage = Math.round((coord.afterSem.newInq.paidCount / coord.afterSem.newInq.assignedCount) * 100);
+                coord.afterSem.newInq.nonEnrolledPercentage = Math.round((coord.afterSem.newInq.nonEnrolledCount / coord.afterSem.newInq.assignedCount) * 100);
+            }
+        });
+
+        // Build date-wise breakdown list
+        let datesList = [];
+        if (startDate && endDate) {
+            let cur = new Date(startDate);
+            const endD = new Date(endDate);
+            while (cur <= endD) {
+                datesList.push(cur.toISOString().split('T')[0]);
+                cur.setDate(cur.getDate() + 1);
+            }
+        } else {
+            for (let i = 13; i >= 0; i--) {
+                const d = new Date();
+                d.setDate(d.getDate() - i);
+                datesList.push(d.toISOString().split('T')[0]);
+            }
+        }
+
+        const coordIds = Object.keys(coordinatorMap).map(id => parseInt(id)).filter(id => !isNaN(id));
+
+        if (coordIds.length > 0 && datesList.length > 0) {
+            const rangeStart = new Date(datesList[0] + 'T00:00:00.000Z');
+            const rangeEnd = new Date(datesList[datesList.length - 1] + 'T23:59:59.999Z');
+
+            const rangeMessages = await prisma.chatMessage.findMany({
+                where: { senderId: { in: coordIds }, direction: { in: ['outbound', 'out', 'OUT'] }, createdAt: { gte: rangeStart, lte: rangeEnd } },
+                select: { senderId: true, leadId: true, createdAt: true, lead: { select: { campaignType: true, phone: true } } }
+            });
+
+            const rangeCalls = await prisma.callCampaignAuditLog.findMany({
+                where: { actionedById: { in: coordIds }, createdAt: { gte: rangeStart, lte: rangeEnd } },
+                select: { actionedById: true, leadId: true, campaignCategory: true, createdAt: true }
+            });
+
+            Object.values(coordinatorMap).forEach(coord => {
+                const cId = coord.id;
+                const dailyMap = {};
+                datesList.forEach(d => {
+                    dailyMap[d] = { date: d, freeMsgUnique: new Set(), freeMsgTotal: 0, allMsgUnique: new Set(), allMsgTotal: 0, freeCallsUnique: new Set(), freeCallsTotal: 0, allCallsUnique: new Set(), allCallsTotal: 0 };
+                });
+
+                const cMsgs = rangeMessages.filter(m => m.senderId === cId);
+                cMsgs.forEach(m => {
+                    const dKey = m.createdAt.toISOString().split('T')[0];
+                    if (dailyMap[dKey]) {
+                        dailyMap[dKey].allMsgTotal++;
+                        if (m.leadId) dailyMap[dKey].allMsgUnique.add(m.leadId);
+                        const isFree = m.lead?.campaignType === 'FREE_SEMINAR' || (m.lead?.phone && !m.lead.phone.includes('_AS'));
+                        if (isFree) { dailyMap[dKey].freeMsgTotal++; if (m.leadId) dailyMap[dKey].freeMsgUnique.add(m.leadId); }
+                    }
+                });
+
+                const cCalls = rangeCalls.filter(c => c.actionedById === cId);
+                cCalls.forEach(c => {
+                    const dKey = c.createdAt.toISOString().split('T')[0];
+                    if (dailyMap[dKey]) {
+                        dailyMap[dKey].allCallsTotal++;
+                        if (c.leadId) dailyMap[dKey].allCallsUnique.add(c.leadId);
+                        const isFree = c.campaignCategory === 'FREE_SEMINAR';
+                        if (isFree) { dailyMap[dKey].freeCallsTotal++; if (c.leadId) dailyMap[dKey].freeCallsUnique.add(c.leadId); }
+                    }
+                });
+
+                const overallFreeMsgUnq = new Set();
+                const overallAllMsgUnq = new Set();
+                const overallFreeCallsUnq = new Set();
+                const overallAllCallsUnq = new Set();
+
+                cMsgs.forEach(m => {
+                    if (m.leadId) {
+                        overallAllMsgUnq.add(m.leadId);
+                        if (m.lead?.campaignType === 'FREE_SEMINAR' || (m.lead?.phone && !m.lead.phone.includes('_AS'))) overallFreeMsgUnq.add(m.leadId);
+                    }
+                });
+                cCalls.forEach(c => {
+                    if (c.leadId) {
+                        overallAllCallsUnq.add(c.leadId);
+                        if (c.campaignCategory === 'FREE_SEMINAR') overallFreeCallsUnq.add(c.leadId);
+                    }
+                });
+
+                coord.dateWiseBreakdown = datesList.map(d => ({
+                    date: d,
+                    freeMsgUnique: dailyMap[d].freeMsgUnique.size,
+                    freeMsgTotal: dailyMap[d].freeMsgTotal,
+                    allMsgUnique: dailyMap[d].allMsgUnique.size,
+                    allMsgTotal: dailyMap[d].allMsgTotal,
+                    freeCallsUnique: dailyMap[d].freeCallsUnique.size,
+                    freeCallsTotal: dailyMap[d].freeCallsTotal,
+                    allCallsUnique: dailyMap[d].allCallsUnique.size,
+                    allCallsTotal: dailyMap[d].allCallsTotal
+                }));
+
+                coord.dateWiseTotals = {
+                    freeMsgUniqueNet: overallFreeMsgUnq.size,
+                    freeMsgTotal: cMsgs.filter(m => m.lead?.campaignType === 'FREE_SEMINAR' || (m.lead?.phone && !m.lead.phone.includes('_AS'))).length,
+                    allMsgUniqueNet: overallAllMsgUnq.size,
+                    allMsgTotal: cMsgs.length,
+                    freeCallsUniqueNet: overallFreeCallsUnq.size,
+                    freeCallsTotal: cCalls.filter(c => c.campaignCategory === 'FREE_SEMINAR').length,
+                    allCallsUniqueNet: overallAllCallsUnq.size,
+                    allCallsTotal: cCalls.length
+                };
+            });
+        }
+
+        let coordinatorsToExport = Object.values(coordinatorMap).filter(coord => {
+            if (coordinatorId && coordinatorId !== 'ALL' && coordinatorId !== 'undefined' && coordinatorId !== 'null') {
+                return String(coord.id) === String(coordinatorId);
+            }
+            return coord.totalAssigned > 0 || 
+                   (coord.dateWiseTotals && (coord.dateWiseTotals.allMsgTotal > 0 || coord.dateWiseTotals.allCallsTotal > 0));
+        });
+
+        let bizName = "All Businesses";
+        if (businessId && businessId !== 'ALL') {
+            const bizObj = await prisma.business.findUnique({ where: { id: parseInt(businessId) } });
+            if (bizObj) bizName = bizObj.name;
+        }
+
+        const createCoordDocSection = (coord) => {
+            const tableHeaderBg = '1E293B';
+            const headerCell = (text, width = 14) => new TableCell({
+                children: [new Paragraph({ children: [new TextRun({ text, bold: true, color: 'FFFFFF', size: 18 })], alignment: AlignmentType.CENTER })],
+                shading: { fill: tableHeaderBg, type: ShadingType.CLEAR },
+                width: { size: width, type: WidthType.PERCENTAGE }
+            });
+
+            const bodyCell = (text, isBold = false, color = '0F172A', align = AlignmentType.CENTER) => new TableCell({
+                children: [new Paragraph({ children: [new TextRun({ text: String(text), bold: isBold, color, size: 18 })], alignment: align })]
+            });
+
+            const tableRows = [
+                new TableRow({
+                    children: [
+                        headerCell('Date', 16),
+                        headerCell('Free Sem Unique', 14),
+                        headerCell('Free Sem Msgs', 14),
+                        headerCell('Free Sem Calls', 14),
+                        headerCell('All Unique', 14),
+                        headerCell('All Msgs', 14),
+                        headerCell('All Calls', 14)
+                    ]
+                })
+            ];
+
+            (coord.dateWiseBreakdown || []).forEach(item => {
+                tableRows.push(new TableRow({
+                    children: [
+                        bodyCell(item.date, true, '334155', AlignmentType.LEFT),
+                        bodyCell(item.freeMsgUnique, true, '2563EB'),
+                        bodyCell(item.freeMsgTotal),
+                        bodyCell(item.freeCallsTotal),
+                        bodyCell(item.allMsgUnique, true, '059669'),
+                        bodyCell(item.allMsgTotal),
+                        bodyCell(item.allCallsTotal)
+                    ]
+                }));
+            });
+
+            const totals = coord.dateWiseTotals || {};
+            tableRows.push(new TableRow({
+                children: [
+                    bodyCell('TOTAL (Net)', true, '0F172A', AlignmentType.LEFT),
+                    bodyCell(`${totals.freeMsgUniqueNet || 0} Unique`, true, '2563EB'),
+                    bodyCell(`${totals.freeMsgTotal || 0} Msgs`, true, '0F172A'),
+                    bodyCell(`${totals.freeCallsTotal || 0} Calls`, true, '0F172A'),
+                    bodyCell(`${totals.allMsgUniqueNet || 0} Unique`, true, '059669'),
+                    bodyCell(`${totals.allMsgTotal || 0} Msgs`, true, '0F172A'),
+                    bodyCell(`${totals.allCallsTotal || 0} Calls`, true, '0F172A')
+                ]
+            }));
+
+            const free = coord.freeSem || {};
+            const after = coord.afterSem || {};
+
+            return [
+                new Paragraph({ text: `COORDINATOR REPORT: ${coord.name.toUpperCase()}`, heading: HeadingLevel.HEADING_1, spacing: { before: 300, after: 150 } }),
+                new Paragraph({
+                    children: [
+                        new TextRun({ text: "• Total Assigned Leads: ", bold: true }),
+                        new TextRun({ text: `${coord.totalAssigned || 0} (Free Sem: ${free.assignedCount || 0} | After Sem: ${after.assignedCount || 0})\n` }),
+                        new TextRun({ text: "• Paid Conversions: ", bold: true }),
+                        new TextRun({ text: `${after.combinedTotals?.totalPaid || 0}  |  ` }),
+                        new TextRun({ text: "Non-Enrolled: ", bold: true }),
+                        new TextRun({ text: `${after.combinedTotals?.totalNonEnrolled || 0}\n` }),
+                        new TextRun({ text: "• Free Sem Call Answer Rate: ", bold: true }),
+                        new TextRun({ text: `${free.callAnswerRate || 0}% (Covered: ${free.coveredCount || 0} / ${free.assignedCount || 0})\n` }),
+                        new TextRun({ text: "• Free Sem Phase 1: ", bold: true }),
+                        new TextRun({ text: `Answer: ${free.phase1?.answer || 0} | No Ans: ${free.phase1?.noAnswer || 0} | Pending: ${free.phase1?.pending || 0} | Reject: ${free.phase1?.reject || 0}\n` }),
+                        new TextRun({ text: "• Free Sem Phase 2: ", bold: true }),
+                        new TextRun({ text: `Answer: ${free.phase2?.answer || 0} | No Ans: ${free.phase2?.noAnswer || 0} | Pending: ${free.phase2?.pending || 0} | Reject: ${free.phase2?.reject || 0}\n` }),
+                        new TextRun({ text: "• After Sem Round 1: ", bold: true }),
+                        new TextRun({ text: `Active: ${after.newInq?.round1?.active || 0} | Pending: ${after.newInq?.round1?.pending || 0} | No Ans: ${after.newInq?.round1?.noAnswer || 0} | Reject: ${after.newInq?.round1?.reject || 0}\n` }),
+                        new TextRun({ text: "• After Sem Round 2: ", bold: true }),
+                        new TextRun({ text: `Active: ${after.newInq?.round2?.active || 0} | Pending: ${after.newInq?.round2?.pending || 0} | No Ans: ${after.newInq?.round2?.noAnswer || 0} | Reject: ${after.newInq?.round2?.reject || 0}` })
+                    ],
+                    spacing: { after: 200 }
+                }),
+                new Paragraph({ text: `Date-Wise Activity Breakdown:`, heading: HeadingLevel.HEADING_2, spacing: { before: 150, after: 100 } }),
+                new Table({ rows: tableRows, width: { size: 100, type: WidthType.PERCENTAGE } }),
+                new Paragraph({ text: "", spacing: { after: 400 } })
+            ];
+        };
+
+        const docChildren = [
+            new Paragraph({ text: "IMA CAMPUS - COORDINATOR PERFORMANCE AUDIT REPORT", heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER, spacing: { after: 100 } }),
+            new Paragraph({
+                children: [
+                    new TextRun({ text: "Business Scope: ", bold: true }),
+                    new TextRun({ text: `${bizName}  |  ` }),
+                    new TextRun({ text: "Date Range: ", bold: true }),
+                    new TextRun({ text: `${startDate || 'Default 14 Days'} to ${endDate || 'Today'}  |  ` }),
+                    new TextRun({ text: "Generated: ", bold: true }),
+                    new TextRun({ text: new Date().toLocaleDateString('en-US') })
+                ],
+                alignment: AlignmentType.CENTER, spacing: { after: 400 }
+            })
+        ];
+
+        coordinatorsToExport.forEach(coord => {
+            docChildren.push(...createCoordDocSection(coord));
+        });
+
+        const doc = new Document({ sections: [{ properties: {}, children: docChildren }] });
+        const buffer = await Packer.toBuffer(doc);
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', `attachment; filename=Coordinator_Performance_Report_${Date.now()}.docx`);
+        return res.send(buffer);
+
+    } catch (error) {
+        console.error("Export Word Doc Error:", error);
+        return res.status(500).json({ error: "Failed to export Word document" });
     }
 };
 

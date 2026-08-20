@@ -16,6 +16,7 @@ export default function ManagerTaskCenter({ loggedInUser }) {
     const [staffList, setStaffList] = useState([]);
     const [selectedBiz, setSelectedBiz] = useState('');
     const [dateFilter, setDateFilter] = useState('all'); 
+    const [customDate, setCustomDate] = useState(''); 
 
     const [selectedTaskIds, setSelectedTaskIds] = useState([]); 
 
@@ -36,7 +37,7 @@ export default function ManagerTaskCenter({ loggedInUser }) {
     useEffect(() => { 
         if (selectedBiz) fetchTasks(); 
         setSelectedTaskIds([]); 
-    }, [selectedBiz, activeTab, dateFilter]);
+    }, [selectedBiz, activeTab, dateFilter, customDate]);
 
     const fetchInitialData = async () => {
         try {
@@ -88,7 +89,7 @@ export default function ManagerTaskCenter({ loggedInUser }) {
     const handleApproveUnlock = async (e) => {
         e.preventDefault();
         try {
-            await api.post('/admin/tasks/approve-unlock', { taskId: selectedTask.id, additionalHours: new FormData(e.target).get('hours'), managerId: loggedInUser.id });
+            await api.post('/admin/tasks/approve-unlock', { taskId: selectedTask.id, additionalHours: new FormData(e.target.value).get('hours'), managerId: loggedInUser.id });
             toast.success("Task unlocked!");
             setShowUnlockModal(false); fetchTasks();
         } catch (e) { toast.error("Failed to approve unlock"); }
@@ -108,6 +109,12 @@ export default function ManagerTaskCenter({ loggedInUser }) {
     };
 
     const filteredTasks = tasks.filter(task => {
+        if (dateFilter === 'custom' && customDate) {
+            const rawDate = task.timetable?.date || task.updatedAt || task.createdAt;
+            if (!rawDate) return false;
+            const taskDateStr = new Date(rawDate).toISOString().split('T')[0];
+            return taskDateStr === customDate;
+        }
         if (dateFilter === 'all' || task.taskType === 'CUSTOM' || !task.timetable?.date) return true;
         
         const taskDate = new Date(task.timetable.date).setHours(0,0,0,0);
@@ -182,13 +189,28 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                     )}
 
                     {activeTab !== 'settings' && selectedBiz && (
-                        <div className="flex bg-gray-50 dark:bg-transparent p-1 rounded-xl border border-gray-200 dark:border-slate-700/30 overflow-x-auto gap-1 transition-colors">
+                        <div className="flex flex-wrap items-center bg-gray-50 dark:bg-transparent p-1 rounded-xl border border-gray-200 dark:border-slate-700/30 overflow-x-auto gap-1 transition-colors">
                             {['all', 'today', 'tomorrow', 'next2days'].map(filter => (
-                                <button key={filter} onClick={() => setDateFilter(filter)} 
+                                <button key={filter} onClick={() => { setDateFilter(filter); setCustomDate(''); }} 
                                     className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-all whitespace-nowrap ${dateFilter === filter ? 'bg-brand-accent text-white shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-white dark:hover:bg-brand-darkHover'}`}>
                                     {filter === 'all' ? 'All Days' : filter === 'today' ? 'Today' : filter === 'tomorrow' ? 'Tomorrow' : 'Next 2 Days'}
                                 </button>
                             ))}
+                            
+                            {/* Calendar Picker for Past History Dates */}
+                            <div className="flex items-center gap-1.5 ml-1 border-l border-gray-200 dark:border-slate-700/40 pl-2">
+                                <span className="text-[11px] font-bold text-gray-500 dark:text-slate-400 whitespace-nowrap">Filter Date:</span>
+                                <input 
+                                    type="date" 
+                                    value={customDate} 
+                                    onChange={(e) => {
+                                        setCustomDate(e.target.value);
+                                        if (e.target.value) setDateFilter('custom');
+                                        else setDateFilter('all');
+                                    }}
+                                    className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-xs font-bold text-gray-900 dark:text-white px-2.5 py-1 rounded-lg outline-none cursor-pointer focus:border-brand-accent transition-all shadow-inner"
+                                />
+                            </div>
                         </div>
                     )}
                 </div>

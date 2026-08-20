@@ -9,10 +9,13 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend 
 } from 'recharts';
 
+import DelegateSocialMediaTaskModal from '../../../components/common/DelegateSocialMediaTaskModal';
+
 export default function ManagerDashboard() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(false);
+  const [isDelegateModalOpen, setIsDelegateModalOpen] = useState(false);
 
   const [businesses, setBusinesses] = useState([]);
   const [batches, setBatches] = useState([]);
@@ -165,11 +168,23 @@ export default function ManagerDashboard() {
               {displayBatches.map(b => <option key={b.id} value={b.id} className="bg-white dark:bg-[#1a2430]">{b.name}</option>)}
             </select>
           </div>
+          <button 
+            onClick={() => setIsDelegateModalOpen(true)}
+            className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black uppercase tracking-wider px-4 py-2.5 rounded-xl border border-indigo-400/30 flex items-center gap-2 shadow-lg shadow-indigo-500/20 transition-all cursor-pointer"
+          >
+            <span>🚀</span> Delegate Work to Social Media
+          </button>
           <span className="bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 text-[10px] font-black tracking-widest uppercase border border-emerald-200 dark:border-emerald-500/20 px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-sm">
             <FaCircle className="text-[7px] animate-pulse text-emerald-500" /> Live
           </span>
         </div>
       </div>
+
+      <DelegateSocialMediaTaskModal 
+        isOpen={isDelegateModalOpen} 
+        onClose={() => setIsDelegateModalOpen(false)} 
+        loggedInUser={user} 
+      />
 
       {statsLoading ? (
         <div className="flex flex-col justify-center items-center h-[300px] text-brand-accent font-sans font-black gap-4 bg-white/50 dark:bg-white/[0.02] rounded-[2rem] border border-white/5 backdrop-blur-md">
