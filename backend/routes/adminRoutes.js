@@ -7,7 +7,11 @@ const adminController = require('../controllers/adminController');
 const databaseController = require('../controllers/databaseController');
 const managerDashboardController = require('../controllers/managerDashboardController');
 const leadDataCenterController = require('../controllers/leadDataCenterController');
+const adminAnalyticsController = require('../controllers/adminAnalyticsController');
 const verifyToken = require('../middlewares/authMiddleware');
+
+// Executive All-in-One Analytics Hub
+router.get('/all-in-one-analytics', verifyToken, adminAnalyticsController.getExecutiveAnalytics);
 
 // Admin Profile
 router.get('/profile', verifyToken, adminController.getAdminProfile);
@@ -130,5 +134,10 @@ const upload = multer({ storage: storage });
 router.get('/ringtones', ringtoneController.getRingtones);
 router.post('/ringtones/upload', upload.single('ringtone'), ringtoneController.uploadRingtone);
 router.post('/ringtones/assign', ringtoneController.assignRingtone);
+
+// 🔥 LUMI AI ANALYSER & FORECASTING ROUTES 🔥
+const lumiAiAnalyserController = require('../controllers/lumiAiAnalyserController');
+router.post('/lumi-ai-analyser/chat', lumiAiAnalyserController.handleLumiAiChat);
+router.post('/lumi-ai-analyser/forecast', lumiAiAnalyserController.generateBatchForecast);
 
 module.exports = router;

@@ -1,5 +1,17 @@
 backend/serviceAccountKey.json
 backend/storage/
+storage/
+scratch/
+backend/scratch/
+backend/test*.js
+backend/check_*.js
+backend/debug_*.js
+backend/sync_*.js
+backend/find_*.js
+backend/fix_*.js
+backend/get_*.js
+backend/inspect_*.js
+backend/public/uploads/social-media/*
 backend/serviceAccountKey.json
 backend/public/uploads/social-media/*.mp4
 *.zip

@@ -6,8 +6,8 @@ exports.scanStudent = async (req, res) => {
     try {
         const { studentId } = req.params;
 
-        // Fetch student data with class details
-        const student = await prisma.physicalStudent.findFirst({
+        // Fetch student data with class details (try exact studentId/rfid first, then name/phone/nic)
+        let student = await prisma.physicalStudent.findFirst({
             where: {
                 OR: [
                     { studentId: studentId },
@@ -17,11 +17,31 @@ exports.scanStudent = async (req, res) => {
             include: {
                 class: true,
                 school: true,
+                enrollments: { include: { class: true } }
             }
         });
 
         if (!student) {
-            return res.status(404).json({ error: 'Student not found for the given Card ID' });
+            student = await prisma.physicalStudent.findFirst({
+                where: {
+                    OR: [
+                        { studentName: { contains: studentId } },
+                        { firstName: { contains: studentId } },
+                        { lastName: { contains: studentId } },
+                        { phone: { contains: studentId } },
+                        { nic: { contains: studentId } }
+                    ]
+                },
+                include: {
+                    class: true,
+                    school: true,
+                    enrollments: { include: { class: true } }
+                }
+            });
+        }
+
+        if (!student) {
+            return res.status(404).json({ error: 'Student not found for the given Search / Card ID' });
         }
 
         // Fetch attendance (last 90 days) and available classes concurrently
@@ -47,7 +67,7 @@ exports.scanStudent = async (req, res) => {
 
     } catch (error) {
         console.error('Error scanning student:', error);
-        res.status(500).json({ error: 'Failed to fetch student data' });
+        res.status(500).json({ error: 'Failed to fetch student data: ' + error.message });
     }
 };
 
@@ -131,5 +151,39 @@ exports.unmarkAttendance = async (req, res) => {
     } catch (error) {
         console.error('Error unmarking attendance:', error);
         res.status(500).json({ error: 'Failed to unmark attendance' });
+    }
+};
+
+// 5. Search Students for Autocomplete
+exports.searchStudents = async (req, res) => {
+    try {
+        const { query } = req.query;
+        if (!query || query.trim().length === 0) {
+            return res.json({ students: [] });
+        }
+
+        const q = query.trim();
+        const students = await prisma.physicalStudent.findMany({
+            where: {
+                OR: [
+                    { studentId: { contains: q } },
+                    { studentName: { contains: q } },
+                    { firstName: { contains: q } },
+                    { lastName: { contains: q } },
+                    { phone: { contains: q } },
+                    { nic: { contains: q } },
+                    { rfid: { contains: q } }
+                ]
+            },
+            take: 8,
+            include: {
+                class: true
+            }
+        });
+
+        res.json({ students });
+    } catch (error) {
+        console.error('Error searching students:', error);
+        res.status(500).json({ error: 'Failed to search students: ' + error.message });
     }
 };

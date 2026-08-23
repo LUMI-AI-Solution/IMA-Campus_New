@@ -1,5 +1,6 @@
 import React from 'react';
-import { X, Send, UploadCloud, Users, CheckCircle, Plus, Edit3, Trash2, CreditCard, MessageSquare, MonitorPlay, ExternalLink, Ban, BookOpen, Building2, User, Layers, Save } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X, Send, UploadCloud, Users, UserPlus, CheckCircle, Plus, Edit3, Trash2, CreditCard, MessageSquare, MonitorPlay, ExternalLink, Ban, BookOpen, Building2, User, Layers, Save } from 'lucide-react';
 import api from '../../../api/axios'; 
 
 export default function ContentHubModals({ state, actions }) {
@@ -59,18 +60,18 @@ export default function ContentHubModals({ state, actions }) {
         });
     };
 
-    return (
+    const modalContent = (
         <>
             {/* ADD CONTENT MODAL */}
             {showContentModal && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-                    <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] w-full max-w-7xl max-h-[95vh] flex flex-col shadow-[0_10px_50px_rgba(0,0,0,0.8)] overflow-hidden backdrop-blur-3xl">
-                        <div className="p-6 md:p-8 border-b border-white/10 flex justify-between items-center bg-white/[0.02] rounded-t-[2rem]">
-                            <h3 className="text-2xl font-extrabold text-white flex items-center gap-3 drop-shadow-sm"><Plus className="text-green-400" size={28}/> {editMode ? 'Edit Content' : 'Add Content (Multi-Batch)'}</h3>
-                            <button onClick={() => { setShowContentModal(false); setContentType(''); setPrefilledFolder(''); setMassAssignSubjects([]); setSelectedBatchesForContent([]); }} className="text-gray-400 hover:text-white bg-white/5 border border-white/10 p-2.5 rounded-xl transition-all hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={20}/></button>
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-2 sm:p-4 md:p-6 animate-in fade-in duration-200">
+                    <div className="bg-[#090E17]/95 border border-white/10 rounded-2xl sm:rounded-[2rem] w-full max-w-7xl max-h-[92vh] sm:max-h-[95vh] flex flex-col shadow-[0_10px_50px_rgba(0,0,0,0.8)] overflow-hidden backdrop-blur-3xl">
+                        <div className="p-4 sm:p-6 md:p-8 border-b border-white/10 flex justify-between items-center bg-white/[0.02] rounded-t-2xl sm:rounded-t-[2rem]">
+                            <h3 className="text-lg sm:text-2xl font-extrabold text-white flex items-center gap-2.5 sm:gap-3 drop-shadow-sm"><Plus className="text-green-400 w-6 h-6 sm:w-7 sm:h-7" /> {editMode ? 'Edit Content' : 'Add Content (Multi-Batch)'}</h3>
+                            <button onClick={() => { setShowContentModal(false); setContentType(''); setPrefilledFolder(''); setMassAssignSubjects([]); setSelectedBatchesForContent([]); }} className="text-gray-400 hover:text-white bg-white/5 border border-white/10 p-2 sm:p-2.5 rounded-xl transition-all hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={18}/></button>
                         </div>
                         
-                        <div className="flex-1 overflow-y-auto p-6 md:p-8 custom-scrollbar">
+                        <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 custom-scrollbar">
                             <form key={`form-${editMode ? editData?.id : 'new'}`} onSubmit={handleMassAssignSubmit} className="space-y-8 max-w-6xl mx-auto">
                                 <div className="flex flex-col md:flex-row gap-6">
                                     <div className="flex-1">
@@ -351,7 +352,7 @@ export default function ContentHubModals({ state, actions }) {
 
             {/* SETUP BUSINESS MODAL */}
             {showBusinessModal && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-6 md:p-8 w-full max-w-6xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] flex flex-col max-h-[90vh] backdrop-blur-3xl">
                         <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-4 shrink-0">
                             <h3 className="text-2xl font-extrabold text-white flex items-center gap-3 drop-shadow-sm"><Building2 className="text-blue-400"/> {editMode ? 'Edit Business Configuration' : 'Setup New Business'}</h3>
@@ -452,7 +453,7 @@ export default function ContentHubModals({ state, actions }) {
 
             {/* ASSIGN MANAGERS MODAL */}
             {showAssignModal && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-8 w-full max-w-3xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] flex flex-col backdrop-blur-3xl">
                         <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-4">
                             <h3 className="text-2xl font-extrabold text-white flex items-center gap-3 drop-shadow-sm"><UserPlus className="text-blue-400"/> Assign Managers</h3>
@@ -483,7 +484,7 @@ export default function ContentHubModals({ state, actions }) {
 
             {/* BATCH MODAL */}
             {showBatchModal && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-8 w-full max-w-4xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] flex flex-col backdrop-blur-3xl">
                         <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-4">
                             <h3 className="text-2xl font-extrabold text-white flex items-center gap-3 drop-shadow-sm"><Layers className="text-blue-400"/> {editMode ? 'Edit Batch' : 'New Batch'}</h3>
@@ -533,7 +534,7 @@ export default function ContentHubModals({ state, actions }) {
 
             {/* PAYMENT GROUP MODAL */}
             {showGroupModal && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-6 md:p-8 w-full max-w-5xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col backdrop-blur-3xl">
                         <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-4 shrink-0">
                             <h3 className="text-2xl font-extrabold text-white flex items-center gap-3 drop-shadow-sm"><Layers className="text-blue-400"/> {editMode ? 'Edit Payment Group' : 'New Payment Group'}</h3>
@@ -577,7 +578,7 @@ export default function ContentHubModals({ state, actions }) {
 
             {/* SETUP INSTALLMENTS MODAL */}
             {showInstallmentModal && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-6 md:p-8 w-full max-w-7xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col backdrop-blur-3xl">
                         <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-4 shrink-0"><h3 className="text-2xl font-extrabold text-white flex items-center gap-3 drop-shadow-sm"><CreditCard className="text-orange-400"/> Setup Installments</h3><button onClick={() => setShowInstallmentModal(false)} className="text-gray-400 hover:text-white bg-white/5 p-2.5 rounded-xl border border-white/10 transition-colors hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={20}/></button></div>
                         
@@ -675,7 +676,7 @@ export default function ContentHubModals({ state, actions }) {
 
             {/* SUBJECT MODAL */}
             {showCourseModal && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4 animate-in fade-in duration-200">
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-3xl p-5 sm:p-6 md:p-8 w-full max-w-7xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] max-h-[95vh] overflow-y-auto custom-scrollbar flex flex-col backdrop-blur-3xl">
                         <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4 shrink-0"><h3 className="text-xl sm:text-2xl font-extrabold text-white drop-shadow-sm">{editMode ? 'Edit Subject' : 'New Subject'}</h3><button onClick={() => setShowCourseModal(false)} className="text-gray-400 hover:text-white bg-white/5 p-2 rounded-xl border border-white/10 transition-colors hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={20}/></button></div>
                         <form onSubmit={handleCourseSubmit} className="space-y-6 flex-1">
@@ -940,7 +941,7 @@ export default function ContentHubModals({ state, actions }) {
 
             {/* ADD/EDIT FOLDER MODAL */}
             {showLessonGroupModal && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-8 w-full max-w-2xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] flex flex-col backdrop-blur-3xl">
                         <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-4">
                             <h3 className="text-2xl font-extrabold text-white drop-shadow-sm">{editMode ? 'Edit Folder' : 'New Folder'}</h3>
@@ -986,7 +987,7 @@ export default function ContentHubModals({ state, actions }) {
 
             {/* LECTURER MODAL */}
             {showLecturerModal && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-8 w-full max-w-2xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] flex flex-col backdrop-blur-3xl">
                         <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-4">
                             <h3 className="text-2xl font-extrabold text-white drop-shadow-sm">{editMode ? 'Edit Lecturer' : 'New Lecturer'}</h3>
@@ -1011,7 +1012,7 @@ export default function ContentHubModals({ state, actions }) {
 
             {/* PREVIEW MODAL */}
             {previewData && (
-                <div className="fixed inset-0 z-[160] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] w-full max-w-7xl h-[85vh] flex flex-col shadow-[0_10px_50px_rgba(0,0,0,0.8)] overflow-hidden backdrop-blur-3xl">
                         <div className="p-6 md:p-8 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
                             <h3 className="text-xl md:text-2xl font-extrabold text-white flex items-center gap-3 drop-shadow-sm"><MonitorPlay size={28} className="text-blue-400"/> {previewData.title}</h3>
@@ -1036,4 +1037,6 @@ export default function ContentHubModals({ state, actions }) {
             )}
         </>
     );
+
+    return createPortal(modalContent, document.body);
 }

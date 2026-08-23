@@ -69,12 +69,6 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
   }, [bgImage, isDarkMode]);
 
   const getBackgroundStyle = () => {
-    if (isSocialMedia) {
-      return isDarkMode 
-        ? { background: '#0B0F19' } 
-        : { background: '#F1F5F9' };
-    }
-
     let liveSkyStyle = {};
     if (bgImage === 'anim1') {
         if (currentHour >= 6 && currentHour < 8) {
@@ -111,7 +105,6 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
   };
 
   const getBackgroundClass = () => {
-    if (isSocialMedia) return '';
     if (bgImage === 'anim2') return 'bg-anim-color-shift'; 
     return '';
   };
@@ -120,7 +113,7 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
     <div className={`font-sans flex items-center justify-center w-full overflow-hidden antialiased transition-all duration-300 fixed inset-0 m-0 p-0 ${getBackgroundClass()}`} style={{ ...getBackgroundStyle(), zoom: zoomLevel }}>
       
       {/* ⛅ LIVE SKY ANIMATION */}
-      {!isSocialMedia && bgImage === 'anim1' && (
+      {bgImage === 'anim1' && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
           {currentHour >= 6 && currentHour <= 18 ? (
             <div className="absolute rounded-full bg-gradient-to-br from-yellow-100 to-orange-400 w-32 h-32 blur-[2px]"
@@ -137,8 +130,8 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
         </div>
       )}
 
-      {/* 🎾 NEW: FLOATING BALLS ANIMATION (Anim 3) */}
-      {!isSocialMedia && bgImage === 'anim3' && (
+      {/* 🎾 FLOATING BALLS ANIMATION (Anim 3) */}
+      {bgImage === 'anim3' && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
             <div className="absolute w-[400px] h-[400px] rounded-full bg-blue-500/20 blur-[80px] animate-float-ball-1"></div>
             <div className="absolute w-[350px] h-[350px] rounded-full bg-purple-500/20 blur-[80px] animate-float-ball-2"></div>
@@ -146,13 +139,7 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
         </div>
       )}
 
-      <div className={`flex w-full h-full sm:w-[98%] sm:h-[96vh] ${
-        isSocialMedia 
-          ? (isDarkMode 
-              ? 'bg-[#0F172A] border border-slate-800 text-slate-100 shadow-2xl' 
-              : 'bg-[#F8FAFC] border border-slate-200 text-slate-800 shadow-xl') 
-          : 'bg-[#0B101E]/90 sm:bg-black/40 border border-white/10 text-gray-100'
-      } sm:rounded-[20px] overflow-hidden relative z-10 transition-all duration-300`}>
+      <div className="flex w-full h-full sm:w-[98%] sm:h-[96vh] bg-[#0B101E]/90 sm:bg-black/40 border border-white/10 text-gray-100 sm:rounded-[20px] overflow-hidden relative z-10 transition-all duration-300">
         <Sidebar 
           isSidebarOpen={isSidebarOpen} 
           setIsSidebarOpen={setIsSidebarOpen}

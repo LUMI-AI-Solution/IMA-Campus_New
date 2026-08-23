@@ -1,18 +1,40 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { UploadCloud, Video, Wand2, Download } from 'lucide-react';
+import { 
+  UploadCloud, 
+  Video, 
+  Wand2, 
+  Download, 
+  Copy, 
+  Check, 
+  Type, 
+  Sparkles, 
+  HelpCircle, 
+  Layers, 
+  FileText,
+  ChevronDown,
+  Info
+} from 'lucide-react';
 import api from '../../../api/axios';
-
-import { unicodeToLegacy } from '../../../utils/sinhalaFontConverter';
+import { unicodeToLegacy, splitCaptionsWordByWord, splitCaptionsByChunks, ensureSequentialCues } from '../../../utils/sinhalaFontConverter';
+import { extractFastAudioBlob } from '../../../utils/audioExtractor';
 
 export default function VideoEditor() {
   const [videoFile, setVideoFile] = useState(null);
   const [videoUrl, setVideoUrl] = useState(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStage, setProcessingStage] = useState('');
   const [captions, setCaptions] = useState([]);
   const [videoDuration, setVideoDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [selectedCaption, setSelectedCaption] = useState(null);
+  const [copiedId, setCopiedId] = useState(null);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [showCapCutGuide, setShowCapCutGuide] = useState(false);
   
+  // Custom scratchpad converter text
+  const [converterInput, setConverterInput] = useState('');
+  const [converterCopied, setConverterCopied] = useState(false);
+
   // Global Styles
   const [globalStyles, setGlobalStyles] = useState({
     fontFamily: 'sans-serif',
@@ -40,78 +62,47 @@ export default function VideoEditor() {
   const handleProcessVideo = async () => {
     if (!videoFile) return;
     setIsProcessing(true);
+    setProcessingStage('1/2 Extracting Audio...');
     
     try {
       const formData = new FormData();
-      formData.append('video', videoFile);
+      
+      // Extract lightweight audio (16kHz mono WAV ~200KB) on client device for lightning-speed upload
+      const audioBlob = await extractFastAudioBlob(videoFile);
+      if (audioBlob) {
+        formData.append('audio', audioBlob, 'audio.wav');
+        console.log(`[FastAudio] Extracted lightweight audio blob: ${audioBlob.size} bytes`);
+      } else {
+        formData.append('video', videoFile);
+      }
+      
+      setProcessingStage('2/2 AI Transcribing...');
       
       const response = await api.post('/social-media/video-editor/upload', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         },
-        timeout: 300000 // 5 minutes timeout for AI audio extraction & Gemini transcription
+        timeout: 60000 // 60 seconds
       });
       
       const data = response.data;
-      
       setCaptions(data.captions || []);
-      alert(`Success! Generated ${data.captions?.length || 0} caption blocks.`);
+      alert(`Success! Generated ${data.captions?.length || 0} word-by-word caption blocks in seconds.`);
     } catch (error) {
       console.error('[VideoEditor Error]:', error);
       const errMsg = error.response?.data?.error || error.message || 'Network error during upload';
       alert('Error: ' + errMsg);
     } finally {
       setIsProcessing(false);
+      setProcessingStage('');
     }
   };
 
-  const handleExportVideo = async () => {
-    if (!videoFile || captions.length === 0) return;
-    setIsProcessing(true);
+  // Generic SRT Exporter Helper
+  const downloadSRT = (rawItems, filename) => {
+    if (!rawItems || rawItems.length === 0) return;
 
-    try {
-      // Pre-convert text for backend if legacy font is used
-      const exportCaptions = captions.map(c => ({
-        ...c,
-        text: globalStyles.isLegacyFont ? unicodeToLegacy(c.text) : c.text
-      }));
-
-      const formData = new FormData();
-      formData.append('video', videoFile);
-      formData.append('captions', JSON.stringify(exportCaptions));
-      formData.append('styles', JSON.stringify(globalStyles));
-
-      const response = await api.post('/social-media/video-editor/export', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-
-      const data = response.data;
-
-      if (data.downloadUrl) {
-         // Create a temporary link to download the video
-         const a = document.createElement('a');
-         // We might need to construct full URL if downloadUrl is relative
-         a.href = data.downloadUrl.startsWith('http') ? data.downloadUrl : api.defaults.baseURL.replace('/api', '') + data.downloadUrl;
-         a.download = 'IMA_Promo_Export.mp4';
-         document.body.appendChild(a);
-         a.click();
-         document.body.removeChild(a);
-         alert('Export successful! Downloading video...');
-      } else {
-         alert('Export started! Check backend logs.');
-      }
-    } catch (error) {
-      console.error(error);
-      alert('Export Error: ' + error.message);
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleExportSRT = () => {
-    if (captions.length === 0) return;
+    const items = ensureSequentialCues(rawItems);
 
     const formatSRTTime = (seconds) => {
       const pad = (num, size) => ('000' + num).slice(size * -1);
@@ -123,24 +114,150 @@ export default function VideoEditor() {
     };
 
     let srtContent = '';
-    captions.forEach((c, index) => {
+    items.forEach((c, index) => {
       srtContent += `${index + 1}\n`;
       srtContent += `${formatSRTTime(c.start)} --> ${formatSRTTime(c.end)}\n`;
-      // Always export as Unicode to prevent "kotu kotu" rendering in editors that support Unicode
-      const text = c.text;
-      srtContent += `${text}\n\n`;
+      srtContent += `${c.text}\n\n`;
     });
 
-    // Prepend UTF-8 BOM (\uFEFF) to ensure editors read the file as UTF-8
+    // UTF-8 BOM (\uFEFF)
     const blob = new Blob(['\uFEFF' + srtContent], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'capcut_captions.srt';
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    setShowExportMenu(false);
+  };
+
+  // 1. Export CapCut Word-by-Word (FM-Abhaya Encoded)
+  const handleExportCapCutWordByWord = () => {
+    const granular = splitCaptionsWordByWord(captions, true);
+    downloadSRT(granular, 'capcut_word_by_word_fm_abhaya.srt');
+  };
+
+  // 2. Export CapCut Phrase Chunks (FM-Abhaya Encoded)
+  const handleExportCapCutChunks = () => {
+    const chunked = splitCaptionsByChunks(captions, 3, true);
+    downloadSRT(chunked, 'capcut_phrase_chunks_fm_abhaya.srt');
+  };
+
+  // 3. Export CapCut Standard Sentence (FM-Abhaya Encoded)
+  const handleExportCapCutSentences = () => {
+    const fmCaptions = captions.map(c => ({
+      ...c,
+      text: unicodeToLegacy(c.text)
+    }));
+    downloadSRT(fmCaptions, 'capcut_sentences_fm_abhaya.srt');
+  };
+
+  // 4. Export Unicode Word-by-Word
+  const handleExportUnicodeWordByWord = () => {
+    const granular = splitCaptionsWordByWord(captions, false);
+    downloadSRT(granular, 'captions_word_by_word_unicode.srt');
+  };
+
+  // 5. Export Standard Unicode SRT
+  const handleExportUnicodeStandard = () => {
+    downloadSRT(captions, 'captions_standard_unicode.srt');
+  };
+
+  // Export Hardcoded Video Render with FFmpeg
+  const handleExportVideo = async () => {
+    if (!videoFile || captions.length === 0) return;
+    setIsProcessing(true);
+
+    try {
+      const exportCaptions = captions.map(c => ({
+        ...c,
+        text: globalStyles.isLegacyFont ? unicodeToLegacy(c.text) : c.text
+      }));
+
+      const formData = new FormData();
+      formData.append('video', videoFile);
+      formData.append('captions', JSON.stringify(exportCaptions));
+      formData.append('styles', JSON.stringify(globalStyles));
+
+      const response = await api.post('/social-media/video-editor/export', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      const data = response.data;
+      if (data.downloadUrl) {
+         const a = document.createElement('a');
+         a.href = data.downloadUrl.startsWith('http') ? data.downloadUrl : api.defaults.baseURL.replace('/api', '') + data.downloadUrl;
+         a.download = 'IMA_Promo_Burned_Subtitles.mp4';
+         document.body.appendChild(a);
+         a.click();
+         document.body.removeChild(a);
+         alert('Export successful! Downloading video...');
+      } else {
+         alert('Export started! Check backend processing.');
+      }
+    } catch (error) {
+      console.error(error);
+      alert('Export Error: ' + error.message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleCopyFM = (text, id) => {
+    const fm = unicodeToLegacy(text);
+    navigator.clipboard.writeText(fm);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const playCaption = (cap) => {
+    if (videoRef.current && cap) {
+      videoRef.current.currentTime = Math.max(0, cap.start);
+      videoRef.current.play();
+    }
+  };
+
+  const nudgeTime = (id, field, delta) => {
+    setCaptions(prev => prev.map(c => {
+      if (c.id !== id) return c;
+      const newVal = Math.max(0, parseFloat((c[field] + delta).toFixed(2)));
+      return { ...c, [field]: newVal };
+    }));
+    if (selectedCaption?.id === id) {
+      setSelectedCaption(prev => ({ ...prev, [field]: Math.max(0, parseFloat((prev[field] + delta).toFixed(2))) }));
+    }
+  };
+
+  const deleteCaption = (id) => {
+    setCaptions(prev => prev.filter(c => c.id !== id));
+    if (selectedCaption?.id === id) setSelectedCaption(null);
+  };
+
+  const addCaptionBelow = (currentCap) => {
+    const newStart = currentCap ? currentCap.end : (currentTime || 0);
+    const newEnd = newStart + 2.0;
+    const newCap = {
+      id: Date.now(),
+      start: parseFloat(newStart.toFixed(2)),
+      end: parseFloat(newEnd.toFixed(2)),
+      text: 'අලුත් caption එක'
+    };
+    setCaptions(prev => [...prev, newCap].sort((a, b) => a.start - b.start));
+    setSelectedCaption(newCap);
+  };
+
+  const rechunkCaptions = (chunkSize = 1) => {
+    if (captions.length === 0) return;
+    const rechunked = (chunkSize === 1) 
+      ? splitCaptionsWordByWord(captions, false) 
+      : splitCaptionsByChunks(captions, chunkSize, false);
+    setCaptions(rechunked);
+    if (selectedCaption) {
+      const match = rechunked.find(r => r.id === selectedCaption.id) || rechunked[0];
+      setSelectedCaption(match || null);
+    }
   };
 
   const handleTimeUpdate = () => {
@@ -163,69 +280,138 @@ export default function VideoEditor() {
       setGlobalStyles(prev => ({ ...prev, [field]: value }));
   };
 
-  // Find caption for current time
   const activeCaption = captions.find(c => currentTime >= c.start && currentTime <= c.end);
-  
-  // Format caption text based on selected font
   const displayCaptionText = activeCaption ? (globalStyles.isLegacyFont ? unicodeToLegacy(activeCaption.text) : activeCaption.text) : "";
 
   return (
-    <div className="bg-[#1e293b] p-6 rounded-2xl border border-white/5 shadow-md flex flex-col h-[85vh]">
+    <div className="bg-[#111827] p-6 rounded-2xl border border-white/10 shadow-2xl flex flex-col h-[88vh] text-white">
+      {/* Top Header */}
       <div className="flex justify-between items-center mb-4">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Video className="text-brand-accent" /> AI Video Editor
+          <h2 className="text-xl font-black text-white flex items-center gap-2">
+            <Video className="text-brand-accent" /> AI Subtitle Studio & CapCut Exporter
           </h2>
-          <p className="text-sm text-slate-400">Upload promo videos and auto-generate Sinhala captions.</p>
+          <p className="text-xs text-slate-400">Generate AI timestamps, convert Sinhala Unicode to FM-Abhaya, and export word-by-word SRTs for CapCut.</p>
         </div>
-        <div className="flex gap-3">
-            {videoFile && captions.length > 0 && (
-                <>
-                  <button 
-                    onClick={handleExportSRT}
-                    className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-indigo-500 transition-colors"
-                  >
-                    <Download size={16} /> Export SRT
-                  </button>
-                  <button 
-                    onClick={handleExportVideo}
-                    disabled={isProcessing}
-                    className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-emerald-500 transition-colors disabled:opacity-50"
-                  >
-                    <Wand2 size={16} /> {isProcessing ? 'Exporting...' : 'Export Video'}
-                  </button>
-                </>
-            )}
-            {videoFile && (
+
+        <div className="flex items-center gap-3">
+          <a
+            href="/uploads/social-media/fonts/Sinhala_FM_Fonts_Pack.zip"
+            download="Sinhala_FM_Fonts_Pack.zip"
+            className="bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors shadow-sm"
+            title="Download FM-Abhaya, FM-Bindumathi & 15+ Sinhala fonts pack for CapCut"
+          >
+            <Download size={14} className="text-amber-400" /> Download FM Fonts (.zip)
+          </a>
+
+          <button 
+            onClick={() => setShowCapCutGuide(true)}
+            className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 border border-white/10 transition-colors"
+          >
+            <HelpCircle size={14} className="text-amber-400" /> CapCut Import Guide
+          </button>
+
+          {videoFile && captions.length > 0 && (
+            <div className="relative">
               <button 
-                onClick={handleProcessVideo}
-                disabled={isProcessing}
-                className="bg-brand-accent text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 hover:bg-opacity-90 disabled:opacity-50"
+                onClick={() => setShowExportMenu(!showExportMenu)}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 shadow-lg shadow-indigo-600/30 transition-all"
               >
-                <Wand2 size={16} /> {isProcessing ? 'Processing AI...' : 'Auto Generate Captions'}
+                <Download size={16} /> Export for CapCut / SRT <ChevronDown size={14} />
               </button>
-            )}
+
+              {/* Export Dropdown Menu */}
+              {showExportMenu && (
+                <div className="absolute right-0 top-full mt-2 w-80 bg-[#1e293b] border border-white/10 rounded-xl shadow-2xl z-50 p-2 flex flex-col gap-1 backdrop-blur-xl">
+                  <div className="p-2 border-b border-white/5">
+                    <p className="text-[10px] uppercase font-extrabold tracking-wider text-amber-400">⚡ CapCut Optimized (FM-Abhaya / No Boxes)</p>
+                  </div>
+                  
+                  <button 
+                    onClick={handleExportCapCutWordByWord}
+                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-indigo-600/20 hover:text-indigo-300 text-xs font-bold flex items-center justify-between transition-colors"
+                  >
+                    <span>Word-by-Word SRT <span className="text-[10px] text-emerald-400 block font-normal">(Animate & style each word separately in CapCut)</span></span>
+                    <Sparkles size={14} className="text-amber-400 flex-shrink-0" />
+                  </button>
+
+                  <button 
+                    onClick={handleExportCapCutChunks}
+                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-indigo-600/20 hover:text-indigo-300 text-xs font-bold flex items-center justify-between transition-colors"
+                  >
+                    <span>Phrase Chunks SRT (2-3 words) <span className="text-[10px] text-slate-400 block font-normal">(Modern viral Reel/Shorts pace)</span></span>
+                    <Layers size={14} className="text-indigo-400 flex-shrink-0" />
+                  </button>
+
+                  <button 
+                    onClick={handleExportCapCutSentences}
+                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-indigo-600/20 hover:text-indigo-300 text-xs font-bold flex items-center justify-between transition-colors"
+                  >
+                    <span>Standard Sentence SRT (FM) <span className="text-[10px] text-slate-400 block font-normal">(Full sentence blocks)</span></span>
+                    <FileText size={14} className="text-slate-400 flex-shrink-0" />
+                  </button>
+
+                  <div className="p-2 border-b border-t border-white/5 mt-1">
+                    <p className="text-[10px] uppercase font-extrabold tracking-wider text-slate-400">🌐 Standard Unicode (Premiere / DaVinci)</p>
+                  </div>
+
+                  <button 
+                    onClick={handleExportUnicodeWordByWord}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 text-xs font-medium text-slate-300 transition-colors"
+                  >
+                    Unicode Word-by-Word SRT
+                  </button>
+
+                  <button 
+                    onClick={handleExportUnicodeStandard}
+                    className="w-full text-left px-3 py-2 rounded-lg hover:bg-white/5 text-xs font-medium text-slate-300 transition-colors"
+                  >
+                    Unicode Standard Sentence SRT
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {videoFile && captions.length > 0 && (
+            <button 
+              onClick={handleExportVideo}
+              disabled={isProcessing}
+              className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors disabled:opacity-50"
+            >
+              <Wand2 size={16} /> {isProcessing ? 'Exporting...' : 'Burn & Render MP4'}
+            </button>
+          )}
+
+          {videoFile && (
+            <button 
+              onClick={handleProcessVideo}
+              disabled={isProcessing}
+              className="bg-brand-accent hover:bg-brand-accent/90 text-white px-4 py-2 rounded-lg font-bold text-sm flex items-center gap-2 transition-colors disabled:opacity-50 shadow-lg shadow-brand-accent/30"
+            >
+              <Sparkles size={16} /> {isProcessing ? (processingStage || 'Processing AI...') : 'Auto Generate Sinhala Captions'}
+            </button>
+          )}
         </div>
       </div>
 
       {!videoUrl ? (
-        <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-xl bg-black/20 relative">
+        <div className="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-white/10 rounded-2xl bg-black/30 relative hover:border-brand-accent/50 transition-colors">
           <input 
             type="file" 
             accept="video/*" 
             onChange={handleFileUpload}
             className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
           />
-          <UploadCloud size={48} className="text-slate-500 mb-4" />
-          <h3 className="text-lg font-bold text-white mb-1">Drag & Drop or Click to Upload</h3>
-          <p className="text-sm text-slate-400">Supported formats: MP4, MOV (Max 500MB)</p>
+          <UploadCloud size={56} className="text-brand-accent mb-4 animate-bounce" />
+          <h3 className="text-lg font-black text-white mb-1">Drag & Drop Promo Video</h3>
+          <p className="text-xs text-slate-400">Supported formats: MP4, MOV, MKV (Auto-extracts voice for word timestamps)</p>
         </div>
       ) : (
         <div className="flex flex-1 gap-4 overflow-hidden">
-          
           {/* Main Video & Timeline Area */}
           <div className="flex flex-col flex-1 gap-4 overflow-hidden">
-            <div className="flex-1 bg-black rounded-xl overflow-hidden relative flex justify-center items-center">
+            <div className="flex-1 bg-black rounded-2xl overflow-hidden relative flex justify-center items-center border border-white/10 shadow-inner">
               <video 
                 ref={videoRef}
                 src={videoUrl} 
@@ -235,16 +421,19 @@ export default function VideoEditor() {
                 className="max-w-full max-h-full"
               />
               
-              {/* Real-time Caption Preview Canvas */}
+              {/* Real-time Subtitle Preview */}
               {activeCaption && (
-                 <div className="absolute bottom-10 left-0 right-0 text-center pointer-events-none px-10">
-                    <span className="font-bold drop-shadow-xl p-2 bg-black/20 rounded-lg whitespace-pre-wrap" style={{ 
+                 <div className="absolute bottom-12 left-0 right-0 text-center pointer-events-none px-10">
+                    <span 
+                      className="font-black drop-shadow-2xl px-4 py-2 bg-black/60 backdrop-blur-md rounded-xl inline-block" 
+                      style={{ 
                         fontFamily: globalStyles.fontFamily,
                         fontSize: `${globalStyles.fontSize}px`,
                         color: globalStyles.color,
                         WebkitTextStroke: `${globalStyles.strokeWidth}px ${globalStyles.strokeColor}`,
                         textShadow: `${globalStyles.shadowOffsetX}px ${globalStyles.shadowOffsetY}px 0 ${globalStyles.shadowColor}`
-                    }}>
+                      }}
+                    >
                         {displayCaptionText}
                     </span>
                  </div>
@@ -252,26 +441,63 @@ export default function VideoEditor() {
             </div>
             
             {/* Timeline UI */}
-            <div className="h-48 bg-[#0f172a] border border-white/10 rounded-xl p-4 flex flex-col">
+            <div className="h-44 bg-[#0f172a] border border-white/10 rounded-2xl p-4 flex flex-col shadow-xl">
               <div className="flex justify-between items-center mb-2">
-                <p className="text-slate-400 font-bold text-sm">Timeline</p>
-                <p className="text-xs text-brand-accent font-mono">{currentTime.toFixed(2)}s / {videoDuration.toFixed(2)}s</p>
+                <div className="flex items-center gap-2">
+                  <p className="text-slate-300 font-black text-xs uppercase tracking-wider">Word Timeline</p>
+                  <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-bold">
+                    {captions.length} Words/Cues
+                  </span>
+
+                  {captions.length > 0 && (
+                    <div className="flex items-center gap-1 ml-3 bg-black/40 p-0.5 rounded-lg border border-white/5">
+                      <button
+                        onClick={() => rechunkCaptions(1)}
+                        className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white font-black px-2 py-0.5 rounded transition-all shadow"
+                        title="Split into single 1-word pop cues (TikTok / CapCut Viral Style)"
+                      >
+                        ⚡ 1-Word (Pop)
+                      </button>
+                      <button
+                        onClick={() => rechunkCaptions(2)}
+                        className="text-[10px] bg-white/5 hover:bg-white/15 text-slate-300 font-bold px-2 py-0.5 rounded transition-all"
+                        title="Split into 2-word phrases"
+                      >
+                        2-Words
+                      </button>
+                      <button
+                        onClick={() => rechunkCaptions(3)}
+                        className="text-[10px] bg-white/5 hover:bg-white/15 text-slate-300 font-bold px-2 py-0.5 rounded transition-all"
+                        title="Split into 3-word cards"
+                      >
+                        3-Words
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <p className="text-xs text-brand-accent font-mono font-bold">{currentTime.toFixed(2)}s / {videoDuration.toFixed(2)}s</p>
               </div>
               
-              <div className="flex-1 bg-black/50 rounded-lg relative overflow-x-auto overflow-y-hidden border border-white/5">
+              <div className="flex-1 bg-black/60 rounded-xl relative overflow-x-auto overflow-y-hidden border border-white/10 p-2">
                  {videoDuration > 0 && captions.map(c => {
                      const left = (c.start / videoDuration) * 100;
                      const width = ((c.end - c.start) / videoDuration) * 100;
                      const isSelected = selectedCaption?.id === c.id;
+                     const isActive = currentTime >= c.start && currentTime <= c.end;
                      
                      return (
                          <div 
                            key={c.id}
                            onClick={() => setSelectedCaption(c)}
-                           className={`absolute h-8 top-1/2 -translate-y-1/2 rounded cursor-pointer border truncate px-1 text-xs font-bold leading-8 transition-all ${
-                               isSelected ? 'bg-brand-accent border-white text-white z-10' : 'bg-slate-700 border-slate-500 text-slate-300 hover:bg-slate-600'
+                           className={`absolute h-8 top-1/2 -translate-y-1/2 rounded-lg cursor-pointer border truncate px-2 text-xs font-black leading-8 transition-all shadow-md ${
+                               isSelected 
+                                ? 'bg-brand-accent border-white text-white z-20 scale-105 shadow-brand-accent/50' 
+                                : isActive 
+                                ? 'bg-amber-500 border-amber-300 text-black z-10' 
+                                : 'bg-slate-800 border-slate-600 text-slate-300 hover:bg-slate-700'
                            }`}
-                           style={{ left: `${left}%`, width: `${Math.max(width, 0.5)}%` }}
+                           style={{ left: `${left}%`, width: `${Math.max(width, 1.2)}%`, minWidth: '40px' }}
+                           title={`${c.text} (${c.start.toFixed(1)}s - ${c.end.toFixed(1)}s)`}
                          >
                             {c.text}
                          </div>
@@ -281,133 +507,318 @@ export default function VideoEditor() {
                  {/* Playhead */}
                  {videoDuration > 0 && (
                      <div 
-                       className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-20"
+                       className="absolute top-0 bottom-0 w-0.5 bg-red-500 z-30"
                        style={{ left: `${(currentTime / videoDuration) * 100}%` }}
                      >
-                         <div className="absolute -top-2 -left-1.5 w-3.5 h-3.5 bg-red-500 rounded-sm rotate-45"></div>
+                         <div className="absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-red-500 rounded-full shadow-lg"></div>
                      </div>
                  )}
               </div>
             </div>
           </div>
 
-          {/* Side Panel for Editing */}
-          <div className="w-80 bg-[#0f172a] rounded-xl border border-white/10 p-4 overflow-y-auto custom-scrollbar flex flex-col gap-4">
-              <h3 className="text-white font-bold mb-2">Style & Edit</h3>
+          {/* Side Panel for Editing & CapCut Tools */}
+          <div className="w-96 bg-[#0f172a] rounded-2xl border border-white/10 p-4 overflow-y-auto custom-scrollbar flex flex-col gap-4 shadow-2xl">
               
-              {selectedCaption && (
-                  <div className="flex flex-col gap-3">
-                      <div className="bg-brand-accent/20 text-brand-accent p-2 rounded-lg text-xs font-bold border border-brand-accent/30 flex justify-between">
-                          <span>Block #{selectedCaption.id}</span>
-                          <span>{selectedCaption.start.toFixed(1)}s - {selectedCaption.end.toFixed(1)}s</span>
+              {/* Scratchpad Converter */}
+              <div className="bg-slate-900/80 border border-white/10 rounded-xl p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-black text-amber-400 flex items-center gap-1.5">
+                    <Type size={14} /> Quick CapCut Font Converter
+                  </span>
+                  {converterInput && (
+                    <button 
+                      onClick={() => {
+                        navigator.clipboard.writeText(unicodeToLegacy(converterInput));
+                        setConverterCopied(true);
+                        setTimeout(() => setConverterCopied(false), 1500);
+                      }}
+                      className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
+                    >
+                      {converterCopied ? <Check size={10} /> : <Copy size={10} />} {converterCopied ? 'Copied!' : 'Copy FM'}
+                    </button>
+                  )}
+                </div>
+                <input 
+                  type="text"
+                  placeholder="Type Sinhala text here to convert..."
+                  value={converterInput}
+                  onChange={(e) => setConverterInput(e.target.value)}
+                  className="w-full bg-black/50 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-400 mb-1.5"
+                />
+                {converterInput && (
+                  <div className="bg-black/60 p-2 rounded border border-amber-500/20 text-[11px] font-mono text-amber-300 break-all">
+                    {unicodeToLegacy(converterInput)}
+                  </div>
+                )}
+              </div>
+
+              {/* Selected Caption Block Inspector */}
+              {selectedCaption ? (
+                  <div className="bg-slate-900/90 border border-indigo-500/30 rounded-xl p-3 flex flex-col gap-2.5">
+                      <div className="flex justify-between items-center">
+                          <span className="text-xs font-black text-indigo-400">Selected Block #{selectedCaption.id}</span>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => playCaption(selectedCaption)}
+                              className="text-[10px] bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-2 py-0.5 rounded flex items-center gap-1 transition-colors"
+                              title="Play this segment"
+                            >
+                              ▶ Play
+                            </button>
+                            <button
+                              onClick={() => deleteCaption(selectedCaption.id)}
+                              className="text-[10px] bg-red-600/30 hover:bg-red-600 text-red-300 hover:text-white font-bold px-1.5 py-0.5 rounded transition-colors"
+                              title="Delete this cue"
+                            >
+                              ✕
+                            </button>
+                          </div>
                       </div>
                       
-                      <label className="text-sm text-slate-400">Caption Text</label>
-                      <textarea 
-                          value={selectedCaption.text}
-                          onChange={(e) => updateCaption(selectedCaption.id, 'text', e.target.value)}
-                          className="w-full bg-black/40 border border-white/10 rounded-lg p-3 text-white text-sm outline-none focus:border-brand-accent min-h-[80px]"
-                      />
-                      
-                      <div className="grid grid-cols-2 gap-2 mt-2">
+                      <div>
+                        <label className="text-[11px] text-slate-400 font-bold block mb-1">Sinhala Unicode Text</label>
+                        <input 
+                            type="text"
+                            value={selectedCaption.text}
+                            onChange={(e) => updateCaption(selectedCaption.id, 'text', e.target.value)}
+                            className="w-full bg-black/50 border border-white/10 rounded-lg p-2 text-white text-xs outline-none focus:border-indigo-400"
+                        />
+                      </div>
+
+                      {/* FM-Abhaya Code Box with 1-Click Copy */}
+                      <div className="bg-black/40 border border-white/5 rounded-lg p-2">
+                        <div className="flex justify-between items-center mb-1">
+                          <span className="text-[10px] text-amber-400 font-bold">CapCut FM-Abhaya Code</span>
+                          <button 
+                            onClick={() => handleCopyFM(selectedCaption.text, selectedCaption.id)}
+                            className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white px-2 py-0.5 rounded font-bold flex items-center gap-1 transition-colors"
+                          >
+                            {copiedId === selectedCaption.id ? <Check size={10} className="text-emerald-300" /> : <Copy size={10} />}
+                            {copiedId === selectedCaption.id ? 'Copied FM!' : 'Copy for CapCut'}
+                          </button>
+                        </div>
+                        <p className="text-xs font-mono text-slate-300 break-all select-all bg-black/60 p-1.5 rounded">
+                          {unicodeToLegacy(selectedCaption.text)}
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-2">
                           <div>
-                              <label className="text-xs text-slate-400">Start Time (s)</label>
+                              <div className="flex justify-between items-center mb-1">
+                                <label className="text-[10px] text-slate-400">Start Time (s)</label>
+                                <div className="flex gap-1">
+                                  <button onClick={() => nudgeTime(selectedCaption.id, 'start', -0.1)} className="text-[9px] bg-white/5 hover:bg-white/20 px-1 rounded">-0.1</button>
+                                  <button onClick={() => nudgeTime(selectedCaption.id, 'start', 0.1)} className="text-[9px] bg-white/5 hover:bg-white/20 px-1 rounded">+0.1</button>
+                                </div>
+                              </div>
                               <input 
                                   type="number"
-                                  step="0.1"
+                                  step="0.05"
                                   value={selectedCaption.start}
                                   onChange={(e) => updateCaption(selectedCaption.id, 'start', parseFloat(e.target.value) || 0)}
-                                  className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-white text-sm outline-none focus:border-brand-accent"
+                                  className="w-full bg-black/50 border border-white/10 rounded-lg p-1.5 text-white text-xs outline-none focus:border-indigo-400 font-mono"
                               />
                           </div>
                           <div>
-                              <label className="text-xs text-slate-400">End Time (s)</label>
+                              <div className="flex justify-between items-center mb-1">
+                                <label className="text-[10px] text-slate-400">End Time (s)</label>
+                                <div className="flex gap-1">
+                                  <button onClick={() => nudgeTime(selectedCaption.id, 'end', -0.1)} className="text-[9px] bg-white/5 hover:bg-white/20 px-1 rounded">-0.1</button>
+                                  <button onClick={() => nudgeTime(selectedCaption.id, 'end', 0.1)} className="text-[9px] bg-white/5 hover:bg-white/20 px-1 rounded">+0.1</button>
+                                </div>
+                              </div>
                               <input 
                                   type="number"
-                                  step="0.1"
+                                  step="0.05"
                                   value={selectedCaption.end}
                                   onChange={(e) => updateCaption(selectedCaption.id, 'end', parseFloat(e.target.value) || 0)}
-                                  className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-white text-sm outline-none focus:border-brand-accent"
+                                  className="w-full bg-black/50 border border-white/10 rounded-lg p-1.5 text-white text-xs outline-none focus:border-indigo-400 font-mono"
                               />
                           </div>
                       </div>
-                      
-                      <hr className="border-white/5 my-2" />
+
+                      <button 
+                        onClick={() => addCaptionBelow(selectedCaption)}
+                        className="w-full bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-bold py-1.5 rounded-lg border border-white/5 transition-colors mt-1"
+                      >
+                        + Add Next Cue After This
+                      </button>
                   </div>
+              ) : (
+                <div className="p-3 border border-dashed border-white/10 rounded-xl text-center text-xs text-slate-400">
+                  Click on any caption in the timeline to edit text, audition audio, or nudge timestamps.
+                </div>
               )}
               
-              {/* Global Styling */}
-              <h4 className="text-sm font-bold text-white mt-2">Global Styling</h4>
-              
-              <div className="flex flex-col gap-3">
+              {/* Caption Word List */}
+              <div className="flex-1 flex flex-col gap-2">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-xs font-black text-slate-300 uppercase tracking-wider">All Captions List ({captions.length})</h4>
+                  {captions.length > 0 && (
+                    <button 
+                      onClick={() => addCaptionBelow(captions[captions.length - 1])}
+                      className="text-[10px] text-brand-accent hover:underline font-bold"
+                    >
+                      + Add New
+                    </button>
+                  )}
+                </div>
+                <div className="flex-1 max-h-60 overflow-y-auto custom-scrollbar flex flex-col gap-1.5 pr-1">
+                  {captions.map((cap) => (
+                    <div 
+                      key={cap.id} 
+                      onClick={() => setSelectedCaption(cap)}
+                      className={`p-2 rounded-lg border text-xs cursor-pointer flex items-center justify-between transition-all ${
+                        selectedCaption?.id === cap.id 
+                          ? 'bg-indigo-900/40 border-indigo-400 text-white' 
+                          : 'bg-black/30 border-white/5 text-slate-300 hover:bg-white/5'
+                      }`}
+                    >
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          playCaption(cap);
+                        }}
+                        className="mr-2 text-slate-400 hover:text-emerald-400 transition-colors"
+                        title="Play"
+                      >
+                        ▶
+                      </button>
+
+                      <div className="truncate flex-1 mr-2">
+                        <span className="font-bold">{cap.text}</span>
+                        <span className="text-[10px] text-slate-400 block font-mono">
+                          {cap.start.toFixed(2)}s → {cap.end.toFixed(2)}s
+                        </span>
+                      </div>
+
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleCopyFM(cap.text, cap.id);
+                        }}
+                        className="p-1 rounded hover:bg-white/10 text-slate-400 hover:text-amber-400 transition-colors"
+                        title="Copy FM-Abhaya Code for CapCut"
+                      >
+                        {copiedId === cap.id ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Global Video Preview Styles */}
+              <div className="border-t border-white/10 pt-3 flex flex-col gap-2.5">
+                  <h4 className="text-xs font-black text-slate-300 uppercase tracking-wider">Burn-In Subtitle Styles</h4>
+                  
                   <div>
-                      <label className="text-xs text-slate-400">Font Family</label>
+                      <label className="text-[10px] text-slate-400">Font Engine</label>
                       <select 
                           value={globalStyles.fontFamily}
                           onChange={(e) => {
                               updateGlobalStyle('fontFamily', e.target.value);
                               updateGlobalStyle('isLegacyFont', e.target.value === 'FM-Abhaya');
                           }}
-                          className="w-full bg-black/40 border border-white/10 rounded-lg p-2 text-white text-sm outline-none focus:border-brand-accent appearance-none mt-1"
+                          className="w-full bg-black/50 border border-white/10 rounded-lg p-1.5 text-white text-xs outline-none focus:border-brand-accent mt-1"
                       >
-                          <option value="sans-serif">System Default (Unicode)</option>
-                          <option value="FM-Abhaya">FM-Abhaya (Legacy)</option>
+                          <option value="sans-serif">Sinhala Unicode (Web/Default)</option>
+                          <option value="FM-Abhaya">FM-Abhaya (Legacy / CapCut)</option>
                       </select>
                   </div>
-                  
-                  <div>
-                      <label className="text-xs text-slate-400">Font Size ({globalStyles.fontSize}px)</label>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-slate-400">Size ({globalStyles.fontSize}px)</label>
                       <input 
                           type="range"
                           min="16" max="72"
                           value={globalStyles.fontSize}
                           onChange={(e) => updateGlobalStyle('fontSize', parseInt(e.target.value))}
-                          className="w-full mt-1"
+                          className="w-full mt-1 accent-brand-accent"
                       />
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-2">
-                      <div>
-                          <label className="text-xs text-slate-400">Text Color</label>
-                          <input 
-                              type="color"
-                              value={globalStyles.color}
-                              onChange={(e) => updateGlobalStyle('color', e.target.value)}
-                              className="w-full h-8 mt-1 rounded bg-black/40 border border-white/10 cursor-pointer"
-                          />
-                      </div>
-                      <div>
-                          <label className="text-xs text-slate-400">Stroke Color</label>
-                          <input 
-                              type="color"
-                              value={globalStyles.strokeColor}
-                              onChange={(e) => updateGlobalStyle('strokeColor', e.target.value)}
-                              className="w-full h-8 mt-1 rounded bg-black/40 border border-white/10 cursor-pointer"
-                          />
-                      </div>
-                  </div>
-                  
-                  <div>
-                      <label className="text-xs text-slate-400">Stroke Width ({globalStyles.strokeWidth}px)</label>
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-slate-400">Stroke ({globalStyles.strokeWidth}px)</label>
                       <input 
                           type="range"
                           min="0" max="10"
                           value={globalStyles.strokeWidth}
                           onChange={(e) => updateGlobalStyle('strokeWidth', parseInt(e.target.value))}
-                          className="w-full mt-1"
+                          className="w-full mt-1 accent-brand-accent"
                       />
+                    </div>
                   </div>
-                  
-                  <div>
-                      <label className="text-xs text-slate-400">Shadow Color</label>
-                      <input 
-                          type="color"
-                          value={globalStyles.shadowColor}
-                          onChange={(e) => updateGlobalStyle('shadowColor', e.target.value)}
-                          className="w-full h-8 mt-1 rounded bg-black/40 border border-white/10 cursor-pointer"
-                      />
+
+                  <div className="grid grid-cols-2 gap-2">
+                      <div>
+                          <label className="text-[10px] text-slate-400">Text Color</label>
+                          <input 
+                              type="color"
+                              value={globalStyles.color}
+                              onChange={(e) => updateGlobalStyle('color', e.target.value)}
+                              className="w-full h-7 mt-1 rounded bg-black/50 border border-white/10 cursor-pointer"
+                          />
+                      </div>
+                      <div>
+                          <label className="text-[10px] text-slate-400">Stroke Color</label>
+                          <input 
+                              type="color"
+                              value={globalStyles.strokeColor}
+                              onChange={(e) => updateGlobalStyle('strokeColor', e.target.value)}
+                              className="w-full h-7 mt-1 rounded bg-black/50 border border-white/10 cursor-pointer"
+                          />
+                      </div>
                   </div>
               </div>
+          </div>
+        </div>
+      )}
+
+      {/* CapCut Sinhala Setup Guide Modal */}
+      {showCapCutGuide && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#1e293b] border border-white/10 rounded-2xl max-w-xl w-full p-6 shadow-2xl flex flex-col gap-4 text-white">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <h3 className="text-base font-black text-amber-400 flex items-center gap-2">
+                <Sparkles size={18} /> CapCut එකේ සිංහල Captions කොටු නොවී ලස්සනට දාන ක්‍රමය
+              </h3>
+              <button 
+                onClick={() => setShowCapCutGuide(false)}
+                className="text-slate-400 hover:text-white text-xs font-bold bg-white/5 px-2 py-1 rounded"
+              >
+                ✕ Close
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3 text-xs text-slate-300 leading-relaxed">
+              <div className="bg-black/40 p-3 rounded-xl border border-white/5">
+                <p className="font-bold text-white mb-1">1. Word-by-Word SRT එක Export කරගන්න:</p>
+                <p>Top bar එකේ <b>Export for CapCut / SRT</b> click කර <b>Word-by-Word SRT (FM-Abhaya)</b> තෝරාගන්න.</p>
+              </div>
+
+              <div className="bg-black/40 p-3 rounded-xl border border-white/5">
+                <p className="font-bold text-white mb-1">2. CapCut එකට Import කරන්න:</p>
+                <p>CapCut (PC හෝ Mobile) open කර <b>Text → Auto Captions / Local Subtitles</b> මඟින් download කරගත් SRT එක import කරන්න.</p>
+              </div>
+
+              <div className="bg-black/40 p-3 rounded-xl border border-white/5">
+                <p className="font-bold text-amber-300 mb-1">3. FM-Abhaya Font එක තෝරන්න (කොටු නැතිවීමට):</p>
+                <p>CapCut හි Subtitle එක click කර Font එක ලෙස <b>FM-Abhaya</b> හෝ ඕනෑම <b>FM / DL Sinhala Font</b> එකක් තෝරන්න. එවිට සියලුම සිංහල අකුරු 100% නිවැරදිව පෙනේ.</p>
+              </div>
+
+              <div className="bg-black/40 p-3 rounded-xl border border-white/5">
+                <p className="font-bold text-emerald-300 mb-1">4. එක් එක් වචනයට වෙන වෙනම Colors/Effects දැමීම:</p>
+                <p>CapCut හි Text inspector හි ඇති <b>"Apply to all"</b> tick එක <b>OFF</b> කරන්න. දැන් Timeline එකේ කැමති වචනයක් click කර <b>වෙනම Colors (Yellow, Cyan), Glow, Fonts, හෝ Animations</b> ලබා දිය හැක!</p>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setShowCapCutGuide(false)}
+              className="w-full bg-brand-accent hover:bg-brand-accent/90 text-white font-bold py-2.5 rounded-xl text-xs transition-colors"
+            >
+              තේරුණා, Export කරමු! 🚀
+            </button>
           </div>
         </div>
       )}

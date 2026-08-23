@@ -298,7 +298,12 @@ export default function PaymentManagement({ loggedInUser }) {
 
         if (activeTab !== mappedTab) return false;
 
-        // Apply sub-filters for Upgrade and Upcoming
+        // Apply sub-filters for Upgrade, Upcoming, and Approved
+        if (activeTab === 'Approved') {
+            if (approvedFilter === 'Slips' && (p.method === 'PayHere' || p.method === 'Online')) return false;
+            if (approvedFilter === 'Online' && (p.method !== 'PayHere' && p.method !== 'Online')) return false;
+        }
+
         if (activeTab === 'Upgrade Slips') {
             if (upgradeFilter === 'Pending' && p.status !== 'Pending') return false;
             if (upgradeFilter === 'Approved' && p.status !== 'Approved') return false;
@@ -1063,196 +1068,101 @@ export default function PaymentManagement({ loggedInUser }) {
                     <button onClick={() => setUpcomingFilter('Pending')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upcomingFilter === 'Pending' ? 'bg-purple-50 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-purple-700 dark:hover:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-500/10'}`}>
                         Pending Slips {pendingUpcomingCount > 0 && <span className="bg-red-500 text-white rounded-full h-2 w-2 ml-2 inline-block"></span>}
                     </button>
-                    <button onClick={() => setUpcomingFilter('Approved')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upcomingFilter === 'Approved' ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'}`}>Approved</button>
                     <button onClick={() => setUpcomingFilter('Rejected')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${upcomingFilter === 'Rejected' ? 'bg-red-50 dark:bg-red-500/20 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-red-700 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10'}`}>Rejected</button>
                 </div>
             )}
 
-
-
-            {/* APPROVED TAB MAIN VIEW SPLIT */}
-            {activeTab === 'Approved' ? (
-                <div className="space-y-6">
-                    <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-brand-darkCard p-2.5 rounded-2xl w-full md:w-max border border-gray-200 dark:border-brand-darkBorder shadow-sm transition-colors">
-                        <button onClick={() => setApprovedFilter('All')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${approvedFilter === 'All' ? 'bg-gray-100 dark:bg-white/10 text-gray-900 dark:text-white shadow-sm border border-gray-200 dark:border-transparent' : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/5'}`}>All Approved</button>
-                        <button onClick={() => setApprovedFilter('Slips')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${approvedFilter === 'Slips' ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'}`}>Slip Payments</button>
-                        <button onClick={() => setApprovedFilter('Online')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${approvedFilter === 'Online' ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-indigo-700 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10'}`}>Online (PayHere)</button>
-                    </div>
-
-                    {loading ? (
-                        <div className="text-center py-20 bg-white/70 dark:bg-brand-darkCard/80 rounded-[2rem] border border-gray-200 dark:border-brand-darkBorder shadow-sm"><Loader2 className="animate-spin text-brand-accent mx-auto" size={40} /></div>
-                    ) : (
-                        <>
-                            {/* SLIP PAYMENTS SECTION */}
-                            {(approvedFilter === 'All' || approvedFilter === 'Slips') && (
-                                <div className="bg-white/5 backdrop-blur-md p-6 md:p-8 rounded-[2rem] border border-white/10 shadow-lg transition-all duration-300">
-                                    <h3 className="text-emerald-400 font-extrabold text-xl mb-6 flex items-center gap-3 uppercase tracking-widest"><FileImage size={24} /> Slip Payments</h3>
-                                    <div className="space-y-4">
-                                        {paginatedStudents.map(student => {
-                                            const slipPays = student.allPayments.filter(p => p.method !== 'PayHere' && p.method !== 'Online');
-                                            if (slipPays.length === 0) return null;
-                                            return (
-                                                <div key={`slip-${student.studentId}`} className="bg-white/5 backdrop-blur-sm border border-white/10 hover:border-emerald-500/30 p-5 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-sm hover:shadow-md transition-all duration-300 group">
-                                                    <div className="flex items-center gap-5 w-full">
-                                                        <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 shadow-sm"><User size={24} /></div>
-                                                        <div>
-                                                            <h4 className="font-extrabold text-white text-lg flex items-center flex-wrap gap-2.5">
-                                                                <span className="text-rose-400 text-xs font-mono font-semibold bg-rose-500/15 border border-rose-500/20 px-3 py-1 rounded-full tracking-wide">
-                                                                    ID: {student.allPayments.map(p => p.id).join(', ')}
-                                                                </span>
-                                                                {student.studentName}
-                                                                <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20 tracking-widest uppercase">{student.studentNo}</span>
-                                                                {student.phone && student.phone !== 'N/A' && <span className="text-[10px] text-sky-400 bg-sky-500/10 px-2.5 py-1 rounded-md border border-sky-500/20 tracking-widest uppercase">{student.phone}</span>}
-                                                            </h4>
-                                                            <p className="text-xs font-bold text-slate-400 mt-1.5 flex items-center gap-3">
-                                                                <span>{slipPays.length} Slip Payment(s)</span>
-                                                                <span className="text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded shadow-sm">
-                                                                    Total LKR {slipPays.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0).toLocaleString()}
-                                                                </span>
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                    <button onClick={() => setStudentActionModal({ ...student, allPayments: slipPays })} className="w-full md:w-auto bg-emerald-500/15 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 py-3.5 px-6 rounded-xl transition-all text-xs font-extrabold uppercase tracking-widest whitespace-nowrap outline-none shadow-sm group-hover:shadow-[0_0_15px_rgba(16,185,129,0.25)]">View Records</button>
-                                                </div>
-                                            );
-                                        })}
-                                        {paginatedStudents.every(s => s.allPayments.filter(p => p.method !== 'PayHere' && p.method !== 'Online').length === 0) && (
-                                            <p className="text-slate-400 text-sm font-semibold bg-white/5 p-5 rounded-2xl border border-white/5 text-center">No approved slip payments found.</p>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* ONLINE PAYMENTS SECTION */}
-                            {(approvedFilter === 'All' || approvedFilter === 'Online') && (
-                                <div className="bg-white/5 backdrop-blur-md p-6 md:p-8 rounded-[2rem] border border-white/10 shadow-lg mt-8 transition-all duration-300">
-                                    <h3 className="text-indigo-400 font-extrabold text-xl mb-6 flex items-center gap-3 uppercase tracking-widest"><CreditCard size={24} /> Online (PayHere) Payments</h3>
-                                    <div className="space-y-4">
-                                        {paginatedStudents.map(student => {
-                                            const onlinePays = student.allPayments.filter(p => p.method === 'PayHere' || p.method === 'Online');
-                                            if (onlinePays.length === 0) return null;
-                                            return (
-                                                <div key={`online-${student.studentId}`} className="bg-white/5 backdrop-blur-sm border border-white/10 hover:border-indigo-500/30 p-5 rounded-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6 shadow-sm hover:shadow-md transition-all duration-300 group">
-                                                    <div className="flex items-center gap-5 w-full">
-                                                        <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 border border-indigo-500/20 bg-indigo-500/10 text-indigo-400 shadow-sm"><User size={24} /></div>
-                                                        <div>
-                                                            <h4 className="font-extrabold text-white text-lg flex items-center flex-wrap gap-2.5">
-                                                                {student.studentName}
-                                                                <span className="text-[10px] text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-md border border-indigo-500/20 tracking-widest uppercase">{student.studentNo}</span>
-                                                                {student.phone && student.phone !== 'N/A' && <span className="text-[10px] text-sky-400 bg-sky-500/10 px-2.5 py-1 rounded-md border border-sky-500/20 tracking-widest uppercase">{student.phone}</span>}
-                                                            </h4>
-                                                            <p className="text-xs font-bold text-slate-400 mt-1.5 flex items-center gap-3">
-                                                                <span>{onlinePays.length} Online Payment(s)</span>
-                                                                <span className="text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-2 py-0.5 rounded shadow-sm">
-                                                                    Total LKR {onlinePays.reduce((sum, p) => sum + parseFloat(p.amount || 0), 0).toLocaleString()}
-                                                                </span>
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                    <button onClick={() => setStudentActionModal({ ...student, allPayments: onlinePays })} className="w-full md:w-auto bg-indigo-500/15 hover:bg-indigo-600 text-indigo-400 hover:text-white border border-indigo-500/30 py-3.5 px-6 rounded-xl transition-all text-xs font-extrabold uppercase tracking-widest whitespace-nowrap outline-none shadow-sm group-hover:shadow-[0_0_15px_rgba(99,102,241,0.25)]">View Records</button>
-                                                </div>
-                                            );
-                                        })}
-                                        {paginatedStudents.every(s => s.allPayments.filter(p => p.method === 'PayHere' || p.method === 'Online').length === 0) && (
-                                            <p className="text-slate-400 text-sm font-semibold bg-white/5 p-5 rounded-2xl border border-white/5 text-center">No approved online payments found.</p>
-                                        )}
-                                    </div>
-                                </div>
-                            )}
-
-                            {totalPages > 1 && (
-                                <div className="flex justify-between items-center mt-8 bg-white dark:bg-brand-darkCard p-4 rounded-2xl border border-gray-200 dark:border-brand-darkBorder shadow-sm">
-                                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="flex items-center gap-2 text-sm font-bold text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white disabled:opacity-30 transition-colors outline-none px-4 py-2"><ChevronLeft size={18} /> Prev</button>
-                                    <span className="text-sm font-extrabold text-gray-900 dark:text-white bg-gray-100 dark:bg-white/5 px-5 py-2 rounded-xl border border-gray-200 dark:border-white/5">Page {currentPage} of {totalPages}</span>
-                                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="flex items-center gap-2 text-sm font-bold text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white disabled:opacity-30 transition-colors outline-none px-4 py-2">Next <ChevronRight size={18} /></button>
-                                </div>
-                            )}
-                        </>
-                    )}
-                </div>
-            ) : (
-                <div className="space-y-6">
-                    {loading ? (
-                        <div className="text-center py-20 bg-white/5 backdrop-blur-md rounded-[2rem] border border-white/10 shadow-lg"><Loader2 className="animate-spin text-rose-500 mx-auto" size={40} /></div>
-                    ) : paginatedStudents.length === 0 ? (
-                        <div className="text-center py-20 bg-white/5 backdrop-blur-md rounded-[2rem] border border-white/10 shadow-lg"><p className="text-slate-400 font-extrabold text-lg">No records found for the selected filters.</p></div>
-                    ) : (
-                        <>
-                            {paginatedStudents.map(student => {
-                                const latestPayment = student.allPayments[0];
-                                return (
-                                    <div key={student.studentId} className="bg-white/5 backdrop-blur-md border border-white/10 hover:border-brand-accent/40 p-6 md:p-8 rounded-[2rem] flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 transition-all duration-300 shadow-lg hover:shadow-brand-accentLight/5 hover:-translate-y-0.5 group relative overflow-hidden">
-                                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-accent/5 rounded-bl-full -z-10 group-hover:scale-110 transition-transform"></div>
-                                        
-                                        <div className="flex items-start gap-5 flex-1 w-full">
-                                            <div className="w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 border border-white/10 bg-white/5 text-rose-400 shadow-inner group-hover:border-rose-500/20 transition-all duration-300 relative z-10">
-                                                <User size={30} strokeWidth={1.5} />
-                                            </div>
-                                            <div className="flex-1 mt-1 relative z-10">
-                                                <h4 className="font-extrabold text-xl text-white flex items-center flex-wrap gap-3">
-                                                    <span className="text-rose-400 text-xs font-mono font-semibold bg-rose-500/15 border border-rose-500/20 px-3 py-1 rounded-full tracking-wide shadow-[0_0_10px_rgba(244,63,94,0.08)]">
-                                                        ID: {student.allPayments.map(p => p.id).join(', ')}
-                                                    </span>
-                                                    {student.studentName}
-                                                    <span className="text-[10px] font-black text-indigo-400 bg-indigo-500/10 px-3 py-1.5 rounded-lg border border-indigo-500/20 tracking-widest uppercase shadow-sm">{student.studentNo}</span>
-                                                    {student.phone && student.phone !== 'N/A' && <span className="text-[10px] font-black text-sky-400 bg-sky-500/10 px-3 py-1.5 rounded-lg border border-sky-500/20 tracking-widest uppercase shadow-sm">{student.phone}</span>}
-                                                </h4>
-                                                {latestPayment && (
-                                                    <div className="mt-3">
-                                                        <p className="text-sm font-bold text-slate-400 flex flex-wrap items-center gap-3">
-                                                            <span className="text-emerald-400 font-extrabold bg-emerald-500/15 px-3 py-1 rounded-lg border border-emerald-500/20 shadow-sm">{latestPayment.date}</span>
-                                                            <span className="truncate max-w-[150px] sm:max-w-[300px] text-slate-300 font-semibold">{latestPayment.business}</span>
-                                                            <span className="truncate max-w-[100px] sm:max-w-[200px] text-slate-400 font-medium">({latestPayment.batch})</span>
-                                                            {latestPayment.groupName && (
-                                                                <span className="text-purple-400 font-extrabold bg-purple-500/10 px-2.5 py-1 rounded-lg border border-purple-500/20 text-xs tracking-wide shadow-sm">
-                                                                    Group: {latestPayment.groupName}
-                                                                </span>
-                                                            )}
-                                                        </p>
-                                                        <div className="flex flex-wrap gap-2 mt-3 items-center">
-                                                            <span className="text-[10px] font-black bg-blue-500/15 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/20 uppercase tracking-widest shadow-sm flex items-center gap-1.5"><Tag size={12}/> {latestPayment.type}</span>
-                                                            <span className="text-[10px] font-black bg-purple-500/15 text-purple-400 px-3 py-1.5 rounded-lg border border-purple-500/20 uppercase tracking-widest shadow-sm flex items-center gap-1.5"><Wallet size={12}/> {latestPayment.method}</span>
-                                                            {student.allPayments.length > 1 && <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/15 px-3 py-1.5 rounded-lg border border-emerald-500/20 uppercase tracking-widest shadow-sm">+{student.allPayments.length - 1} More</span>}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                        
-                                        <div className="flex flex-col sm:flex-row lg:flex-col xl:flex-row items-center justify-between lg:justify-end gap-6 w-full lg:w-auto border-t border-white/5 lg:border-t-0 pt-6 lg:pt-0 shrink-0 relative z-10">
-                                            {latestPayment && (
-                                                <div className="flex flex-col items-center sm:items-start lg:items-end xl:items-start mr-0 xl:mr-4">
-                                                    <span className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Total Amount</span>
-                                                    <span className="text-3xl md:text-4xl text-white font-black tracking-tight drop-shadow-md">
-                                                        <span className="text-brand-accent text-xl mr-1">LKR</span>{parseFloat(latestPayment.amount).toLocaleString()}
-                                                    </span>
-                                                </div>
-                                            )}
-                                            
-                                            <div className="flex items-center gap-3 w-full sm:w-auto mt-4 sm:mt-0">
-                                                <button onClick={() => handleGhostLogin(student)} title="Login as Student" className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white p-3.5 md:py-4 rounded-xl border border-slate-700 transition-all shadow-md group/ghost">
-                                                    <Unlock size={20} className="group-hover/ghost:scale-110 transition-transform" />
-                                                </button>
-                                                <button onClick={() => setStudentActionModal({ ...student, allPayments: payments.filter(p => p.studentId === student.studentId) })} className="flex-1 sm:flex-none bg-linear-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-extrabold py-4 px-8 rounded-xl hover:shadow-[0_0_20px_rgba(225,29,72,0.4)] active:scale-[0.98] transition-all duration-200 text-xs uppercase tracking-widest whitespace-nowrap outline-none shadow-lg border border-rose-500/30 flex items-center justify-center gap-2">
-                                                    Review Payments <ChevronRight size={16} />
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )
-                            })}
-
-                            {totalPages > 1 && (
-                                <div className="flex justify-between items-center mt-8 bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-sm">
-                                    <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="flex items-center gap-2 text-sm font-bold text-slate-400 hover:text-white disabled:opacity-30 transition-colors outline-none px-4 py-2"><ChevronLeft size={18} /> Prev</button>
-                                    <span className="text-sm font-extrabold text-white bg-white/5 px-5 py-2 rounded-xl border border-white/5">Page {currentPage} of {totalPages}</span>
-                                    <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="flex items-center gap-2 text-sm font-bold text-slate-400 hover:text-white disabled:opacity-30 transition-colors outline-none px-4 py-2">Next <ChevronRight size={18} /></button>
-                                </div>
-                            )}
-                        </>
-                    )}
+            {/* APPROVED SUB-TABS */}
+            {activeTab === 'Approved' && (
+                <div className="flex flex-wrap items-center gap-3 bg-white dark:bg-brand-darkCard p-2.5 rounded-2xl w-full md:w-max border border-gray-200 dark:border-brand-darkBorder shadow-sm mb-6 transition-colors">
+                    <button onClick={() => setApprovedFilter('All')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${approvedFilter === 'All' ? 'bg-gray-100 dark:bg-white/10 text-gray-900 dark:text-white shadow-sm border border-gray-200 dark:border-transparent' : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-white/5'}`}>All Approved</button>
+                    <button onClick={() => setApprovedFilter('Slips')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${approvedFilter === 'Slips' ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-emerald-700 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10'}`}>Slip Payments</button>
+                    <button onClick={() => setApprovedFilter('Online')} className={`flex-1 md:flex-none px-6 py-3 rounded-xl text-xs font-extrabold uppercase tracking-widest transition-all outline-none ${approvedFilter === 'Online' ? 'bg-indigo-50 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-indigo-700 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/10'}`}>Online (PayHere)</button>
                 </div>
             )}
+
+            {/* UNIFIED PAYMENT CARDS LIST FOR ALL TABS */}
+            <div className="space-y-6">
+                {loading ? (
+                    <div className="text-center py-20 bg-white/5 backdrop-blur-md rounded-[2rem] border border-white/10 shadow-lg"><Loader2 className="animate-spin text-rose-500 mx-auto" size={40} /></div>
+                ) : paginatedStudents.length === 0 ? (
+                    <div className="text-center py-20 bg-white/5 backdrop-blur-md rounded-[2rem] border border-white/10 shadow-lg"><p className="text-slate-400 font-extrabold text-lg">No records found for the selected filters.</p></div>
+                ) : (
+                    <>
+                        {paginatedStudents.map(student => {
+                            const latestPayment = student.allPayments[0];
+                            return (
+                                <div key={student.studentId} className="bg-white/5 backdrop-blur-md border border-white/10 hover:border-brand-accent/40 p-6 md:p-8 rounded-[2rem] flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 transition-all duration-300 shadow-lg hover:shadow-brand-accentLight/5 hover:-translate-y-0.5 group relative overflow-hidden">
+                                    <div className="absolute top-0 right-0 w-32 h-32 bg-brand-accent/5 rounded-bl-full -z-10 group-hover:scale-110 transition-transform"></div>
+                                    
+                                    <div className="flex items-start gap-5 flex-1 w-full">
+                                        <div className="w-16 h-16 rounded-2xl flex items-center justify-center shrink-0 border border-white/10 bg-white/5 text-rose-400 shadow-inner group-hover:border-rose-500/20 transition-all duration-300 relative z-10">
+                                            <User size={30} strokeWidth={1.5} />
+                                        </div>
+                                        <div className="flex-1 mt-1 relative z-10">
+                                            <h4 className="font-extrabold text-xl text-white flex items-center flex-wrap gap-3">
+                                                <span className="text-rose-400 text-xs font-mono font-semibold bg-rose-500/15 border border-rose-500/20 px-3 py-1 rounded-full tracking-wide shadow-[0_0_10px_rgba(244,63,94,0.08)]">
+                                                    ID: {student.allPayments.map(p => p.id).join(', ')}
+                                                </span>
+                                                {student.studentName}
+                                                <span className="text-[10px] font-black text-indigo-400 bg-indigo-500/10 px-3 py-1.5 rounded-lg border border-indigo-500/20 tracking-widest uppercase shadow-sm">{student.studentNo}</span>
+                                                {student.phone && student.phone !== 'N/A' && <span className="text-[10px] font-black text-sky-400 bg-sky-500/10 px-3 py-1.5 rounded-lg border border-sky-500/20 tracking-widest uppercase shadow-sm">{student.phone}</span>}
+                                            </h4>
+                                            {latestPayment && (
+                                                <div className="mt-3">
+                                                    <p className="text-sm font-bold text-slate-400 flex flex-wrap items-center gap-3">
+                                                        <span className="text-emerald-400 font-extrabold bg-emerald-500/15 px-3 py-1 rounded-lg border border-emerald-500/20 shadow-sm">{latestPayment.date}</span>
+                                                        <span className="truncate max-w-[150px] sm:max-w-[300px] text-slate-300 font-semibold">{latestPayment.business}</span>
+                                                        <span className="truncate max-w-[100px] sm:max-w-[200px] text-slate-400 font-medium">({latestPayment.batch})</span>
+                                                        {latestPayment.groupName && (
+                                                            <span className="text-purple-400 font-extrabold bg-purple-500/10 px-2.5 py-1 rounded-lg border border-purple-500/20 text-xs tracking-wide shadow-sm">
+                                                                Group: {latestPayment.groupName}
+                                                            </span>
+                                                        )}
+                                                    </p>
+                                                    <div className="flex flex-wrap gap-2 mt-3 items-center">
+                                                        <span className="text-[10px] font-black bg-blue-500/15 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/20 uppercase tracking-widest shadow-sm flex items-center gap-1.5"><Tag size={12}/> {latestPayment.type}</span>
+                                                        <span className="text-[10px] font-black bg-purple-500/15 text-purple-400 px-3 py-1.5 rounded-lg border border-purple-500/20 uppercase tracking-widest shadow-sm flex items-center gap-1.5"><Wallet size={12}/> {latestPayment.method}</span>
+                                                        {student.allPayments.length > 1 && <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/15 px-3 py-1.5 rounded-lg border border-emerald-500/20 uppercase tracking-widest shadow-sm">+{student.allPayments.length - 1} More</span>}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex flex-col sm:flex-row lg:flex-col xl:flex-row items-center justify-between lg:justify-end gap-6 w-full lg:w-auto border-t border-white/5 lg:border-t-0 pt-6 lg:pt-0 shrink-0 relative z-10">
+                                        {latestPayment && (
+                                            <div className="flex flex-col items-center sm:items-start lg:items-end xl:items-start mr-0 xl:mr-4">
+                                                <span className="text-slate-400 text-xs font-bold uppercase tracking-widest mb-1">Total Amount</span>
+                                                <span className="text-3xl md:text-4xl text-white font-black tracking-tight drop-shadow-md">
+                                                    <span className="text-brand-accent text-xl mr-1">LKR</span>{parseFloat(latestPayment.amount).toLocaleString()}
+                                                </span>
+                                            </div>
+                                        )}
+                                        
+                                        <div className="flex items-center gap-3 w-full sm:w-auto mt-4 sm:mt-0">
+                                            <button onClick={() => handleGhostLogin(student)} title="Login as Student" className="bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white p-3.5 md:py-4 rounded-xl border border-slate-700 transition-all shadow-md group/ghost">
+                                                <Unlock size={20} className="group-hover/ghost:scale-110 transition-transform" />
+                                            </button>
+                                            <button onClick={() => setStudentActionModal({ ...student, allPayments: payments.filter(p => p.studentId === student.studentId) })} className="flex-1 sm:flex-none bg-linear-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-extrabold py-4 px-8 rounded-xl hover:shadow-[0_0_20px_rgba(225,29,72,0.4)] active:scale-[0.98] transition-all duration-200 text-xs uppercase tracking-widest whitespace-nowrap outline-none shadow-lg border border-rose-500/30 flex items-center justify-center gap-2">
+                                                Review Payments <ChevronRight size={16} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+
+                        {totalPages > 1 && (
+                            <div className="flex justify-between items-center mt-8 bg-white/5 backdrop-blur-md p-4 rounded-2xl border border-white/10 shadow-sm">
+                                <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="flex items-center gap-2 text-sm font-bold text-slate-400 hover:text-white disabled:opacity-30 transition-colors outline-none px-4 py-2"><ChevronLeft size={18} /> Prev</button>
+                                <span className="text-sm font-extrabold text-white bg-white/5 px-5 py-2 rounded-xl border border-white/5">Page {currentPage} of {totalPages}</span>
+                                <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="flex items-center gap-2 text-sm font-bold text-slate-400 hover:text-white disabled:opacity-30 transition-colors outline-none px-4 py-2">Next <ChevronRight size={18} /></button>
+                            </div>
+                        )}
+                    </>
+                )}
+            </div>
 
             {/* 🔥 STUDENT ACTION MODAL (REVIEW PAYMENTS) - WIDER MODAL 🔥 */}
             {studentActionModal && createPortal(

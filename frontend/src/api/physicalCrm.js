@@ -10,6 +10,7 @@ export const physicalCrmService = {
   // Students
   getStudents: () => api.get('/physical-crm/students').then(res => res.data),
   createStudent: (data) => api.post('/physical-crm/students', data).then(res => res.data),
+  importExcelStudents: (formData) => api.post('/physical-crm/students/import-excel', formData, { headers: { 'Content-Type': 'multipart/form-data' } }).then(res => res.data),
   updateStudent: (id, data) => api.put(`/physical-crm/students/${id}`, data).then(res => res.data),
   deleteStudent: (id) => api.delete(`/physical-crm/students/${id}`).then(res => res.data),
 
@@ -25,3 +26,5 @@ export const physicalCrmService = {
   updateTeacher: (id, data) => api.put(`/physical-crm/teachers/${id}`, data).then(res => res.data),
   deleteTeacher: (id) => api.delete(`/physical-crm/teachers/${id}`).then(res => res.data),
 };
+
+export default physicalCrmService;

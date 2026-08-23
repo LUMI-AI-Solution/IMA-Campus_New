@@ -70,38 +70,38 @@ export default function ContentHubViews({ state, actions }) {
             {/* BUSINESSES VIEW */}
             {viewLevel === 'businesses' && (
                 businesses?.length === 0 ? <p className="text-center text-gray-400 py-16 bg-white/[0.02] backdrop-blur-xl rounded-[2rem] border border-white/10 shadow-sm text-lg font-bold">No businesses created yet.</p> : 
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6">
                 {businesses?.map((biz) => (
-                    <div key={biz.id} className="group bg-white/[0.05] backdrop-blur-2xl hover:border-brand-accent/50 border border-white/10 p-6 md:p-8 rounded-[2rem] flex flex-col gap-6 transition-all shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:shadow-lg relative overflow-hidden">
+                    <div key={biz.id} className="group bg-white/[0.05] backdrop-blur-2xl hover:border-brand-accent/50 border border-white/10 p-4 sm:p-6 md:p-8 rounded-2xl sm:rounded-[2rem] flex flex-col gap-4 sm:gap-6 transition-all shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:shadow-lg relative overflow-hidden">
                         
                         {/* Glow Effect */}
                         <div className="absolute top-0 right-0 w-32 h-32 blur-[60px] opacity-20 pointer-events-none rounded-full bg-brand-accent transition-opacity group-hover:opacity-40"></div>
 
-                        <div className="flex items-center gap-5 relative z-10">
-                            <div className="w-20 h-20 bg-black/20 rounded-2xl flex items-center justify-center p-3 border border-white/10 transition-colors shrink-0 shadow-inner">
+                        <div className="flex items-center gap-3 sm:gap-5 relative z-10">
+                            <div className="w-16 h-16 sm:w-20 sm:h-20 bg-black/20 rounded-xl sm:rounded-2xl flex items-center justify-center p-2.5 sm:p-3 border border-white/10 transition-colors shrink-0 shadow-inner">
                                 <img src={getImageUrl(biz.logo)} onError={(e) => { e.target.src = '/logo.png'; }} alt="Logo" className="max-w-full max-h-full object-contain drop-shadow-md" />
                             </div>
                             <div className="flex-1 overflow-hidden">
-                                <h3 className="text-2xl font-extrabold text-white mb-2 truncate drop-shadow-sm" title={biz.name}>{biz.name}</h3>
-                                <span className="text-[11px] font-black uppercase tracking-widest bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded-lg border border-blue-500/20 inline-block truncate max-w-full shadow-sm">{biz.category}</span>
+                                <h3 className="text-xl sm:text-2xl font-extrabold text-white mb-1.5 sm:mb-2 truncate drop-shadow-sm" title={biz.name}>{biz.name}</h3>
+                                <span className="text-[10px] sm:text-[11px] font-black uppercase tracking-widest bg-blue-500/10 text-blue-400 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg border border-blue-500/20 inline-block truncate max-w-full shadow-sm">{biz.category}</span>
                             </div>
                         </div>
                         
-                        <div className="bg-black/20 p-5 rounded-2xl border border-white/5 space-y-3 text-sm relative z-10 shadow-inner">
+                        <div className="bg-black/20 p-4 sm:p-5 rounded-xl sm:rounded-2xl border border-white/5 space-y-2 sm:space-y-3 text-xs sm:text-sm relative z-10 shadow-inner">
                             <div className="flex justify-between items-center"><span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">Head Manager</span> <span className="text-white font-extrabold truncate pl-2">{getManagerName(biz.head_manager_id)}</span></div>
                             <div className="flex justify-between items-center"><span className="text-gray-400 font-bold uppercase tracking-wider text-[10px]">Asst Manager</span> <span className="text-white font-extrabold truncate pl-2">{getManagerName(biz.ass_manager_id)}</span></div>
                         </div>
 
                         {canManageBusiness && (
-                            <div className="flex flex-wrap items-center gap-3 mt-auto relative z-10">
-                                <button onClick={() => { setEditData(biz); setShowAssignModal(true); }} className="flex-1 bg-white/5 hover:bg-white/10 text-white py-3.5 rounded-xl text-sm font-bold flex justify-center items-center gap-2 transition-colors border border-white/10 outline-none shadow-sm" title="Assign Managers"><UserPlus size={18}/></button>
-                                <button onClick={() => alert(`Payment Route Check:\n\nThis business is currently routing payments to Merchant ID:\n${biz.merchantId || "Default / Unassigned (14008328)"}`)} className="text-amber-400 bg-amber-500/10 hover:bg-amber-500 hover:text-white p-3.5 rounded-xl transition-colors border border-transparent hover:border-amber-500/50 outline-none shadow-sm" title="Verify Payment Route"><Link size={20}/></button>
-                                <button onClick={() => { setEditData(biz); setEditMode(true); setSelectedLogoName(""); setShowBusinessModal(true); }} className="text-blue-400 bg-blue-500/10 hover:bg-blue-500 hover:text-white p-3.5 rounded-xl transition-colors border border-transparent hover:border-blue-500/50 outline-none shadow-sm" title="Edit Business"><Edit3 size={20}/></button>
-                                <button onClick={() => toggleBusinessStatus(biz)} className={`p-3.5 rounded-xl border transition-colors outline-none shadow-sm ${biz.status === 1 ? 'text-green-400 bg-green-500/10 border-green-500/20 hover:bg-green-500 hover:text-white' : 'text-gray-400 bg-white/5 border-white/10 hover:bg-white/20 hover:text-white'}`} title={biz.status === 1 ? "Hide from Students" : "Show to Students"}>{biz.status === 1 ? <Eye size={20}/> : <EyeOff size={20}/>}</button>
-                                <button onClick={() => deleteItem('/admin/business/delete', { business_id: biz.id }, "Business Deleted")} className="text-red-400 bg-red-500/10 hover:bg-red-500 hover:text-white p-3.5 rounded-xl border border-transparent hover:border-red-500/50 transition-colors outline-none shadow-sm" title="Delete Business"><Trash2 size={20}/></button>
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-auto relative z-10">
+                                <button onClick={() => { setEditData(biz); setShowAssignModal(true); }} className="flex-1 bg-white/5 hover:bg-white/10 text-white py-3 rounded-xl text-xs sm:text-sm font-bold flex justify-center items-center gap-2 transition-colors border border-white/10 outline-none shadow-sm" title="Assign Managers"><UserPlus size={16}/></button>
+                                <button onClick={() => alert('Payment Route Check:\n\nThis business is currently routing payments to Merchant ID:\n' + (biz.merchantId || 'Default (14008328)'))} className="text-amber-400 bg-amber-500/10 hover:bg-amber-500 hover:text-white p-3 rounded-xl transition-colors border border-transparent hover:border-amber-500/50 outline-none shadow-sm" title="Verify Payment Route"><Link size={18}/></button>
+                                <button onClick={() => { setEditData(biz); setEditMode(true); setSelectedLogoName(""); setShowBusinessModal(true); }} className="text-blue-400 bg-blue-500/10 hover:bg-blue-500 hover:text-white p-3 rounded-xl transition-colors border border-transparent hover:border-blue-500/50 outline-none shadow-sm" title="Edit Business"><Edit3 size={18}/></button>
+                                <button onClick={() => toggleBusinessStatus(biz)} className={"p-3 rounded-xl border transition-colors outline-none shadow-sm " + (biz.status === 1 ? 'text-green-400 bg-green-500/10 border-green-500/20 hover:bg-green-500 hover:text-white' : 'text-gray-400 bg-white/5 border-white/10 hover:bg-white/20 hover:text-white')} title={biz.status === 1 ? "Hide from Students" : "Show to Students"}>{biz.status === 1 ? (<Eye size={18}/>) : (<EyeOff size={18}/>)}</button>
+                                <button onClick={() => deleteItem('/admin/business/delete', { business_id: biz.id }, "Business Deleted")} className="text-red-400 bg-red-500/10 hover:bg-red-500 hover:text-white p-3 rounded-xl border border-transparent hover:border-red-500/50 transition-colors outline-none shadow-sm" title="Delete Business"><Trash2 size={18}/></button>
                             </div>
                         )}
-                        <button onClick={() => openBusinessDetails(biz)} className="w-full bg-brand-accent/90 hover:bg-brand-accent text-white py-4 rounded-xl text-sm md:text-base font-extrabold flex justify-center items-center gap-2 transition-transform hover:scale-[1.02] shadow-[0_4px_15px_rgba(225,29,72,0.4)] mt-1 outline-none relative z-10 uppercase tracking-wide border border-transparent">Manage Batches <ChevronRight size={18}/></button>
+                        <button onClick={() => openBusinessDetails(biz)} className="w-full bg-brand-accent/90 hover:bg-brand-accent text-white py-3.5 sm:py-4 rounded-xl text-xs sm:text-sm md:text-base font-extrabold flex justify-center items-center gap-2 transition-transform hover:scale-[1.02] shadow-[0_4px_15px_rgba(225,29,72,0.4)] mt-1 outline-none relative z-10 uppercase tracking-wide border border-transparent">Manage Batches <ChevronRight size={18}/></button>
                     </div>
                 ))}
                 </div>
@@ -109,28 +109,28 @@ export default function ContentHubViews({ state, actions }) {
 
             {/* BATCHES VIEW */}
             {viewLevel === 'batches' && (
-                <div className="space-y-6">
+                <div className="space-y-4 sm:space-y-6">
                     {/* Multi-Business Quick Switcher Bar */}
                     {businesses?.length > 1 && (
-                        <div className="bg-white/[0.04] backdrop-blur-2xl border border-white/10 p-4 md:p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+                        <div className="bg-white/[0.04] backdrop-blur-2xl border border-white/10 p-3.5 sm:p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 shadow-sm">
                             <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-brand-accent/10 rounded-xl border border-brand-accent/20 text-brand-accent">
-                                    <Building2 size={20} />
+                                <div className="p-2 sm:p-2.5 bg-brand-accent/10 rounded-xl border border-brand-accent/20 text-brand-accent">
+                                    <Building2 size={18} className="sm:w-5 sm:h-5" />
                                 </div>
                                 <div>
-                                    <div className="text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">Current Business</div>
-                                    <div className="text-base font-extrabold text-white">{activeBusiness?.name || "Select Business"}</div>
+                                    <div className="text-[10px] sm:text-[11px] font-extrabold text-gray-400 uppercase tracking-wider">Current Business</div>
+                                    <div className="text-sm sm:text-base font-extrabold text-white">{activeBusiness?.name || "Select Business"}</div>
                                 </div>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider shrink-0">Switch Business:</label>
+                            <div className="flex items-center gap-2 w-full sm:w-auto">
+                                <label className="text-xs font-bold text-gray-400 uppercase tracking-wider shrink-0 hidden sm:inline">Switch:</label>
                                 <select 
                                     value={activeBusiness?.id || ""} 
                                     onChange={(e) => {
                                         const selected = businesses.find(b => String(b.id) === String(e.target.value));
                                         if (selected) openBusinessDetails(selected);
                                     }}
-                                    className="bg-black/60 border border-white/20 rounded-xl px-4 py-2.5 text-sm text-white font-bold outline-none focus:border-brand-accent cursor-pointer shadow-inner appearance-none transition-all"
+                                    className="w-full sm:w-auto bg-black/60 border border-white/20 rounded-xl px-3 sm:px-4 py-2 sm:py-2.5 text-xs sm:text-sm text-white font-bold outline-none focus:border-brand-accent cursor-pointer shadow-inner appearance-none transition-all"
                                 >
                                     {businesses.map((b) => (
                                         <option key={b.id} value={b.id} className="bg-slate-900 text-white font-medium">
@@ -147,30 +147,30 @@ export default function ContentHubViews({ state, actions }) {
                             No batches available for {activeBusiness?.name || 'this business'} yet.
                         </p>
                     ) : (
-                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6">
                         {batches?.map((batch) => (
-                            <div key={batch.id} className="group bg-white/[0.05] backdrop-blur-2xl hover:border-brand-accent/50 border border-white/10 p-6 md:p-8 rounded-[2rem] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 transition-all shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:shadow-lg relative overflow-hidden">
+                            <div key={batch.id} className="group bg-white/[0.05] backdrop-blur-2xl hover:border-brand-accent/50 border border-white/10 p-4 sm:p-6 md:p-8 rounded-2xl sm:rounded-[2rem] flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-6 transition-all shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:shadow-lg relative overflow-hidden">
                                 
-                                <div className="absolute top-0 left-0 w-3 h-full bg-brand-accent opacity-80"></div>
+                                <div className="absolute top-0 left-0 w-2.5 sm:w-3 h-full bg-brand-accent opacity-80"></div>
 
-                                <div className="flex items-center gap-5 overflow-hidden w-full sm:w-auto pl-2 relative z-10">
-                                    <div className="w-16 h-16 bg-black/20 rounded-2xl flex items-center justify-center p-3 border border-white/10 transition-colors shrink-0 shadow-inner">
+                                <div className="flex items-center gap-3 sm:gap-5 overflow-hidden w-full sm:w-auto pl-2 relative z-10">
+                                    <div className="w-14 h-14 sm:w-16 sm:h-16 bg-black/20 rounded-xl sm:rounded-2xl flex items-center justify-center p-2.5 sm:p-3 border border-white/10 transition-colors shrink-0 shadow-inner">
                                         <img src={getImageUrl(batch.logo || batch.business?.logo || activeBusiness?.logo)} onError={(e) => { e.target.src = '/logo.png'; }} alt="Logo" className="max-w-full max-h-full object-contain drop-shadow-md" />
                                     </div>
                                     <div className="flex-1 overflow-hidden pr-2">
-                                        <h3 className="text-xl font-extrabold text-white mb-2 truncate drop-shadow-sm" title={batch.name}>{batch.name}</h3>
-                                        <p className="text-[11px] text-brand-accent font-black uppercase tracking-widest bg-brand-accent/10 border border-brand-accent/20 px-3 py-1.5 rounded-md inline-block truncate max-w-full shadow-sm">{batch.groups?.length || 0} Groups Assigned</p>
+                                        <h3 className="text-lg sm:text-xl font-extrabold text-white mb-1.5 sm:mb-2 truncate drop-shadow-sm" title={batch.name}>{batch.name}</h3>
+                                        <p className="text-[10px] sm:text-[11px] text-brand-accent font-black uppercase tracking-widest bg-brand-accent/10 border border-brand-accent/20 px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-md inline-block truncate max-w-full shadow-sm">{batch.groups?.length || 0} Groups Assigned</p>
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-3 w-full sm:w-auto mt-4 sm:mt-0 shrink-0 relative z-10">
+                                <div className="flex items-center gap-2 sm:gap-3 w-full sm:w-auto mt-2 sm:mt-0 shrink-0 relative z-10">
                                     {canManageBatches && (
                                         <>
-                                            <button onClick={() => toggleBatchStatus(batch)} className={`p-3.5 rounded-xl border transition-colors outline-none shadow-sm ${batch.status === 1 ? 'text-green-400 bg-green-500/10 border-green-500/20 hover:bg-green-500 hover:text-white' : 'text-gray-400 bg-white/5 border-white/10 hover:bg-white/20 hover:text-white'}`} title={batch.status === 1 ? "Hide from Students" : "Show to Students"}>{batch.status === 1 ? <Eye size={20}/> : <EyeOff size={20}/>}</button>
-                                            <button onClick={() => { setEditData(batch); setEditMode(true); setSelectedLogoName(""); setShowBatchModal(true); }} className="text-blue-400 bg-blue-500/10 border border-transparent hover:border-blue-500/50 hover:bg-blue-500 hover:text-white p-3.5 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={20}/></button>
-                                            <button onClick={() => deleteItem('/admin/batch/delete', { batch_id: batch.id }, "Batch Deleted")} className="text-red-400 bg-red-500/10 border border-transparent hover:border-red-500/50 hover:bg-red-500 hover:text-white p-3.5 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={20}/></button>
+                                            <button onClick={() => toggleBatchStatus(batch)} className={"p-3 rounded-xl border transition-colors outline-none shadow-sm " + (batch.status === 1 ? 'text-green-400 bg-green-500/10 border-green-500/20 hover:bg-green-500 hover:text-white' : 'text-gray-400 bg-white/5 border-white/10 hover:bg-white/20 hover:text-white')} title={batch.status === 1 ? "Hide from Students" : "Show to Students"}>{batch.status === 1 ? (<Eye size={18}/>) : (<EyeOff size={18}/>)}</button>
+                                            <button onClick={() => { setEditData(batch); setEditMode(true); setSelectedLogoName(""); setShowBatchModal(true); }} className="text-blue-400 bg-blue-500/10 border border-transparent hover:border-blue-500/50 hover:bg-blue-500 hover:text-white p-3 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={18}/></button>
+                                            <button onClick={() => deleteItem('/admin/batch/delete', { batch_id: batch.id }, "Batch Deleted")} className="text-red-400 bg-red-500/10 border border-transparent hover:border-red-500/50 hover:bg-red-500 hover:text-white p-3 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={18}/></button>
                                         </>
                                     )}
-                                    <button onClick={() => openBatchDetails(batch)} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-6 py-3.5 rounded-xl text-sm font-extrabold flex justify-center items-center gap-2 transition-transform hover:scale-[1.02] sm:ml-2 shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none uppercase tracking-wide border border-transparent">Manage <ChevronRight size={18}/></button>
+                                    <button onClick={() => openBatchDetails(batch)} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-5 sm:px-6 py-3 sm:py-3.5 rounded-xl text-xs sm:text-sm font-extrabold flex justify-center items-center gap-2 transition-transform hover:scale-[1.02] sm:ml-2 shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none uppercase tracking-wide border border-transparent">Manage <ChevronRight size={18}/></button>
                                 </div>
                             </div>
                         ))}
@@ -183,12 +183,12 @@ export default function ContentHubViews({ state, actions }) {
             {viewLevel === 'batch_details' && (
                 <div className="flex flex-col h-full animate-fade-in relative z-10">
                     
-                    {/* TABS */}
-                    <div className="flex flex-wrap gap-2 md:gap-3 mb-8 bg-white/[0.05] backdrop-blur-2xl p-2.5 rounded-[1.5rem] w-full md:w-max border border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
-                        <button onClick={() => setBatchTab('groups')} className={`flex-1 md:flex-none justify-center px-4 md:px-6 py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent ${batchTab === 'groups' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><Layers size={18} className="hidden sm:block"/> Groups</button>
-                        <button onClick={() => setBatchTab('subjects')} className={`flex-1 md:flex-none justify-center px-4 md:px-6 py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent ${batchTab === 'subjects' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><BookOpen size={18} className="hidden sm:block"/> Subjects</button>
-                        <button onClick={() => setBatchTab('lecturers')} className={`flex-1 md:flex-none justify-center px-4 md:px-6 py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent ${batchTab === 'lecturers' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><Users size={18} className="hidden sm:block"/> Lecturers</button>
-                        <button onClick={() => setBatchTab('upgrade-pricing')} className={`flex-1 md:flex-none justify-center px-4 md:px-6 py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent ${batchTab === 'upgrade-pricing' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><TrendingUp size={18} className="hidden sm:block"/> Upgrade Prices</button>
+                    {/* TABS (Mobile Horizontal Scrollable) */}
+                    <div className="flex overflow-x-auto custom-scrollbar gap-2 md:gap-3 mb-6 md:mb-8 bg-white/[0.05] backdrop-blur-2xl p-2 sm:p-2.5 rounded-2xl sm:rounded-[1.5rem] w-full md:w-max border border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.2)] shrink-0 whitespace-nowrap">
+                        <button onClick={() => setBatchTab('groups')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${batchTab === 'groups' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><Layers size={16} className="sm:w-4 sm:h-4"/> Groups</button>
+                        <button onClick={() => setBatchTab('subjects')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${batchTab === 'subjects' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><BookOpen size={16} className="sm:w-4 sm:h-4"/> Subjects</button>
+                        <button onClick={() => setBatchTab('lecturers')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${batchTab === 'lecturers' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><Users size={16} className="sm:w-4 sm:h-4"/> Lecturers</button>
+                        <button onClick={() => setBatchTab('upgrade-pricing')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${batchTab === 'upgrade-pricing' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><TrendingUp size={16} className="sm:w-4 sm:h-4"/> Upgrade Prices</button>
                     </div>
 
                     <div className="space-y-6">
@@ -232,7 +232,7 @@ export default function ContentHubViews({ state, actions }) {
                                             <div className="flex flex-wrap gap-2">
                                                 {JSON.parse(group.discount_rules).map((rule, ridx) => {
                                                     const hasFixed = rule.fixedDiscount && parseFloat(rule.fixedDiscount) > 0;
-                                                    const displayTxt = hasFixed ? `Get Rs ${rule.fixedDiscount} Off` : `@ Rs ${rule.pricePerCourse} /ea`;
+                                                    const displayTxt = hasFixed ? ('Get Rs ' + rule.fixedDiscount + ' Off') : ('@ Rs ' + rule.pricePerCourse + ' / ea');
                                                     return (
                                                         <span key={ridx} className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 px-3 py-2 rounded-xl border border-emerald-500/20 shadow-sm">
                                                             <span className="bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md">Buy {rule.courseCount}+</span> {displayTxt}
@@ -371,128 +371,127 @@ export default function ContentHubViews({ state, actions }) {
 
             {/* CONTENTS VIEW */}
             {viewLevel === 'contents' && (
-                <div className="bg-white/[0.02] backdrop-blur-3xl border border-white/10 rounded-[2rem] flex flex-col min-h-[600px] overflow-hidden shadow-[0_8px_32px_0_rgba(0,0,0,0.4)] relative z-10">
+                <div className="bg-white/[0.02] backdrop-blur-3xl border border-white/10 rounded-2xl sm:rounded-[2rem] flex flex-col min-h-[500px] sm:min-h-[600px] overflow-hidden shadow-[0_8px_32px_0_rgba(0,0,0,0.4)] relative z-10">
                     
                     {/* Content Tabs Header */}
-                    <div className="flex overflow-x-auto custom-scrollbar border-b border-white/10 bg-black/20 p-4 gap-3">
+                    <div className="flex overflow-x-auto custom-scrollbar border-b border-white/10 bg-black/20 p-2.5 sm:p-4 gap-2 sm:gap-3 shrink-0">
                         {[ { id: 'live', label: 'Live Classes', icon: Video }, { id: 'recording', label: 'Recordings', icon: MonitorPlay },
                            { id: 'document', label: 'Documents', icon: FileText }, { id: 'sPaper', label: 'Structured', icon: FileSignature }, { id: 'paper', label: 'MCQs', icon: CheckCircle }
                         ].map(tab => (
-                            <button key={tab.id} onClick={() => setContentTab(tab.id)} className={`flex items-center gap-3 px-6 py-3.5 rounded-xl text-sm font-extrabold transition-all whitespace-nowrap uppercase tracking-wider outline-none border border-transparent ${contentTab === tab.id ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white border-white/10'}`}>
-                                <tab.icon size={18}/> {tab.label}
+                            <button key={tab.id} onClick={() => setContentTab(tab.id)} className={`flex items-center gap-2 sm:gap-3 px-3.5 sm:px-6 py-2.5 sm:py-3.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all whitespace-nowrap uppercase tracking-wider outline-none border border-transparent shrink-0 ${contentTab === tab.id ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white border-white/10'}`}>
+                                <tab.icon size={16} className="sm:w-[18px] sm:h-[18px]"/> {tab.label}
                             </button>
                         ))}
                     </div>
 
                     {/* 🔥 STATS WIDGET: Display content allocation counts by Payment Group */}
-                    <div className="bg-black/30 border-b border-white/5 p-4 flex flex-wrap gap-4 items-center">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mr-2 flex items-center gap-2"><Layers size={14} className="text-brand-accent"/> Allocation Stats:</span>
+                    <div className="bg-black/30 border-b border-white/5 p-3 sm:p-4 flex flex-wrap gap-2 sm:gap-4 items-center text-xs">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mr-1 flex items-center gap-1.5"><Layers size={13} className="text-brand-accent"/> Allocation Stats:</span>
                         {activeSubject?.groupPrices?.map((gp, idx) => {
-                            // Count how many contents of the current tab are assigned to this courseId
                             const count = subjectContents.filter(c => isMatchedType(c) && c.assignedCourses && c.assignedCourses.includes(gp.courseId)).length;
                             const isMonthly = gp.groupType === 1;
                             return (
-                                <div key={idx} className={`flex items-center gap-3 px-4 py-2 rounded-xl border shadow-inner ${isMonthly ? 'bg-blue-500/10 border-blue-500/20' : 'bg-brand-accent/10 border-brand-accent/20'}`}>
-                                    <span className="text-xs font-bold text-slate-300 uppercase">{gp.groupName}</span>
-                                    <span className={`text-sm font-black px-2 py-0.5 rounded-md ${isMonthly ? 'bg-blue-500/20 text-blue-400' : 'bg-brand-accent/20 text-brand-accent'}`}>{count}</span>
+                                <div key={idx} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg sm:rounded-xl border shadow-inner ${isMonthly ? 'bg-blue-500/10 border-blue-500/20' : 'bg-brand-accent/10 border-brand-accent/20'}`}>
+                                    <span className="text-[10px] sm:text-xs font-bold text-slate-300 uppercase">{gp.groupName}</span>
+                                    <span className={`text-xs font-black px-1.5 py-0.5 rounded-md ${isMonthly ? 'bg-blue-500/20 text-blue-400' : 'bg-brand-accent/20 text-brand-accent'}`}>{count}</span>
                                 </div>
                             );
                         })}
                     </div>
                     
-                    <div className="p-6 md:p-8 space-y-10 overflow-y-auto custom-scrollbar">
+                    <div className="p-3.5 sm:p-6 md:p-8 space-y-6 sm:space-y-10 overflow-y-auto custom-scrollbar">
                         
                         {/* ORGANIZED FOLDERS */}
                         {lessonGroups.filter(isMatchedType).length > 0 && (
-                            <div className="space-y-6">
-                                <h4 className="text-xs font-extrabold text-gray-400 uppercase tracking-widest pl-2 drop-shadow-sm">Organized Folders</h4>
+                            <div className="space-y-4 sm:space-y-6">
+                                <h4 className="text-xs font-extrabold text-gray-400 uppercase tracking-widest pl-1 sm:pl-2 drop-shadow-sm">Organized Folders</h4>
                                 
                                 {lessonGroups.filter(isMatchedType).map((folder) => (
-                                    <div key={folder.id} className="bg-white/[0.02] backdrop-blur-xl border border-white/10 rounded-[2rem] overflow-hidden transition-all shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
-                                        <div className="flex flex-wrap justify-between items-center cursor-pointer p-6 bg-white/[0.05] hover:bg-white/10 transition-colors gap-4" onClick={() => toggleFolder(folder.id)}>
-                                            <div className="flex items-center gap-4">
-                                                <div className={`p-3 rounded-xl transition-colors shadow-sm ${openFolders[folder.id] ? 'bg-brand-accent/20 text-brand-accent border border-brand-accent/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
-                                                    <FolderOpen size={24}/>
+                                    <div key={folder.id} className="bg-white/[0.02] backdrop-blur-xl border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden transition-all shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
+                                        <div className="flex flex-wrap justify-between items-center cursor-pointer p-3.5 sm:p-5 bg-white/[0.05] hover:bg-white/10 transition-colors gap-3" onClick={() => toggleFolder(folder.id)}>
+                                            <div className="flex items-center gap-2.5 sm:gap-4 overflow-hidden">
+                                                <div className={`p-2.5 sm:p-3 rounded-xl transition-colors shadow-sm shrink-0 ${openFolders[folder.id] ? 'bg-brand-accent/20 text-brand-accent border border-brand-accent/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+                                                    <FolderOpen size={20} className="sm:w-6 sm:h-6"/>
                                                 </div>
-                                                <h4 className={`text-lg font-extrabold transition-colors truncate max-w-[150px] md:max-w-[400px] drop-shadow-sm ${openFolders[folder.id] ? 'text-brand-accent' : 'text-slate-200'}`} title={folder.title || folder.name}>{folder.title || folder.name}</h4>
-                                                <ChevronDown size={20} className={`text-gray-400 transition-transform ${openFolders[folder.id] ? 'rotate-180 text-brand-accent' : ''}`}/>
+                                                <h4 className={`text-sm sm:text-lg font-extrabold transition-colors truncate max-w-[130px] sm:max-w-[300px] md:max-w-[400px] drop-shadow-sm ${openFolders[folder.id] ? 'text-brand-accent' : 'text-slate-200'}`} title={folder.title || folder.name}>{folder.title || folder.name}</h4>
+                                                <ChevronDown size={18} className={`text-gray-400 transition-transform shrink-0 ${openFolders[folder.id] ? 'rotate-180 text-brand-accent' : ''}`}/>
                                             </div>
-                                            <div className="flex gap-2 items-center">
+                                            <div className="flex gap-1.5 sm:gap-2 items-center shrink-0">
                                                 {canManageContent && (
                                                     <>
-                                                        <button onClick={(e) => { e.stopPropagation(); setContentType(contentTab); setPrefilledFolder(folder.id); setSelectedBatchesForContent([activeBatch.id]); setMassAssignSubjects([activeSubject.id]); setShowContentModal(true); setEditMode(false); }} className="bg-green-600/90 hover:bg-green-500 text-white px-5 py-2.5 rounded-xl text-xs uppercase tracking-wider font-extrabold flex items-center gap-2 transition-colors shadow-[0_4px_15px_rgba(22,163,74,0.4)] mr-2 border border-transparent outline-none"><Plus size={16}/> Add Content</button>
-                                                        <button onClick={(e) => { e.stopPropagation(); setEditData(folder); setEditMode(true); setShowLessonGroupModal(true); }} className="text-blue-400 hover:bg-blue-500 hover:text-white bg-blue-500/10 border border-transparent hover:border-blue-500/50 p-2.5 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={18}/></button>
-                                                        <button onClick={(e) => { e.stopPropagation(); deleteItem('/admin/content-group/delete', { contentGroupId: folder.id }, "Folder Deleted"); }} className="text-red-400 hover:bg-red-500 hover:text-white bg-red-500/10 border border-transparent hover:border-red-500/50 p-2.5 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={18}/></button>
+                                                        <button onClick={(e) => { e.stopPropagation(); setContentType(contentTab); setPrefilledFolder(folder.id); setSelectedBatchesForContent([activeBatch.id]); setMassAssignSubjects([activeSubject.id]); setShowContentModal(true); setEditMode(false); }} className="bg-green-600/90 hover:bg-green-500 text-white px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider font-extrabold flex items-center gap-1.5 transition-colors shadow-[0_4px_15px_rgba(22,163,74,0.4)] border border-transparent outline-none"><Plus size={14}/> <span className="hidden xs:inline">Add Content</span></button>
+                                                        <button onClick={(e) => { e.stopPropagation(); setEditData(folder); setEditMode(true); setShowLessonGroupModal(true); }} className="text-blue-400 hover:bg-blue-500 hover:text-white bg-blue-500/10 border border-transparent hover:border-blue-500/50 p-2 sm:p-2.5 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={16}/></button>
+                                                        <button onClick={(e) => { e.stopPropagation(); deleteItem('/admin/content-group/delete', { contentGroupId: folder.id }, "Folder Deleted"); }} className="text-red-400 hover:bg-red-500 hover:text-white bg-red-500/10 border border-transparent hover:border-red-500/50 p-2 sm:p-2.5 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={16}/></button>
                                                     </>
                                                 )}
                                             </div>
                                         </div>
                                         
                                         {openFolders[folder.id] && (
-                                          <div className="border-t border-white/10 bg-black/20 p-6 md:p-8 shadow-inner">
-                                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                          <div className="border-t border-white/10 bg-black/20 p-3.5 sm:p-6 md:p-8 shadow-inner">
+                                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 sm:gap-6">
                                                   {subjectContents
                                                       .filter(c => isMatchedType(c) && isItemInFolder(c, folder))
                                                       .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1))
                                                       .map((content) => (
-                                                        <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
+                                                        <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
                                                             
                                                             {/* Drag handle */}
                                                             {canManageContent && (
-                                                                <div className="absolute top-3 left-3 z-10 bg-black/50 p-1.5 rounded-lg backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity cursor-grab shadow-sm border border-white/10">
-                                                                    <GripVertical size={16} className="text-white"/>
+                                                                <div className="absolute top-2.5 left-2.5 z-10 bg-black/50 p-1.5 rounded-lg backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity cursor-grab shadow-sm border border-white/10">
+                                                                    <GripVertical size={14} className="text-white"/>
                                                                 </div>
                                                             )}
 
                                                             {/* Thumbnail Image Section */}
-                                                            <div className="h-40 w-full bg-black/40 relative overflow-hidden shrink-0 border-b border-white/5">
+                                                            <div className="h-36 sm:h-40 w-full bg-black/40 relative overflow-hidden shrink-0 border-b border-white/5">
                                                                 {content.thumbnail ? (
                                                                     <img src={`${getBaseUrl()}/storage/documents/${content.thumbnail}`} alt="Thumbnail" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                                                                 ) : (
                                                                     <div className="w-full h-full bg-gradient-to-br from-slate-800/50 to-black flex items-center justify-center opacity-80 group-hover:scale-105 transition-transform duration-500">
-                                                                        <MonitorPlay size={40} className="text-white/20" />
+                                                                        <MonitorPlay size={36} className="text-white/20" />
                                                                     </div>
                                                                 )}
                                                                 
                                                                 {/* Date Badge */}
-                                                                <div className="absolute top-3 right-3 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-white shadow-sm">
+                                                                <div className="absolute top-2.5 right-2.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-white shadow-sm">
                                                                     {content.date ? content.date.split('T')[0] : 'No Date'}
                                                                 </div>
                                                             </div>
 
                                                             {/* Content Details */}
-                                                            <div className="p-5 flex-1 flex flex-col justify-between">
-                                                                <h4 className="text-base font-extrabold text-white mb-4 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
+                                                            <div className="p-3.5 sm:p-5 flex-1 flex flex-col justify-between">
+                                                                <h4 className="text-xs sm:text-base font-extrabold text-white mb-3 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
                                                                     {content.title}
                                                                 </h4>
                                                                 
                                                                 {/* Action Buttons */}
-                                                                <div className="pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 mt-auto">
+                                                                <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-1.5 mt-auto">
                                                                     <button onClick={() => {
                                                                         let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
                                                                         setPreviewData({ ...content, link: fileUrl });
-                                                                    }} className="flex-1 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white py-2.5 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none">
+                                                                    }} className="flex-1 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none text-center">
                                                                         PREVIEW
                                                                     </button>
                                                                     <button onClick={() => {
                                                                         let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
                                                                         copyToClipboard(fileUrl);
-                                                                    }} className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white py-2.5 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none flex items-center justify-center gap-1">
-                                                                        <Copy size={14}/> COPY LINK
+                                                                    }} className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none flex items-center justify-center gap-1">
+                                                                        <Copy size={12}/> COPY
                                                                     </button>
                                                                     
                                                                     {canManageContent && (
-                                                                        <div className="flex gap-2">
+                                                                        <div className="flex gap-1">
                                                                             <button onClick={() => { 
                                                                                 setEditData(content); setEditMode(true); setShowContentModal(true); setContentType(contentTab); 
                                                                                 if(content.assignedCourses && content.assignedCourses.length > 0) { setMassAssignSubjects(content.assignedCourses); } 
                                                                                 else { setMassAssignSubjects([activeSubject.id]); }
                                                                                 setSelectedBatchesForContent([activeBatch.id]);
-                                                                            }} className="bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white p-2.5 rounded-xl transition-colors shadow-sm outline-none">
-                                                                                <Edit3 size={18}/>
+                                                                            }} className="bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none">
+                                                                                <Edit3 size={16}/>
                                                                             </button>
-                                                                            <button onClick={() => deleteItem('/admin/content/delete', { content_id: content.id }, "Content Deleted")} className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white p-2.5 rounded-xl transition-colors shadow-sm outline-none">
-                                                                                <Trash2 size={18}/>
+                                                                            <button onClick={() => deleteItem('/admin/content/delete', { content_id: content.id }, "Content Deleted")} className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none">
+                                                                                <Trash2 size={16}/>
                                                                             </button>
                                                                         </div>
                                                                     )}
@@ -500,77 +499,83 @@ export default function ContentHubViews({ state, actions }) {
                                                             </div>
                                                         </div>
                                                       ))}
-                                              </div>
-                                              
-                                              {subjectContents.filter(c => isMatchedType(c) && isItemInFolder(c, folder)).length === 0 && <p className="text-sm text-gray-400 py-8 text-center font-bold bg-white/5 rounded-2xl border border-white/10 shadow-inner">This folder is empty.</p>}
-                                          </div>
-                                        )}
-                                    </div>
+                                               </div>
+                                               
+                                               {subjectContents.filter(c => isMatchedType(c) && isItemInFolder(c, folder)).length === 0 && <p className="text-xs sm:text-sm text-gray-400 py-6 text-center font-bold bg-white/5 rounded-2xl border border-white/10 shadow-inner">This folder is empty.</p>}
+                                           </div>
+                                         )}
+                                     </div>
                                 ))}
                             </div>
                         )}
 
                         {/* UNCATEGORIZED ITEMS */}
-                        <div className="mt-12">
-                            <h4 className="text-xs font-extrabold text-gray-400 uppercase tracking-widest mb-4 pl-2 drop-shadow-sm">Uncategorized Items</h4>
-                            <div className="bg-white/[0.02] backdrop-blur-xl border border-white/10 rounded-[2rem] p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
-                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                        <div className="mt-8 sm:mt-12">
+                            <h4 className="text-xs font-extrabold text-gray-400 uppercase tracking-widest mb-3 sm:mb-4 pl-1 sm:pl-2 drop-shadow-sm">Uncategorized Items</h4>
+                            <div className="bg-white/[0.02] backdrop-blur-xl border border-white/10 rounded-2xl sm:rounded-[2rem] p-3.5 sm:p-6 md:p-8 shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 sm:gap-6">
                                     {subjectContents
                                         .filter(c => isMatchedType(c) && isUncategorized(c))
                                         .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1))
                                         .map((content) => (
-                                        <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
+                                        <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
                                             
                                             {/* Drag handle */}
                                             {canManageContent && (
-                                                <div className="absolute top-3 left-3 z-10 bg-black/50 p-1.5 rounded-lg backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity cursor-grab shadow-sm border border-white/10">
-                                                    <GripVertical size={16} className="text-white"/>
+                                                <div className="absolute top-2.5 left-2.5 z-10 bg-black/50 p-1.5 rounded-lg backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity cursor-grab shadow-sm border border-white/10">
+                                                    <GripVertical size={14} className="text-white"/>
                                                 </div>
                                             )}
 
                                             {/* Thumbnail Image Section */}
-                                            <div className="h-40 w-full bg-black/40 relative overflow-hidden shrink-0 border-b border-white/5">
+                                            <div className="h-36 sm:h-40 w-full bg-black/40 relative overflow-hidden shrink-0 border-b border-white/5">
                                                 {content.thumbnail ? (
                                                     <img src={`${getBaseUrl()}/storage/documents/${content.thumbnail}`} alt="Thumbnail" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
                                                 ) : (
                                                     <div className="w-full h-full bg-gradient-to-br from-slate-800/50 to-black flex items-center justify-center opacity-80 group-hover:scale-105 transition-transform duration-500">
-                                                        <MonitorPlay size={40} className="text-white/20" />
+                                                        <MonitorPlay size={36} className="text-white/20" />
                                                     </div>
                                                 )}
                                                 
                                                 {/* Date Badge */}
-                                                <div className="absolute top-3 right-3 bg-black/50 backdrop-blur-md px-3 py-1.5 rounded-xl border border-white/10 text-[10px] font-black uppercase tracking-widest text-white shadow-sm">
+                                                <div className="absolute top-2.5 right-2.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-white shadow-sm">
                                                     {content.date ? content.date.split('T')[0] : 'No Date'}
                                                 </div>
                                             </div>
 
                                             {/* Content Details */}
-                                            <div className="p-5 flex-1 flex flex-col justify-between">
-                                                <h4 className="text-base font-extrabold text-white mb-4 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
+                                            <div className="p-3.5 sm:p-5 flex-1 flex flex-col justify-between">
+                                                <h4 className="text-xs sm:text-base font-extrabold text-white mb-3 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
                                                     {content.title}
                                                 </h4>
                                                 
                                                 {/* Action Buttons */}
-                                                <div className="pt-4 border-t border-white/10 flex items-center justify-between gap-2 mt-auto">
+                                                <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-1.5 mt-auto">
                                                     <button onClick={() => {
                                                         let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
                                                         setPreviewData({ ...content, link: fileUrl });
-                                                    }} className="flex-1 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none">
+                                                    }} className="flex-1 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none text-center">
                                                         PREVIEW
+                                                    </button>
+                                                    <button onClick={() => {
+                                                        let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
+                                                        copyToClipboard(fileUrl);
+                                                    }} className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none flex items-center justify-center gap-1">
+                                                        <Copy size={12}/> COPY
                                                     </button>
                                                     
                                                     {canManageContent && (
-                                                        <div className="flex gap-2">
+                                                        <div className="flex gap-1">
                                                             <button onClick={() => { 
                                                                 setEditData(content); setEditMode(true); setShowContentModal(true); setContentType(contentTab); 
                                                                 if(content.assignedCourses && content.assignedCourses.length > 0) { setMassAssignSubjects(content.assignedCourses); } 
                                                                 else { setMassAssignSubjects([activeSubject.id]); }
                                                                 setSelectedBatchesForContent([activeBatch.id]);
-                                                            }} className="bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white p-2.5 rounded-xl transition-colors shadow-sm outline-none">
-                                                                <Edit3 size={18}/>
+                                                            }} className="bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none">
+                                                                <Edit3 size={16}/>
                                                             </button>
-                                                            <button onClick={() => deleteItem('/admin/content/delete', { content_id: content.id }, "Content Deleted")} className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white p-2.5 rounded-xl transition-colors shadow-sm outline-none">
-                                                                <Trash2 size={18}/>
+                                                            <button onClick={() => deleteItem('/admin/content/delete', { content_id: content.id }, "Content Deleted")} className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none">
+                                                                <Trash2 size={16}/>
                                                             </button>
                                                         </div>
                                                     )}
@@ -579,7 +584,7 @@ export default function ContentHubViews({ state, actions }) {
                                         </div>
                                         ))}
                                 </div>
-                                {subjectContents.filter(c => isMatchedType(c) && isUncategorized(c)).length === 0 && <p className="text-sm text-gray-400 py-8 text-center font-bold bg-white/5 rounded-2xl border border-white/10 shadow-inner">No uncategorized items.</p>}
+                                {subjectContents.filter(c => isMatchedType(c) && isUncategorized(c)).length === 0 && <p className="text-xs sm:text-sm text-gray-400 py-6 text-center font-bold bg-white/5 rounded-2xl border border-white/10 shadow-inner">No uncategorized items.</p>}
                             </div>
                         </div>
                     </div>

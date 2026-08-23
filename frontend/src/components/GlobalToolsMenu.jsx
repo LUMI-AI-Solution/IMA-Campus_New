@@ -15,7 +15,16 @@ export default function GlobalToolsMenu({ loggedInUser }) {
     const [activeWidget, setActiveWidget] = useState(null);
     const [unreadWebInq, setUnreadWebInq] = useState(0);
     const [activeCallPerms, setActiveCallPerms] = useState(0);
+    const [isLumiAiActive, setIsLumiAiActive] = useState(false);
     const navigate = useNavigate();
+
+    useEffect(() => {
+        const handleLumiAiState = (e) => {
+            setIsLumiAiActive(!!e.detail?.isOpen);
+        };
+        window.addEventListener('lumi-ai-state-change', handleLumiAiState);
+        return () => window.removeEventListener('lumi-ai-state-change', handleLumiAiState);
+    }, []);
 
     const roleUpper = (loggedInUser?.role || '').toUpperCase().replace(/[\s_-]+/g, '_');
     const deptUpper = (loggedInUser?.department || '').toUpperCase().replace(/[\s_-]+/g, '_');
@@ -31,7 +40,8 @@ export default function GlobalToolsMenu({ loggedInUser }) {
     const isCoordinator = ['COORDINATOR', 'CALLER', 'CALL_CENTER_AGENT', 'CALL_CENTER'].includes(roleUpper) || ['CLASS_COORDINATION', 'CALL_CENTER'].includes(deptUpper);
     const isCrmEligible = (isSystemAdmin || isCoordinator || isManager) && !isExcludedDept && !isStudent;
 
-    const showWebInqWidget = isSystemAdmin || isManager || isCoordinator;
+    // 🔥 Hide floating Web Inquiries unread bubble for System Admin, keep for business managers & coordinators 🔥
+    const showWebInqWidget = !isSystemAdmin && (isManager || isCoordinator);
 
     // Fetch active call permissions count
     const fetchCallPermsCount = async () => {
@@ -107,6 +117,7 @@ export default function GlobalToolsMenu({ loggedInUser }) {
 
     if (!loggedInUser) return null;
     if (isStudent) return null;
+    if (isLumiAiActive) return null;
 
     const tools = [
         { id: 'call_permissions', icon: <PhoneCall size={20} />, label: 'Call Allowed Leads', color: 'bg-emerald-600', badge: activeCallPerms, visible: isCrmEligible },
@@ -169,7 +180,7 @@ export default function GlobalToolsMenu({ loggedInUser }) {
 
                 {/* Main Toggle Button & Notification */}
                 <div className="flex gap-3 items-center">
-                    {unreadWebInq > 0 && (
+                    {!isSystemAdmin && unreadWebInq > 0 && (
                         <button 
                             onClick={() => navigate('/workspace/web-inquiries')}
                             className="bg-blue-600 hover:bg-blue-500 text-white w-14 h-14 rounded-full flex justify-center items-center shadow-lg shadow-blue-500/30 transition-transform hover:scale-110 relative border-2 border-white/20 animate-pulse z-[9999]"

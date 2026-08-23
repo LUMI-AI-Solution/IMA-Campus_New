@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import axios from '../../../api/axios';
 import { 
   FaUsers, FaBookOpen, FaFilter, FaMoneyBillWave, FaSpinner, FaCircle,
   FaCalendarCheck, FaClock, FaChalkboardTeacher, FaComments, FaCalendarAlt, FaReplyAll, FaChartLine,
-  FaTruck, FaExclamationCircle, FaUserClock, FaChartPie, FaCheckCircle, FaInbox
+  FaTruck, FaExclamationCircle, FaUserClock, FaChartPie, FaCheckCircle, FaInbox, FaBox
 } from 'react-icons/fa';
 import { 
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend 
@@ -168,11 +169,17 @@ export default function ManagerDashboard() {
               {displayBatches.map(b => <option key={b.id} value={b.id} className="bg-white dark:bg-[#1a2430]">{b.name}</option>)}
             </select>
           </div>
+          <Link
+            to="/manager/tute-stock"
+            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-white text-xs font-black uppercase tracking-wider px-4 py-2.5 rounded-xl border border-amber-400/30 flex items-center gap-2 shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
+          >
+            <span>📦</span> Tute Stock & Calendar
+          </Link>
           <button 
             onClick={() => setIsDelegateModalOpen(true)}
             className="bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-black uppercase tracking-wider px-4 py-2.5 rounded-xl border border-indigo-400/30 flex items-center gap-2 shadow-lg shadow-indigo-500/20 transition-all cursor-pointer"
           >
-            <span>🚀</span> Delegate Work to Social Media
+            <span>🚀</span> Delegate Work
           </button>
           <span className="bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 text-[10px] font-black tracking-widest uppercase border border-emerald-200 dark:border-emerald-500/20 px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-sm">
             <FaCircle className="text-[7px] animate-pulse text-emerald-500" /> Live
@@ -226,16 +233,16 @@ export default function ManagerDashboard() {
             </div>
 
             {/* Logistics Preview */}
-            <div className="bg-white/70 dark:bg-white/[0.03] backdrop-blur-2xl p-4 rounded-3xl border border-gray-200 dark:border-white/10 shadow-lg hover:-translate-y-1 transition-transform group">
+            <Link to="/manager/tute-stock" className="bg-white/70 dark:bg-white/[0.03] backdrop-blur-2xl p-4 rounded-3xl border border-gray-200 dark:border-white/10 shadow-lg hover:-translate-y-1 transition-transform group cursor-pointer block">
               <div className="flex justify-between items-start mb-2">
-                <p className="text-[9px] text-gray-500 dark:text-slate-400 font-black uppercase tracking-widest">Delivery Hub</p>
-                <div className="w-8 h-8 bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl flex justify-center items-center"><FaTruck size={14}/></div>
+                <p className="text-[9px] text-gray-500 dark:text-slate-400 font-black uppercase tracking-widest">Tutes & Delivery</p>
+                <div className="w-8 h-8 bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded-xl flex justify-center items-center group-hover:scale-110 transition-transform"><FaTruck size={14}/></div>
               </div>
               <div className="flex gap-2 text-xs font-black">
                 <span className="text-gray-700 dark:text-slate-300 flex items-center gap-1"><FaClock className="text-amber-500"/> {stats.deliveryStats.pending}</span>
                 <span className="text-gray-700 dark:text-slate-300 flex items-center gap-1"><FaCheckCircle className="text-emerald-500"/> {stats.deliveryStats.delivered}</span>
               </div>
-            </div>
+            </Link>
 
             {/* System Tasks */}
             <div className="bg-white/70 dark:bg-white/[0.03] backdrop-blur-2xl p-4 rounded-3xl border border-gray-200 dark:border-white/10 shadow-lg hover:-translate-y-1 transition-transform group">

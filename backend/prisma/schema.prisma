@@ -838,16 +838,19 @@ model BusinessChatSetting {
 }
 
 model PhysicalStudent {
-  id        Int     @id @default(autoincrement())
-  studentId String  @unique
-  firstName String
-  lastName  String
-  grade     String?
-  nic       String?
-  phone     String? @unique
-  whatsapp  String?
-  address   String? @db.Text
-  rfid      String? @unique
+  id          Int     @id @default(autoincrement())
+  studentId   String  @unique
+  studentName String?
+  firstName   String?
+  lastName    String?
+  grade       String?
+  nic         String?
+  phone       String?
+  whatsapp    String?
+  address     String? @db.Text
+  gender      String?
+  dob         String?
+  rfid        String? @unique
 
   registrationFeeAmount Float?
   registrationFeeStatus String @default("PENDING") // "PAID" or "PENDING"
@@ -866,6 +869,7 @@ model PhysicalStudent {
   updatedAt DateTime @updatedAt
 
   attendances PhysicalAttendance[]
+  enrollments PhysicalStudentClassEnrollment[]
 }
 
 model PhysicalAttendance {
@@ -880,6 +884,17 @@ model PhysicalAttendance {
   @@unique([studentId, date])
 }
 
+model PhysicalStudentClassEnrollment {
+  id        Int             @id @default(autoincrement())
+  studentId Int
+  student   PhysicalStudent @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classId   Int
+  class     PhysicalClass   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  createdAt DateTime        @default(now())
+
+  @@unique([studentId, classId])
+}
+
 model PhysicalClass {
   id        Int               @id @default(autoincrement())
   name      String
@@ -890,6 +905,7 @@ model PhysicalClass {
   updatedAt DateTime          @updatedAt
   teachers  PhysicalTeacher[]
   students  PhysicalStudent[]
+  enrollments PhysicalStudentClassEnrollment[]
   timetables PhysicalTimetable[]
 }
 

@@ -80,4 +80,9 @@ router.put('/update-tracking/:deliveryId', deliveryController.updateTracking);
 
 router.get('/stock/report', deliveryController.getTuteDeliveryReport);
 
+// ================= CC BUSINESS MANAGER & SUPER ADMIN ROUTES =================
+router.get('/manager/lecturer-stock', verifyToken, deliveryController.getManagerLecturerTuteStock);
+router.get('/manager/packing-calendar', verifyToken, deliveryController.getPackingCalendarHistory);
+router.get('/manager/packing-day-details', verifyToken, deliveryController.getPackingDayDetails);
+
 module.exports = router;

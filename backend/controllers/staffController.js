@@ -73,7 +73,12 @@ console.log("[DEBUG] /admin/staff query:", req.query);
         };
 
         const queryDept = req.query.department;
-        if (queryDept) {
+        if (queryDept === 'Social Media' || req.user?.department === 'Social Media') {
+            whereClause.OR = [
+                { department: 'Social Media' },
+                { role: { in: ['Social Media Staff', 'Social Media Manager', 'SOCIAL_MEDIA_STAFF', 'SOCIAL_MEDIA_MANAGER', 'Editor', 'Graphic Designer', 'Video Editor'] } }
+            ];
+        } else if (queryDept) {
             whereClause.department = queryDept;
         } else if (!isAdmin && req.user.department) {
             whereClause.department = req.user.department;
@@ -193,8 +198,23 @@ console.log("[DEBUG] /admin/staff query:", req.query);
             return res.status(200).json(staffWithStats);
         }
 
-        if (roleUpper === 'SOCIAL_MEDIA_MANAGER') {
-            const socialMediaStaff = staffWithStats.filter(s => s.role === 'Social Media Staff' || s.department === 'Social Media');
+        const userDept = req.user?.department || '';
+        const reqQueryDept = req.query?.department || '';
+
+        const isSocialMediaManager = roleUpper === 'SOCIAL_MEDIA_MANAGER' || 
+                                     (roleUpper === 'MANAGER' && (userDept === 'Social Media' || reqQueryDept === 'Social Media')) ||
+                                     userDept === 'Social Media' ||
+                                     reqQueryDept === 'Social Media';
+
+        if (isSocialMediaManager) {
+            const socialMediaStaff = staffWithStats.filter(s => 
+                s.department === 'Social Media' || 
+                s.role === 'Social Media Staff' || 
+                s.role === 'Social Media Manager' ||
+                s.role === 'Editor' ||
+                s.role === 'Graphic Designer' ||
+                s.role === 'Video Editor'
+            );
             return res.status(200).json(socialMediaStaff);
         }
 

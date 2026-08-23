@@ -26,6 +26,7 @@ import HeadlessIvrBot from './components/common/HeadlessIvrBot';
 
 // Dashboards & Modules
 import AdminDashboard from './pages/admin/AdminDashboard';
+import ExecutiveStatsHub from './pages/admin/ExecutiveStatsHub';
 import ContentHub from './components/common/contenthub/ContentHub';
 import StaffManagement from './components/common/StaffManagement';
 import PaymentManagement from './components/common/PaymentManagement';
@@ -60,6 +61,7 @@ import LumiCallerMain from './pages/LumiCaller/LumiCallerMain';
 
 // Department Dashboards (Mangers & Staff)
 import ManagerDashboard from './pages/class_coordinator/manager/ManagerDashboard';
+import LecturerTuteStockCalendar from './pages/class_coordinator/manager/LecturerTuteStockCalendar';
 import TechnicalDashboard from './pages/technical/TechnicalDashboard';
 import DeliveryDashboard from './pages/delivery/DeliveryDashboard';
 import CallCenterManagerDashboard from './pages/call_center/CallCenterManagerDashboard';
@@ -85,6 +87,8 @@ import SocialMediaManagerDashboard from './pages/social_media/SocialMediaManager
 import SocialMediaStaffDashboard from './pages/social_media/SocialMediaStaffDashboard';
 import SocialMediaDelegationHub from './pages/class_coordinator/SocialMediaDelegationHub';
 import VideoEditor from './pages/social_media/components/VideoEditor';
+import AIVideoGenerator from './pages/social_media/components/AIVideoGenerator';
+import AIImageGeneratorPage from './pages/admin/AIImageGeneratorPage';
 
 // 🔥 GHOST MODE BANNER COMPONENT 🔥
 const GhostModeBanner = () => {
@@ -204,8 +208,11 @@ export default function App() {
           {/* ✅ ADMIN & STAFF ROUTES ✅ */}
           <Route element={loggedInUser && loggedInUser.role.toUpperCase() !== 'STUDENT' && loggedInUser.role.toUpperCase() !== 'USER' ? <MainLayout loggedInUser={loggedInUser} handleLogout={handleLogout} /> : <Navigate to="/login" />}>
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/stats-hub" element={<ExecutiveStatsHub loggedInUser={loggedInUser} />} />
             <Route path="/admin/system-tasks" element={<SystemTasksAdmin />} />
             <Route path="/manager/dashboard" element={<ManagerDashboard />} />
+            <Route path="/manager/tute-stock" element={<LecturerTuteStockCalendar loggedInUser={loggedInUser} />} />
+            <Route path="/coordinator/tute-stock" element={<LecturerTuteStockCalendar loggedInUser={loggedInUser} />} />
             <Route path="/admin/announcements" element={<AnnouncementsManager loggedInUser={loggedInUser} />} />
             <Route path="/coordinator/dashboard" element={<CoordinatorDashboard loggedInUser={loggedInUser} />} />
             <Route path="/finance/dashboard" element={<FinanceOverview />} />
@@ -270,7 +277,12 @@ export default function App() {
             {/* Social Media Routes */}
             <Route path="/social-media/manager/dashboard" element={<SocialMediaManagerDashboard loggedInUser={loggedInUser} />} />
             <Route path="/social-media/staff/dashboard" element={<SocialMediaStaffDashboard loggedInUser={loggedInUser} />} />
+            <Route path="/social-media/ai-video-generator" element={<AIVideoGenerator loggedInUser={loggedInUser} />} />
             <Route path="/social-media/video-editor" element={<VideoEditor />} />
+            
+            {/* AI Image Studio / Generator in Development & Admin */}
+            <Route path="/admin/ai-image-generator" element={<AIImageGeneratorPage loggedInUser={loggedInUser} />} />
+            <Route path="/development/ai-image-generator" element={<AIImageGeneratorPage loggedInUser={loggedInUser} />} />
           </Route>
 
           {/* ✅ STUDENT ROUTES ✅ */}

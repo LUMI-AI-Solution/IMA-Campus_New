@@ -2,7 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const admin = require("firebase-admin"); 
 
-const resolveTutesForDeliveryItem = (item, d, courses, allGroups) => {
+const resolveTutesForDeliveryItem = (item, d, courses, allGroups = []) => {
     const course = courses.find(c => c.id === item.courseId);
     let lecturerName = course?.lecturerName || 'Lecturer';
     let lecturerImage = 'default.png';
@@ -730,6 +730,11 @@ exports.getDispatchDeliveries = async (req, res) => {
         const courseIds = [...new Set(deliveries.flatMap(d => d.items.map(i => i.courseId)).filter(Boolean))];
         const courses = await prisma.course.findMany({
             where: { id: { in: courseIds.map(id => parseInt(id)) } }
+        });
+        const batchIds = [...new Set(deliveries.map(d => d.payment?.batchId).filter(Boolean))];
+        const allGroups = await prisma.group.findMany({
+            where: { batchId: { in: batchIds } },
+            select: { id: true, name: true, batchId: true }
         });
 
         const formatted = deliveries.map(d => {
@@ -1612,3 +1617,541 @@ exports.deleteLecturerGlobal = async (req, res) => {
         res.status(500).json({ error: "Failed to delete lecturer" });
     }
 };
+
+// ================= CC BUSINESS MANAGER & SUPER ADMIN LECTURER TUTE STOCK & PACKING CALENDAR =================
+
+exports.getManagerLecturerTuteStock = async (req, res) => {
+    try {
+        const { businessId, search } = req.query;
+        const user = req.user;
+
+        // 1. Determine accessible businesses
+        let accessibleBusinesses = await prisma.business.findMany({
+            select: { id: true, name: true, head_manager_id: true, ass_manager_id: true }
+        });
+
+        const rawRole = user?.role || '';
+        const userRole = rawRole.toUpperCase().replace(/ /g, '_');
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER'].includes(userRole);
+
+        if (!isAdmin) {
+            accessibleBusinesses = accessibleBusinesses.filter(biz => {
+                const isManagerOf = biz.head_manager_id === user?.id || biz.ass_manager_id === user?.id;
+                const matchesBizType = user?.businessType && (
+                    String(biz.id) === String(user.businessType).trim() ||
+                    biz.name.toLowerCase().trim() === String(user.businessType).toLowerCase().trim() ||
+                    biz.name.toLowerCase().includes(String(user.businessType).toLowerCase().trim())
+                );
+                return isManagerOf || matchesBizType;
+            });
+        }
+
+        const accessibleBizIds = accessibleBusinesses.map(b => b.id);
+
+        // 2. Base where clause for Course
+        let courseWhere = {};
+        if (businessId && businessId !== 'ALL' && businessId !== 'all') {
+            const bId = parseInt(businessId);
+            courseWhere.group = { batch: { businessId: bId } };
+        } else {
+            if (!isAdmin && accessibleBizIds.length > 0) {
+                courseWhere.group = { batch: { businessId: { in: accessibleBizIds } } };
+            }
+        }
+
+        // 3. Fetch all courses with group, batch, business, and tuteStocks
+        const courses = await prisma.course.findMany({
+            where: courseWhere,
+            include: {
+                group: {
+                    include: {
+                        batch: {
+                            include: { business: true }
+                        }
+                    }
+                },
+                tuteStocks: true
+            }
+        });
+
+        // 4. Fetch Master Tutes data for lecturer images & details
+        const masterData = await getMasterTutesData();
+
+        // 5. Fetch all packed delivery items count per course and tuteName
+        let delItemWhere = {
+            delivery: {
+                status: { in: ['Packed', 'On the way', 'Received'] }
+            }
+        };
+        if (businessId && businessId !== 'ALL' && businessId !== 'all') {
+            delItemWhere.delivery.businessId = parseInt(businessId);
+        } else if (!isAdmin && accessibleBizIds.length > 0) {
+            delItemWhere.delivery.businessId = { in: accessibleBizIds };
+        }
+
+        const deliveredItems = await prisma.deliveryItem.findMany({
+            where: delItemWhere,
+            select: { courseId: true, tuteName: true, quantity: true }
+        });
+
+        const deliveredCountMap = {};
+        deliveredItems.forEach(item => {
+            const key = `${item.courseId}-${item.tuteName}`;
+            deliveredCountMap[key] = (deliveredCountMap[key] || 0) + (item.quantity || 1);
+        });
+
+        // 6. Group tute stocks by Lecturer
+        const lecturerMap = {};
+
+        courses.forEach(course => {
+            let lecName = course.lecturerName ? course.lecturerName.trim() : 'General / Unassigned';
+            if (!lecName || lecName === 'null') lecName = 'General / Unassigned';
+
+            const masterLec = masterData.find(l => l.name?.toLowerCase().trim() === lecName.toLowerCase().trim());
+            let lecImage = masterLec?.image || null;
+
+            // Try to extract lecturer image from groupPrices if missing
+            if (!lecImage && course.groupPrices) {
+                try {
+                    const gpArr = JSON.parse(course.groupPrices);
+                    const foundLecImg = gpArr.find(g => g.lecturerImage)?.lecturerImage;
+                    if (foundLecImg) lecImage = foundLecImg;
+                } catch (e) {}
+            }
+
+            if (!lecturerMap[lecName]) {
+                lecturerMap[lecName] = {
+                    id: masterLec?.id || lecName,
+                    name: lecName,
+                    image: lecImage,
+                    businesses: new Map(),
+                    batches: new Map(),
+                    totalStock: 0,
+                    totalDelivered: 0,
+                    lowStockCount: 0,
+                    tutes: []
+                };
+            }
+
+            const biz = course.group?.batch?.business;
+            const batch = course.group?.batch;
+            if (biz) lecturerMap[lecName].businesses.set(biz.id, biz.name);
+            if (batch) lecturerMap[lecName].batches.set(batch.id, batch.name);
+
+            // Process tute stocks of this course
+            if (course.tuteStocks && course.tuteStocks.length > 0) {
+                course.tuteStocks.forEach(stock => {
+                    const actualTuteName = stock.tuteName;
+                    const delKey = `${course.id}-${actualTuteName}`;
+                    const deliveredCount = deliveredCountMap[delKey] || 0;
+                    
+                    let coverImg = stock.tuteImage;
+                    if (!coverImg || coverImg === 'default-tute.png' || coverImg === 'null') {
+                        const mCover = masterLec?.tutes?.find(t => t.name === actualTuteName)?.image;
+                        if (mCover) coverImg = mCover;
+                    }
+
+                    const qty = stock.availableQuantity || 0;
+                    lecturerMap[lecName].totalStock += qty;
+                    lecturerMap[lecName].totalDelivered += deliveredCount;
+                    if (qty <= 20) lecturerMap[lecName].lowStockCount += 1;
+
+                    lecturerMap[lecName].tutes.push({
+                        id: stock.id,
+                        courseId: course.id,
+                        courseName: course.name,
+                        batchId: batch?.id,
+                        batchName: batch?.name || 'N/A',
+                        businessId: biz?.id,
+                        businessName: biz?.name || 'N/A',
+                        paymentType: course.group?.type === 1 ? 'Monthly' : 'Full',
+                        tuteName: actualTuteName,
+                        tuteImage: coverImg || 'default-tute.png',
+                        tuteImage2: stock.tuteImage2 || null,
+                        availableQuantity: qty,
+                        totalDelivered: deliveredCount,
+                        status: qty <= 0 ? 'DEPLETED' : qty <= 20 ? 'LOW_STOCK' : 'IN_STOCK',
+                        updatedAt: stock.updatedAt
+                    });
+                });
+            } else {
+                // If course has groupPrices but no explicit TuteStock record, create virtual entry preview
+                let gpPrices = [];
+                try { gpPrices = typeof course.groupPrices === 'string' ? JSON.parse(course.groupPrices) : (course.groupPrices || []); } catch (e) {}
+                
+                gpPrices.forEach((gp, idx) => {
+                    if (gp.deliverTute || gp.tuteName) {
+                        const tName = gp.tuteName || `${course.name} - Tute`;
+                        const delKey = `${course.id}-${tName}`;
+                        const deliveredCount = deliveredCountMap[delKey] || 0;
+                        const coverImg = gp.tuteCover || masterLec?.tutes?.find(t => t.name === tName)?.image || 'default-tute.png';
+
+                        lecturerMap[lecName].totalDelivered += deliveredCount;
+                        lecturerMap[lecName].lowStockCount += 1;
+
+                        lecturerMap[lecName].tutes.push({
+                            id: `virtual-${course.id}-${idx}`,
+                            courseId: course.id,
+                            courseName: course.name,
+                            batchId: batch?.id,
+                            batchName: batch?.name || 'N/A',
+                            businessId: biz?.id,
+                            businessName: biz?.name || 'N/A',
+                            paymentType: course.group?.type === 1 ? 'Monthly' : 'Full',
+                            tuteName: tName,
+                            tuteImage: coverImg,
+                            tuteImage2: null,
+                            availableQuantity: 0,
+                            totalDelivered: deliveredCount,
+                            status: 'DEPLETED',
+                            updatedAt: course.createdAt
+                        });
+                    }
+                });
+            }
+        });
+
+        // Convert Map to array and format
+        let lecturersList = Object.values(lecturerMap).map(lec => ({
+            id: lec.id,
+            name: lec.name,
+            image: lec.image,
+            businesses: Array.from(lec.businesses.entries()).map(([id, name]) => ({ id, name })),
+            batches: Array.from(lec.batches.entries()).map(([id, name]) => ({ id, name })),
+            totalStock: lec.totalStock,
+            totalDelivered: lec.totalDelivered,
+            lowStockCount: lec.lowStockCount,
+            tutesCount: lec.tutes.length,
+            tutes: lec.tutes.sort((a, b) => a.availableQuantity - b.availableQuantity)
+        }));
+
+        // Search filter if provided
+        if (search && search.trim() !== '') {
+            const q = search.toLowerCase().trim();
+            lecturersList = lecturersList.filter(l => 
+                l.name.toLowerCase().includes(q) || 
+                l.tutes.some(t => t.tuteName.toLowerCase().includes(q) || t.courseName.toLowerCase().includes(q))
+            );
+        }
+
+        // Sort by low stock or name
+        lecturersList.sort((a, b) => b.tutesCount - a.tutesCount);
+
+        const safeJson = (data) => JSON.parse(JSON.stringify(data, (k, v) => typeof v === 'bigint' ? v.toString() : v));
+
+        res.status(200).json({
+            businesses: safeJson(accessibleBusinesses),
+            lecturers: safeJson(lecturersList),
+            summary: {
+                totalLecturers: lecturersList.length,
+                totalTuteTypes: lecturersList.reduce((acc, l) => acc + l.tutesCount, 0),
+                totalStockAvailable: lecturersList.reduce((acc, l) => acc + l.totalStock, 0),
+                totalDelivered: lecturersList.reduce((acc, l) => acc + l.totalDelivered, 0),
+                totalLowStock: lecturersList.reduce((acc, l) => acc + l.lowStockCount, 0)
+            }
+        });
+
+    } catch (error) {
+        console.error("Manager Lecturer Tute Stock Error:", error);
+        res.status(500).json({ error: "Failed to fetch lecturer tute stock." });
+    }
+};
+
+exports.getPackingCalendarHistory = async (req, res) => {
+    try {
+        const { year, month, businessId, lecturerName } = req.query;
+        const user = req.user;
+
+        const targetYear = year ? parseInt(year) : new Date().getFullYear();
+        const targetMonth = month ? parseInt(month) : (new Date().getMonth() + 1);
+
+        // Compute start and end of the month
+        const startOfMonth = new Date(targetYear, targetMonth - 1, 1, 0, 0, 0, 0);
+        const endOfMonth = new Date(targetYear, targetMonth, 0, 23, 59, 59, 999);
+
+        // Role & Business filtering
+        let whereClause = {
+            status: { in: ['Packed', 'On the way', 'Received'] },
+            OR: [
+                { packedAt: { gte: startOfMonth, lte: endOfMonth } },
+                { packedAt: null, updatedAt: { gte: startOfMonth, lte: endOfMonth } }
+            ]
+        };
+
+        const rawRole = user?.role || '';
+        const userRole = rawRole.toUpperCase().replace(/ /g, '_');
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER'].includes(userRole);
+
+        if (businessId && businessId !== 'ALL' && businessId !== 'all') {
+            whereClause.businessId = parseInt(businessId);
+        } else if (!isAdmin) {
+            const userBizs = await prisma.business.findMany({
+                where: {
+                    OR: [
+                        { head_manager_id: user?.id },
+                        { ass_manager_id: user?.id }
+                    ]
+                },
+                select: { id: true }
+            });
+            const userBizIds = userBizs.map(b => b.id);
+            if (userBizIds.length > 0) {
+                whereClause.businessId = { in: userBizIds };
+            }
+        }
+
+        const deliveries = await prisma.delivery.findMany({
+            where: whereClause,
+            include: {
+                items: {
+                    include: { course: true }
+                },
+                payment: {
+                    include: { student: true, batch: true, group: true }
+                }
+            },
+            orderBy: { packedAt: 'desc' }
+        });
+
+        // Preload courses, groups, and businesses for resolution
+        const courseIds = [...new Set(deliveries.flatMap(d => d.items.map(i => i.courseId)).filter(Boolean))];
+        const courses = await prisma.course.findMany({ where: { id: { in: courseIds } } });
+        const batchIds = [...new Set(deliveries.map(d => d.payment?.batchId).filter(Boolean))];
+        const allGroups = await prisma.group.findMany({ where: { batchId: { in: batchIds } } });
+        const allBusinesses = await prisma.business.findMany({ select: { id: true, name: true } });
+
+        const businessNameMap = {};
+        allBusinesses.forEach(b => { businessNameMap[b.id] = b.name; });
+
+        const daysMap = {};
+        const lecturerStatsMap = {};
+        const tuteStatsMap = {};
+        const businessStatsMap = {};
+
+        let totalOrdersPacked = 0;
+        let totalTutesPacked = 0;
+
+        deliveries.forEach(del => {
+            const packDateObj = del.packedAt || del.updatedAt || del.createdAt;
+            const dateStr = new Date(packDateObj).toISOString().split('T')[0];
+
+            const expandedItems = del.items.flatMap(item => resolveTutesForDeliveryItem(item, del, courses, allGroups));
+
+            // Filter by lecturer if requested
+            let matchedItems = expandedItems;
+            if (lecturerName && lecturerName !== 'ALL' && lecturerName !== 'all') {
+                matchedItems = expandedItems.filter(i => (i.lecturerName || '').toLowerCase().includes(lecturerName.toLowerCase()));
+                if (matchedItems.length === 0) return; // Skip this delivery if no matching lecturer tutes
+            }
+
+            const delTutesCount = matchedItems.reduce((sum, item) => sum + (item.quantity || 1), 0);
+            totalOrdersPacked += 1;
+            totalTutesPacked += delTutesCount;
+
+            if (!daysMap[dateStr]) {
+                daysMap[dateStr] = {
+                    date: dateStr,
+                    day: parseInt(dateStr.split('-')[2]),
+                    ordersCount: 0,
+                    tutesCount: 0,
+                    lecturers: {},
+                    businesses: {},
+                    sampleItems: []
+                };
+            }
+
+            daysMap[dateStr].ordersCount += 1;
+            daysMap[dateStr].tutesCount += delTutesCount;
+
+            const bizName = businessNameMap[del.businessId] || 'Other Business';
+            daysMap[dateStr].businesses[bizName] = (daysMap[dateStr].businesses[bizName] || 0) + delTutesCount;
+            businessStatsMap[bizName] = (businessStatsMap[bizName] || 0) + delTutesCount;
+
+            matchedItems.forEach(item => {
+                const lec = item.lecturerName || 'Unknown Lecturer';
+                const tName = item.tuteName || 'Tute';
+
+                daysMap[dateStr].lecturers[lec] = (daysMap[dateStr].lecturers[lec] || 0) + (item.quantity || 1);
+                lecturerStatsMap[lec] = (lecturerStatsMap[lec] || 0) + (item.quantity || 1);
+                tuteStatsMap[tName] = (tuteStatsMap[tName] || 0) + (item.quantity || 1);
+
+                if (daysMap[dateStr].sampleItems.length < 4) {
+                    daysMap[dateStr].sampleItems.push({
+                        tuteName: tName,
+                        lecturerName: lec,
+                        quantity: item.quantity || 1,
+                        tuteImage: item.tuteCover || item.tuteImage
+                    });
+                }
+            });
+        });
+
+        // Compute rankings & KPIs
+        const topLecturers = Object.entries(lecturerStatsMap)
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 10);
+
+        const topTutes = Object.entries(tuteStatsMap)
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count)
+            .slice(0, 10);
+
+        const businessBreakdown = Object.entries(businessStatsMap)
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count);
+
+        const activeDaysCount = Object.keys(daysMap).length;
+        const dailyAverage = activeDaysCount > 0 ? Math.round(totalTutesPacked / activeDaysCount) : 0;
+
+        let peakDay = { date: 'N/A', count: 0 };
+        Object.values(daysMap).forEach(d => {
+            if (d.tutesCount > peakDay.count) {
+                peakDay = { date: d.date, count: d.tutesCount };
+            }
+        });
+
+        const todayStr = new Date().toISOString().split('T')[0];
+        const todayTutesCount = daysMap[todayStr]?.tutesCount || 0;
+        const todayOrdersCount = daysMap[todayStr]?.ordersCount || 0;
+
+        const safeJson = (data) => JSON.parse(JSON.stringify(data, (k, v) => typeof v === 'bigint' ? v.toString() : v));
+
+        res.status(200).json(safeJson({
+            year: targetYear,
+            month: targetMonth,
+            summary: {
+                totalOrdersPacked,
+                totalTutesPacked,
+                activeDaysCount,
+                dailyAverage,
+                peakDay,
+                todayTutesCount,
+                todayOrdersCount
+            },
+            days: daysMap,
+            topLecturers,
+            topTutes,
+            businessBreakdown
+        }));
+
+    } catch (error) {
+        console.error("Packing Calendar History Error:", error);
+        res.status(500).json({ error: "Failed to fetch packing calendar history." });
+    }
+};
+
+exports.getPackingDayDetails = async (req, res) => {
+    try {
+        const { date, businessId, lecturerName } = req.query;
+        if (!date) return res.status(400).json({ error: "Date parameter is required (YYYY-MM-DD)." });
+
+        const startOfDay = new Date(date + 'T00:00:00.000Z');
+        const endOfDay = new Date(date + 'T23:59:59.999Z');
+
+        let whereClause = {
+            status: { in: ['Packed', 'On the way', 'Received'] },
+            OR: [
+                { packedAt: { gte: startOfDay, lte: endOfDay } },
+                { packedAt: null, updatedAt: { gte: startOfDay, lte: endOfDay } }
+            ]
+        };
+
+        if (businessId && businessId !== 'ALL' && businessId !== 'all') {
+            whereClause.businessId = parseInt(businessId);
+        }
+
+        const deliveries = await prisma.delivery.findMany({
+            where: whereClause,
+            include: {
+                items: {
+                    include: { course: true }
+                },
+                payment: {
+                    include: { student: true, batch: true, group: true }
+                }
+            },
+            orderBy: { packedAt: 'desc' }
+        });
+
+        const courseIds = [...new Set(deliveries.flatMap(d => d.items.map(i => i.courseId)).filter(Boolean))];
+        const courses = await prisma.course.findMany({ where: { id: { in: courseIds } } });
+        const batchIds = [...new Set(deliveries.map(d => d.payment?.batchId).filter(Boolean))];
+        const allGroups = await prisma.group.findMany({ where: { batchId: { in: batchIds } } });
+        const businesses = await prisma.business.findMany({ select: { id: true, name: true } });
+
+        const bizMap = {};
+        businesses.forEach(b => { bizMap[b.id] = b.name; });
+
+        let formattedDeliveries = [];
+        const lecturerCounts = {};
+        const tuteCounts = {};
+        let dayTotalTutes = 0;
+
+        deliveries.forEach(del => {
+            const std = del.payment?.student || {};
+            const addressParts = [std.addressHouseNo, std.addressStreet, std.city, std.district].filter(Boolean);
+            const fullAddress = addressParts.join(', ') || 'No Address';
+            const phoneParts = [std.phone, std.whatsapp, std.optionalPhone].filter(Boolean);
+            const finalPhone = [...new Set(phoneParts)].join(' / ') || 'No Phone';
+
+            const expandedItems = del.items.flatMap(item => resolveTutesForDeliveryItem(item, del, courses, allGroups));
+
+            let filteredItems = expandedItems;
+            if (lecturerName && lecturerName !== 'ALL' && lecturerName !== 'all') {
+                filteredItems = expandedItems.filter(i => (i.lecturerName || '').toLowerCase().includes(lecturerName.toLowerCase()));
+                if (filteredItems.length === 0) return;
+            }
+
+            const orderTutesCount = filteredItems.reduce((acc, i) => acc + (i.quantity || 1), 0);
+            dayTotalTutes += orderTutesCount;
+
+            filteredItems.forEach(i => {
+                const lec = i.lecturerName || 'Unknown';
+                const tName = i.tuteName || 'Tute';
+                lecturerCounts[lec] = (lecturerCounts[lec] || 0) + (i.quantity || 1);
+                tuteCounts[tName] = (tuteCounts[tName] || 0) + (i.quantity || 1);
+            });
+
+            formattedDeliveries.push({
+                id: del.id,
+                orderNo: `ORD-${del.id}`,
+                studentName: del.labelName || (std.firstName ? `${std.firstName} ${std.lastName}` : 'Unknown Student'),
+                studentPhone: del.labelPhone || finalPhone,
+                studentAddress: del.labelAddress || fullAddress,
+                businessId: del.businessId,
+                businessName: bizMap[del.businessId] || 'Unknown Business',
+                batchName: del.payment?.batch?.name || 'N/A',
+                paymentType: del.paymentType,
+                status: del.status,
+                trackingNumber: del.trackingNumber || 'N/A',
+                packRemark: del.packRemark || '',
+                packedAt: del.packedAt || del.updatedAt,
+                totalTutesCount: orderTutesCount,
+                items: filteredItems.map(i => ({
+                    tuteName: i.tuteName,
+                    courseName: i.courseName,
+                    lecturerName: i.lecturerName,
+                    quantity: i.quantity || 1,
+                    tuteImage: i.tuteCover || i.tuteImage
+                }))
+            });
+        });
+
+        const safeJson = (data) => JSON.parse(JSON.stringify(data, (k, v) => typeof v === 'bigint' ? v.toString() : v));
+
+        res.status(200).json(safeJson({
+            date,
+            totalOrders: formattedDeliveries.length,
+            totalTutes: dayTotalTutes,
+            lecturerSummary: Object.entries(lecturerCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+            tuteSummary: Object.entries(tuteCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
+            deliveries: formattedDeliveries
+        }));
+
+    } catch (error) {
+        console.error("Packing Day Details Error:", error);
+        res.status(500).json({ error: "Failed to fetch day packing details." });
+    }
+};
+

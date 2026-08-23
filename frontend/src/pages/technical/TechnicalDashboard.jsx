@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { 
-    Calendar, MapPin, CheckCircle, Clock, Video, Plus, Trash2, LayoutDashboard, Edit2, X 
+    Calendar, MapPin, CheckCircle, Clock, Video, Plus, Trash2, LayoutDashboard, Edit2, X, FileText 
 } from 'lucide-react';
 
 const TechnicalDashboard = () => {

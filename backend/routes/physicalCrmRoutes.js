@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const physicalCrmController = require('../controllers/physicalCrmController');
 const physicalAttendanceController = require('../controllers/physicalAttendanceController');
+const multer = require('multer');
+const uploadRam = multer({ storage: multer.memoryStorage() });
+
 // Schools
 router.get('/schools', physicalCrmController.getSchools);
 router.post('/schools', physicalCrmController.createSchool);
@@ -11,6 +14,7 @@ router.delete('/schools/:id', physicalCrmController.deleteSchool);
 // Students
 router.get('/students', physicalCrmController.getStudents);
 router.post('/students', physicalCrmController.createStudent);
+router.post('/students/import-excel', uploadRam.single('excel'), physicalCrmController.bulkImportStudents);
 router.put('/students/:id', physicalCrmController.updateStudent);
 router.delete('/students/:id', physicalCrmController.deleteStudent);
 
@@ -27,6 +31,7 @@ router.put('/teachers/:id', physicalCrmController.updateTeacher);
 router.delete('/teachers/:id', physicalCrmController.deleteTeacher);
 
 // Attendance Portal
+router.get('/students-search', physicalAttendanceController.searchStudents);
 router.get('/student-scan/:studentId', physicalAttendanceController.scanStudent);
 router.put('/students/:id/allocate-class', physicalAttendanceController.allocateClass);
 router.post('/attendance', physicalAttendanceController.markAttendance);

@@ -248,12 +248,11 @@ exports.getFinanceMatrix = async (req, res) => {
                 let activeGroupIds = subjectActiveMonthsMap[sub] || monthlyGroups.map(g => g.id);
                 let activeMonthCount = activeGroupIds.length || 1;
                 
-                // For Commerce business, use exactly the course's activeMonths to calculate divisor if available
-                if (isCommerceBusiness) {
-                    const dbCourseForMonths = courses.find(c => c.name.trim().toUpperCase() === sub.trim().toUpperCase());
-                    if (dbCourseForMonths && dbCourseForMonths.activeMonths && dbCourseForMonths.activeMonths > 0) {
-                        activeMonthCount = dbCourseForMonths.activeMonths;
-                    }
+                // Use course's explicit activeMonths if configured (e.g. 8 months for A/L Fast Track, 6 months for O/L, etc.)
+                const dbCourseForMonths = courses.find(c => c.name.trim().toUpperCase() === sub.trim().toUpperCase() && c.activeMonths && c.activeMonths > 0)
+                    || courses.find(c => c.name.trim().toUpperCase() === sub.trim().toUpperCase());
+                if (dbCourseForMonths && dbCourseForMonths.activeMonths && dbCourseForMonths.activeMonths > 0) {
+                    activeMonthCount = dbCourseForMonths.activeMonths;
                 }
 
                 if (isIsolatedEnglish) {

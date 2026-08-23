@@ -7,8 +7,9 @@ import {
   LayoutDashboard, Users, MonitorPlay, LogOut, HeadphonesIcon,
   Wallet, MessageCircle, Database, Truck, Package, Clock, CheckCircle,
   Archive, HardDrive, CalendarDays, CalendarCheck, CheckSquare, History,
-  Music, Palette, ChevronLeft, ChevronRight, Megaphone, X, BarChart, PieChart, Calendar,
-  PhoneCall, UserPlus, Repeat, GraduationCap, TrendingUp, Box, Activity, ShieldCheck, RefreshCw, Layers, Mic, Upload, Video, Sun, Moon
+  Music, Palette, ChevronLeft, ChevronRight, Megaphone, X, BarChart, PieChart, Calendar, Menu,
+  PhoneCall, UserPlus, Repeat, GraduationCap, TrendingUp, Box, Activity, ShieldCheck, RefreshCw, Layers, Mic, Upload, Video, Sun, Moon, Sparkles, Wand2, Send,
+  BrainCircuit, MessageSquareText
 } from 'lucide-react';
 
 export default function Sidebar({ userRole, loggedInUser, handleLogout, isSidebarOpen, setIsSidebarOpen, currentBg, setBgImage, isSpotifyOpen, setIsSpotifyOpen, isSocialMedia, isDarkMode, toggleThemeMode }) {
@@ -139,7 +140,9 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
 
   const getTabLinkClass = (tabName) => {
     const queryParams = new URLSearchParams(location.search);
-    const activeTab = queryParams.get('tab') || 'overview';
+    let defaultTab = 'overview';
+    if (location.pathname.includes('/social-media/staff')) defaultTab = 'tasks';
+    const activeTab = queryParams.get('tab') || defaultTab;
     const isDelivery = location.pathname.includes('/delivery/dashboard');
     const isSocialMedia = location.pathname.includes('/social-media/');
     const isPhysical = location.pathname.includes('/physical/');
@@ -171,34 +174,61 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
   const isStudent = roleName === 'STUDENT' || roleName === 'user';
 
   return (
-    <aside className={`${isSidebarOpen ? 'w-64' : 'w-20'} flex-shrink-0 bg-black/10 border-r border-white/20 transition-all duration-300 flex flex-col z-20 h-full relative`}>
+    <>
+      {/* MOBILE FLOATING MENU BUTTON */}
+      {!isSidebarOpen && (
+        <button 
+          onClick={() => setIsSidebarOpen(true)} 
+          className="lg:hidden fixed top-3 left-3 z-[80] bg-brand-accent/90 hover:bg-brand-accent text-white px-3 py-2 rounded-xl border border-white/20 shadow-xl flex items-center gap-2 transition-all active:scale-95 outline-none backdrop-blur-md"
+          title="Open Menu"
+        >
+          <Menu size={18} />
+          <span className="text-xs font-extrabold uppercase tracking-wider">Menu</span>
+        </button>
+      )}
 
-      <button
-        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-        className="absolute -right-3 top-6 bg-white/10 border border-white/20 backdrop-blur-md text-white p-1 rounded-full z-50 hover:bg-white/20 transition-colors"
-      >
-        {isSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
-      </button>
+      {/* MOBILE BACKDROP OVERLAY */}
+      {isSidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[90] lg:hidden animate-in fade-in duration-200"
+          onClick={() => setIsSidebarOpen(false)}
+        />
+      )}
 
-      <div className="h-14 flex items-center px-4 space-x-2 w-full absolute top-0 left-0 z-30">
-        <div className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E] shadow-sm cursor-pointer hover:opacity-80"></div>
-        <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123] shadow-sm cursor-pointer hover:opacity-80"></div>
-        <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29] shadow-sm cursor-pointer hover:opacity-80"></div>
-      </div>
+      {/* SIDEBAR CONTAINER */}
+      <aside className={`bg-black/10 border-r border-white/20 transition-all duration-300 flex flex-col h-full
+        fixed inset-y-0 left-0 z-[100] w-64 bg-[#090E17]/95 backdrop-blur-2xl shadow-2xl lg:shadow-none lg:backdrop-blur-none lg:bg-black/10 lg:static lg:z-20
+        ${isSidebarOpen ? 'translate-x-0 lg:w-64' : '-translate-x-full lg:translate-x-0 lg:w-20'}
+      `}>
 
-      <div className={`h-16 mt-10 mb-4 flex items-center justify-center w-full relative z-10 transition-all`}>
-        {isSidebarOpen ? (
-          <img src="/logo.png" alt="Company Logo" className="w-35 h-auto object-contain drop-shadow-lg" />
-        ) : (
-          <img src="/favicon.svg" alt="Icon" className="w-8 h-8 object-contain drop-shadow-md" />
-        )}
-      </div>
+        <button
+          onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+          className="absolute -right-3 top-6 bg-brand-accent/90 lg:bg-white/10 border border-white/20 backdrop-blur-md text-white p-1.5 lg:p-1 rounded-full z-50 hover:bg-white/20 transition-colors shadow-lg"
+        >
+          {isSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
+        </button>
 
-      <nav className="flex-1 px-3 py-2 space-y-1 overflow-y-auto custom-scrollbar">
+        <div className="h-14 flex items-center px-4 space-x-2 w-full absolute top-0 left-0 z-30">
+          <div className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E] shadow-sm cursor-pointer hover:opacity-80"></div>
+          <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123] shadow-sm cursor-pointer hover:opacity-80"></div>
+          <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29] shadow-sm cursor-pointer hover:opacity-80"></div>
+        </div>
+
+        <div className={`h-16 mt-10 mb-4 flex items-center justify-center w-full relative z-10 transition-all`}>
+          {isSidebarOpen ? (
+            <img src="/logo.png" alt="Company Logo" className="w-35 h-auto object-contain drop-shadow-lg" />
+          ) : (
+            <img src="/favicon.svg" alt="Icon" className="w-8 h-8 object-contain drop-shadow-md" />
+          )}
+        </div>
+
+        <nav onClick={() => { if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className="flex-1 px-3 py-2 space-y-1 overflow-y-auto custom-scrollbar">
         {isSystemAdmin && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Administration</p>}
             <NavLink to="/admin/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
+            <NavLink to="/admin/stats-hub" className={getNavLinkClass}><BrainCircuit size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-cyan-300">LUMI AI Analyser</span>}</NavLink>
+            <NavLink to="/admin/ai-image-generator" className={getNavLinkClass}><Palette size={18} className="text-rose-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-rose-300">LUMI Image Generator</span>}</NavLink>
             <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
             <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} className="text-yellow-400" /> {isSidebarOpen && <span className="truncate text-sm">Announcements & Events</span>}</NavLink>
             <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
@@ -211,12 +241,15 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/admin/system-tasks" className={getNavLinkClass}><CheckSquare size={18} className="text-red-400" /> {isSidebarOpen && <span className="truncate text-sm">System Tasks & Issues</span>}</NavLink>
             <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Logistics</p>}
+            <NavLink to="/manager/tute-stock" className={getNavLinkClass}><Box size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">Tute Stock & Calendar 📦</span>}</NavLink>
             <NavLink to="/delivery/dashboard?tab=overview" className={getNavLinkClass}><Truck size={18} className="text-blue-300" /> {isSidebarOpen && <span className="truncate text-sm">Delivery Hub</span>}</NavLink>
             <NavLink to="/delivery/dashboard?tab=reports" className={getNavLinkClass}><BarChart size={18} className="text-pink-400" /> {isSidebarOpen && <span className="truncate text-sm">Stock Reports</span>}</NavLink>
 
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Development</p>}
+            <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
             <NavLink to="/admin/paid-campaign" className={getNavLinkClass}><Layers size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Paid Campaign</span>}</NavLink>
             <NavLink to="/admin/call-campaign-data-center" className={getNavLinkClass}><Database size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Call Campaign Data Center</span>}</NavLink>
+            <NavLink to="/social-media/manager/dashboard?tab=ai_video" className={getNavLinkClass}><Wand2 size={18} className="text-fuchsia-400 animate-pulse" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-fuchsia-300">AI Video Creator 🎬</span>}</NavLink>
             <NavLink to="/admin/whatsapp-call-test" className={getNavLinkClass}><PhoneCall size={18} className="text-green-400" /> {isSidebarOpen && <span className="truncate text-sm">WhatsApp Call Test</span>}</NavLink>
           </>
         )}
@@ -225,6 +258,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Team Management</p>}
             <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
+            <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
             <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
           </>
         )}
@@ -258,6 +292,8 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Management</p>}
             <NavLink to="/manager/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Branch Overview</span>}</NavLink>
+            <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
+            <NavLink to="/admin/stats-hub" className={getNavLinkClass}><Sparkles size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-cyan-300">LUMI AI Analyser</span>}</NavLink>
             <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} className="text-yellow-400" /> {isSidebarOpen && <span className="truncate text-sm">Announcements</span>}</NavLink>
             <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
             {isClassCoordinatorManager && (
@@ -268,7 +304,8 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
             <NavLink to="/admin/student-center" className={getNavLinkClass}><Database size={18} className="text-teal-400" /> {isSidebarOpen && <span className="truncate text-sm">Student Data Center</span>}</NavLink>
             <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
-            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Logistics</p>}
+            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Logistics & Tutes</p>}
+            <NavLink to="/manager/tute-stock" className={getNavLinkClass}><Box size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">Tute Stock & Calendar 📦</span>}</NavLink>
             <NavLink to="/delivery/dashboard?tab=pending" className={() => getTabLinkClass('pending')}><Clock size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Pending & Holds</span>}</NavLink>
             <NavLink to="/delivery/dashboard?tab=delivered" className={() => getTabLinkClass('delivered')}><CheckCircle size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Delivered</span>}</NavLink>
             <NavLink to="/delivery/dashboard?tab=history" className={() => getTabLinkClass('history')}><Activity size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Delivery History</span>}</NavLink>
@@ -365,15 +402,27 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
 
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-emerald-400/80 uppercase tracking-wider mb-2 mt-4">Lumi Services</p>}
             
-            <NavLink to="/workspace/web-inquiries" className={({ isActive }) => `lumi-animated-item mb-2 ${isActive ? 'ring-2 ring-[#00e5ff] scale-[1.02] shadow-[0_0_15px_rgba(0,229,255,0.2)]' : 'border border-white/5 bg-white/5'}`}>
-               <MessageCircle size={18} className="lumi-icon" />
-               {isSidebarOpen && <span className="lumi-text truncate">LUMI Chat</span>}
+            <NavLink to="/admin/stats-hub" className={({ isActive }) => `lumi-nav-item lumi-analyser mb-2 ${isActive ? 'active ring-1 ring-cyan-400/50' : ''}`}>
+               <span className="lumi-nav-icon"><BrainCircuit size={17} /></span>
+               {isSidebarOpen && <span className="lumi-nav-text">LUMI AI Analyser</span>}
             </NavLink>
 
-            <NavLink to="/lumi-caller/dashboard" className={({ isActive }) => `lumi-animated-item mb-2 ${isActive ? 'ring-2 ring-[#00e5ff] scale-[1.02] shadow-[0_0_15px_rgba(0,229,255,0.2)]' : 'border border-white/5 bg-white/5'}`}>
-               <Mic size={18} className="lumi-icon" />
-               {isSidebarOpen && <span className="lumi-text truncate">LUMI Caller</span>}
+            <NavLink to="/workspace/web-inquiries" className={({ isActive }) => `lumi-nav-item lumi-chat mb-2 ${isActive ? 'active ring-1 ring-sky-400/50' : ''}`}>
+               <span className="lumi-nav-icon"><MessageSquareText size={17} /></span>
+               {isSidebarOpen && <span className="lumi-nav-text">LUMI Chat</span>}
             </NavLink>
+
+            <NavLink to="/lumi-caller/dashboard" className={({ isActive }) => `lumi-nav-item lumi-caller mb-2 ${isActive ? 'active ring-1 ring-emerald-400/50' : ''}`}>
+               <span className="lumi-nav-icon"><PhoneCall size={17} /></span>
+               {isSidebarOpen && <span className="lumi-nav-text">LUMI Caller</span>}
+            </NavLink>
+
+            {isSystemAdmin && (
+              <NavLink to="/admin/ai-image-generator" className={({ isActive }) => `lumi-nav-item lumi-image mb-2 ${isActive ? 'active ring-1 ring-rose-400/50' : ''}`}>
+                 <span className="lumi-nav-icon"><Palette size={17} /></span>
+                 {isSidebarOpen && <span className="lumi-nav-text">LUMI Image Generator</span>}
+              </NavLink>
+            )}
 
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Other Services</p>}
             <NavLink to="/workspace/after-seminar-crm" className={getNavLinkClass}><HeadphonesIcon size={18} /> {isSidebarOpen && <span className="truncate text-sm">After Seminar CRM</span>}</NavLink>
@@ -403,17 +452,27 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
         {isSocialMediaManager && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-brand-accent/80 uppercase tracking-wider mb-2 mt-4">Social Media Hub</p>}
-            <NavLink to="/social-media/manager/dashboard?tab=overview" className={() => getTabLinkClass('overview')}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
-            <NavLink to="/social-media/manager/dashboard?tab=team" className={() => getTabLinkClass('team')}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Manager</span>}</NavLink>
-            <NavLink to="/social-media/video-editor" className={getNavLinkClass}><Video size={18} className="text-pink-500" /> {isSidebarOpen && <span className="truncate text-sm">Video Editor (AI)</span>}</NavLink>
+            <NavLink to="/social-media/manager/dashboard?tab=overview" className={() => getTabLinkClass('overview')}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm font-semibold">Overview</span>}</NavLink>
+            <NavLink to="/social-media/manager/dashboard?tab=team" className={() => getTabLinkClass('team')}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm font-semibold">Staff Manager</span>}</NavLink>
+            <NavLink to="/social-media/manager/dashboard?tab=calendar" className={() => getTabLinkClass('calendar')}><Calendar size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm font-semibold">Content Calendar</span>}</NavLink>
+            
+            {isSidebarOpen && <p className="px-3 text-[11px] font-semibold text-fuchsia-400/80 uppercase tracking-wider mb-1.5 mt-3">Creative Tools</p>}
+            <NavLink to="/social-media/manager/dashboard?tab=ai_video" className={() => getTabLinkClass('ai_video')}><Wand2 size={18} className="text-fuchsia-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-fuchsia-300">AI Video Generator 🎬</span>}</NavLink>
+            <NavLink to="/social-media/manager/dashboard?tab=ai_music_matcher" className={() => getTabLinkClass('ai_music_matcher')}><Music size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">AI Reel Music Finder 🎵</span>}</NavLink>
+            <NavLink to="/social-media/manager/dashboard?tab=video_editor" className={() => getTabLinkClass('video_editor')}><Video size={18} className="text-pink-400" /> {isSidebarOpen && <span className="truncate text-sm">AI Subtitle Video Editor</span>}</NavLink>
           </>
         )}
 
         {isSocialMediaStaff && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-brand-accent/80 uppercase tracking-wider mb-2 mt-4">Workspace</p>}
-            <NavLink to="/social-media/staff/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
-            <NavLink to="/social-media/video-editor" className={getNavLinkClass}><Video size={18} className="text-pink-500" /> {isSidebarOpen && <span className="truncate text-sm">Video Editor (AI)</span>}</NavLink>
+            <NavLink to="/social-media/staff/dashboard?tab=tasks" className={() => getTabLinkClass('tasks')}><CheckSquare size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm font-semibold">My Assigned Tasks</span>}</NavLink>
+            <NavLink to="/social-media/staff/dashboard?tab=calendar" className={() => getTabLinkClass('calendar')}><Calendar size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm font-semibold">Content Calendar</span>}</NavLink>
+
+            {isSidebarOpen && <p className="px-3 text-[11px] font-semibold text-fuchsia-400/80 uppercase tracking-wider mb-1.5 mt-3">Creative Tools</p>}
+            <NavLink to="/social-media/staff/dashboard?tab=ai_video" className={() => getTabLinkClass('ai_video')}><Wand2 size={18} className="text-fuchsia-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-fuchsia-300">AI Video Generator 🎬</span>}</NavLink>
+            <NavLink to="/social-media/staff/dashboard?tab=ai_music_matcher" className={() => getTabLinkClass('ai_music_matcher')}><Music size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">AI Reel Music Finder 🎵</span>}</NavLink>
+            <NavLink to="/social-media/staff/dashboard?tab=video_editor" className={() => getTabLinkClass('video_editor')}><Video size={18} className="text-pink-400" /> {isSidebarOpen && <span className="truncate text-sm">AI Subtitle Video Editor</span>}</NavLink>
           </>
         )}
 
@@ -546,5 +605,6 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
       </div>
 
     </aside>
+    </>
   );
 }

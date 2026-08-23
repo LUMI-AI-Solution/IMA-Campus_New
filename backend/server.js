@@ -83,8 +83,8 @@ app.use((req, res, next) => {
     next();
 });
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.json({ limit: '150mb' }));
+app.use(express.urlencoded({ limit: '150mb', extended: true }));
 
 const coordinatorCrmRoutes = require('./routes/coordinatorCrmRoutes');
 const afterSeminarCrmRoutes = require('./routes/afterSeminarCrmRoutes');
@@ -100,6 +100,8 @@ app.use('/storage/images', express.static(path.join(__dirname, 'storage/images')
 app.use('/api/storage/images', express.static(path.join(__dirname, 'storage/images')));
 app.use('/images', express.static(path.join(__dirname, 'storage/images')));
 app.use('/storage/documents', express.static(path.join(__dirname, 'storage/documents')));
+app.use('/storage/icons', express.static(path.join(__dirname, 'storage/icons')));
+app.use('/storage/posts', express.static(path.join(__dirname, 'storage/posts')));
 
 // 🔥 FIX: Mobile app & Web preview ekata /api/ url eken document ganna me routes tika add kala 🔥
 app.use('/api/storage/documents', express.static(path.join(__dirname, 'storage/documents')));
@@ -137,6 +139,7 @@ app.use('/api', require('./routes/tuteStockRoutes'));
 app.use('/api/public', require('./routes/publicRoutes'));
 app.use('/api/admin/payments', require('./routes/paymentRoutes'));
 app.use('/api/admin/delivery', require('./routes/deliveryRoutes'));
+app.use('/api/delivery', require('./routes/deliveryRoutes'));
 app.use('/api/admin/staff', require('./routes/staffRoutes'));
 app.use('/api/admin/crm', require('./routes/crmRoutes'));
 app.use('/api/admin', require('./routes/adminRoutes'));
@@ -173,7 +176,10 @@ app.use('/api/ai-verification', require('./routes/aiVerificationRoutes'));
 app.use('/api/admin/ai-agent', require('./routes/aiAgentRoutes'));
 app.use('/api/admin/test-injector', require('./routes/testRoutes'));
 app.use('/api/social-media', require('./routes/socialMediaRoutes'));
+app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));
+app.use('/api/uploads', express.static(path.join(__dirname, 'public/uploads')));
 app.use('/uploads/social-media', express.static(path.join(__dirname, 'public/uploads/social-media')));
+app.use('/api/uploads/social-media', express.static(path.join(__dirname, 'public/uploads/social-media')));
 
 const rosterRoutes = require('./routes/rosterRoutes');
 app.use('/api/roster', rosterRoutes);

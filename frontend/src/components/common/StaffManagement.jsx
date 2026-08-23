@@ -19,6 +19,7 @@ export default function StaffManagement({ loggedInUser }) {
   const userRole = loggedInUser?.role || '';
   const isAdmin = userRole === 'System Admin' || userRole === 'Director' || userRole === 'SYSTEM_ADMIN';
   const isManager = userRole === 'Manager' || userRole === 'Ass Manager';
+  const isSocialMediaDept = loggedInUser?.department === 'Social Media' || userRole === 'Social Media Manager' || userRole === 'SOCIAL_MEDIA_MANAGER';
   const canManageStaff = isAdmin || isManager;
 
   const allDepts = ['Class Coordination', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media'];
@@ -28,8 +29,8 @@ export default function StaffManagement({ loggedInUser }) {
   
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', phone: '', nic: '', password: '', 
-    role: isAdmin ? 'Manager' : (loggedInUser?.department === 'Class Coordination' ? 'Coordinator' : (loggedInUser?.department === 'Social Media' ? 'Social Media Staff' : 'Staff')), 
-    department: isAdmin ? 'Class Coordination' : loggedInUser?.department,
+    role: isAdmin ? 'Manager' : (isSocialMediaDept ? 'Social Media Staff' : (loggedInUser?.department === 'Class Coordination' ? 'Coordinator' : 'Staff')), 
+    department: isAdmin ? 'Class Coordination' : (isSocialMediaDept ? 'Social Media' : loggedInUser?.department),
     businessType: ''
   });
 
@@ -220,11 +221,11 @@ export default function StaffManagement({ loggedInUser }) {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
         <div>
           <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3 drop-shadow-md">
-            <Users className="text-brand-accent" size={32}/> 
-            {isAdmin ? 'Staff Directory' : 'My Team'}
+            <Users className={isSocialMediaDept ? "text-indigo-400" : "text-brand-accent"} size={32}/> 
+            {isAdmin ? 'Staff Directory' : (isSocialMediaDept ? 'Social Media Team' : 'My Team')}
           </h1>
           <p className="text-gray-300 text-sm font-medium mt-1">
-            {isAdmin ? 'Manage system roles, departments, and user access levels.' : `Manage members for ${loggedInUser?.department}.`}
+            {isAdmin ? 'Manage system roles, departments, and user access levels.' : (isSocialMediaDept ? 'Manage editors, designers, and creators for Social Media.' : `Manage members for ${loggedInUser?.department}.`)}
           </p>
         </div>
         
@@ -240,17 +241,19 @@ export default function StaffManagement({ loggedInUser }) {
             />
           </div>
           
-          <div className="relative w-full sm:w-48">
-            <Layers className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400" size={16} />
-            <select 
-              value={deptFilter} 
-              onChange={(e) => setDeptFilter(e.target.value)}
-              className="w-full bg-[#0F172A]/80 border border-white/10 backdrop-blur-md rounded-xl py-2.5 pl-9 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-blue-500 focus:bg-[#0F172A] transition-all shadow-inner appearance-none cursor-pointer"
-            >
-               <option value="" className="bg-[#0F172A] text-slate-200">All Departments</option>
-               {allDepts.map(d => <option key={d} value={d} className="bg-[#0F172A] text-slate-200">{d}</option>)}
-            </select>
-          </div>
+          {!isSocialMediaDept && (
+            <div className="relative w-full sm:w-48">
+              <Layers className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400" size={16} />
+              <select 
+                value={deptFilter} 
+                onChange={(e) => setDeptFilter(e.target.value)}
+                className="w-full bg-[#0F172A]/80 border border-white/10 backdrop-blur-md rounded-xl py-2.5 pl-9 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-blue-500 focus:bg-[#0F172A] transition-all shadow-inner appearance-none cursor-pointer"
+              >
+                 <option value="" className="bg-[#0F172A] text-slate-200">All Departments</option>
+                 {allDepts.map(d => <option key={d} value={d} className="bg-[#0F172A] text-slate-200">{d}</option>)}
+              </select>
+            </div>
+          )}
 
           <div className="relative w-full sm:w-48">
             <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-400" size={16} />
@@ -264,7 +267,7 @@ export default function StaffManagement({ loggedInUser }) {
             </select>
           </div>
 
-          <button onClick={() => { resetForm(); setShowModal(true); }} className="w-full sm:w-auto bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white px-6 py-2.5 rounded-xl font-black uppercase tracking-wider text-xs flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] hover:shadow-[0_0_25px_rgba(16,185,129,0.5)] outline-none border border-transparent shrink-0">
+          <button onClick={() => { resetForm(); setShowModal(true); }} className="w-full sm:w-auto bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white px-6 py-2.5 rounded-xl font-black uppercase tracking-wider text-xs flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.5)] outline-none border border-transparent shrink-0">
             <UserPlus size={16}/> Add Staff
           </button>
         </div>
@@ -272,8 +275,30 @@ export default function StaffManagement({ loggedInUser }) {
 
       <div className="space-y-10">
         
+        {/* Social Media Department Dedicated Section */}
+        {isSocialMediaDept && filteredStaff.length > 0 && (
+          <section>
+            <h2 className="text-sm font-extrabold text-white mb-4 border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-wider drop-shadow-sm">
+              <Users className="text-indigo-400" size={18}/> Social Media Staff & Editors ({filteredStaff.length})
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+              {filteredStaff.map(staff => (
+                <MinimalStaffCard 
+                  key={staff.id} 
+                  staff={staff} 
+                  openEditModal={openEditModal} 
+                  handleDelete={handleDelete} 
+                  handleGhostLogin={handleGhostLogin} 
+                  color="purple" 
+                  canEdit={true} 
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* System Administration */}
-        {isAdmin && topLevelStaff.length > 0 && (
+        {!isSocialMediaDept && isAdmin && topLevelStaff.length > 0 && (
           <section>
             <h2 className="text-sm font-extrabold text-white mb-4 border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-wider drop-shadow-sm">
               <Shield className="text-purple-400" size={18}/> Administration
@@ -285,7 +310,7 @@ export default function StaffManagement({ loggedInUser }) {
         )}
 
         {/* Class Coordination Department */}
-        {Object.keys(groupedByBusiness).length > 0 && (
+        {!isSocialMediaDept && Object.keys(groupedByBusiness).length > 0 && (
            <section>
               <h2 className="text-sm font-extrabold text-white mb-4 border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-wider drop-shadow-sm">
                 <Layers className="text-blue-400" size={18}/> Class Coordination
@@ -304,7 +329,7 @@ export default function StaffManagement({ loggedInUser }) {
         )}
 
         {/* Other Departments */}
-        {Object.keys(groupedByDept).length > 0 && (
+        {!isSocialMediaDept && Object.keys(groupedByDept).length > 0 && (
            <section>
               <h2 className="text-sm font-extrabold text-white mb-4 border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-wider drop-shadow-sm">
                 <Briefcase className="text-emerald-400" size={18}/> Other Departments
@@ -483,24 +508,27 @@ function MinimalStaffCard({ staff, openEditModal, handleDelete, handleGhostLogin
       </div>
 
       {canEdit && (
-        <div className="mt-auto grid grid-cols-3 gap-3 opacity-100 sm:opacity-0 sm:translate-y-4 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-500 relative z-10 pt-4 border-t border-white/5">
+        <div className="mt-auto grid grid-cols-3 gap-2 relative z-10 pt-4 border-t border-white/10">
             <button 
                 onClick={() => handleGhostLogin(staff.id)} 
-                title="Impersonate User"
-                className="bg-white/5 border border-white/10 hover:border-purple-500 hover:bg-purple-500/20 text-slate-400 hover:text-purple-300 py-2 rounded-xl flex justify-center items-center transition-all text-sm outline-none shadow-sm group/btn">
-                <Ghost size={16} className="group-hover/btn:scale-110 transition-transform"/>
+                title="Ghost Login to Account"
+                className="bg-purple-500/15 border border-purple-500/30 hover:border-purple-400 hover:bg-purple-500/30 text-purple-300 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all text-xs font-bold outline-none shadow-sm group/btn cursor-pointer">
+                <Ghost size={15} className="group-hover/btn:scale-110 transition-transform text-purple-300"/>
+                <span className="text-[10px]">Ghost</span>
             </button>
             <button 
                 onClick={() => openEditModal(staff)} 
                 title="Edit Details"
-                className="bg-white/5 border border-white/10 hover:border-blue-500 hover:bg-blue-500/20 text-slate-400 hover:text-blue-300 py-2 rounded-xl flex justify-center items-center transition-all text-sm outline-none shadow-sm group/btn">
-                <Edit3 size={16} className="group-hover/btn:scale-110 transition-transform"/>
+                className="bg-white/5 border border-white/10 hover:border-blue-500 hover:bg-blue-500/20 text-slate-300 hover:text-blue-300 py-2 rounded-xl flex items-center justify-center gap-1 transition-all text-xs outline-none shadow-sm group/btn cursor-pointer">
+                <Edit3 size={14} className="group-hover/btn:scale-110 transition-transform"/>
+                <span className="text-[10px]">Edit</span>
             </button>
             <button 
                 onClick={() => handleDelete(staff.id)} 
                 title="Delete User"
-                className="bg-white/5 border border-white/10 hover:border-rose-500 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 py-2 rounded-xl flex justify-center items-center transition-all text-sm outline-none shadow-sm group/btn">
-                <Trash2 size={16} className="group-hover/btn:scale-110 transition-transform"/>
+                className="bg-white/5 border border-white/10 hover:border-rose-500 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 py-2 rounded-xl flex items-center justify-center gap-1 transition-all text-xs outline-none shadow-sm group/btn cursor-pointer">
+                <Trash2 size={14} className="group-hover/btn:scale-110 transition-transform"/>
+                <span className="text-[10px]">Delete</span>
             </button>
         </div>
       )}

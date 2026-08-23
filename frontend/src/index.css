@@ -317,113 +317,153 @@ label,
 }
 
 /* ==========================================================
-   ✨ LUMI CALLER STYLES (Style 1) ✨
+   ✨ REFINED LUMI SERVICES (Sleek, Modern Light Beam Animation) ✨
    ========================================================== */
 
-/* Container එකේ ස්ටයිල් */
-.lumi-animated-item {
+.lumi-nav-item {
     position: relative;
     display: flex;
     align-items: center;
-    padding: 10px 16px; /* Made slightly smaller */
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: transparent;
     cursor: pointer;
-    border-radius: 12px; /* Smooth rounded corners */
+    text-decoration: none;
     overflow: hidden;
     z-index: 1;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s ease;
 }
 
-/* Inner background to cover the center and leave a 1px border */
-.lumi-animated-item::before {
+/* Inner Dark Frosted Glass Layer */
+.lumi-nav-item::before {
     content: '';
     position: absolute;
-    inset: 1px;
-    background: rgba(11, 16, 30, 0.85); /* Dark background matching the sidebar */
-    border-radius: 11px;
+    inset: 1.2px;
+    background: rgba(13, 19, 34, 0.92);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: 10.8px;
     z-index: -1;
     transition: background 0.3s ease;
 }
 
-.lumi-animated-item:hover::before {
-    background: rgba(255, 255, 255, 0.08); /* Hover effect on the inner background */
+.lumi-nav-item:hover::before {
+    background: rgba(22, 30, 52, 0.95);
 }
 
-/* The spinning line (border animation) */
-.lumi-animated-item::after {
+.lumi-nav-item.active::before {
+    background: rgba(25, 34, 58, 0.96);
+}
+
+.lumi-nav-item:hover {
+    transform: translateX(4px);
+}
+
+/* Flowing Border Light Beam Animation */
+.lumi-nav-item::after {
     content: '';
     position: absolute;
-    top: -50%;
-    left: -50%;
-    width: 200%;
-    height: 200%;
-    background: conic-gradient(from 0deg, transparent 70%, #00e5ff 100%);
-    animation: lumi-spin 3s linear infinite;
+    top: -60%;
+    left: -60%;
+    width: 220%;
+    height: 220%;
     z-index: -2;
+    animation: lumi-beam-spin 3.5s linear infinite;
+    opacity: 0.85;
+    transition: opacity 0.3s ease;
 }
 
-/* Icon එක Glow වෙන Animation එක */
-.lumi-icon {
+.lumi-nav-item:hover::after {
+    opacity: 1;
+    animation-duration: 2.2s;
+}
+
+/* Service 1: LUMI AI Analyser (Electric Cyan Beam) */
+.lumi-analyser::after {
+    background: conic-gradient(from 0deg, transparent 72%, rgba(0, 242, 254, 0.5) 88%, #00f2fe 100%);
+}
+.lumi-analyser:hover, .lumi-analyser.active {
+    box-shadow: 0 2px 16px -2px rgba(0, 242, 254, 0.35);
+}
+.lumi-analyser .lumi-nav-icon {
+    color: #00f2fe;
+    background: rgba(0, 242, 254, 0.12);
+    border: 1px solid rgba(0, 242, 254, 0.25);
+    box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+}
+
+/* Service 2: LUMI Chat (Sky Blue Beam) */
+.lumi-chat::after {
+    background: conic-gradient(from 0deg, transparent 72%, rgba(56, 189, 248, 0.5) 88%, #38bdf8 100%);
+}
+.lumi-chat:hover, .lumi-chat.active {
+    box-shadow: 0 2px 16px -2px rgba(56, 189, 248, 0.35);
+}
+.lumi-chat .lumi-nav-icon {
+    color: #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.25);
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.2);
+}
+
+/* Service 3: LUMI Caller (Emerald Green Beam) */
+.lumi-caller::after {
+    background: conic-gradient(from 0deg, transparent 72%, rgba(16, 185, 129, 0.5) 88%, #10b981 100%);
+}
+.lumi-caller:hover, .lumi-caller.active {
+    box-shadow: 0 2px 16px -2px rgba(16, 185, 129, 0.35);
+}
+.lumi-caller .lumi-nav-icon {
+    color: #10b981;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+}
+
+/* Service 4: LUMI Image Generator (Rose / Coral Beam) */
+.lumi-image::after {
+    background: conic-gradient(from 0deg, transparent 72%, rgba(244, 63, 94, 0.5) 88%, #f43f5e 100%);
+}
+.lumi-image:hover, .lumi-image.active {
+    box-shadow: 0 2px 16px -2px rgba(244, 63, 94, 0.35);
+}
+.lumi-image .lumi-nav-icon {
+    color: #f43f5e;
+    background: rgba(244, 63, 94, 0.12);
+    border: 1px solid rgba(244, 63, 94, 0.25);
+    box-shadow: 0 0 10px rgba(244, 63, 94, 0.2);
+}
+
+/* Icon Box */
+.lumi-nav-icon {
     display: flex;
     align-items: center;
     justify-content: center;
-    margin-right: 12px; /* Slightly reduced */
-    color: #00e5ff;
-    animation: s1-icon 3s infinite alternate;
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    margin-right: 10px;
+    flex-shrink: 0;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
-/* Text එකේ ලස්සන Gradient පාට */
-.lumi-text {
-    font-size: 13.5px; /* Made slightly smaller */
+.lumi-nav-item:hover .lumi-nav-icon {
+    transform: scale(1.12);
+}
+
+/* Clean, Steady, Highly-Readable Typography */
+.lumi-nav-text {
+    font-size: 13.5px;
     font-weight: 700;
-    letter-spacing: 0.5px;
-    background: linear-gradient(110deg, #a0a5b5 0%, #ffffff 30%, #00e5ff 50%, #ffffff 70%, #a0a5b5 100%);
-    background-size: 200% auto;
-    color: transparent;
-    -webkit-background-clip: text;
-    animation: s1-text 3s linear infinite;
+    color: #f8fafc;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-/* --- Animations --- */
-
-/* Style 1: Icon drop-shadow */
-@keyframes s1-icon {
-  to {
-    filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
-  }
-}
-
-/* Style 1: Text background sweep */
-@keyframes s1-text {
-  to {
-    background-position: -200% center;
-  }
-}
-
-/* Spinning line animation */
-@keyframes lumi-spin {
-  100% {
-    transform: rotate(360deg);
-  }
-}
-
-/* --- Animations --- */
-
-/* Style 1: Icon drop-shadow */
-@keyframes s1-icon {
-  to {
-    filter: drop-shadow(0 0 6px rgba(0, 229, 255, 0.6));
-  }
-}
-
-/* Style 1: Text background sweep */
-@keyframes s1-text {
-  to {
-    background-position: -200% center;
-  }
-}
-
-/* Spinning line animation */
-@keyframes lumi-spin {
-  100% {
-    transform: rotate(360deg);
-  }
+@keyframes lumi-beam-spin {
+    100% {
+        transform: rotate(360deg);
+    }
 }
