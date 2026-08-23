@@ -167,7 +167,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
   const isClassCoordinatorManager = isManager && loggedInUser?.department === 'Class Coordination';
   const isPhysicalManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'Ass Manager' || roleName === 'ASS_MANAGER') && isPhysicalDept;
   const isAnyManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'Ass Manager' || roleName === 'ASS_MANAGER') && !isCallCenterManager && !isSocialMediaManager;
-  const isHeadManager = (roleName === 'MANAGER' || roleName === 'Manager') && !isCallCenterManager && !isSocialMediaManager;
+  const isHeadManager = (roleName === 'MANAGER' || roleName === 'Manager') && !isCallCenterManager && !isSocialMediaManager && !isPhysicalManager;
   const isCaller = roleName === 'CALLER' || roleName === 'Caller';
   const isCallCenterAgent = roleName === 'CALL_CENTER_AGENT' || roleName === 'Call Center Agent';
   const isStaff = !isSystemAdmin && !isManager && !isPhysicalManager && !isDeliveryDept && !isFinanceDept && !isCaller && !isCallCenterAgent && !isSocialMediaManager && !isSocialMediaStaff && roleName !== 'STUDENT' && roleName !== 'user';
@@ -333,6 +333,10 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Physical Hub</p>}
             <NavLink to="/physical/dashboard/overview" className={getNavLinkClass}><LayoutDashboard size={18} className="text-red-400" /> {isSidebarOpen && <span className="truncate text-sm">Physical Dashboard</span>}</NavLink>
+
+            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Team Management</p>}
+            <NavLink to="/admin/staff?dept=Physical" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
+            <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
 
             {/* Today's Classes Widget */}
             {isSidebarOpen && (

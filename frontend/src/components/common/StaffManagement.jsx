@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Edit3, Trash2, Shield, UserPlus, X, Loader2, Search, Briefcase, Layers, Ghost } from 'lucide-react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
+import { Users, Edit3, Trash2, Shield, UserPlus, X, Loader2, Search, Briefcase, Layers, Ghost, ArrowLeft } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
 import BusinessBadge from './BusinessBadge';
 
 export default function StaffManagement({ loggedInUser }) {
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const urlDept = searchParams.get('dept');
+
   const [staffList, setStaffList] = useState([]);
   const [businesses, setBusinesses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -13,13 +18,14 @@ export default function StaffManagement({ loggedInUser }) {
   const [editMode, setEditMode] = useState(false);
   const [editId, setEditId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [deptFilter, setDeptFilter] = useState('');
+  const [deptFilter, setDeptFilter] = useState(urlDept || (loggedInUser?.department === 'Physical' ? 'Physical' : ''));
   const [roleFilter, setRoleFilter] = useState('');
 
   const userRole = loggedInUser?.role || '';
   const isAdmin = userRole === 'System Admin' || userRole === 'Director' || userRole === 'SYSTEM_ADMIN';
   const isManager = userRole === 'Manager' || userRole === 'Ass Manager';
   const isSocialMediaDept = loggedInUser?.department === 'Social Media' || userRole === 'Social Media Manager' || userRole === 'SOCIAL_MEDIA_MANAGER';
+  const isPhysicalDept = urlDept === 'Physical' || loggedInUser?.department === 'Physical';
   const canManageStaff = isAdmin || isManager;
 
   const allDepts = ['Class Coordination', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media'];
@@ -29,20 +35,21 @@ export default function StaffManagement({ loggedInUser }) {
   
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', phone: '', nic: '', password: '', 
-    role: isAdmin ? 'Manager' : (isSocialMediaDept ? 'Social Media Staff' : (loggedInUser?.department === 'Class Coordination' ? 'Coordinator' : 'Staff')), 
-    department: isAdmin ? 'Class Coordination' : (isSocialMediaDept ? 'Social Media' : loggedInUser?.department),
+    role: isAdmin ? 'Manager' : (isSocialMediaDept ? 'Social Media Staff' : (isPhysicalDept ? 'Staff' : (loggedInUser?.department === 'Class Coordination' ? 'Coordinator' : 'Staff'))), 
+    department: isAdmin ? 'Class Coordination' : (isSocialMediaDept ? 'Social Media' : (isPhysicalDept ? 'Physical' : loggedInUser?.department)),
     businessType: ''
   });
 
   useEffect(() => {
     fetchStaff();
     if (isAdmin) fetchBusinesses();
-  }, [loggedInUser]);
+  }, [loggedInUser, urlDept]);
 
   const fetchStaff = async () => {
     try {
+      const targetDept = urlDept || loggedInUser?.department;
       const res = await api.get('/admin/staff', {
-        params: { role: userRole, department: loggedInUser?.department, businessType: loggedInUser?.businessType }
+        params: { role: userRole, department: targetDept, businessType: loggedInUser?.businessType }
       });
       setStaffList(res.data);
     } catch (error) {
@@ -217,15 +224,26 @@ export default function StaffManagement({ loggedInUser }) {
   return (
     <div className="w-full animate-fade-in pb-12">
       
+      {/* Back Button for Physical Department */}
+      {(isPhysicalDept || urlDept === 'Physical') && (
+        <button
+          onClick={() => navigate('/physical/dashboard/overview')}
+          className="mb-4 flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/15 px-4 py-2 rounded-xl text-white font-bold text-xs shadow-lg backdrop-blur-md transition-all active:scale-95 group cursor-pointer"
+        >
+          <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform text-red-400" />
+          <span>Back to Physical Dashboard</span>
+        </button>
+      )}
+
       {/* Clean Glass Header Area */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
         <div>
           <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3 drop-shadow-md">
-            <Users className={isSocialMediaDept ? "text-indigo-400" : "text-brand-accent"} size={32}/> 
-            {isAdmin ? 'Staff Directory' : (isSocialMediaDept ? 'Social Media Team' : 'My Team')}
+            <Users className={isSocialMediaDept ? "text-indigo-400" : (isPhysicalDept ? "text-red-400" : "text-brand-accent")} size={32}/> 
+            {isAdmin ? 'Staff Directory' : (isSocialMediaDept ? 'Social Media Team' : (isPhysicalDept ? 'Physical Campus Team' : 'My Team'))}
           </h1>
           <p className="text-gray-300 text-sm font-medium mt-1">
-            {isAdmin ? 'Manage system roles, departments, and user access levels.' : (isSocialMediaDept ? 'Manage editors, designers, and creators for Social Media.' : `Manage members for ${loggedInUser?.department}.`)}
+            {isAdmin ? 'Manage system roles, departments, and user access levels.' : (isSocialMediaDept ? 'Manage editors, designers, and creators for Social Media.' : `Manage members for ${isPhysicalDept ? 'Physical Department' : loggedInUser?.department}.`)}
           </p>
         </div>
         
@@ -275,8 +293,30 @@ export default function StaffManagement({ loggedInUser }) {
 
       <div className="space-y-10">
         
+        {/* Physical Department Dedicated Section */}
+        {(isPhysicalDept || deptFilter === 'Physical') && filteredStaff.length > 0 && (
+          <section>
+            <h2 className="text-sm font-extrabold text-white mb-4 border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-wider drop-shadow-sm">
+              <Users className="text-red-400" size={18}/> Physical Campus Staff & Members ({filteredStaff.length})
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+              {filteredStaff.map(staff => (
+                <MinimalStaffCard 
+                  key={staff.id} 
+                  staff={staff} 
+                  openEditModal={openEditModal} 
+                  handleDelete={handleDelete} 
+                  handleGhostLogin={handleGhostLogin} 
+                  color="red" 
+                  canEdit={true} 
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* Social Media Department Dedicated Section */}
-        {isSocialMediaDept && filteredStaff.length > 0 && (
+        {isSocialMediaDept && !isPhysicalDept && filteredStaff.length > 0 && (
           <section>
             <h2 className="text-sm font-extrabold text-white mb-4 border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-wider drop-shadow-sm">
               <Users className="text-indigo-400" size={18}/> Social Media Staff & Editors ({filteredStaff.length})
