@@ -18,3 +18,5 @@ backend/public/uploads/social-media/*.mp4
 zoom-yt-uploader/release/
 backend/backups/*.sql
 backend/gsheet-service-account.json
+backend/server.log
+*.log

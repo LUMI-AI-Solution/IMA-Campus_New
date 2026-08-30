@@ -40,17 +40,22 @@ export default function BridgeTransfersTab({ filters, allBatches }) {
     const fetchCoordinators = async () => {
         try {
             const token = localStorage.getItem('token');
-            const res = await axios.get('/admin/staff', { headers: { Authorization: `Bearer ${token}` } });
+            const [staffRes, bizRes] = await Promise.all([
+                axios.get('/admin/staff', { headers: { Authorization: `Bearer ${token}` } }),
+                axios.get('/admin/businesses', { headers: { Authorization: `Bearer ${token}` } }).catch(() => ({ data: [] }))
+            ]);
             
-            let staffList = res.data.filter(s => s.role === 'Coordinator' || s.role === 'CALLER' || s.role === 'MANAGER');
+            let staffList = (staffRes.data || []).filter(s => 
+                s?.role && ['COORDINATOR', 'CALLER', 'STAFF', 'MANAGER', 'ASS MANAGER', 'CALL CENTER AGENT'].includes(s.role.toUpperCase())
+            );
             
             // Filter by selected business
             if (filters?.selectedBusiness) {
                 const selectedBizId = String(filters.selectedBusiness).trim();
-                
-                // Find the business name from allBatches
-                let selectedBizName = '';
-                if (allBatches && allBatches.length > 0) {
+                const selectedBizObj = (bizRes.data || []).find(b => String(b.id) === selectedBizId);
+                let selectedBizName = selectedBizObj ? selectedBizObj.name.toLowerCase().trim() : '';
+
+                if (!selectedBizName && allBatches && allBatches.length > 0) {
                     const batchWithBiz = allBatches.find(b => String(b.business?.id) === selectedBizId);
                     if (batchWithBiz && batchWithBiz.business) {
                         selectedBizName = batchWithBiz.business.name.toLowerCase().trim();
@@ -58,17 +63,16 @@ export default function BridgeTransfersTab({ filters, allBatches }) {
                 }
                 
                 staffList = staffList.filter(s => {
-                    // Include System Admins or Directors always if needed, or maybe just class coordinators of the biz
                     if (!s.businessType) return false;
-                    const sBiz = String(s.businessType).trim().toLowerCase();
-                    return sBiz === selectedBizId || 
-                           (selectedBizName && sBiz.includes(selectedBizName)) ||
-                           (selectedBizName && selectedBizName.includes(sBiz));
+                    const cBizList = String(s.businessType).toLowerCase().split(',').map(b => b.trim());
+                    return cBizList.includes(selectedBizId.toLowerCase()) || 
+                           (selectedBizName && cBizList.some(biz => biz.includes(selectedBizName) || selectedBizName.includes(biz))) ||
+                           String(s.businessId) === selectedBizId;
                 });
             }
             
             setCoordinators(staffList);
-        } catch (e) { console.error("Failed to load staff"); }
+        } catch (e) { console.error("Failed to load staff", e); }
     };
 
     const fetchBridgeData = async () => {

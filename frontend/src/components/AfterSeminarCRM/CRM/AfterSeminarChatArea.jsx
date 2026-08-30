@@ -188,7 +188,7 @@ export default function AfterSeminarChatArea({ selectedLead, onUpdateLead, busin
       const response = await axios.get(`/after-seminar-crm/messages/${selectedLead.id}`, {
           headers: { Authorization: `Bearer ${token}` }
       });
-      setMessages(response.data);
+      setMessages(Array.isArray(response.data) ? response.data : (response.data?.messages || []));
     } catch (error) { console.error(error); }
   };
 

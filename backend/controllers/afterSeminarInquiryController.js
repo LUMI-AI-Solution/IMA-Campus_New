@@ -792,9 +792,6 @@ exports.bulkActions = async (req, res) => {
             if (batchId && !isNaN(parseInt(batchId))) {
                 updateData.batchId = parseInt(batchId);
             }
-            if (assignType) {
-                updateData.inquiryType = assignType;
-            }
             await prisma.lead.updateMany({ 
                 where: { id: { in: leadIds } }, 
                 data: updateData 
@@ -989,9 +986,6 @@ exports.assignLeads = async (req, res) => {
             };
             if (batchId && batchId !== 'ALL' && batchId !== 'UNASSIGNED' && !isNaN(parseInt(batchId))) {
                 updateData.batchId = parseInt(batchId);
-            }
-            if (assignType) {
-                updateData.inquiryType = assignType;
             }
 
             await prisma.lead.updateMany({ 
@@ -1201,7 +1195,7 @@ exports.updateCallCampaign = async (req, res) => {
                 lastAttemptAt: nextLastAttemptAt,
                 paymentIntention: paymentIntention || lead.paymentIntention,
                 enrollmentStatus: enrollmentStatus || lead.enrollmentStatus,
-                inquiryType: inquiryType || lead.inquiryType,
+                inquiryType: lead.inquiryType || 'NORMAL',
                 updatedAt: newTimestamp
             }
         });
@@ -1402,11 +1396,33 @@ exports.receiveMessage = async (req, res) => {
             let metadata = body.entry[0].changes[0].value.metadata;
             let receivingWaNumId = metadata ? metadata.phone_number_id : null;
 
-            const settings = await prisma.crmSettings.findFirst({ 
-                where: { waNumId: receivingWaNumId } 
+            const rawDigits = (phone || '').replace(/[^0-9]/g, '');
+            const phoneSuffix = rawDigits.length >= 9 ? rawDigits.slice(-9) : rawDigits;
+
+            const allMatchingSettings = await prisma.crmSettings.findMany({
+                where: { waNumId: receivingWaNumId },
+                orderBy: { updatedAt: 'desc' }
             });
 
-            if (!settings) return res.status(200).send("EVENT_RECEIVED");
+            if (!allMatchingSettings || allMatchingSettings.length === 0) return res.status(200).send("EVENT_RECEIVED");
+
+            let settings = null;
+            if (allMatchingSettings.length === 1) {
+                settings = allMatchingSettings[0];
+            } else {
+                const existingLeadForRouting = await prisma.lead.findFirst({
+                    where: {
+                        phone: { contains: phoneSuffix }
+                    },
+                    orderBy: { updatedAt: 'desc' }
+                });
+
+                if (existingLeadForRouting && existingLeadForRouting.campaignType) {
+                    settings = allMatchingSettings.find(s => s.campaignType === existingLeadForRouting.campaignType) || allMatchingSettings[0];
+                } else {
+                    settings = allMatchingSettings[0];
+                }
+            }
             
             let messageText = "";
             let interactiveId = null;
@@ -1500,10 +1516,7 @@ exports.receiveMessage = async (req, res) => {
                 const msgLower = (messageText || "").toLowerCase().trim();
                 const existingLeadCheck = await prisma.lead.findFirst({
                     where: { 
-                        OR: [
-                            { phone: `${phone}_BIZ_${settings.businessId}` },
-                            { phone: { startsWith: `${phone}_BIZ_${settings.businessId}_` } }
-                        ],
+                        phone: { contains: phoneSuffix },
                         campaignType: 'AFTER_SEMINAR'
                     },
                     orderBy: { updatedAt: 'desc' }
@@ -1557,20 +1570,36 @@ exports.receiveMessage = async (req, res) => {
 
                 if (parsedBatchId) createDataAfterSeminar.batch = { connect: { id: parsedBatchId } };
 
-                let targetPhone = existingLeadCheck ? existingLeadCheck.phone : dbPhone;
-                let existingLead;
-                
+                let fallbackAssignedTo = existingLeadCheck?.assignedTo || null;
+                if (!fallbackAssignedTo && phoneSuffix) {
+                    const crossSemLead = await prisma.lead.findFirst({
+                        where: { phone: { contains: phoneSuffix }, assignedTo: { not: null } },
+                        orderBy: { updatedAt: 'desc' }
+                    });
+                    if (crossSemLead) fallbackAssignedTo = crossSemLead.assignedTo;
+                }
+
+                if (fallbackAssignedTo) {
+                    createDataAfterSeminar.assignedTo = fallbackAssignedTo;
+                    createDataAfterSeminar.status = 'OPEN';
+                    createDataAfterSeminar.assignedAt = new Date();
+                }
+
                 let updateData = { 
                     name: name, 
                     lastMessage: messageText || 'Received Media', 
                     lastMessageAt: new Date(),
                     unreadCount: { increment: 1 }, 
-                    status: existingLeadCheck?.assignedTo ? 'OPEN' : 'NEW', 
+                    status: fallbackAssignedTo ? 'OPEN' : 'NEW', 
                     updatedAt: new Date(),
                     inquiryType: detInquiryType,
                     source: 'whatsapp',
                     ...resetData
                 };
+
+                if (fallbackAssignedTo) {
+                    updateData.assignedTo = fallbackAssignedTo;
+                }
 
                 if (shouldUnassign) {
                     updateData.assignedTo = null;
@@ -1598,6 +1627,15 @@ exports.receiveMessage = async (req, res) => {
                 await prisma.chatMessage.create({ 
                     data: { leadId: existingLead.id, message: messageText, mediaUrl: mediaUrl, mediaType: mediaType, direction: 'inbound', senderType: 'USER', senderName: name, metaMessageId: metaMsgId } 
                 });
+
+                try {
+                    const { getIo } = require('./chatController');
+                    const io = getIo();
+                    if (io) {
+                        io.emit('new_inbound_message', { leadId: existingLead.id, businessId: settings.businessId });
+                        io.emit('lead_updated', { leadId: existingLead.id, businessId: settings.businessId });
+                    }
+                } catch (err) {}
 
                 // 🔥 OPT IN KEYWORD CHECK (If they reply YES while opted out, remove opt-out lock)
                 const allowKeywords = ['yes', 'ow', 'ha', settings.btnAllowText?.toLowerCase()].filter(Boolean);

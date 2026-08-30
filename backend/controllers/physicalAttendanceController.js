@@ -1,5 +1,41 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const esmsService = require('../services/esmsService');
+
+// 0. Search Students Autocomplete
+exports.searchStudents = async (req, res) => {
+    try {
+        const { query } = req.query;
+        if (!query || !query.trim()) {
+            return res.json({ students: [] });
+        }
+        const term = query.trim();
+        const students = await prisma.physicalStudent.findMany({
+            where: {
+                OR: [
+                    { studentName: { contains: term } },
+                    { firstName: { contains: term } },
+                    { lastName: { contains: term } },
+                    { studentId: { contains: term } },
+                    { phone: { contains: term } },
+                    { guardianPhone: { contains: term } },
+                    { rfid: { contains: term } },
+                    { nic: { contains: term } }
+                ]
+            },
+            include: {
+                class: true,
+                school: true,
+                enrollments: { include: { class: true } }
+            },
+            take: 20
+        });
+        res.json({ students });
+    } catch (error) {
+        console.error('Error in searchStudents:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
 
 // 1. Scan Student and Load Data
 exports.scanStudent = async (req, res) => {
@@ -17,7 +53,8 @@ exports.scanStudent = async (req, res) => {
             include: {
                 class: true,
                 school: true,
-                enrollments: { include: { class: true } }
+                enrollments: { include: { class: true } },
+                feePayments: { orderBy: { month: 'desc' } }
             }
         });
 
@@ -35,7 +72,8 @@ exports.scanStudent = async (req, res) => {
                 include: {
                     class: true,
                     school: true,
-                    enrollments: { include: { class: true } }
+                    enrollments: { include: { class: true } },
+                    feePayments: { orderBy: { month: 'desc' } }
                 }
             });
         }
@@ -56,13 +94,14 @@ exports.scanStudent = async (req, res) => {
                 },
                 orderBy: { date: 'asc' }
             }),
-            !student.classId ? prisma.physicalClass.findMany() : Promise.resolve([])
+            prisma.physicalClass.findMany({ orderBy: { name: 'asc' } })
         ]);
 
         res.json({
             student,
             attendances,
-            availableClasses
+            availableClasses,
+            feePayments: student.feePayments || []
         });
 
     } catch (error) {
@@ -74,13 +113,13 @@ exports.scanStudent = async (req, res) => {
 // 2. Allocate Class
 exports.allocateClass = async (req, res) => {
     try {
-        const { id } = req.params; // PhysicalStudent internal ID
+        const { id } = req.params;
         const { classId } = req.body;
 
         const updatedStudent = await prisma.physicalStudent.update({
             where: { id: parseInt(id) },
             data: { classId: parseInt(classId) },
-            include: { class: true }
+            include: { class: true, enrollments: { include: { class: true } } }
         });
 
         res.json({ success: true, student: updatedStudent });
@@ -96,94 +135,117 @@ exports.markAttendance = async (req, res) => {
         const { studentId, date } = req.body; 
         
         let normalizedDate;
-        if (date.includes('T')) {
+        if (date && String(date).includes('T')) {
             normalizedDate = new Date(date);
-            normalizedDate.setUTCHours(0, 0, 0, 0);
+        } else if (date) {
+            normalizedDate = new Date(`${date}T12:00:00.000Z`);
         } else {
-            normalizedDate = new Date(`${date}T00:00:00.000Z`);
+            normalizedDate = new Date();
         }
 
-        const attendance = await prisma.physicalAttendance.upsert({
+        const student = await prisma.physicalStudent.findUnique({
+            where: { id: parseInt(studentId) },
+            include: { class: true }
+        });
+
+        if (!student) {
+            return res.status(404).json({ error: 'Student not found' });
+        }
+
+        // Check if attendance already exists for this exact day (UTC date match)
+        const startOfDay = new Date(normalizedDate);
+        startOfDay.setUTCHours(0, 0, 0, 0);
+
+        const endOfDay = new Date(normalizedDate);
+        endOfDay.setUTCHours(23, 59, 59, 999);
+
+        let attendance = await prisma.physicalAttendance.findFirst({
             where: {
-                studentId_date: {
-                    studentId: parseInt(studentId),
-                    date: normalizedDate
-                }
-            },
-            update: {
-                status: 'PRESENT'
-            },
-            create: {
                 studentId: parseInt(studentId),
-                date: normalizedDate,
-                status: 'PRESENT'
+                date: {
+                    gte: startOfDay,
+                    lte: endOfDay
+                }
             }
         });
 
+        if (!attendance) {
+            attendance = await prisma.physicalAttendance.create({
+                data: {
+                    studentId: parseInt(studentId),
+                    date: normalizedDate,
+                    status: 'PRESENT'
+                }
+            });
+
+            // Trigger automated attendance SMS alert via Dialog eSMS Gateway
+            esmsService.triggerAttendanceSms({
+                student,
+                attendanceRecord: attendance,
+                classObj: student.class
+            }).catch(smsErr => {
+                console.error('[Automated Attendance SMS Notification Error]:', smsErr.message);
+            });
+        }
+
         res.json({ success: true, attendance });
+
     } catch (error) {
         console.error('Error marking attendance:', error);
-        res.status(500).json({ error: 'Failed to mark attendance' });
+        res.status(500).json({ error: 'Failed to mark attendance: ' + error.message });
     }
 };
 
 // 4. Unmark Attendance
 exports.unmarkAttendance = async (req, res) => {
     try {
-        const { studentId, date } = req.body; 
-        
+        const { studentId, date } = req.body;
+
         let normalizedDate;
-        if (date.includes('T')) {
+        if (date && String(date).includes('T')) {
             normalizedDate = new Date(date);
-            normalizedDate.setUTCHours(0, 0, 0, 0);
+        } else if (date) {
+            normalizedDate = new Date(`${date}T12:00:00.000Z`);
         } else {
-            normalizedDate = new Date(`${date}T00:00:00.000Z`);
+            normalizedDate = new Date();
         }
+
+        const startOfDay = new Date(normalizedDate);
+        startOfDay.setUTCHours(0, 0, 0, 0);
+
+        const endOfDay = new Date(normalizedDate);
+        endOfDay.setUTCHours(23, 59, 59, 999);
 
         await prisma.physicalAttendance.deleteMany({
             where: {
                 studentId: parseInt(studentId),
-                date: normalizedDate
+                date: {
+                    gte: startOfDay,
+                    lte: endOfDay
+                }
             }
         });
 
-        res.json({ success: true });
+        res.json({ success: true, message: 'Attendance unmarked' });
     } catch (error) {
         console.error('Error unmarking attendance:', error);
         res.status(500).json({ error: 'Failed to unmark attendance' });
     }
 };
 
-// 5. Search Students for Autocomplete
-exports.searchStudents = async (req, res) => {
+// 5. Get Student Attendance History
+exports.getStudentAttendanceHistory = async (req, res) => {
     try {
-        const { query } = req.query;
-        if (!query || query.trim().length === 0) {
-            return res.json({ students: [] });
-        }
+        const { id } = req.params;
 
-        const q = query.trim();
-        const students = await prisma.physicalStudent.findMany({
-            where: {
-                OR: [
-                    { studentId: { contains: q } },
-                    { studentName: { contains: q } },
-                    { firstName: { contains: q } },
-                    { lastName: { contains: q } },
-                    { phone: { contains: q } },
-                    { nic: { contains: q } },
-                    { rfid: { contains: q } }
-                ]
-            },
-            take: 8,
-            include: {
-                class: true
-            }
+        const attendances = await prisma.physicalAttendance.findMany({
+            where: { studentId: parseInt(id) },
+            orderBy: { date: 'desc' }
         });
 
-        res.json({ students });
+        res.json(attendances);
     } catch (error) {
-        console.error('Error searching students:', error);
-        res.status(500).json({ error: 'Failed to search students: ' + error.message });
+        console.error('Error fetching attendance history:', error);
+        res.status(500).json({ error: 'Failed to fetch history' });
     }
 };

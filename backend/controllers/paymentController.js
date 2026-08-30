@@ -871,10 +871,18 @@ exports.getStaffStatsReport = async (req, res) => {
         }
 
         if (dateFrom && dateTo) {
+            const startDate = dateFrom.includes('T') ? new Date(dateFrom) : new Date(`${dateFrom}T00:00:00.000Z`);
+            const endDate = dateTo.includes('T') ? new Date(dateTo) : new Date(`${dateTo}T23:59:59.999Z`);
             where.updatedAt = {
-                gte: new Date(`${dateFrom}T00:00:00.000Z`),
-                lte: new Date(`${dateTo}T23:59:59.999Z`)
+                gte: startDate,
+                lte: endDate
             };
+        } else if (dateFrom) {
+            const startDate = dateFrom.includes('T') ? new Date(dateFrom) : new Date(`${dateFrom}T00:00:00.000Z`);
+            where.updatedAt = { gte: startDate };
+        } else if (dateTo) {
+            const endDate = dateTo.includes('T') ? new Date(dateTo) : new Date(`${dateTo}T23:59:59.999Z`);
+            where.updatedAt = { lte: endDate };
         }
 
         if (verificationMethod === 'ai') {

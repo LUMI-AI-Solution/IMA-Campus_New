@@ -682,8 +682,8 @@ exports.getNewInquiryStats = async (req, res) => {
             const isNoAnswer = l.newInqCallStatus === 'no_answer';
             const isReject = l.newInqCallStatus === 'reject';
 
-            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
-            const isEnrolled = isReallyEnrolled; // Strict tally with Manage Payments
+            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id) || l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'));
+            const isEnrolled = isReallyEnrolled;
 
             const isDirectPaid = isEnrolled && isPending;
             const isActualPending = isPending && !isEnrolled;
@@ -700,7 +700,8 @@ exports.getNewInquiryStats = async (req, res) => {
                 if (round === 2 && assignedDaysPassed >= 7) isDelayed = true;
             }
 
-            if (l.assignedTo) {
+            const isAssignedToRealStaff = l.assignedTo && l.assignedUser && !['STUDENT', 'Student', 'USER', 'user'].includes(l.assignedUser.role);
+            if (isAssignedToRealStaff) {
                 totalAssigned++;
                 if (isEnrolled) totalEnrolled++;
                 if (isContacted) totalContacted++;
@@ -863,8 +864,8 @@ exports.getOpenSeminarStats = async (req, res) => {
         leads.forEach(l => {
             const isPending = l.openSemCallStatus === 'pending' || !l.openSemCallStatus;
 
-            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
-            const isEnrolled = isReallyEnrolled; // Strict tally with Manage Payments
+            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id) || l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'));
+            const isEnrolled = isReallyEnrolled;
 
             const isDirectPaid = isEnrolled && isPending;
             const isActualPending = isPending && !isEnrolled;
@@ -881,7 +882,8 @@ exports.getOpenSeminarStats = async (req, res) => {
                 else if (round === 1 && assignedDaysPassed >= 7) isDelayed = true;
             }
 
-            if (l.assignedTo) {
+            const isAssignedToRealStaff = l.assignedTo && l.assignedUser && !['STUDENT', 'Student', 'USER', 'user'].includes(l.assignedUser.role);
+            if (isAssignedToRealStaff) {
                 totalAssigned++;
                 if (isEnrolled) totalEnrolled++;
                 if (isContacted) totalContacted++;
@@ -1139,8 +1141,8 @@ exports.getBridgePerformanceStats = async (req, res) => {
         leads.forEach(l => {
             const isPending = l.callStatus === 'pending' || !l.callStatus;
 
-            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
-            const isEnrolled = isReallyEnrolled; // Strict tally with Manage Payments
+            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id) || l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'));
+            const isEnrolled = isReallyEnrolled;
 
             const isContacted = !isPending;
 
@@ -1721,7 +1723,7 @@ exports.getCoordinatorProgressSheetStats = async (req, res) => {
                 coord.totalAssigned++;
 
                 const msgStats = messageCountsMap[l.id] || { inbound: 0, outbound: 0 };
-                const isPaid = l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || l.status === 'ENROLLED';
+                const isPaid = l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || l.status === 'ENROLLED' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_')) || (primaryEnrolledLeadIds && primaryEnrolledLeadIds.has(l.id));
 
                 if (l.campaignType === 'FREE_SEMINAR') {
                     // --- FREE SEMINAR ---

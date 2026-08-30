@@ -16,22 +16,49 @@ export default function PhysicalTimetable() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const teachersRes = await physicalCrmService.getTeachers();
+      const [classesRes, teachersRes] = await Promise.all([
+        physicalCrmService.getClasses(),
+        physicalCrmService.getTeachers()
+      ]);
 
       // Build schedule map
       const dayMap = {};
       DAYS.forEach(d => dayMap[d] = []);
 
-      teachersRes.forEach(teacher => {
-        if (teacher.timetables) {
-          teacher.timetables.forEach(slot => {
+      // 1. From Classes timetables
+      (classesRes || []).forEach(cls => {
+        if (cls.timetables && cls.timetables.length > 0) {
+          const teacherNames = cls.teachers && cls.teachers.length > 0
+            ? cls.teachers.map(t => t.name).join(', ')
+            : 'No Teacher Assigned';
+
+          cls.timetables.forEach(slot => {
             if (dayMap[slot.dayOfWeek]) {
               dayMap[slot.dayOfWeek].push({
                 startTime: slot.startTime,
                 endTime: slot.endTime,
+                teacherName: teacherNames,
+                className: cls.name,
+                classGrade: cls.grade || '',
+                classStream: cls.stream || '',
+                classSubject: cls.subject || ''
+              });
+            }
+          });
+        }
+      });
+
+      // 2. From direct Teacher timetables (if any legacy slots)
+      (teachersRes || []).forEach(teacher => {
+        if (teacher.timetables) {
+          teacher.timetables.forEach(slot => {
+            if (slot.dayOfWeek && dayMap[slot.dayOfWeek] && !slot.classId) {
+              dayMap[slot.dayOfWeek].push({
+                startTime: slot.startTime,
+                endTime: slot.endTime,
                 teacherName: teacher.name,
-                className: teacher.class?.name || 'Unassigned Class',
-                classGrade: teacher.class?.grade || ''
+                className: teacher.classes && teacher.classes.length > 0 ? teacher.classes.map(c => c.name).join(', ') : 'Direct Slot',
+                classGrade: ''
               });
             }
           });
@@ -40,7 +67,7 @@ export default function PhysicalTimetable() {
 
       // Sort slots by start time
       DAYS.forEach(d => {
-        dayMap[d].sort((a, b) => a.startTime.localeCompare(b.startTime));
+        dayMap[d].sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
       });
 
       setSchedule(dayMap);

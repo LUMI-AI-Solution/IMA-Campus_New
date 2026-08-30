@@ -358,12 +358,12 @@ exports.getRetentionCampaignData = async (req, res) => {
             activeGroupName = activeGroup ? activeGroup.name : null;
         }
 
-        // Fetch ALL payments (approved=1, postpay=4, pending=0, installment=2)
+        // Fetch valid payments (approved=1, postpay=4, pending=0) - REJECTED (2) EXCLUDED
         const payments = await prisma.payment.findMany({
-            where: { batchId: { in: batchIdsToFetch }, status: { in: [0, 1, 2, 4] } },
+            where: { batchId: { in: batchIdsToFetch }, status: { in: [0, 1, 4] } },
             select: {
                 id: true, payment_type: true, groupId: true, businessId: true, batchId: true, subjects: true, remark: true, status: true,
-                student: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true } }
+                student: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, optionalPhone: true } }
             }
         });
 
@@ -383,15 +383,24 @@ exports.getRetentionCampaignData = async (req, res) => {
         const crmLeadPhones = new Set(allCrmLeads.map(l => getLast9Digits(l.phone)));
 
         const paymentStudentsMap = new Map();
-        payments.forEach(p => { if (p.student) paymentStudentsMap.set(p.student.id, p.student); });
+        payments.filter(p => [1, 4].includes(p.status)).forEach(p => { 
+            if (p.student) paymentStudentsMap.set(p.student.id, p.student); 
+        });
 
         let inCrmCount = 0;
         let notInCrmCount = 0;
         let notInCrmStudents = [];
 
         paymentStudentsMap.forEach(student => {
-            const studentLast9 = getLast9Digits(student.phone || student.whatsapp);
-            if (studentLast9 && crmLeadPhones.has(studentLast9)) {
+            const studentPhoneLast9 = getLast9Digits(student.phone);
+            const studentWaLast9 = getLast9Digits(student.whatsapp);
+            const studentOpLast9 = getLast9Digits(student.optionalPhone);
+
+            const isMatchedInCrm = (studentPhoneLast9 && crmLeadPhones.has(studentPhoneLast9)) ||
+                                   (studentWaLast9 && crmLeadPhones.has(studentWaLast9)) ||
+                                   (studentOpLast9 && crmLeadPhones.has(studentOpLast9));
+
+            if (isMatchedInCrm) {
                 inCrmCount++;
             } else {
                 notInCrmCount++;
@@ -447,25 +456,84 @@ exports.getRetentionCampaignData = async (req, res) => {
             return { ...l, phase, attemptsData };
         });
 
-        // 4. Build payment-derived data for each lead
+        // 4. Deduplicate CRM leads by unique phone number so one student never gets multiple cards in the campaign
+        const pickBestLead = (existing, current) => {
+            if (!existing) return current;
+            if (existing.id === current.id) return existing;
+
+            // 1. AFTER_SEMINAR lead ALWAYS takes strict precedence over FREE_SEMINAR / other campaign types
+            const existingIsAfterSem = existing.campaignType === 'AFTER_SEMINAR';
+            const currentIsAfterSem = current.campaignType === 'AFTER_SEMINAR';
+            if (existingIsAfterSem && !currentIsAfterSem) return existing;
+            if (!existingIsAfterSem && currentIsAfterSem) return current;
+
+            // 2. An assigned lead ALWAYS beats an unassigned lead
+            if (existing.assignedTo && !current.assignedTo) return existing;
+            if (!existing.assignedTo && current.assignedTo) return current;
+
+            // 3. Lead with paid call progress / feedback / attempts beats one without
+            const existingHasPaidActivity = (existing.paidCallStatus && existing.paidCallStatus !== 'pending') || existing.paidFeedback || (existing.paidCallAttempt && existing.paidCallAttempt > 1);
+            const currentHasPaidActivity = (current.paidCallStatus && current.paidCallStatus !== 'pending') || current.paidFeedback || (current.paidCallAttempt && current.paidCallAttempt > 1);
+
+            if (existingHasPaidActivity && !currentHasPaidActivity) return existing;
+            if (!existingHasPaidActivity && currentHasPaidActivity) return current;
+
+            // 4. Lead with general call activity beats one without
+            const existingHasAnyCall = (existing.callStatus && existing.callStatus !== 'pending') || existing.feedback;
+            const currentHasAnyCall = (current.callStatus && current.callStatus !== 'pending') || current.feedback;
+
+            if (existingHasAnyCall && !currentHasAnyCall) return existing;
+            if (!existingHasAnyCall && currentHasAnyCall) return current;
+
+            // 5. Stable assignment: Keep the original assigned After Seminar lead so coordinator assignment is fixed and protected
+            const existingCreated = new Date(existing.createdAt || 0).getTime();
+            const currentCreated = new Date(current.createdAt || 0).getTime();
+            if (existingCreated <= currentCreated) {
+                return existing;
+            } else {
+                return current;
+            }
+        };
+
+        const uniqueLeadsMap = new Map();
+        activeLeads.forEach(l => {
+            const cleanPhone = l.phone ? l.phone.split('_')[0] : '';
+            const last9 = getLast9Digits(cleanPhone);
+            if (!last9) return;
+
+            if (!uniqueLeadsMap.has(last9)) {
+                uniqueLeadsMap.set(last9, l);
+            } else {
+                const existing = uniqueLeadsMap.get(last9);
+                const mergedAttempts = { ...(existing.attemptsData || {}), ...(l.attemptsData || {}) };
+                const best = pickBestLead(existing, l);
+                uniqueLeadsMap.set(last9, { ...best, attemptsData: mergedAttempts });
+            }
+        });
+        const deduplicatedActiveLeads = Array.from(uniqueLeadsMap.values());
+
+        // 5. Build payment-derived data for each unique lead
         const leadsWithGroupData = [];
         
         // Pre-calculate active group index
         let activeGroupIndex = distinctMonthlyGroups.findIndex(g => g.name.toUpperCase() === activeGroupName.toUpperCase());
         if (activeGroupIndex === -1) activeGroupIndex = distinctMonthlyGroups.length - 1;
 
-        activeLeads.forEach(l => {
+        deduplicatedActiveLeads.forEach(l => {
             const cleanPhone = l.phone.split('_')[0];
             const leadLast9 = getLast9Digits(cleanPhone);
             const studentPayments = payments.filter(p => {
-                if (!p.student || (!p.student.phone && !p.student.whatsapp)) return false;
-                const studentLast9 = getLast9Digits(p.student.phone || p.student.whatsapp);
-                return leadLast9 !== '' && leadLast9 === studentLast9;
+                if (!p.student) return false;
+                const studentPhoneLast9 = getLast9Digits(p.student.phone);
+                const studentWaLast9 = getLast9Digits(p.student.whatsapp);
+                const studentOpLast9 = getLast9Digits(p.student.optionalPhone);
+                return (leadLast9 !== '' && (leadLast9 === studentPhoneLast9 || leadLast9 === studentWaLast9 || leadLast9 === studentOpLast9));
             });
 
-            // If no payment records found, this student hasn't paid/enrolled yet.
-            // For the Retention (Paid) campaign, we only want students who have enrolled at least once.
-            if (studentPayments.length === 0) {
+            // If no valid payment records found, or student NEVER had an approved payment, exclude them.
+            // For the Retention (Paid) campaign, we only want students who have enrolled in this batch at least once.
+            const hasApprovedPayment = studentPayments.some(p => [1, 4].includes(p.status));
+            if (!hasApprovedPayment) {
                 return;
             }
 

@@ -49,10 +49,10 @@ export default function StaffPerformanceModal({ onClose }) {
     });
     const [loading, setLoading] = useState(false);
     
-    // Filters (Default to today)
+    // Filters (Default to today start of day to end of day)
     const today = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
-    const [dateFrom, setDateFrom] = useState(today);
-    const [dateTo, setDateTo] = useState(today);
+    const [dateFrom, setDateFrom] = useState(`${today}T00:00`);
+    const [dateTo, setDateTo] = useState(`${today}T23:59`);
     const [verificationMethod, setVerificationMethod] = useState('all'); 
     const [actionFilter, setActionFilter] = useState('all');
 
@@ -135,13 +135,25 @@ export default function StaffPerformanceModal({ onClose }) {
                     
                     {/* Filters Row */}
                     <div className="flex flex-wrap md:flex-nowrap gap-4 items-end bg-[#131A2D] p-3 rounded-2xl border border-white/5 shadow-inner">
-                        <div className="flex-1 min-w-[150px]">
-                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 ml-2 flex items-center gap-1.5"><Calendar size={12}/> From</label>
-                            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="w-full bg-[#0B1221] border border-white/5 rounded-xl px-4 py-2.5 text-white text-sm font-semibold outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm" />
+                        <div className="flex-1 min-w-[170px]">
+                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 ml-2 flex items-center gap-1.5"><Calendar size={12}/> From Date & Time</label>
+                            <input 
+                                type="datetime-local" 
+                                value={dateFrom} 
+                                onChange={e => setDateFrom(e.target.value)} 
+                                style={{ colorScheme: 'dark' }}
+                                className="w-full bg-[#0B1221] border border-white/5 rounded-xl px-4 py-2.5 text-white text-sm font-semibold outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm cursor-pointer" 
+                            />
                         </div>
-                        <div className="flex-1 min-w-[150px]">
-                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 ml-2 flex items-center gap-1.5"><Calendar size={12}/> To</label>
-                            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="w-full bg-[#0B1221] border border-white/5 rounded-xl px-4 py-2.5 text-white text-sm font-semibold outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm" />
+                        <div className="flex-1 min-w-[170px]">
+                            <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 ml-2 flex items-center gap-1.5"><Calendar size={12}/> To Date & Time</label>
+                            <input 
+                                type="datetime-local" 
+                                value={dateTo} 
+                                onChange={e => setDateTo(e.target.value)} 
+                                style={{ colorScheme: 'dark' }}
+                                className="w-full bg-[#0B1221] border border-white/5 rounded-xl px-4 py-2.5 text-white text-sm font-semibold outline-none focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 transition-all shadow-sm cursor-pointer" 
+                            />
                         </div>
                         <div className="flex-1 min-w-[150px]">
                             <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1.5 ml-2 flex items-center gap-1.5"><ShieldCheck size={12}/> Method</label>

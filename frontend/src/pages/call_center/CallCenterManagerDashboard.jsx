@@ -38,7 +38,7 @@ export default function CallCenterManagerDashboard() {
   const [unassignedLeads, setUnassignedLeads] = useState([]); 
   
   const [selectedBizCard, setSelectedBizCard] = useState(null); 
-  const [activeSubTab, setActiveSubTab] = useState('pending'); 
+  const [activeSubTab, setActiveSubTab] = useState('needs-assignment'); 
   const [detailedLeads, setDetailedLeads] = useState([]); 
 
   const [staff, setStaff] = useState([]);
@@ -71,7 +71,7 @@ export default function CallCenterManagerDashboard() {
     setCheckedLeads([]);
     setSelectedBizCard(null); 
     setSelectedBatch('All');
-    setActiveSubTab('pending-handovers');
+    setActiveSubTab('needs-assignment');
   }, [activeTab]);
 
   useEffect(() => {
@@ -289,6 +289,13 @@ export default function CallCenterManagerDashboard() {
   const [sortOrder, setSortOrder] = useState('NEWEST'); // 'NEWEST' or 'OLDEST'
   const [allocateCount, setAllocateCount] = useState('');
 
+  const isCCAgent = (u) => {
+    if (!u) return false;
+    const role = String(u.role || '').toUpperCase().replace(/ /g, '_');
+    const dept = String(u.department || '').toUpperCase().replace(/ /g, '_');
+    return ['CALLER', 'CALL_CENTER_AGENT', 'CALL_CENTER'].includes(role) || dept === 'CALL_CENTER';
+  };
+
   const getFilteredDetailedLeads = () => {
     let list = [...detailedLeads];
     if (selectedBatch !== 'All') {
@@ -297,9 +304,9 @@ export default function CallCenterManagerDashboard() {
     if (activeSubTab === 'pending-handovers') {
       list = list.filter(l => l.callCenterRequestStatus === 'REQUESTED');
     } else if (activeSubTab === 'needs-assignment') {
-      list = list.filter(l => (l.callCenterRequestStatus === 'APPROVED' || l.isCallCenter) && l.assignedTo === null);
+      list = list.filter(l => (l.callCenterRequestStatus === 'APPROVED' || l.isCallCenter) && (!l.assignedTo || !isCCAgent(l.assignedUser)));
     } else if (activeSubTab === 'assigned') {
-      list = list.filter(l => l.assignedTo !== null);
+      list = list.filter(l => l.assignedTo !== null && isCCAgent(l.assignedUser));
     }
 
     if (searchQuery.trim() !== '') {
@@ -408,7 +415,7 @@ export default function CallCenterManagerDashboard() {
                   </button>
                   {selectedBizCard && (
                     <button 
-                      onClick={() => { setSelectedBizCard(null); setSelectedBatch('All'); setCheckedLeads([]); setActiveSubTab('pending'); }}
+                      onClick={() => { setSelectedBizCard(null); setSelectedBatch('All'); setCheckedLeads([]); setActiveSubTab('needs-assignment'); }}
                       className="bg-white/10 hover:bg-white/20 px-4 py-1.5 rounded-lg text-sm font-bold transition-colors text-slate-200 flex items-center gap-2"
                     >
                       <ChevronRight className="rotate-180" size={16}/> Back to Businesses
@@ -435,7 +442,13 @@ export default function CallCenterManagerDashboard() {
                           return (
                             <div 
                               key={biz.id}
-                              onClick={() => setSelectedBizCard(biz)}
+                              onClick={() => {
+                                setSelectedBizCard(biz);
+                                setSelectedBatch('All');
+                                setCheckedLeads([]);
+                                const hasPendingReqs = pendingRequests.some(l => l.batch?.businessId === biz.id);
+                                setActiveSubTab(hasPendingReqs ? 'pending-handovers' : 'needs-assignment');
+                              }}
                               className="group cursor-pointer bg-white/[0.05] backdrop-blur-2xl hover:border-red-500/50 border border-white/10 p-6 md:p-8 rounded-[2rem] flex flex-col gap-6 transition-all shadow-[0_8px_32px_0_rgba(0,0,0,0.3)] hover:shadow-lg relative overflow-hidden"
                             >
                               <div className="absolute top-0 right-0 w-32 h-32 blur-[60px] opacity-20 pointer-events-none rounded-full bg-red-500 transition-opacity group-hover:opacity-40"></div>
@@ -514,13 +527,13 @@ export default function CallCenterManagerDashboard() {
                           <div className="bg-red-500/10 border border-red-500/30 p-8 rounded-3xl text-center shadow-lg shadow-red-500/5">
                             <p className="text-red-400 font-bold uppercase text-xs tracking-wider mb-2">Needs Assignment</p>
                             <h3 className="text-5xl font-black text-red-300">
-                              {detailedLeads.filter(l => (selectedBatch === 'All' || l.batchId === parseInt(selectedBatch)) && (l.callCenterRequestStatus === 'APPROVED' && l.assignedTo === null)).length}
+                              {detailedLeads.filter(l => (selectedBatch === 'All' || l.batchId === parseInt(selectedBatch)) && (l.callCenterRequestStatus === 'APPROVED' || l.isCallCenter) && (!l.assignedTo || !isCCAgent(l.assignedUser))).length}
                             </h3>
                           </div>
                           <div className="bg-emerald-500/10 border border-emerald-500/30 p-8 rounded-3xl text-center shadow-lg shadow-emerald-500/5">
                             <p className="text-emerald-400 font-bold uppercase text-xs tracking-wider mb-2">Actively Managed</p>
                             <h3 className="text-5xl font-black text-emerald-300">
-                              {detailedLeads.filter(l => (selectedBatch === 'All' || l.batchId === parseInt(selectedBatch)) && (l.callCenterRequestStatus === 'APPROVED' && l.assignedTo !== null)).length}
+                              {detailedLeads.filter(l => (selectedBatch === 'All' || l.batchId === parseInt(selectedBatch)) && l.assignedTo !== null && isCCAgent(l.assignedUser)).length}
                             </h3>
                           </div>
                         </div>

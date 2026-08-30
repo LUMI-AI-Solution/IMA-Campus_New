@@ -257,10 +257,10 @@ export default function PaymentManagement({ loggedInUser }) {
             mappedTab = 'Trash';
         } else if (isUpgrade) {
             mappedTab = 'Upgrade Slips';
-            if (p.status === 'Pending') pendingUpgradeCount++;
+            if (['Pending', 'Post Pay'].includes(p.status)) pendingUpgradeCount++;
         } else if (p.type === 'Installment' || p.status === 'Upcoming') {
             mappedTab = 'Upcoming';
-            if (p.status === 'Pending') pendingUpcomingCount++;
+            if (['Pending', 'Post Pay'].includes(p.status)) pendingUpcomingCount++;
         } else if (p.status === 'Pending') {
             mappedTab = 'Pending';
         } else if (isAdjusted && p.status !== 'Rejected') {
@@ -305,14 +305,14 @@ export default function PaymentManagement({ loggedInUser }) {
         }
 
         if (activeTab === 'Upgrade Slips') {
-            if (upgradeFilter === 'Pending' && p.status !== 'Pending') return false;
+            if (upgradeFilter === 'Pending' && !['Pending', 'Post Pay'].includes(p.status)) return false;
             if (upgradeFilter === 'Approved' && p.status !== 'Approved') return false;
             if (upgradeFilter === 'Rejected' && p.status !== 'Rejected') return false;
         }
 
         if (activeTab === 'Upcoming') {
             if (upcomingFilter === 'Upcoming' && p.status !== 'Upcoming') return false;
-            if (upcomingFilter === 'Pending' && p.status !== 'Pending') return false;
+            if (upcomingFilter === 'Pending' && !['Pending', 'Post Pay'].includes(p.status)) return false;
             if (upcomingFilter === 'Approved' && p.status !== 'Approved') return false;
             if (upcomingFilter === 'Rejected' && p.status !== 'Rejected') return false;
         }

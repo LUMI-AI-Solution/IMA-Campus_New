@@ -13,11 +13,11 @@ exports.calculateUpgrade = async (req, res) => {
 
         const parsedStudentId = parseInt(studentId);
 
-        // Fetch all successful payments for this student
+        // Fetch all successful and post-pay active payments for this student
         const studentPayments = await prisma.payment.findMany({
             where: {
                 studentId: parsedStudentId,
-                status: 1
+                status: { in: [1, 4] }
             },
             include: {
                 batch: true,
@@ -122,7 +122,7 @@ exports.calculateUpgrade = async (req, res) => {
             enrolledMonthlySubjectIds.forEach(id => {
                 const paidCourse = allBatchCourses.find(c => c.id === id);
                 if (paidCourse) {
-                    const fullCourse = allBatchCourses.find(c => c.name === paidCourse.name && c.price > 5000);
+                    const fullCourse = allBatchCourses.find(c => (c.name || '').trim().toLowerCase() === (paidCourse.name || '').trim().toLowerCase() && c.price > 5000);
                     if (fullCourse && !upgradedSubjectIds.has(fullCourse.id)) {
                         eligibleUpgradeSubjectIdsSet.add(fullCourse.id);
                     } else if (!fullCourse && !upgradedSubjectIds.has(paidCourse.id)) {
@@ -159,9 +159,10 @@ exports.calculateUpgrade = async (req, res) => {
                     studentId: parsedStudentId,
                     batchId: batchId,
                     status: 0,
-                    remark: {
-                        startsWith: "[UPGRADE]:"
-                    }
+                    OR: [
+                        { remark: { contains: "[UPGRADE]:" } },
+                        { payment_type: { in: [2, 3] } }
+                    ]
                 }
             });
 
@@ -302,7 +303,7 @@ exports.calculateUpgrade = async (req, res) => {
                             subs.forEach(id => {
                                 const paidCourse = allBatchCourses.find(c => c.id === id);
                                 if (paidCourse) {
-                                    const matchingEligibleCourse = subjects.find(c => c.name === paidCourse.name);
+                                    const matchingEligibleCourse = subjects.find(c => (c.name || '').trim().toLowerCase() === (paidCourse.name || '').trim().toLowerCase());
                                     if (matchingEligibleCourse) {
                                         // Skip monthly deduction if custom FULL upgrade price is set for this subject in the batch
                                         const hasCustomFull = upgradeConfigs.some(c => 

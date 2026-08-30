@@ -43,12 +43,31 @@ const getZoomDirectMp4Link = async (meetingId) => {
                 });
 
                 const accessToken = tokenRes.data.access_token;
+                const searchTarget = cleanMeetingId.includes('/') ? encodeURIComponent(encodeURIComponent(cleanMeetingId)) : cleanMeetingId;
                 
-                // Try fetching recording
-                const recRes = await axios.get(`https://api.zoom.us/v2/meetings/${cleanMeetingId}/recordings`, {
+                // Try fetching recording directly
+                let recRes = await axios.get(`https://api.zoom.us/v2/meetings/${searchTarget}/recordings`, {
                     headers: { 'Authorization': `Bearer ${accessToken}` },
-                    validateStatus: function (status) { return status < 500; } // Don't throw error on 404
+                    validateStatus: function (status) { return status < 500; }
                 });
+
+                // If 404 on numeric meeting ID, check past instances
+                if (recRes.status === 404 && /^\d+$/.test(cleanMeetingId)) {
+                    try {
+                        const instRes = await axios.get(`https://api.zoom.us/v2/past_meetings/${cleanMeetingId}/instances`, {
+                            headers: { 'Authorization': `Bearer ${accessToken}` },
+                            validateStatus: function (status) { return status < 500; }
+                        });
+                        if (instRes.status === 200 && instRes.data && instRes.data.meetings && instRes.data.meetings.length > 0) {
+                            const latestInst = instRes.data.meetings[instRes.data.meetings.length - 1];
+                            const encodedUuid = encodeURIComponent(encodeURIComponent(latestInst.uuid));
+                            recRes = await axios.get(`https://api.zoom.us/v2/meetings/${encodedUuid}/recordings`, {
+                                headers: { 'Authorization': `Bearer ${accessToken}` },
+                                validateStatus: function (status) { return status < 500; }
+                            });
+                        }
+                    } catch (instErr) {}
+                }
 
                 if (recRes.status === 200 && recRes.data && recRes.data.recording_files) {
                     const mp4File = recRes.data.recording_files.find(file => file.file_type === 'MP4');
@@ -950,21 +969,48 @@ exports.deletePost = async (req, res) => {
 };
 
 // ================= ZOOM DYNAMIC DOWNLOAD (JSON RESPONSE) =================
+exports.getZoomDirectMp4Link = getZoomDirectMp4Link;
+
 exports.getZoomDirectLinkJson = async (req, res) => {
     try {
-        const { meetingId } = req.params;
-        if (!meetingId) return res.status(400).json({ error: "Meeting ID is required" });
+        const rawId = req.params.contentId || req.params.meetingId || req.query.id || req.query.meetingId;
+        if (!rawId) return res.status(400).json({ error: "Meeting ID or Content ID is required" });
 
-        const cleanMeetingId = meetingId.replace(/\s+/g, '');
-        console.log(`[DOWNLOAD API] Fetching fresh Zoom link for Meeting ID: ${cleanMeetingId}`);
+        let cleanMeetingId = String(rawId).replace(/\s+/g, '');
+        console.log(`[DOWNLOAD API] Processing Zoom link request for: "${cleanMeetingId}"`);
+
+        // Check if rawId refers to a database Content ID
+        if (/^\d+$/.test(cleanMeetingId) && parseInt(cleanMeetingId) < 100000000) {
+            try {
+                const content = await prisma.content.findUnique({ where: { id: parseInt(cleanMeetingId) } });
+                if (content) {
+                    if (content.meetingId && content.meetingId.trim() !== '') {
+                        cleanMeetingId = content.meetingId.replace(/\s+/g, '');
+                        console.log(`[DOWNLOAD API] Resolved DB Content ID ${rawId} to Meeting ID: ${cleanMeetingId}`);
+                    } else if (content.link) {
+                        const urlMatch = content.link.match(/(?:zoom\.us\/(?:rec\/share|rec\/play|j)\/)([a-zA-Z0-9_.-]+)/);
+                        if (urlMatch && urlMatch[1]) {
+                            cleanMeetingId = urlMatch[1];
+                            console.log(`[DOWNLOAD API] Extracted Meeting ID from DB Content link: ${cleanMeetingId}`);
+                        }
+                    }
+                }
+            } catch (dbErr) {
+                console.error("[DOWNLOAD API] DB lookup error:", dbErr.message);
+            }
+        } else if (cleanMeetingId.includes('zoom.us')) {
+            const urlMatch = cleanMeetingId.match(/(?:zoom\.us\/(?:rec\/share|rec\/play|j)\/)([a-zA-Z0-9_.-]+)/);
+            if (urlMatch && urlMatch[1]) {
+                cleanMeetingId = urlMatch[1];
+            }
+        }
         
         const directMp4 = await getZoomDirectMp4Link(cleanMeetingId);
         
         if (directMp4) {
-            // 🔥 වෙනස මෙතනයි! Redirect කරන්නේ නෑ, කෙලින්ම ලින්ක් එක JSON එකක් විදිහට යවනවා
             return res.status(200).json({ mp4Link: directMp4 }); 
         } else {
-            return res.status(404).json({ error: "Zoom recording not found or expired." });
+            return res.status(404).json({ error: "Zoom recording direct MP4 not found or expired." });
         }
     } catch (error) {
         console.error("Zoom Fetch Error:", error);

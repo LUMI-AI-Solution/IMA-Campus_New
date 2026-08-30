@@ -108,8 +108,8 @@ router.put('/course-setup/batch/toggle-status', controller.toggleBatchStatus);
 
 // ================= ZOOM DYNAMIC DOWNLOAD ROUTE =================
 // 🔥 NEW: Zoom API එක හරහා fresh MP4 ලින්ක් එකක් අරන් App එකට JSON එකක් විදිහට දෙන Route එක 🔥
-// මෙතන controller.getZoomDirectLinkJson කියලා දාන්න
 router.get('/mobile/zoom-direct-link/:contentId', controller.getZoomDirectLinkJson);
+router.get('/zoom-direct-link/:contentId', controller.getZoomDirectLinkJson);
 
 // ================= APP EVENTS (ANIMATIONS) =================
 // 🔥 Admin Panel එකෙන් Animation එක Set කරන්න සහ බලන්න 🔥

@@ -7,6 +7,9 @@ import ClassTeacherManagement from '../PhysicalCRM/ClassTeacherManagement';
 import AttendancePortal from '../PhysicalCRM/AttendancePortal';
 import CashFlowPortal from '../PhysicalCRM/CashFlowPortal';
 import PhysicalTimetable from '../PhysicalCRM/PhysicalTimetable';
+import FinancialReports from '../PhysicalCRM/FinancialReports';
+import LecturerReports from '../PhysicalCRM/LecturerReports';
+import StudentReports from '../PhysicalCRM/StudentReports';
 
 export default function PhysicalManagerDashboard() {
   const { tab } = useParams();
@@ -17,8 +20,11 @@ export default function PhysicalManagerDashboard() {
     registration: 'Student Registration',
     staff: 'Teachers & Classes',
     attendance: 'Student Attendance Portal',
+    'student-reports': 'Student Reports & Attendance Matrix',
     finance: 'Cash Flow Portal',
-    timetable: 'Class Timetable'
+    timetable: 'Class Timetable',
+    reports: 'Financial Reports & Analytics',
+    'lecturer-reports': 'Lecturer Reports & Monthly Invoices'
   };
 
   return (
@@ -45,10 +51,15 @@ export default function PhysicalManagerDashboard() {
           {activeTab === 'registration' && <StudentRegistration />}
           {activeTab === 'staff' && <ClassTeacherManagement />}
           {activeTab === 'attendance' && <AttendancePortal />}
+          {activeTab === 'student-reports' && <StudentReports />}
           {activeTab === 'finance' && <CashFlowPortal />}
           {activeTab === 'timetable' && <PhysicalTimetable />}
+          {activeTab === 'reports' && <FinancialReports />}
+          {activeTab === 'lecturer-reports' && <LecturerReports />}
       </div>
       
     </div>
   );
 }
+
+

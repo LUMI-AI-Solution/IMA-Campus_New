@@ -15,7 +15,7 @@ import {
   Info
 } from 'lucide-react';
 import api from '../../../api/axios';
-import { unicodeToLegacy, splitCaptionsWordByWord, splitCaptionsByChunks, ensureSequentialCues } from '../../../utils/sinhalaFontConverter';
+import { unicodeToLegacy, splitCaptionsWordByWord, splitCaptionsByChunks, splitCaptionsByScriptSync, ensureSequentialCues } from '../../../utils/sinhalaFontConverter';
 import { extractFastAudioBlob } from '../../../utils/audioExtractor';
 
 export default function VideoEditor() {
@@ -24,6 +24,9 @@ export default function VideoEditor() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStage, setProcessingStage] = useState('');
   const [captions, setCaptions] = useState([]);
+  const [rawWordCues, setRawWordCues] = useState([]);
+  const [rawSegments, setRawSegments] = useState([]);
+  const [captionMode, setCaptionMode] = useState('sync'); // Default to 🎯 Auto Script & Voice Sync
   const [videoDuration, setVideoDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [selectedCaption, setSelectedCaption] = useState(null);
@@ -39,8 +42,8 @@ export default function VideoEditor() {
   const [globalStyles, setGlobalStyles] = useState({
     fontFamily: 'sans-serif',
     isLegacyFont: false,
-    fontSize: 32,
-    color: '#ffffff',
+    fontSize: 44,
+    color: '#facc15', // Vibrant Yellow
     strokeColor: '#000000',
     strokeWidth: 2,
     shadowColor: '#000000',
@@ -56,6 +59,8 @@ export default function VideoEditor() {
       setVideoFile(file);
       setVideoUrl(URL.createObjectURL(file));
       setCaptions([]);
+      setRawWordCues([]);
+      setRawSegments([]);
     }
   };
 
@@ -76,7 +81,7 @@ export default function VideoEditor() {
         formData.append('video', videoFile);
       }
       
-      setProcessingStage('2/2 AI Transcribing...');
+      setProcessingStage('2/2 AI Transcribing & Syncing Script...');
       
       const response = await api.post('/social-media/video-editor/upload', formData, {
         headers: {
@@ -86,8 +91,17 @@ export default function VideoEditor() {
       });
       
       const data = response.data;
-      setCaptions(data.captions || []);
-      alert(`Success! Generated ${data.captions?.length || 0} word-by-word caption blocks in seconds.`);
+      const wordCues = data.captions || [];
+      const segments = data.rawSegments || [];
+      setRawWordCues(wordCues);
+      setRawSegments(segments);
+
+      // Auto Script Sync by default
+      const initialChunked = splitCaptionsByScriptSync(segments, wordCues, 28, false);
+      setCaptions(initialChunked);
+      setCaptionMode('sync');
+
+      alert(`Success! Generated ${initialChunked.length} natural script-synced caption blocks matching video voice pauses.`);
     } catch (error) {
       console.error('[VideoEditor Error]:', error);
       const errMsg = error.response?.data?.error || error.message || 'Network error during upload';
@@ -135,34 +149,45 @@ export default function VideoEditor() {
 
   // 1. Export CapCut Word-by-Word (FM-Abhaya Encoded)
   const handleExportCapCutWordByWord = () => {
-    const granular = splitCaptionsWordByWord(captions, true);
+    const source = rawWordCues.length > 0 ? rawWordCues : captions;
+    const granular = splitCaptionsWordByWord(source, true);
     downloadSRT(granular, 'capcut_word_by_word_fm_abhaya.srt');
   };
 
   // 2. Export CapCut Phrase Chunks (FM-Abhaya Encoded)
-  const handleExportCapCutChunks = () => {
-    const chunked = splitCaptionsByChunks(captions, 3, true);
-    downloadSRT(chunked, 'capcut_phrase_chunks_fm_abhaya.srt');
+  const handleExportCapCutChunks = (modeChoice = captionMode) => {
+    let chunked = [];
+    if (modeChoice === 'sync') {
+      chunked = splitCaptionsByScriptSync(rawSegments, rawWordCues, 28, true);
+    } else {
+      const targetSize = (modeChoice >= 99) ? 3 : modeChoice;
+      const source = rawWordCues.length > 0 ? rawWordCues : captions;
+      chunked = splitCaptionsByChunks(source, targetSize, true);
+    }
+    downloadSRT(chunked, `capcut_phrase_${modeChoice}_fm_abhaya.srt`);
   };
 
   // 3. Export CapCut Standard Sentence (FM-Abhaya Encoded)
   const handleExportCapCutSentences = () => {
-    const fmCaptions = captions.map(c => ({
+    const source = rawSegments.length > 0 ? rawSegments : captions;
+    const fmCaptions = source.map(c => ({
       ...c,
-      text: unicodeToLegacy(c.text)
+      text: unicodeToLegacy(c.text || c.originalText)
     }));
     downloadSRT(fmCaptions, 'capcut_sentences_fm_abhaya.srt');
   };
 
   // 4. Export Unicode Word-by-Word
   const handleExportUnicodeWordByWord = () => {
-    const granular = splitCaptionsWordByWord(captions, false);
+    const source = rawWordCues.length > 0 ? rawWordCues : captions;
+    const granular = splitCaptionsWordByWord(source, false);
     downloadSRT(granular, 'captions_word_by_word_unicode.srt');
   };
 
   // 5. Export Standard Unicode SRT
   const handleExportUnicodeStandard = () => {
-    downloadSRT(captions, 'captions_standard_unicode.srt');
+    const source = rawSegments.length > 0 ? rawSegments : captions;
+    downloadSRT(source, 'captions_standard_unicode.srt');
   };
 
   // Export Hardcoded Video Render with FFmpeg
@@ -248,11 +273,71 @@ export default function VideoEditor() {
     setSelectedCaption(newCap);
   };
 
-  const rechunkCaptions = (chunkSize = 1) => {
-    if (captions.length === 0) return;
-    const rechunked = (chunkSize === 1) 
-      ? splitCaptionsWordByWord(captions, false) 
-      : splitCaptionsByChunks(captions, chunkSize, false);
+  // Merge selected cue with the next cue to match custom script phrases
+  const mergeWithNextCue = (currentCap) => {
+    if (!currentCap) return;
+    const currentIndex = captions.findIndex(c => c.id === currentCap.id);
+    if (currentIndex === -1 || currentIndex >= captions.length - 1) return;
+
+    const nextCap = captions[currentIndex + 1];
+    const mergedCap = {
+      ...currentCap,
+      end: nextCap.end,
+      text: `${currentCap.text} ${nextCap.text}`.trim(),
+      originalText: `${currentCap.originalText || currentCap.text} ${nextCap.originalText || nextCap.text}`.trim()
+    };
+
+    setCaptions(prev => {
+      const copy = [...prev];
+      copy.splice(currentIndex, 2, mergedCap);
+      return copy;
+    });
+    setSelectedCaption(mergedCap);
+  };
+
+  // Split selected cue into two sub-phrases
+  const splitCurrentCue = (currentCap) => {
+    if (!currentCap || !currentCap.text) return;
+    const words = currentCap.text.trim().split(/\s+/);
+    if (words.length <= 1) return;
+
+    const mid = Math.ceil(words.length / 2);
+    const firstHalf = words.slice(0, mid).join(' ');
+    const secondHalf = words.slice(mid).join(' ');
+    const midTime = parseFloat(((currentCap.start + currentCap.end) / 2).toFixed(2));
+
+    const cap1 = { ...currentCap, end: midTime, text: firstHalf, originalText: firstHalf };
+    const cap2 = { id: Date.now(), start: midTime, end: currentCap.end, text: secondHalf, originalText: secondHalf };
+
+    setCaptions(prev => {
+      const currentIndex = prev.findIndex(c => c.id === currentCap.id);
+      const copy = [...prev];
+      copy.splice(currentIndex, 1, cap1, cap2);
+      return copy;
+    });
+    setSelectedCaption(cap1);
+  };
+
+  const rechunkCaptions = (modeChoice = 'sync') => {
+    setCaptionMode(modeChoice);
+    const sourceCues = rawWordCues.length > 0 ? rawWordCues : captions;
+    if (sourceCues.length === 0) return;
+
+    let rechunked = [];
+    if (modeChoice === 'sync') {
+      rechunked = splitCaptionsByScriptSync(rawSegments, rawWordCues, 28, false);
+    } else if (modeChoice >= 99 && rawSegments.length > 0) {
+      rechunked = rawSegments.map((s, idx) => ({
+        id: idx + 1,
+        start: s.start,
+        end: s.end,
+        text: s.text,
+        originalText: s.text
+      }));
+    } else {
+      rechunked = splitCaptionsByChunks(sourceCues, modeChoice, false);
+    }
+
     setCaptions(rechunked);
     if (selectedCaption) {
       const match = rechunked.find(r => r.id === selectedCaption.id) || rechunked[0];
@@ -383,6 +468,56 @@ export default function VideoEditor() {
             </button>
           )}
 
+          {/* Caption Grouping Option Selector */}
+          <div className="flex items-center gap-1 bg-black/40 border border-white/10 p-1 rounded-xl shadow-inner">
+            <span className="text-[10px] text-slate-400 font-extrabold px-2 uppercase tracking-wider">Style:</span>
+            <button
+              onClick={() => rechunkCaptions('sync')}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                captionMode === 'sync' ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/40 font-black scale-105' : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+              title="Syncs naturally with video audio pauses & script clauses"
+            >
+              🎯 Script & Voice Sync
+            </button>
+            <button
+              onClick={() => rechunkCaptions(1)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                captionMode === 1 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/40 font-black scale-105' : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+              title="1 word at a time (TikTok pop style)"
+            >
+              ⚡ 1-Word
+            </button>
+            <button
+              onClick={() => rechunkCaptions(2)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                captionMode === 2 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/40 font-black scale-105' : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+              title="2 words phrase (Clean 2-word layout)"
+            >
+              💬 2-Words
+            </button>
+            <button
+              onClick={() => rechunkCaptions(3)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                captionMode === 3 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/40 font-black scale-105' : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+              title="3 words phrase (Viral Reels/Shorts pace)"
+            >
+              🔥 3-Words
+            </button>
+            <button
+              onClick={() => rechunkCaptions(999)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                captionMode >= 99 ? 'bg-indigo-600 text-white shadow-md shadow-indigo-600/40 font-black scale-105' : 'text-slate-400 hover:text-white hover:bg-white/5'
+              }`}
+              title="Full sentence blocks"
+            >
+              📜 Sentences
+            </button>
+          </div>
+
           {videoFile && (
             <button 
               onClick={handleProcessVideo}
@@ -425,7 +560,7 @@ export default function VideoEditor() {
               {activeCaption && (
                  <div className="absolute bottom-12 left-0 right-0 text-center pointer-events-none px-10">
                     <span 
-                      className="font-black drop-shadow-2xl px-4 py-2 bg-black/60 backdrop-blur-md rounded-xl inline-block" 
+                      className="font-black drop-shadow-2xl px-4 py-2 inline-block tracking-wide" 
                       style={{ 
                         fontFamily: globalStyles.fontFamily,
                         fontSize: `${globalStyles.fontSize}px`,
@@ -446,31 +581,55 @@ export default function VideoEditor() {
                 <div className="flex items-center gap-2">
                   <p className="text-slate-300 font-black text-xs uppercase tracking-wider">Word Timeline</p>
                   <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full font-bold">
-                    {captions.length} Words/Cues
+                    {captions.length} {captionMode === 1 ? 'Words' : captionMode === 2 ? '2-Word Phrases' : captionMode === 3 ? '3-Word Phrases' : 'Sentences'}
                   </span>
 
                   {captions.length > 0 && (
                     <div className="flex items-center gap-1 ml-3 bg-black/40 p-0.5 rounded-lg border border-white/5">
                       <button
-                        onClick={() => rechunkCaptions(1)}
-                        className="text-[10px] bg-indigo-600 hover:bg-indigo-500 text-white font-black px-2 py-0.5 rounded transition-all shadow"
-                        title="Split into single 1-word pop cues (TikTok / CapCut Viral Style)"
+                        onClick={() => rechunkCaptions('sync')}
+                        className={`text-[10px] px-2 py-0.5 rounded transition-all font-bold ${
+                          captionMode === 'sync' ? 'bg-emerald-600 text-white font-black shadow' : 'bg-white/5 hover:bg-white/15 text-slate-300'
+                        }`}
+                        title="Sync naturally with voice pauses & script clauses"
                       >
-                        ⚡ 1-Word (Pop)
+                        🎯 Script & Voice Sync
+                      </button>
+                      <button
+                        onClick={() => rechunkCaptions(1)}
+                        className={`text-[10px] px-2 py-0.5 rounded transition-all font-bold ${
+                          captionMode === 1 ? 'bg-indigo-600 text-white font-black shadow' : 'bg-white/5 hover:bg-white/15 text-slate-300'
+                        }`}
+                        title="Split into single 1-word pop cues"
+                      >
+                        ⚡ 1-Word
                       </button>
                       <button
                         onClick={() => rechunkCaptions(2)}
-                        className="text-[10px] bg-white/5 hover:bg-white/15 text-slate-300 font-bold px-2 py-0.5 rounded transition-all"
+                        className={`text-[10px] px-2 py-0.5 rounded transition-all font-bold ${
+                          captionMode === 2 ? 'bg-indigo-600 text-white font-black shadow' : 'bg-white/5 hover:bg-white/15 text-slate-300'
+                        }`}
                         title="Split into 2-word phrases"
                       >
-                        2-Words
+                        💬 2-Words
                       </button>
                       <button
                         onClick={() => rechunkCaptions(3)}
-                        className="text-[10px] bg-white/5 hover:bg-white/15 text-slate-300 font-bold px-2 py-0.5 rounded transition-all"
+                        className={`text-[10px] px-2 py-0.5 rounded transition-all font-bold ${
+                          captionMode === 3 ? 'bg-indigo-600 text-white font-black shadow' : 'bg-white/5 hover:bg-white/15 text-slate-300'
+                        }`}
                         title="Split into 3-word cards"
                       >
-                        3-Words
+                        🔥 3-Words
+                      </button>
+                      <button
+                        onClick={() => rechunkCaptions(999)}
+                        className={`text-[10px] px-2 py-0.5 rounded transition-all font-bold ${
+                          captionMode >= 99 ? 'bg-indigo-600 text-white font-black shadow' : 'bg-white/5 hover:bg-white/15 text-slate-300'
+                        }`}
+                        title="Full sentences"
+                      >
+                        📜 Sentences
                       </button>
                     </div>
                   )}
@@ -584,6 +743,32 @@ export default function VideoEditor() {
                             onChange={(e) => updateCaption(selectedCaption.id, 'text', e.target.value)}
                             className="w-full bg-black/50 border border-white/10 rounded-lg p-2 text-white text-xs outline-none focus:border-indigo-400"
                         />
+                      </div>
+
+                      {/* Script Phrase Adjuster & Grouping Buttons */}
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <button 
+                          onClick={() => mergeWithNextCue(selectedCaption)}
+                          className="bg-indigo-900/40 hover:bg-indigo-600/60 text-indigo-200 border border-indigo-500/30 text-[10px] font-bold py-1.5 px-1.5 rounded-lg transition-colors flex items-center justify-center gap-1"
+                          title="Merge this cue with the next cue to group natural script phrases"
+                        >
+                          🔗 Merge Next
+                        </button>
+                        <button 
+                          onClick={() => splitCurrentCue(selectedCaption)}
+                          className="bg-amber-900/40 hover:bg-amber-600/60 text-amber-200 border border-amber-500/30 text-[10px] font-bold py-1.5 px-1.5 rounded-lg transition-colors flex items-center justify-center gap-1"
+                          title="Split this cue into two shorter phrases"
+                        >
+                          ✂️ Split
+                        </button>
+                        <button 
+                          onClick={() => ungroupCue(selectedCaption)}
+                          disabled={!selectedCaption?.text || selectedCaption.text.trim().split(/\s+/).length <= 1}
+                          className="bg-emerald-900/40 hover:bg-emerald-600/60 text-emerald-200 border border-emerald-500/30 text-[10px] font-bold py-1.5 px-1.5 rounded-lg transition-colors flex items-center justify-center gap-1 disabled:opacity-40 cursor-pointer"
+                          title="Ungroup this multi-word cue into individual single-word cues"
+                        >
+                          🔓 Ungroup
+                        </button>
                       </div>
 
                       {/* FM-Abhaya Code Box with 1-Click Copy */}

@@ -222,7 +222,7 @@ export default function ClassTimetable() {
         setEditStartTime(evt.startTime || '');
         setEditEndTime(evt.endTime || '');
         setEditLecturer(evt.lecturerName || '');
-        setEditDate(evt.date ? evt.date.split('T')[0] : '');
+        setEditDate(evt.date ? getLocalDateStr(evt.date) : '');
         setIsEditing(true);
     };
 
@@ -542,7 +542,7 @@ export default function ClassTimetable() {
                             <div>
                                 <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-2 leading-tight transition-colors">{selectedEvent.subjectName}</h3>
                                 <span className="bg-brand-accentLight text-brand-accent px-3 py-1.5 rounded-lg text-[10px] uppercase font-black tracking-widest border border-brand-accent/20 transition-colors">
-                                    {selectedEvent.date.split('T')[0]}
+                                    {getLocalDateStr(selectedEvent.date)}
                                 </span>
                             </div>
                             <button onClick={() => setShowViewModal(false)} className="bg-gray-100 dark:bg-brand-darkBg p-2.5 rounded-xl border border-gray-200 dark:border-brand-darkBorder text-gray-500 dark:text-slate-400 hover:text-gray-900 hover:bg-gray-200 dark:hover:text-white dark:hover:bg-brand-darkHover transition-colors shrink-0 outline-none"><X size={18}/></button>

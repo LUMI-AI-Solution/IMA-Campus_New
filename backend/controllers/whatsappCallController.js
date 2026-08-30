@@ -124,8 +124,6 @@ exports.handleWebhookEvent = async (req, res) => {
             
             // Check for incoming messages/calls
             if (field === 'messages' && change.value.messages) {
-                const { PrismaClient } = require('@prisma/client');
-                const prisma = new PrismaClient();
                 const { getIo } = require('./chatController');
                 const io = getIo();
                 
@@ -415,9 +413,7 @@ exports.answerCall = async (req, res) => {
                     console.warn("No userId found in req.user for answerCall notification");
                     return;
                 }
-                const { PrismaClient } = require('@prisma/client');
-                const tempPrisma = new PrismaClient();
-                const user = await tempPrisma.user.findUnique({ where: { id: parseInt(userId, 10) } });
+                const user = await prisma.user.findUnique({ where: { id: parseInt(userId, 10) } });
                 const businessType = user?.businessType ? String(user.businessType).trim() : "ALL";
                 
                 io.to(`wa_call_agent_idle_${businessType}`).emit('whatsapp_call_answered_by_other', {
@@ -823,8 +819,6 @@ const fs = require('fs');
 
 const processAiAnalysisInBackground = async (filePath, filename, callId, leadPhone, duration, agentId, prompt, reqDirection) => {
     try {
-        const { PrismaClient } = require('@prisma/client');
-        const prisma = new PrismaClient();
         
         console.log(`[WhatsApp Call Background] Starting AI analysis for ${filename}`);
         const base64Data = fs.readFileSync(filePath, { encoding: 'base64' });

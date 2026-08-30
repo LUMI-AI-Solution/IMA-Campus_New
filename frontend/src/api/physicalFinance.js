@@ -1,12 +1,10 @@
-import axios from 'axios';
-import toast from 'react-hot-toast';
-
-const API_URL = '/api/physical-finance';
+import api from './axios';
 
 export const physicalFinanceService = {
+  // Transactions
   getTransactions: async (date) => {
     try {
-      const response = await axios.get(`${API_URL}/transactions`, { params: { date } });
+      const response = await api.get('/physical-finance/transactions', { params: { date } });
       return response.data;
     } catch (error) {
       console.error("Error fetching transactions:", error);
@@ -15,7 +13,7 @@ export const physicalFinanceService = {
   },
   addTransaction: async (data) => {
     try {
-      const response = await axios.post(`${API_URL}/transactions`, data);
+      const response = await api.post('/physical-finance/transactions', data);
       return response.data;
     } catch (error) {
       console.error("Error adding transaction:", error);
@@ -24,16 +22,67 @@ export const physicalFinanceService = {
   },
   deleteTransaction: async (id) => {
     try {
-      const response = await axios.delete(`${API_URL}/transactions/${id}`);
+      const response = await api.delete(`/physical-finance/transactions/${id}`);
       return response.data;
     } catch (error) {
       console.error("Error deleting transaction:", error);
       throw error;
     }
   },
+
+  // Categories Management
+  getCategories: async (type) => {
+    try {
+      const response = await api.get('/physical-finance/categories', { params: { type } });
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching categories:", error);
+      return [];
+    }
+  },
+  addCategory: async (data) => {
+    try {
+      const response = await api.post('/physical-finance/categories', data);
+      return response.data;
+    } catch (error) {
+      console.error("Error adding category:", error);
+      throw error;
+    }
+  },
+  updateCategory: async (id, data) => {
+    try {
+      const response = await api.put(`/physical-finance/categories/${id}`, data);
+      return response.data;
+    } catch (error) {
+      console.error("Error updating category:", error);
+      throw error;
+    }
+  },
+  deleteCategory: async (id) => {
+    try {
+      const response = await api.delete(`/physical-finance/categories/${id}`);
+      return response.data;
+    } catch (error) {
+      console.error("Error deleting category:", error);
+      throw error;
+    }
+  },
+
+  // Financial Reports & Analytics
+  getReports: async (params) => {
+    try {
+      const response = await api.get('/physical-finance/reports', { params });
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching financial reports:", error);
+      throw error;
+    }
+  },
+
+  // Settings
   getDefaultRegFee: async () => {
     try {
-      const response = await axios.get(`${API_URL}/settings/default-reg-fee`);
+      const response = await api.get('/physical-finance/settings/default-reg-fee');
       return response.data;
     } catch (error) {
       console.error("Error fetching default reg fee:", error);
@@ -42,7 +91,7 @@ export const physicalFinanceService = {
   },
   setDefaultRegFee: async (amount) => {
     try {
-      const response = await axios.post(`${API_URL}/settings/default-reg-fee`, { amount });
+      const response = await api.post('/physical-finance/settings/default-reg-fee', { amount });
       return response.data;
     } catch (error) {
       console.error("Error setting default reg fee:", error);
@@ -50,3 +99,5 @@ export const physicalFinanceService = {
     }
   }
 };
+
+export default physicalFinanceService;

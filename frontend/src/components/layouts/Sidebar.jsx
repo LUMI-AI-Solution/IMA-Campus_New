@@ -79,15 +79,38 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
   useEffect(() => {
     const fetchTodayClasses = async () => {
       try {
-        const teachersRes = await physicalCrmService.getTeachers();
+        const [classesRes, teachersRes] = await Promise.all([
+          physicalCrmService.getClasses(),
+          physicalCrmService.getTeachers()
+        ]);
         const todayStr = new Date().toLocaleDateString('en-US', { weekday: 'long' });
 
         const slots = [];
-        teachersRes.forEach(teacher => {
+
+        // 1. From Classes
+        (classesRes || []).forEach(cls => {
+          if (cls.timetables) {
+            cls.timetables.forEach(slot => {
+              if (slot.dayOfWeek === todayStr) {
+                const teacherNameStr = cls.teachers && cls.teachers.length > 0
+                  ? cls.teachers.map(t => t.name).join(', ')
+                  : 'No Teacher Assigned';
+                slots.push({
+                  startTime: slot.startTime,
+                  endTime: slot.endTime,
+                  teacherName: teacherNameStr,
+                  className: `${cls.name} (${cls.grade})`,
+                });
+              }
+            });
+          }
+        });
+
+        // 2. From direct teacher timetables (if any)
+        (teachersRes || []).forEach(teacher => {
           if (teacher.timetables) {
             teacher.timetables.forEach(slot => {
-              if (slot.dayOfWeek === todayStr) {
-                // Determine class names from multiple classes
+              if (slot.dayOfWeek === todayStr && !slot.classId) {
                 let classNameStr = 'Unassigned Class';
                 if (teacher.classes && teacher.classes.length > 0) {
                   classNameStr = teacher.classes.map(c => c.name).join(', ');
@@ -103,7 +126,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
           }
         });
 
-        slots.sort((a, b) => a.startTime.localeCompare(b.startTime));
+        slots.sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
         setTodayClasses(slots);
       } catch (err) {
         console.error('Failed to load classes', err);

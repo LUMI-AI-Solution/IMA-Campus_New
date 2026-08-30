@@ -138,16 +138,36 @@ exports.requestUnlock = async (req, res) => {
 exports.approveUnlock = async (req, res) => {
     try {
         const { taskId, additionalHours, managerId } = req.body;
-        const newDeadline = new Date(Date.now() + parseInt(additionalHours) * 60 * 60 * 1000);
+        const hoursNum = parseInt(additionalHours);
+        const validHours = (!isNaN(hoursNum) && hoursNum > 0) ? hoursNum : 12;
+        const newDeadline = new Date(Date.now() + validHours * 60 * 60 * 1000);
+        
         const updatedTask = await prisma.task.update({
             where: { id: parseInt(taskId) },
             data: { 
-                status: "IN_PROGRESS", isUnlocked: true, unlockedBy: parseInt(managerId),
-                deadline: newDeadline, unlockReason: null 
+                status: "IN_PROGRESS", 
+                isUnlocked: true, 
+                unlockedBy: managerId ? parseInt(managerId) : null,
+                deadline: newDeadline, 
+                unlockReason: null 
             }
         });
+        
+        // Also update any subtasks under this parent task
+        await prisma.task.updateMany({
+            where: { parentId: parseInt(taskId) },
+            data: { 
+                status: "IN_PROGRESS", 
+                isUnlocked: true, 
+                deadline: newDeadline 
+            }
+        });
+
         res.status(200).json({ message: "Task Unlocked", task: updatedTask });
-    } catch (error) { res.status(500).json({ error: "Failed to unlock task" }); }
+    } catch (error) { 
+        console.error("Error unlocking task:", error);
+        res.status(500).json({ error: "Failed to unlock task" }); 
+    }
 };
 
 exports.getTaskTemplates = async (req, res) => {

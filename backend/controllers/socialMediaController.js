@@ -185,6 +185,7 @@ Output MUST be a single valid JSON object strictly matching this schema:
             videoUrl, 
             videoPath, 
             captions,
+            rawSegments,
             message: "Word-by-word transcription successful"
         });
 

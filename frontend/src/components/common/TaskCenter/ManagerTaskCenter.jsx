@@ -89,7 +89,9 @@ export default function ManagerTaskCenter({ loggedInUser }) {
     const handleApproveUnlock = async (e) => {
         e.preventDefault();
         try {
-            await api.post('/admin/tasks/approve-unlock', { taskId: selectedTask.id, additionalHours: new FormData(e.target.value).get('hours'), managerId: loggedInUser.id });
+            const formData = new FormData(e.target);
+            const hours = formData.get('hours') || 12;
+            await api.post('/admin/tasks/approve-unlock', { taskId: selectedTask.id, additionalHours: hours, managerId: loggedInUser.id });
             toast.success("Task unlocked!");
             setShowUnlockModal(false); fetchTasks();
         } catch (e) { toast.error("Failed to approve unlock"); }

@@ -273,62 +273,36 @@ exports.getLeads = async (req, res) => {
             ];
         }
 
-        const allLeadsForCounts = await prisma.lead.findMany({
-            where: countWhere
-        });
+        const userAssignedFilter = (!isManager) 
+            ? { OR: [{ assignedTo: parseInt(userId) }, { callCenterRequestedBy: parseInt(userId) }] }
+            : (staffId && staffId !== '' ? { assignedTo: parseInt(staffId) } : {});
 
-        let counts = { NEW: 0, IMPORTED: 0, ASSIGNED: 0, ALL: 0 };
-        let unreadCounts = { NEW: 0, IMPORTED: 0, ASSIGNED: 0, ALL: 0 };
-        let totalUnread = 0;
-        let ccPendingCount = 0;
-        let ccApprovedCount = 0;
+        const [
+            totalAllCount,
+            assignedCount,
+            assignedUnread,
+            newCount,
+            newUnread,
+            importedCount,
+            importedUnread,
+            totalUnread,
+            ccPendingCount,
+            ccApprovedCount
+        ] = await Promise.all([
+            prisma.lead.count({ where: countWhere }),
+            prisma.lead.count({ where: { ...countWhere, assignedTo: { not: null }, ...userAssignedFilter } }),
+            prisma.lead.count({ where: { ...countWhere, assignedTo: { not: null }, unreadCount: { gt: 0 }, ...userAssignedFilter } }),
+            prisma.lead.count({ where: { ...countWhere, status: { in: ['NEW', 'OPEN'] }, assignedTo: null, OR: [{ callCenterRequestStatus: null }, { callCenterRequestStatus: 'REJECTED' }] } }),
+            prisma.lead.count({ where: { ...countWhere, status: { in: ['NEW', 'OPEN'] }, assignedTo: null, unreadCount: { gt: 0 }, OR: [{ callCenterRequestStatus: null }, { callCenterRequestStatus: 'REJECTED' }] } }),
+            prisma.lead.count({ where: { ...countWhere, source: { in: ['import', 'bulk_import'] }, ...userAssignedFilter } }),
+            prisma.lead.count({ where: { ...countWhere, source: { in: ['import', 'bulk_import'] }, unreadCount: { gt: 0 }, ...userAssignedFilter } }),
+            prisma.lead.count({ where: { ...countWhere, unreadCount: { gt: 0 }, ...userAssignedFilter } }),
+            prisma.lead.count({ where: { ...countWhere, callCenterRequestStatus: 'REQUESTED', ...userAssignedFilter } }),
+            prisma.lead.count({ where: { ...countWhere, callCenterRequestStatus: 'APPROVED', ...userAssignedFilter } })
+        ]);
 
-        let totalAllCount = 0;
-
-        allLeadsForCounts.forEach(l => {
-            // 🔥 FIX: Everyone sees the TRUE total for ALL leads
-            totalAllCount++;
-
-            let belongsToUser = false;
-            if (!isManager) {
-                if (l.assignedTo === parseInt(userId) || l.callCenterRequestedBy === parseInt(userId)) belongsToUser = true;
-            } else {
-                if (staffId && staffId !== '') {
-                    if (l.assignedTo === parseInt(staffId)) belongsToUser = true;
-                } else {
-                    belongsToUser = true;
-                }
-            }
-
-            if (belongsToUser) {
-                if (l.callCenterRequestStatus === 'REQUESTED') ccPendingCount++;
-                if (l.callCenterRequestStatus === 'APPROVED') ccApprovedCount++;
-
-                if (l.assignedTo) {
-                    counts.ASSIGNED++;
-                    if (l.unreadCount > 0) unreadCounts.ASSIGNED++;
-                }
-
-                if (l.campaignType === (campaignType || 'FREE_SEMINAR')) {
-                    if ((l.status === 'NEW' || l.status === 'OPEN') && !l.assignedTo && (!l.callCenterRequestStatus || l.callCenterRequestStatus === 'REJECTED')) {
-                        counts.NEW++;
-                        if (l.unreadCount > 0) unreadCounts.NEW++;
-                    }
-                    if (l.source === 'import' || l.source === 'bulk_import') {
-                        counts.IMPORTED++;
-                        if (l.unreadCount > 0) unreadCounts.IMPORTED++;
-                    }
-                }
-            }
-
-            // Unread ALL should reflect user's unread leads (to avoid confusing unread counts on leads they didn't see)
-            if (belongsToUser && l.unreadCount > 0) {
-                totalUnread++;
-                unreadCounts.ALL++;
-            }
-        });
-
-        counts.ALL = totalAllCount;
+        const counts = { NEW: newCount, IMPORTED: importedCount, ASSIGNED: assignedCount, ALL: totalAllCount };
+        const unreadCounts = { NEW: newUnread, IMPORTED: importedUnread, ASSIGNED: assignedUnread, ALL: totalUnread };
 
         if (!res.headersSent) {
             return res.status(200).json({ leads: cleanedLeads, counts, unreadCounts, totalUnread, ccPendingCount, ccApprovedCount });
@@ -687,10 +661,8 @@ exports.receiveMessage = async (req, res) => {
 
                 if (!receivingWaNumId && body.entry && body.entry[0] && body.entry[0].id) {
                     const waId = String(body.entry[0].id).trim();
-                    const { PrismaClient } = require('@prisma/client');
-                    const tempPrisma = new PrismaClient();
                     // We must await this, but we are inside an async function already
-                    const allSettings = await tempPrisma.crmSettings.findMany({ select: { waId: true, waNumId: true } });
+                    const allSettings = await prisma.crmSettings.findMany({ select: { waId: true, waNumId: true } });
                     const settings = allSettings.find(s => s.waId && s.waId.trim() === waId);
                     if (settings && settings.waNumId) {
                         receivingWaNumId = settings.waNumId;
@@ -707,15 +679,13 @@ exports.receiveMessage = async (req, res) => {
                     let businessRingtoneUrl = null;
                     try {
                         if (receivingWaNumId) {
-                            const { PrismaClient } = require('@prisma/client');
-                            const tempPrisma = new PrismaClient();
-                            const settings = await tempPrisma.crmSettings.findFirst({
+                            const settings = await prisma.crmSettings.findFirst({
                                 where: { waNumId: receivingWaNumId },
                                 include: { businesses: true }
                             });
                             
                             if (settings && settings.businessId) {
-                                const business = await tempPrisma.business.findUnique({
+                                const business = await prisma.business.findUnique({
                                     where: { id: settings.businessId }
                                 });
                                 if (business && business.name) {
@@ -748,11 +718,8 @@ exports.receiveMessage = async (req, res) => {
                             let assignedTargetAgentId = null;
 
                             try {
-                                const { PrismaClient } = require('@prisma/client');
-                                const tempPrisma = new PrismaClient();
-                                
                                 if (receivingWaNumId) {
-                                    const settings = await tempPrisma.crmSettings.findFirst({
+                                    const settings = await prisma.crmSettings.findFirst({
                                         where: { waNumId: receivingWaNumId }
                                     });
                                     if (settings && settings.businessId) {
@@ -765,7 +732,7 @@ exports.receiveMessage = async (req, res) => {
                                     leadWhere.batch = { businessId: businessIdForLog };
                                 }
 
-                                const lead = await tempPrisma.lead.findFirst({
+                                const lead = await prisma.lead.findFirst({
                                     where: leadWhere,
                                     include: { batch: { include: { business: true } } }
                                 });
@@ -773,7 +740,7 @@ exports.receiveMessage = async (req, res) => {
                                 if (lead) {
                                     if (lead.name) leadName = lead.name;
                                     if (lead.assignedTo) {
-                                        const staff = await tempPrisma.user.findUnique({
+                                        const staff = await prisma.user.findUnique({
                                             where: { id: lead.assignedTo },
                                             select: { id: true, agentStatus: true, role: true }
                                         });
@@ -805,9 +772,7 @@ exports.receiveMessage = async (req, res) => {
                             // Capture Pool Snapshot
                             let poolSnapshot = [];
                             try {
-                                const { PrismaClient } = require('@prisma/client');
-                                const tempPrisma = new PrismaClient();
-                                const agentsInBiz = await tempPrisma.user.findMany({
+                                const agentsInBiz = await prisma.user.findMany({
                                     where: { businessType: businessType },
                                     select: { id: true, firstName: true, lastName: true, agentStatus: true, appChatUsername: true }
                                 });
@@ -824,21 +789,21 @@ exports.receiveMessage = async (req, res) => {
                                     let filterWhere = { phone: { startsWith: phone } };
                                     if (businessIdForLog) filterWhere.batch = { businessId: businessIdForLog };
                                     
-                                    let lead = await tempPrisma.lead.findFirst({ where: filterWhere });
+                                    let lead = await prisma.lead.findFirst({ where: filterWhere });
                                     
                                     if (!lead && phone.startsWith('94')) {
                                         filterWhere.phone = { startsWith: '0' + phone.substring(2) };
-                                        lead = await tempPrisma.lead.findFirst({ where: filterWhere });
+                                        lead = await prisma.lead.findFirst({ where: filterWhere });
                                     }
                                     if (!lead && phone.startsWith('0')) {
                                         filterWhere.phone = { startsWith: '94' + phone.substring(1) };
-                                        lead = await tempPrisma.lead.findFirst({ where: filterWhere });
+                                        lead = await prisma.lead.findFirst({ where: filterWhere });
                                     }
                                     
                                     if (lead && lead.campaignType) resolvedCampaignType = lead.campaignType;
                                 }
 
-                                await tempPrisma.whatsAppCallRecord.create({
+                                await prisma.whatsAppCallRecord.create({
                                     data: {
                                         callId: callData.id,
                                         leadPhone: callData.from,
@@ -1014,11 +979,33 @@ exports.receiveMessage = async (req, res) => {
             });
             if (existingMessage) return res.status(200).send("EVENT_RECEIVED");
 
-            const settings = await prisma.crmSettings.findFirst({
-                where: { waNumId: receivingWaNumId }
+            const allMatchingSettings = await prisma.crmSettings.findMany({
+                where: { waNumId: receivingWaNumId },
+                orderBy: { updatedAt: 'desc' }
             });
 
-            if (!settings) return res.status(200).send("EVENT_RECEIVED");
+            if (!allMatchingSettings || allMatchingSettings.length === 0) return res.status(200).send("EVENT_RECEIVED");
+
+            let settings = null;
+            if (allMatchingSettings.length === 1) {
+                settings = allMatchingSettings[0];
+            } else {
+                const existingLeadForRouting = await prisma.lead.findFirst({
+                    where: {
+                        OR: [
+                            { phone: phone },
+                            { phone: { startsWith: `${phone}_BIZ_` } }
+                        ]
+                    },
+                    orderBy: { updatedAt: 'desc' }
+                });
+
+                if (existingLeadForRouting && existingLeadForRouting.campaignType) {
+                    settings = allMatchingSettings.find(s => s.campaignType === existingLeadForRouting.campaignType) || allMatchingSettings[0];
+                } else {
+                    settings = allMatchingSettings[0];
+                }
+            }
 
             let mediaUrl = null;
             let mediaType = null;
@@ -1142,6 +1129,15 @@ exports.receiveMessage = async (req, res) => {
                 await prisma.chatMessage.create({
                     data: { leadId: existingLead.id, message: messageText, mediaUrl: mediaUrl, mediaType: mediaType, direction: 'inbound', senderType: 'USER', senderName: name, metaMessageId: metaMsgId }
                 });
+
+                try {
+                    const { getIo } = require('./chatController');
+                    const io = getIo();
+                    if (io) {
+                        io.emit('new_inbound_message', { leadId: existingLead.id, businessId: settings.businessId });
+                        io.emit('lead_updated', { leadId: existingLead.id, businessId: settings.businessId });
+                    }
+                } catch (err) {}
 
                 // 🔥 OPT OUT KEYWORD CHECK (Always run this, even if sequence is completed)
                 const stopKeywords = ['stop', 'unsubscribe', 'epa', 'nepa', 'නතර කරන්න', settings.btnStopText?.toLowerCase()];
@@ -2248,12 +2244,10 @@ exports.getCampaignStats = async (req, res) => {
 
         const agentMap = {};
         leads.forEach(l => {
-            if (!l.assignedTo) return;
-            
             const isAgentCC = l.assignedUser && isCallCenterRole(l.assignedUser.role);
             const status = getEffectiveStatus(l, isAgentCC);
 
-            // If the lead is requested for Call Center but not yet assigned to an agent,
+            // If the lead is requested for Call Center but not yet assigned to a CC agent,
             // we put them in a "Call Center Queue" so they aren't lost in the math.
             if (status === 'call_center') {
                 const ccName = "CC Pending Assignment";
@@ -2264,6 +2258,8 @@ exports.getCampaignStats = async (req, res) => {
                 agentMap[ccName].pending++;
                 return;
             }
+
+            if (!l.assignedTo) return;
             const name = l.assignedUser?.firstName || "Staff";
             if (!agentMap[name]) agentMap[name] = { agentName: name, role: l.assignedUser?.role || "Coordinator", assigned: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0 };
 

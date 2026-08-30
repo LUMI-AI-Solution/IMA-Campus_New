@@ -26,18 +26,36 @@ export default function ContentHubViews({ state, actions }) {
         return 'https://imacampus.online/api';
     };
 
+    const normalizeFolderTitle = (title) => {
+        if (!title) return '';
+        return title
+            .toLowerCase()
+            .replace(/[\s_-]+/g, ' ')
+            .replace(/\b(month|batch|මාසය|මාස|පාඩම|පාඩම්)\b/gi, '')
+            .trim();
+    };
+
     const isItemInFolder = (c, folder) => {
         const fId = c.content_group_id ?? c.contentGroupId ?? c.folder_id;
         if (fId && String(fId) === String(folder.id)) return true;
         const itemGroupTitle = c.groupTitle || c.group?.title;
-        if (itemGroupTitle && folder?.title && itemGroupTitle.trim().toLowerCase() === folder.title.trim().toLowerCase()) return true;
+        if (itemGroupTitle && folder?.title) {
+            const rawItem = itemGroupTitle.trim().toLowerCase();
+            const rawFolder = folder.title.trim().toLowerCase();
+            if (rawItem === rawFolder) return true;
+
+            const normItem = normalizeFolderTitle(itemGroupTitle);
+            const normFolder = normalizeFolderTitle(folder.title);
+            if (normItem && normFolder && normItem === normFolder) return true;
+        }
         return false;
     };
 
     const isUncategorized = (c) => {
+        const activeFolders = (lessonGroups || []).filter(isMatchedType);
         const fId = c.content_group_id ?? c.contentGroupId ?? c.folder_id;
         if (!fId) return true;
-        const hasMatch = (lessonGroups || []).some(folder => isItemInFolder(c, folder));
+        const hasMatch = activeFolders.some(folder => isItemInFolder(c, folder));
         return !hasMatch;
     };
 

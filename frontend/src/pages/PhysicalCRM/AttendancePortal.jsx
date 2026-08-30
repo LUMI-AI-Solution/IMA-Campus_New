@@ -1,11 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from '../../api/axios';
 import physicalCrmService from '../../api/physicalCrm';
-import { User, CheckCircle, XCircle, Search, ToggleLeft, ToggleRight, CalendarDays, BookOpen, Save, ChevronLeft, ChevronRight, History, X, Clock } from 'lucide-react';
+import { 
+  User, CheckCircle, XCircle, Search, ToggleLeft, ToggleRight, 
+  CalendarDays, BookOpen, Save, ChevronLeft, ChevronRight, 
+  History, X, Clock, DollarSign, CreditCard, Check
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, subMonths, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday } from 'date-fns';
 
 export default function AttendancePortal() {
+    const [searchParams] = useSearchParams();
     const [scanInput, setScanInput] = useState('');
     const [searchResults, setSearchResults] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
@@ -14,6 +20,7 @@ export default function AttendancePortal() {
     const [autoMark, setAutoMark] = useState(false);
     const [studentData, setStudentData] = useState(null);
     const [attendances, setAttendances] = useState([]);
+    const [feePayments, setFeePayments] = useState([]);
     const [availableClasses, setAvailableClasses] = useState([]);
     const [selectedClassId, setSelectedClassId] = useState('');
     const [loading, setLoading] = useState(false);
@@ -32,6 +39,14 @@ export default function AttendancePortal() {
     useEffect(() => {
         autoMarkRef.current = autoMark;
     }, [autoMark]);
+
+    // Check for query parameter on mount to auto-load student
+    useEffect(() => {
+        const studentIdParam = searchParams.get('studentId') || searchParams.get('search');
+        if (studentIdParam) {
+            handleScan(studentIdParam);
+        }
+    }, [searchParams]);
 
     // Live search debouncer for Scanner / Search input
     useEffect(() => {
@@ -91,7 +106,8 @@ export default function AttendancePortal() {
         try {
             const res = await axios.get(`/physical-crm/student-scan/${encodeURIComponent(studentIdentifier)}`);
             setStudentData(res.data.student);
-            setAttendances(res.data.attendances);
+            setAttendances(res.data.attendances || []);
+            setFeePayments(res.data.feePayments || res.data.student?.feePayments || []);
             setAvailableClasses(res.data.availableClasses || []);
             
             if (autoMarkRef.current) {
@@ -103,6 +119,7 @@ export default function AttendancePortal() {
             toast.error(error.response?.data?.error || 'Student not found');
             setStudentData(null);
             setAttendances([]);
+            setFeePayments([]);
         } finally {
             setLoading(false);
         }
@@ -157,6 +174,43 @@ export default function AttendancePortal() {
         }
     };
 
+    // Toggle / Mark Class Fee Payment
+    const handleClassFeePayment = async (classId, monthStr, currentStatus) => {
+        if (!studentData) return;
+        const newStatus = (currentStatus === 'PAID' || currentStatus === 'FREE_CARD') ? 'PENDING' : 'PAID';
+        try {
+            const res = await physicalCrmService.toggleFeePayment({
+                studentId: studentData.id,
+                classId,
+                month: monthStr,
+                status: newStatus,
+                paymentMethod: 'CASH'
+            });
+
+            toast.success(`Class Fee marked as ${newStatus} & logged in Cash Flow!`);
+            
+            // Reload student
+            handleScan(studentData.studentId || studentData.id);
+        } catch (err) {
+            toast.error('Failed to record class fee payment');
+        }
+    };
+
+    // Mark Registration Fee Payment
+    const handleRegistrationFeePayment = async () => {
+        if (!studentData) return;
+        try {
+            const updated = await physicalCrmService.updateStudent(studentData.id, {
+                ...studentData,
+                registrationFeeStatus: 'PAID'
+            });
+            setStudentData(updated);
+            toast.success('Registration Fee marked as PAID & logged in Cash Flow!');
+        } catch (err) {
+            toast.error('Failed to update registration fee');
+        }
+    };
+
     // Render Single Month Calendar Component
     const renderCalendarMonth = (baseDate, compact = false) => {
         const start = startOfMonth(baseDate);
@@ -171,7 +225,7 @@ export default function AttendancePortal() {
                 <div className="flex justify-between items-center mb-4">
                     <button
                         onClick={() => setViewMonth(prev => subMonths(prev, 1))}
-                        className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all border border-white/10"
+                        className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all border border-white/10 cursor-pointer"
                         title="Previous Month"
                     >
                         <ChevronLeft size={18} />
@@ -179,7 +233,7 @@ export default function AttendancePortal() {
                     <h3 className="font-extrabold text-white text-xl tracking-wide">{format(baseDate, 'MMMM yyyy')}</h3>
                     <button
                         onClick={() => setViewMonth(prev => addMonths(prev, 1))}
-                        className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all border border-white/10"
+                        className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all border border-white/10 cursor-pointer"
                         title="Next Month"
                     >
                         <ChevronRight size={18} />
@@ -224,6 +278,23 @@ export default function AttendancePortal() {
         );
     };
 
+    // Extract distinct enrolled classes list for student
+    const studentEnrolledClasses = React.useMemo(() => {
+        if (!studentData) return [];
+        const map = new Map();
+        if (studentData.class) {
+            map.set(studentData.class.id, studentData.class);
+        }
+        if (studentData.enrollments) {
+            studentData.enrollments.forEach(e => {
+                if (e.class) map.set(e.class.id, e.class);
+            });
+        }
+        return Array.from(map.values());
+    }, [studentData]);
+
+    const activeMonthStr = format(viewMonth, 'yyyy-MM');
+
     return (
         <div className="p-4 md:p-6 h-full flex flex-col xl:flex-row gap-6 text-white relative max-w-[1700px] mx-auto animate-in fade-in duration-300">
             <input 
@@ -235,7 +306,7 @@ export default function AttendancePortal() {
             />
 
             {/* Left Panel: Scanner & Student Profile */}
-            <div className="w-full xl:w-[420px] flex flex-col gap-6">
+            <div className="w-full xl:w-[460px] flex flex-col gap-6">
                 
                 {/* Scanner Card with Live Student Autocomplete */}
                 <div className="bg-black/40 backdrop-blur-xl border border-white/20 p-6 rounded-[2rem] shadow-[0_8px_32px_rgba(0,0,0,0.3)] relative z-30">
@@ -300,7 +371,7 @@ export default function AttendancePortal() {
                                                 <h4 className="font-bold text-white text-sm group-hover:text-blue-300 transition-colors">
                                                     {s.studentName || `${s.firstName || ''} ${s.lastName || ''}`}
                                                 </h4>
-                                                <p className="text-xs text-white/60 font-mono">
+                                                <p className="text-xs text-white/60">
                                                     {s.studentId} {s.phone ? `• 📞 ${s.phone}` : ''}
                                                 </p>
                                             </div>
@@ -316,108 +387,156 @@ export default function AttendancePortal() {
                 </div>
 
                 {/* Student Details Card */}
-                <div className="bg-black/40 backdrop-blur-xl border border-white/20 p-6 rounded-[2rem] shadow-[0_8px_32px_rgba(0,0,0,0.3)] flex-1 flex flex-col relative overflow-hidden min-h-[320px]">
+                <div className="bg-black/40 backdrop-blur-xl border border-white/20 p-6 rounded-[2rem] shadow-[0_8px_32px_rgba(0,0,0,0.3)] flex-1 flex flex-col relative overflow-hidden min-h-[460px] max-h-[780px]">
                     {loading && (
                         <div className="absolute inset-0 bg-black/60 backdrop-blur-md z-20 flex items-center justify-center">
                             <div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin shadow-[0_0_15px_rgba(59,130,246,0.5)]"></div>
                         </div>
                     )}
                     
-                    <h2 className="text-2xl font-bold text-white flex items-center gap-2 mb-6 drop-shadow-md">
-                        <User className="text-purple-400" /> Student Profile
+                    <h2 className="text-2xl font-bold text-white flex items-center gap-2 mb-4 drop-shadow-md shrink-0">
+                        <User className="text-purple-400" /> Student Profile & Fees
                     </h2>
 
                     {studentData ? (
-                        <div className="space-y-5 animate-fade-in">
+                        <div className="space-y-4 overflow-y-auto pr-1.5 custom-scrollbar flex-1 animate-fade-in">
                             <div className="flex items-center gap-4 bg-gradient-to-r from-white/10 to-transparent p-4 rounded-2xl border border-white/10 shadow-sm">
-                                <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 flex items-center justify-center text-xl font-bold shadow-lg border-2 border-white/20">
+                                <div className="w-14 h-14 rounded-full bg-gradient-to-tr from-purple-500 to-blue-500 flex items-center justify-center text-xl font-bold shadow-lg border-2 border-white/20 shrink-0">
                                     {(studentData.studentName || studentData.firstName || 'S')[0]}
                                 </div>
-                                <div>
-                                    <h3 className="text-xl font-bold drop-shadow-sm">{studentData.studentName || `${studentData.firstName} ${studentData.lastName}`}</h3>
-                                    <p className="text-white/50 font-mono text-sm">{studentData.studentId}</p>
+                                <div className="min-w-0">
+                                    <h3 className="text-lg font-bold drop-shadow-sm truncate">{studentData.studentName || `${studentData.firstName} ${studentData.lastName}`}</h3>
+                                    <p className="text-red-400 font-bold text-xs mt-0.5">{studentData.studentId}</p>
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-2 gap-3">
                                 <div className="bg-white/5 p-3 rounded-xl border border-white/5 shadow-inner">
-                                    <p className="text-[10px] text-white/50 uppercase tracking-wider mb-1 font-bold">Phone</p>
-                                    <p className="font-semibold text-sm">{studentData.phone || 'N/A'}</p>
+                                    <p className="text-xs text-white/50 uppercase tracking-wider mb-1 font-semibold">Phone</p>
+                                    <p className="font-semibold text-xs text-white truncate">{studentData.phone || 'N/A'}</p>
                                 </div>
                                 <div className="bg-white/5 p-3 rounded-xl border border-white/5 shadow-inner">
-                                    <p className="text-[10px] text-white/50 uppercase tracking-wider mb-1 font-bold">Parent</p>
-                                    <p className="font-semibold text-sm truncate">{studentData.guardianName || studentData.guardianPhone || 'N/A'}</p>
+                                    <p className="text-xs text-white/50 uppercase tracking-wider mb-1 font-semibold">Guardian</p>
+                                    <p className="font-semibold text-xs text-white truncate">{studentData.guardianPhone || studentData.guardianName || 'N/A'}</p>
                                 </div>
                             </div>
 
-                            <div className="bg-white/5 p-4 rounded-xl border border-white/5 shadow-inner flex items-center justify-between">
+                            {/* Registration Fee Box */}
+                            <div className="bg-white/5 p-3.5 rounded-xl border border-white/10 shadow-inner flex items-center justify-between">
                                 <div>
-                                    <p className="text-[10px] text-white/50 uppercase tracking-wider mb-1 font-bold">Registration Fee</p>
+                                    <p className="text-xs text-white/50 uppercase tracking-wider mb-1 font-semibold">Registration Fee</p>
                                     <div className="flex items-center gap-2">
                                         {studentData.registrationFeeStatus === 'PAID' ? (
-                                            <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-1 rounded-md text-xs border border-emerald-500/20">PAID</span>
+                                            <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2.5 py-0.5 rounded-md text-xs border border-emerald-500/20">PAID ✓</span>
                                         ) : (
-                                            <span className="text-amber-400 font-bold bg-amber-500/10 px-2.5 py-1 rounded-md text-xs border border-amber-500/20">PENDING</span>
+                                            <span className="text-amber-400 font-bold bg-amber-500/10 px-2.5 py-0.5 rounded-md text-xs border border-amber-500/20">PENDING ⏳</span>
+                                        )}
+                                        {studentData.registrationFeeAmount > 0 && (
+                                            <span className="text-xs text-white/60 font-semibold">Rs. {Number(studentData.registrationFeeAmount).toLocaleString()}</span>
                                         )}
                                     </div>
                                 </div>
                                 {studentData.registrationFeeStatus !== 'PAID' && (
                                     <button
-                                        onClick={async () => {
-                                            try {
-                                                const updated = await physicalCrmService.updateStudent(studentData.id, {
-                                                    ...studentData,
-                                                    registrationFeeStatus: 'PAID'
-                                                });
-                                                setStudentData(updated);
-                                                toast.success('Registration Fee marked as PAID!');
-                                            } catch (err) {
-                                                toast.error('Failed to update fee status');
-                                            }
-                                        }}
-                                        className="bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold px-3.5 py-2 rounded-lg shadow-lg hover:shadow-emerald-500/30 transition-all"
+                                        onClick={handleRegistrationFeePayment}
+                                        className="bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-bold px-3 py-1.5 rounded-lg shadow-lg hover:shadow-emerald-500/30 transition-all cursor-pointer"
                                     >
                                         Mark Paid
                                     </button>
                                 )}
                             </div>
 
-                            <div className="bg-white/5 p-4 rounded-xl border border-white/5 shadow-inner">
-                                <p className="text-[10px] text-white/50 uppercase tracking-wider mb-2 font-bold">Allocated Classes (Multi-Class)</p>
-                                <div className="flex flex-wrap gap-1.5 mb-3">
-                                    {studentData.enrollments && studentData.enrollments.length > 0 ? (
-                                        studentData.enrollments.map(e => (
-                                            <div key={e.id} className="flex items-center gap-1.5 text-emerald-400 font-bold bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/20 text-xs shadow-sm">
-                                                <BookOpen size={14} />
-                                                {e.class?.name || 'Class'}
+                            {/* Monthly Class Fees Box (for Active Month) */}
+                            <div className="bg-white/5 p-3.5 rounded-xl border border-white/10 shadow-inner space-y-2.5">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-1.5 text-xs font-bold text-white">
+                                        <CreditCard size={14} className="text-red-400" />
+                                        <span>Monthly Class Fees ({format(viewMonth, 'MMMM yyyy')})</span>
+                                    </div>
+                                </div>
+
+                                {studentEnrolledClasses.length === 0 ? (
+                                    <p className="text-xs text-amber-400/80 italic py-1">No classes allocated yet.</p>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {studentEnrolledClasses.map(cls => {
+                                            const pRecord = feePayments.find(p => p.classId === cls.id && p.month === activeMonthStr);
+                                            const isPaid = pRecord && (pRecord.status === 'PAID' || pRecord.status === 'FREE_CARD');
+
+                                            return (
+                                                <div 
+                                                    key={cls.id} 
+                                                    className="bg-white/5 p-2.5 rounded-xl border border-white/5 flex items-center justify-between gap-2"
+                                                >
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs font-bold text-white truncate">{cls.name}</p>
+                                                        <p className="text-[11px] text-emerald-400 font-semibold">Fee: Rs. {cls.monthlyFee || 0}</p>
+                                                    </div>
+
+                                                    <button
+                                                        onClick={() => handleClassFeePayment(cls.id, activeMonthStr, isPaid ? 'PAID' : 'PENDING')}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm ${
+                                                            isPaid 
+                                                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30'
+                                                                : 'bg-red-600 hover:bg-red-500 text-white shadow-md'
+                                                        }`}
+                                                    >
+                                                        {isPaid ? (
+                                                            <>
+                                                                <Check size={12} />
+                                                                <span>PAID ✓</span>
+                                                            </>
+                                                        ) : (
+                                                            <span>Mark Paid</span>
+                                                        )}
+                                                    </button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Allocated Classes List & Class Allocator */}
+                            <div className="bg-white/5 p-3.5 rounded-xl border border-white/10 shadow-inner space-y-2">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-xs text-white/50 uppercase tracking-wider font-semibold">Allocated Classes</p>
+                                    <span className="text-xs bg-white/10 px-2 py-0.5 rounded-full text-white/70 font-bold">
+                                        {studentEnrolledClasses.length} Classes
+                                    </span>
+                                </div>
+                                
+                                <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1 custom-scrollbar">
+                                    {studentEnrolledClasses.length > 0 ? (
+                                        studentEnrolledClasses.map(cls => (
+                                            <div key={cls.id} className="flex items-center gap-1.5 text-emerald-300 font-semibold bg-emerald-500/15 px-2.5 py-1 rounded-lg border border-emerald-500/25 text-xs">
+                                                <BookOpen size={13} className="text-emerald-400" />
+                                                <span>{cls.name}</span>
                                             </div>
                                         ))
-                                    ) : studentData.class ? (
-                                        <div className="flex items-center gap-1.5 text-emerald-400 font-bold bg-emerald-500/10 px-3 py-1.5 rounded-xl border border-emerald-500/20 text-xs shadow-sm">
-                                            <BookOpen size={14} />
-                                            {studentData.class.name}
-                                        </div>
                                     ) : (
-                                        <p className="text-xs text-amber-400 font-semibold">No classes assigned yet</p>
+                                        <p className="text-xs text-amber-400 font-semibold py-1">No classes assigned yet</p>
                                     )}
                                 </div>
 
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 pt-2 border-t border-white/10">
                                     <select 
                                         value={selectedClassId}
                                         onChange={(e) => setSelectedClassId(e.target.value)}
-                                        className="flex-1 bg-white/10 border border-white/20 rounded-xl px-3 py-2 text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 text-xs shadow-inner"
+                                        className="flex-1 min-w-0 bg-slate-800 border border-white/20 rounded-xl px-3 py-2 text-white outline-none focus:border-blue-500 text-xs cursor-pointer truncate"
                                     >
-                                        <option value="" className="text-black">+ Add another class...</option>
+                                        <option value="">+ Add another class...</option>
                                         {availableClasses.map(c => (
-                                            <option key={c.id} value={c.id} className="text-black">{c.name}</option>
+                                            <option key={c.id} value={c.id}>{c.name} ({c.grade})</option>
                                         ))}
                                     </select>
                                     <button 
+                                        type="button"
                                         onClick={allocateClass}
-                                        className="bg-blue-600 hover:bg-blue-500 px-3 py-2 rounded-xl transition-colors shadow-lg hover:shadow-blue-500/30 text-xs font-bold flex items-center gap-1"
+                                        className="bg-blue-600 hover:bg-blue-500 px-3.5 py-2 rounded-xl transition-colors text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer shadow-md text-white active:scale-95"
                                     >
-                                        <Save size={16} /> Add
+                                        <Save size={14} />
+                                        <span>Add</span>
                                     </button>
                                 </div>
                             </div>
@@ -446,16 +565,15 @@ export default function AttendancePortal() {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        {/* History Modal Trigger Button */}
                         <button
                             onClick={() => setIsHistoryModalOpen(true)}
-                            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-extrabold rounded-xl text-xs shadow-lg shadow-purple-600/30 transition-all border border-purple-400/30"
+                            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold rounded-xl text-xs shadow-lg transition-all cursor-pointer"
                         >
                             <History size={16} /> View Full History 📅
                         </button>
 
                         {studentData && (
-                            <div className="bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 px-3.5 py-2 rounded-full text-xs font-bold flex items-center gap-2 shadow-[0_0_15px_rgba(16,185,129,0.2)]">
+                            <div className="bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 px-3.5 py-2 rounded-full text-xs font-bold flex items-center gap-2">
                                 <CheckCircle size={16} /> Ready
                             </div>
                         )}
@@ -474,7 +592,7 @@ export default function AttendancePortal() {
                     <div className="bg-slate-900 border border-white/20 rounded-3xl p-6 sm:p-8 max-w-2xl w-full text-white shadow-2xl relative space-y-6 max-h-[90vh] flex flex-col">
                         <button
                             onClick={() => setIsHistoryModalOpen(false)}
-                            className="absolute top-4 right-4 text-gray-400 hover:text-white p-2"
+                            className="absolute top-4 right-4 text-gray-400 hover:text-white p-2 cursor-pointer"
                         >
                             <X size={20} />
                         </button>
@@ -491,19 +609,17 @@ export default function AttendancePortal() {
                             </div>
                         </div>
 
-                        {/* Summary Pill */}
                         <div className="bg-white/5 border border-white/10 p-4 rounded-2xl flex items-center justify-between">
                             <div>
                                 <p className="text-xs text-white/50 uppercase font-bold tracking-wider">Total Days Present</p>
-                                <p className="text-2xl font-extrabold text-emerald-400 mt-0.5">{attendances.filter(a => a.status === 'PRESENT').length} Days</p>
+                                <p className="text-2xl font-bold text-emerald-400 mt-0.5">{attendances.filter(a => a.status === 'PRESENT').length} Days</p>
                             </div>
                             <div className="text-right">
-                                <p className="text-xs text-white/50 uppercase font-bold tracking-wider font-mono">Student ID</p>
-                                <p className="text-sm font-bold text-white font-mono">{studentData?.studentId || 'N/A'}</p>
+                                <p className="text-xs text-white/50 uppercase font-bold tracking-wider">Student ID</p>
+                                <p className="text-sm font-bold text-white">{studentData?.studentId || 'N/A'}</p>
                             </div>
                         </div>
 
-                        {/* Attendance Log List */}
                         <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar space-y-2.5">
                             {attendances.length === 0 ? (
                                 <div className="text-center py-12 text-gray-400">
@@ -519,10 +635,10 @@ export default function AttendancePortal() {
                                             </div>
                                             <div>
                                                 <p className="font-bold text-sm text-white">{format(new Date(att.date), 'EEEE, MMMM dd, yyyy')}</p>
-                                                <p className="text-[11px] text-white/50">Recorded automatically in physical portal</p>
+                                                <p className="text-xs text-white/50">Recorded automatically in physical portal</p>
                                             </div>
                                         </div>
-                                        <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full text-xs font-extrabold uppercase tracking-wider">
+                                        <span className="px-3 py-1 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full text-xs font-bold uppercase tracking-wider">
                                             PRESENT
                                         </span>
                                     </div>

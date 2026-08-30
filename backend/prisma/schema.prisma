@@ -281,6 +281,9 @@ model Payment {
 
   bankTransactions BankTransaction[]
   auditLogs        PaymentAuditLog[]
+
+  @@index([studentId, batchId, status], name: "idx_pay_student_batch")
+  @@index([created_at], name: "idx_pay_created")
 }
 
 model PaymentAuditLog {
@@ -446,6 +449,17 @@ model Lead {
   waCallPermissionNotified Boolean @default(true)
 
   callCampaignAuditLogs CallCampaignAuditLog[]
+
+  @@index([campaignType, batchId, assignedTo], name: "idx_lead_camp_batch_assign")
+  @@index([campaignType, status, assignedTo], name: "idx_lead_camp_status_assign")
+  @@index([campaignType, inquiryType, assignedTo], name: "idx_lead_camp_inquiry_assign")
+  @@index([campaignType, unreadCount, lastMessageAt], name: "idx_lead_camp_unread_msg")
+  @@index([campaignType, source], name: "idx_lead_camp_source")
+  @@index([openSemRound, assignedAt], name: "idx_lead_opensem_round")
+  @@index([newInqRound, assignedAt], name: "idx_lead_newinq_round")
+  @@index([coordinationRound, assignedAt], name: "idx_lead_coord_round")
+  @@index([updatedAt], name: "idx_lead_updated_at")
+  @@index([lastMessageAt], name: "idx_lead_last_msg_at")
 }
 
 // 🔥 NEW MODEL: To keep the history and specific data per each round 🔥
@@ -489,6 +503,9 @@ model ChatMessage {
   isRead        Boolean  @default(false)
   createdAt     DateTime @default(now())
   metaMessageId String?
+
+  @@index([leadId, createdAt], name: "idx_chat_lead_created")
+  @@index([leadId, isRead], name: "idx_chat_lead_unread")
 }
 
 model AutoAssignQuota {
@@ -870,6 +887,8 @@ model PhysicalStudent {
 
   attendances PhysicalAttendance[]
   enrollments PhysicalStudentClassEnrollment[]
+  transactions PhysicalTransaction[]
+  feePayments  PhysicalClassFeePayment[]
 }
 
 model PhysicalAttendance {
@@ -896,17 +915,41 @@ model PhysicalStudentClassEnrollment {
 }
 
 model PhysicalClass {
-  id        Int               @id @default(autoincrement())
-  name      String
-  grade     String
-  stream    String?
-  subject   String?
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
-  teachers  PhysicalTeacher[]
-  students  PhysicalStudent[]
+  id          Int               @id @default(autoincrement())
+  name        String
+  grade       String
+  stream      String?
+  subject     String?
+  monthlyFee  Float?            @default(0)
+  startMonth  String?
+  activeMonths Json?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  teachers    PhysicalTeacher[]
+  students    PhysicalStudent[]
   enrollments PhysicalStudentClassEnrollment[]
-  timetables PhysicalTimetable[]
+  timetables  PhysicalTimetable[]
+  feePayments PhysicalClassFeePayment[]
+}
+
+model PhysicalClassFeePayment {
+  id            Int             @id @default(autoincrement())
+  studentId     Int
+  student       PhysicalStudent @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classId       Int
+  class         PhysicalClass   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  month         String          // Format: "YYYY-MM" (e.g. "2025-01", "2025-02")
+  amount        Float           @default(0)
+  status        String          @default("PAID") // "PAID", "PENDING", "FREE_CARD", "HALF_PAYMENT"
+  paidDate      DateTime        @default(now())
+  paymentMethod String?         @default("CASH") // "CASH", "CARD", "BANK_TRANSFER"
+  remark        String?         @db.Text
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@unique([studentId, classId, month])
+  @@index([classId, month])
+  @@index([studentId])
 }
 
 model PhysicalTeacher {
@@ -933,11 +976,11 @@ model PhysicalTimetable {
   startTime String
   endTime   String
 
-  teacherId Int
-  teacher   PhysicalTeacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+  teacherId Int?
+  teacher   PhysicalTeacher? @relation(fields: [teacherId], references: [id], onDelete: Cascade)
 
   classId   Int?
-  class     PhysicalClass?  @relation(fields: [classId], references: [id], onDelete: SetNull)
+  class     PhysicalClass?  @relation(fields: [classId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1004,6 +1047,8 @@ model WebInquiry {
   updatedAt      DateTime @updatedAt
   
   messages       WebInquiryMessage[]
+
+  @@index([businessId, status, assignedTo], name: "idx_webinq_biz_status")
 }
 
 model WebInquiryMessage {
@@ -1069,6 +1114,9 @@ model WhatsAppCallRecord {
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  @@index([agentId, createdAt], name: "idx_wacall_agent_created")
+  @@index([businessId, createdAt], name: "idx_wacall_biz_created")
 }
 
 model SystemAuditLog {
@@ -1155,4 +1203,60 @@ model SocialMediaTask {
   createdAt               DateTime  @default(now())
   updatedAt               DateTime  @updatedAt
 }
+
+model PhysicalTransaction {
+  id          Int              @id @default(autoincrement())
+  type        String           // "INCOME" or "EXPENSE"
+  category    String           // "REGISTRATION", "UTILITY", "SUPPLIES", "REFUND", "OTHER" or custom category name
+  amount      Float
+  description String?          @db.Text
+  date        DateTime         @default(now())
+  
+  studentId   Int?
+  student     PhysicalStudent? @relation(fields: [studentId], references: [id], onDelete: SetNull)
+
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+}
+
+model PhysicalFinanceCategory {
+  id        Int      @id @default(autoincrement())
+  name      String
+  type      String   // "INCOME" or "EXPENSE"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([name, type])
+}
+
+model PhysicalCrmSetting {
+  id                     Int      @id @default(autoincrement())
+  esmsApiUrl             String?  @default("https://esms.mobitel.lk/esms/sendsms.php")
+  esmsUsername           String?
+  esmsPassword           String?
+  esmsSenderId           String?  @default("IMACAMPUS")
+  isAttendanceSmsEnabled Boolean  @default(false)
+  attendanceSmsTemplate  String?  @default("Dear Parent, {student_name} ({student_id}) has attended {class_name} class on {date} at {time}. - IMA Campus")
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
+model PhysicalSmsLog {
+  id             Int      @id @default(autoincrement())
+  studentId      Int?
+  classId        Int?
+  phone          String
+  guardianName   String?
+  studentName    String?
+  message        String   @db.Text
+  type           String   @default("ATTENDANCE") // "ATTENDANCE", "BULK", "FEE_REMINDER"
+  status         String   @default("SENT")       // "SENT", "FAILED"
+  gatewayResponse String? @db.Text
+  createdAt      DateTime @default(now())
+
+  @@index([studentId])
+  @@index([classId])
+  @@index([createdAt])
+}
+
 

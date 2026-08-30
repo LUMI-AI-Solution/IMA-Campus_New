@@ -15,8 +15,11 @@ export default function GlobalToolsMenu({ loggedInUser }) {
     const [activeWidget, setActiveWidget] = useState(null);
     const [unreadWebInq, setUnreadWebInq] = useState(0);
     const [activeCallPerms, setActiveCallPerms] = useState(0);
+    const [dueRemindersCount, setDueRemindersCount] = useState(0);
     const [isLumiAiActive, setIsLumiAiActive] = useState(false);
     const navigate = useNavigate();
+    const audioRef = React.useRef(null);
+    const notifiedReminderIds = React.useRef(new Set());
 
     useEffect(() => {
         const handleLumiAiState = (e) => {
@@ -39,6 +42,61 @@ export default function GlobalToolsMenu({ loggedInUser }) {
 
     const isCoordinator = ['COORDINATOR', 'CALLER', 'CALL_CENTER_AGENT', 'CALL_CENTER'].includes(roleUpper) || ['CLASS_COORDINATION', 'CALL_CENTER'].includes(deptUpper);
     const isCrmEligible = (isSystemAdmin || isCoordinator || isManager) && !isExcludedDept && !isStudent;
+
+    // 🔥 Global Background Reminder Check & Auto Pop-up 🔥
+    const checkDueRemindersGlobally = async () => {
+        try {
+            const agentId = loggedInUser?.id || loggedInUser?.userId;
+            if (!agentId || !isCrmEligible) return;
+
+            const res = await axios.get(`/reminders/my-reminders?agentId=${agentId}&status=active`);
+            if (Array.isArray(res.data)) {
+                const now = Date.now();
+                const due = res.data.filter(r => new Date(r.remindAt).getTime() <= now && !r.isCompleted);
+                setDueRemindersCount(due.length);
+
+                const newDue = due.filter(r => !notifiedReminderIds.current.has(r.id));
+                if (newDue.length > 0) {
+                    newDue.forEach(r => notifiedReminderIds.current.add(r.id));
+
+                    // 1. Auto POP UP the Reminders Widget on user screen
+                    setActiveWidget('reminders');
+
+                    // 2. Play Alarm Sound
+                    if (audioRef.current) {
+                        audioRef.current.currentTime = 0;
+                        audioRef.current.play().catch(e => console.log("Audio play error", e));
+                    }
+
+                    // 3. Prominent Toast
+                    toast(`⏰ Call Reminder Due (${newDue.length})!\n${newDue[0].phone || newDue[0].name || ''}: ${newDue[0].note || ''}`, {
+                        id: 'global_reminder_due_toast_' + Date.now(),
+                        duration: 7000,
+                        icon: '🔔',
+                        style: {
+                            borderRadius: '12px',
+                            background: '#1e1b4b',
+                            color: '#fbbf24',
+                            border: '1px solid #f59e0b',
+                            fontWeight: 'bold'
+                        }
+                    });
+                }
+            }
+        } catch (err) {
+            console.error("Global reminder fetch error", err);
+        }
+    };
+
+    useEffect(() => {
+        if (!loggedInUser || !isCrmEligible) return;
+        checkDueRemindersGlobally();
+        const remInterval = setInterval(() => {
+            checkDueRemindersGlobally();
+        }, 30000); // Check every 30 seconds
+
+        return () => clearInterval(remInterval);
+    }, [loggedInUser, isCrmEligible]);
 
     // 🔥 Hide floating Web Inquiries unread bubble for System Admin, keep for business managers & coordinators 🔥
     const showWebInqWidget = !isSystemAdmin && (isManager || isCoordinator);
@@ -122,13 +180,16 @@ export default function GlobalToolsMenu({ loggedInUser }) {
     const tools = [
         { id: 'call_permissions', icon: <PhoneCall size={20} />, label: 'Call Allowed Leads', color: 'bg-emerald-600', badge: activeCallPerms, visible: isCrmEligible },
         { id: 'notes', icon: <FileText size={20} />, label: 'My Notes', color: 'bg-blue-500', visible: true },
-        { id: 'reminders', icon: <Bell size={20} />, label: 'Reminders', color: 'bg-amber-500', visible: isCrmEligible },
+        { id: 'reminders', icon: <Bell size={20} />, label: 'Reminders', color: 'bg-amber-500', badge: dueRemindersCount, visible: isCrmEligible },
         { id: 'system_tasks', icon: <Wrench size={20} />, label: 'System Tasks', color: 'bg-brand-accent', visible: !isStudent },
         { id: 'ai_agent', icon: <Bot size={20} />, label: 'AI Agent', color: 'bg-purple-500', visible: !isStudent },
     ].filter(tool => tool.visible);
 
     return (
         <>
+            {/* Global Background Audio Player for Reminders */}
+            <audio ref={audioRef} src="/reminder_ringtone.mp3" preload="auto" />
+
             {/* Active Widget Overlay */}
             {activeWidget === 'call_permissions' && (
                 <CallPermissionsWidget asModal={true} onClose={() => setActiveWidget(null)} />

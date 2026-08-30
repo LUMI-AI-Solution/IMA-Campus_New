@@ -134,7 +134,7 @@ export default function CourseView({ courseId, onBack }) {
     };
 
     
-    const handlePlayVideo = async (item, type = 'zoom') => {
+    const handlePlayVideo = (item, type = 'zoom') => {
         setPlayType(type);
         setYtWarningAccepted(false);
         let url = '';
@@ -147,21 +147,7 @@ export default function CourseView({ courseId, onBack }) {
              setPlayingVideo({ ...item, secure_link: url });
              setNextVideo(findNextVideo(item));
         } else if (type === 'zoom') {
-             let finalLink = getEmbedUrl(url);
-             let isDirect = false;
-             if (item.meetingId || item.zoomMeetingId) {
-                 const mId = item.meetingId || item.zoomMeetingId;
-                 try {
-                     const res = await axios.get(`/mobile/zoom-direct-link/${mId}`);
-                     if (res.data && res.data.mp4Link) {
-                         finalLink = res.data.mp4Link;
-                         isDirect = true;
-                     }
-                 } catch (e) {
-                     console.log("Failed to fetch zoom direct mp4", e);
-                 }
-             }
-             setPlayingVideo({ ...item, secure_link: finalLink, isDirect });
+             setPlayingVideo({ ...item, secure_link: getEmbedUrl(url) });
              setNextVideo(findNextVideo(item));
         } else {
             if (url.includes('youtube.com') || url.includes('youtu.be')) {
@@ -264,10 +250,36 @@ export default function CourseView({ courseId, onBack }) {
             .filter(f => parseInt(f.type) === getTypeInt(activeTab))
             .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1));
 
-        // Merge folders with the exact same name (case-insensitive) to avoid UI duplicates
+        const normalizeFolderTitle = (title) => {
+            if (!title) return '';
+            return title
+                .toLowerCase()
+                .replace(/[\s_-]+/g, ' ')
+                .replace(/\b(month|batch|මාසය|මාස|පාඩම|පාඩම්)\b/gi, '')
+                .trim();
+        };
+
+        const isItemMatchFolder = (item, folder) => {
+            const fId = getFolderId(item);
+            if (folder.ids && folder.ids.includes(fId)) return true;
+            if (String(folder.id) === fId) return true;
+            const itemGroupTitle = item.groupTitle || item.group?.title;
+            if (itemGroupTitle && folder.title) {
+                const rawItem = itemGroupTitle.trim().toLowerCase();
+                const rawFolder = folder.title.trim().toLowerCase();
+                if (rawItem === rawFolder) return true;
+
+                const normItem = normalizeFolderTitle(itemGroupTitle);
+                const normFolder = normalizeFolderTitle(folder.title);
+                if (normItem && normFolder && normItem === normFolder) return true;
+            }
+            return false;
+        };
+
+        // Merge folders with the same or normalized name to avoid UI duplicates
         const mergedFoldersMap = new Map();
         folders.forEach(f => {
-            const titleKey = (f.title || '').trim().toLowerCase();
+            const titleKey = normalizeFolderTitle(f.title) || (f.title || '').trim().toLowerCase();
             if (!mergedFoldersMap.has(titleKey)) {
                 mergedFoldersMap.set(titleKey, { ...f, ids: [String(f.id)] });
             } else {
@@ -279,26 +291,12 @@ export default function CourseView({ courseId, onBack }) {
         const groupedItems = mergedFolders.map(folder => ({ 
             folder, 
             items: currentData
-                .filter(item => {
-                    const fId = getFolderId(item);
-                    if (folder.ids.includes(fId)) return true;
-                    const itemGroupTitle = item.groupTitle || item.group?.title;
-                    if (itemGroupTitle && folder.title && itemGroupTitle.trim().toLowerCase() === folder.title.trim().toLowerCase()) return true;
-                    return false;
-                })
+                .filter(item => isItemMatchFolder(item, folder))
                 .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1))
         }));
         
         const uncategorizedItems = currentData
-            .filter(item => {
-                const fId = getFolderId(item);
-                const itemGroupTitle = item.groupTitle || item.group?.title;
-                const hasFolder = folders.some(f => 
-                    String(f.id) === fId || 
-                    (itemGroupTitle && f.title && itemGroupTitle.trim().toLowerCase() === f.title.trim().toLowerCase())
-                );
-                return !hasFolder;
-            })
+            .filter(item => !mergedFolders.some(folder => isItemMatchFolder(item, folder)))
             .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1));
 
         return (
@@ -335,7 +333,7 @@ export default function CourseView({ courseId, onBack }) {
                     </div>
 
                     {/* 🔥 Mobile Guide for Zoom Cookies 🔥 */}
-                    {playType === 'zoom' && !playingVideo?.isDirect && (
+                    {playType === 'zoom' && (
                         <div className="md:hidden w-full mb-4 bg-blue-500/10 border border-blue-500/20 rounded-xl p-3.5 flex flex-col gap-1.5 text-sm text-blue-100 shadow-lg">
                             <div className="flex items-center gap-2 font-bold text-blue-400 mb-1">
                                 <Info size={18} /> Recording එක බලන නිවැරදි ආකාරය:
@@ -352,7 +350,7 @@ export default function CourseView({ courseId, onBack }) {
                     <div className="relative bg-black mx-auto w-full aspect-square md:aspect-video max-h-[85vh] md:max-h-[80vh] rounded-2xl md:rounded-[2rem] shadow-[0_0_40px_rgba(0,0,0,0.5)] border border-white/10 overflow-hidden">
                         
                         {/* 🔥 ZOOM MASK: Covers the top header of Zoom cloud player to hide download button 🔥 */}
-                        {playType === 'zoom' && !playingVideo?.isDirect && (
+                        {playType === 'zoom' && (
                             <div className="absolute top-0 left-0 w-full h-[70px] md:h-[64px] bg-[#000000] z-10"></div>
                         )}
 
@@ -361,18 +359,8 @@ export default function CourseView({ courseId, onBack }) {
                                 videoUrl={playingVideo.secure_link} 
                                 studentId={studentIdStr}
                             />
-                        ) : playingVideo?.isDirect ? (
-                            /* 🔥 NATIVE VIDEO PLAYER FOR ZOOM MP4 🔥 */
-                            <video 
-                                src={playingVideo.secure_link} 
-                                className="w-full h-full object-contain bg-black pointer-events-auto"
-                                controls
-                                controlsList="nodownload"
-                                onContextMenu={(e) => e.preventDefault()}
-                                autoPlay
-                            />
                         ) : (
-                            /* 🔥 FIXED IFRAME: Standard responsive iframe without shifting 🔥 */
+                            /* 🔥 FIXED IFRAME: Standard responsive iframe for Zoom recordings 🔥 */
                             <iframe 
                                 src={playingVideo.secure_link || getEmbedUrl(playingVideo.link)} 
                                 className="absolute inset-0 w-full h-full border-none pointer-events-auto bg-black"

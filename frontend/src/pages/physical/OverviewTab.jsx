@@ -43,6 +43,15 @@ export default function OverviewTab() {
       shadow: 'hover:shadow-amber-400/20'
     },
     { 
+      title: 'Student Reports & Matrix', 
+      image: '/card_registration.png',
+      path: '/physical/dashboard/student-reports', 
+      color: 'text-rose-400', 
+      bg: 'bg-rose-400/20',
+      border: 'hover:border-rose-400/50',
+      shadow: 'hover:shadow-rose-400/20'
+    },
+    { 
       title: 'Cash Flow Portal', 
       image: '/card_finance.png',
       path: '/physical/dashboard/finance', 
@@ -50,8 +59,27 @@ export default function OverviewTab() {
       bg: 'bg-indigo-400/20',
       border: 'hover:border-indigo-400/50',
       shadow: 'hover:shadow-indigo-400/20'
+    },
+    { 
+      title: 'Financial Reports', 
+      image: '/card_reports.png',
+      path: '/physical/dashboard/reports', 
+      color: 'text-rose-400', 
+      bg: 'bg-rose-400/20',
+      border: 'hover:border-rose-400/50',
+      shadow: 'hover:shadow-rose-400/20'
+    },
+    { 
+      title: 'Lecturer Reports', 
+      image: '/card_lecturer_reports.png',
+      path: '/physical/dashboard/lecturer-reports', 
+      color: 'text-cyan-400', 
+      bg: 'bg-cyan-400/20',
+      border: 'hover:border-cyan-400/50',
+      shadow: 'hover:shadow-cyan-400/20'
     }
   ];
+
 
   return (
     <div className="animate-fade-in w-full min-h-full pb-10">

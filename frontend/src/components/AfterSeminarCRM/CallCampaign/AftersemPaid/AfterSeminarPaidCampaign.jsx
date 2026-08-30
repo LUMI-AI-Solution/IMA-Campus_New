@@ -379,7 +379,17 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
     };
 
     const mappedLeads = useMemo(() => {
-        return leads.map(l => {
+        const uniqueMap = new Map();
+        (leads || []).forEach(l => {
+            const cleanPhone = (l.phone || '').split('_')[0].replace(/[^0-9]/g, '');
+            const key = cleanPhone.length >= 9 ? cleanPhone.slice(-9) : (cleanPhone || l.id);
+            if (!uniqueMap.has(key)) {
+                uniqueMap.set(key, l);
+            }
+        });
+        const dedupedLeads = Array.from(uniqueMap.values());
+
+        return dedupedLeads.map(l => {
             let effectiveEnrollmentStatus = l.enrollmentStatus;
             let effectivePaymentIntention = l.paymentIntention;
             

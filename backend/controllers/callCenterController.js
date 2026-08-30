@@ -47,7 +47,7 @@ exports.getPendingRequests = async (req, res) => {
             where: whereClause,
             include: {
                 batch: { include: { business: true } },
-                assignedUser: { select: { id: true, firstName: true, lastName: true } }
+                assignedUser: { select: { id: true, firstName: true, lastName: true, role: true, department: true } }
             },
             orderBy: { updatedAt: 'desc' }
         });
@@ -114,9 +114,13 @@ exports.getManagerLeads = async (req, res) => {
         }
 
         if (tab === 'unassigned') {
-            whereClause.assignedTo = null;
+            whereClause.OR = [
+                { assignedTo: null },
+                { assignedUser: { department: { not: 'Call Center' } } }
+            ];
         } else if (tab === 'assigned') {
             whereClause.assignedTo = { not: null };
+            whereClause.assignedUser = { department: 'Call Center' };
         } else if (tab === 'completed') {
             whereClause.callCenterStatus = 'completed';
         }
@@ -125,7 +129,7 @@ exports.getManagerLeads = async (req, res) => {
             where: whereClause,
             include: {
                 batch: { include: { business: true } },
-                assignedUser: { select: { id: true, firstName: true, lastName: true } },
+                assignedUser: { select: { id: true, firstName: true, lastName: true, role: true, department: true } },
                 roundProgress: true
             },
             orderBy: { createdAt: 'desc' }

@@ -294,12 +294,30 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
       fetchLeads(true, 1, 50); 
       setCheckedLeads([]); 
 
-      // Polling eke limit eka pageRef eken gannawa (e.g. Page 3 innam 150k refresh wenawa)
+      // Fast polling (10s)
       const interval = setInterval(() => { 
           fetchLeads(false, 1, pageRef.current * 50); 
-      }, 60000);
-      return () => clearInterval(interval);
-  }, [activeTab, newSubTab, staffFilter, groupFilter, statusFilter, assignedInqFilter, roundFilter, unassignedOnlyFilter, filters?.selectedBusiness, filters?.selectedBatch, debouncedSearchQuery]);
+      }, 10000);
+
+      let handleSocketUpdate;
+      if (socket) {
+          handleSocketUpdate = () => {
+              fetchLeads(false, 1, pageRef.current * 50);
+          };
+          socket.on('new_inbound_message', handleSocketUpdate);
+          socket.on('lead_updated', handleSocketUpdate);
+          socket.on('new_message', handleSocketUpdate);
+      }
+
+      return () => {
+          clearInterval(interval);
+          if (socket && handleSocketUpdate) {
+              socket.off('new_inbound_message', handleSocketUpdate);
+              socket.off('lead_updated', handleSocketUpdate);
+              socket.off('new_message', handleSocketUpdate);
+          }
+      };
+  }, [activeTab, newSubTab, staffFilter, groupFilter, statusFilter, assignedInqFilter, roundFilter, unassignedOnlyFilter, filters?.selectedBusiness, filters?.selectedBatch, debouncedSearchQuery, socket]);
 
   useEffect(() => {
       if (initialSearchQuery && leads.length > 0 && !selectedLead) {
