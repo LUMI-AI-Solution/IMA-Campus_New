@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useCall } from '../../contexts/CallContext';
-import { FaPhoneAlt, FaPhoneSlash, FaMicrophone, FaMicrophoneSlash, FaPause, FaPlay, FaLock, FaGripHorizontal } from 'react-icons/fa';
+import { FaPhoneAlt, FaPhoneSlash, FaMicrophone, FaMicrophoneSlash, FaPause, FaPlay, FaLock, FaCopy, FaCheck } from 'react-icons/fa';
 
 export default function WhatsAppCallScreen() {
     const { 
@@ -11,9 +11,10 @@ export default function WhatsAppCallScreen() {
 
     const [duration, setDuration] = useState(0);
     const [localInboundMute, setLocalInboundMute] = useState(false);
+    const [copied, setCopied] = useState(false);
 
     // Draggable state setup
-    const [position, setPosition] = useState({ x: window.innerWidth - 320, y: window.innerHeight - 420 });
+    const [position, setPosition] = useState({ x: window.innerWidth - 320, y: window.innerHeight - 430 });
     const isDragging = useRef(false);
     const dragOffset = useRef({ x: 0, y: 0 });
 
@@ -22,7 +23,7 @@ export default function WhatsAppCallScreen() {
         const handleResize = () => {
             setPosition(prev => ({
                 x: Math.min(prev.x, window.innerWidth - 320),
-                y: Math.min(prev.y, window.innerHeight - 420)
+                y: Math.min(prev.y, window.innerHeight - 430)
             }));
         };
         window.addEventListener('resize', handleResize);
@@ -76,6 +77,7 @@ export default function WhatsAppCallScreen() {
 
     // Common variables
     let leadName = 'Unknown';
+    let leadPhone = '';
     let subtext = '';
     let showAnswerReject = false;
     let showControls = false;
@@ -86,16 +88,19 @@ export default function WhatsAppCallScreen() {
 
     if (isRinging && incomingCall) {
         leadName = incomingCall.leadName || incomingCall.from;
+        leadPhone = incomingCall.from || incomingCall.phone || incomingCall.leadPhone || '';
         subtext = 'WhatsApp audio...';
         showAnswerReject = true;
     } else if (activeCall) {
         leadName = activeCall.leadName || activeCall.from;
+        leadPhone = activeCall.from || activeCall.leadPhone || activeCall.phone || (activeCall.lead && activeCall.lead.phone) || '';
         subtext = isOnHold ? 'On Hold' : formatTime(duration);
         isConnected = true;
         showControls = true;
         handleEnd = endCall;
     } else if (outboundCall) {
         leadName = outboundCall.lead?.name || outboundCall.lead?.phone || 'Unknown';
+        leadPhone = outboundCall.lead?.phone || outboundCall.lead?.phoneNumber || outboundCall.phone || '';
         if (outboundCall.status === 'CONNECTED') {
             subtext = isOnHold ? 'On Hold' : formatTime(outboundCall.duration);
             isConnected = true;
@@ -108,6 +113,15 @@ export default function WhatsAppCallScreen() {
         handleEnd = endOutboundCall;
         handleMute = toggleOutboundMute;
     }
+
+    // Copy phone handler
+    const handleCopyPhone = (e) => {
+        e.stopPropagation();
+        if (!leadPhone) return;
+        navigator.clipboard.writeText(leadPhone);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+    };
 
     // Inbound mute toggle logic
     const handleInboundMute = () => {
@@ -128,7 +142,7 @@ export default function WhatsAppCallScreen() {
             className="fixed z-[100000] flex flex-col bg-[#111B21] text-white rounded-2xl shadow-2xl overflow-hidden select-none border border-[#2A3942]"
             style={{ 
                 width: '300px',
-                height: '400px',
+                height: '420px',
                 left: position.x, 
                 top: position.y
             }}
@@ -145,22 +159,43 @@ export default function WhatsAppCallScreen() {
                 <div className="w-12 h-1.5 bg-[#8696A0] rounded-full group-hover:bg-white transition-colors pointer-events-none"></div>
             </div>
             
-            <div className="flex-1 flex flex-col items-center pt-6">
-                <div className="flex items-center gap-2 text-[#8696A0] mb-4 text-xs font-medium">
+            <div className="flex-1 flex flex-col items-center pt-5 px-3">
+                <div className="flex items-center gap-1.5 text-[#8696A0] mb-3 text-xs font-medium">
                     <FaLock className="text-[10px]" />
                     <span>End-to-end encrypted</span>
                 </div>
 
-                <div className="flex flex-col items-center">
-                    <div className="w-20 h-20 bg-[#202C33] rounded-full flex items-center justify-center text-3xl font-medium mb-4 shadow-xl relative">
+                <div className="flex flex-col items-center w-full">
+                    <div className="w-16 h-16 bg-[#202C33] rounded-full flex items-center justify-center text-2xl font-medium mb-3 shadow-xl relative border border-white/5">
                         {leadName.charAt(0).toUpperCase()}
                         {/* Ripple animation if ringing/calling */}
                         {(!isConnected && !isOnHold) && (
                             <div className="absolute inset-0 rounded-full bg-[#00A884] animate-ping opacity-20"></div>
                         )}
                     </div>
-                    <h2 className="text-xl font-medium mb-1 tracking-wide text-center px-4 truncate w-full">{leadName}</h2>
-                    <p className="text-[#8696A0] text-sm font-light tracking-wide">{subtext}</p>
+                    <h2 className="text-lg font-semibold tracking-wide text-center px-2 truncate w-full" title={leadName}>
+                        {leadName}
+                    </h2>
+
+                    {leadPhone && (
+                        <button 
+                            type="button"
+                            onClick={handleCopyPhone}
+                            className="inline-flex items-center gap-1.5 px-3 py-1 my-1 rounded-full text-xs font-mono text-emerald-400 bg-[#202C33] hover:bg-[#2A3942] border border-[#2A3942] hover:border-emerald-500/50 transition-all cursor-pointer group shadow-sm active:scale-95"
+                            title="Click to copy number"
+                        >
+                            <span>{leadPhone}</span>
+                            {copied ? (
+                                <span className="text-[10px] text-emerald-300 font-sans font-semibold flex items-center gap-1">
+                                    <FaCheck className="text-[10px]" /> Copied
+                                </span>
+                            ) : (
+                                <FaCopy className="text-[10px] text-[#8696A0] group-hover:text-emerald-400 transition-colors" />
+                            )}
+                        </button>
+                    )}
+
+                    <p className="text-[#8696A0] text-sm font-light tracking-wide mt-1">{subtext}</p>
                 </div>
             </div>
 

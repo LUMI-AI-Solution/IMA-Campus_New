@@ -17,6 +17,7 @@ export const physicalCrmService = {
 
   // Classes
   getClasses: () => api.get('/physical-crm/classes').then(res => res.data),
+  compareClasses: (classIds) => api.get('/physical-crm/classes/compare', { params: { classIds } }).then(res => res.data),
   createClass: (data) => api.post('/physical-crm/classes', data).then(res => res.data),
   updateClass: (id, data) => api.put(`/physical-crm/classes/${id}`, data).then(res => res.data),
   deleteClass: (id) => api.delete(`/physical-crm/classes/${id}`).then(res => res.data),

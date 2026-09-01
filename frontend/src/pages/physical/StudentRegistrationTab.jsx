@@ -11,7 +11,8 @@ export default function StudentRegistrationTab() {
     phone: '',
     address: '',
     guardianName: '',
-    guardianPhone: ''
+    guardianPhone: '',
+    cardType: 'FULL'
   });
 
   const [isLoading, setIsLoading] = useState(false);
@@ -31,13 +32,9 @@ export default function StudentRegistrationTab() {
     
     setIsLoading(true);
     try {
-      // Assuming api.post exists, otherwise fallback to fetch
       const response = await api.post('/physical-students', formData);
       toast.success('Physical Student Registered Successfully!');
       setGeneratedId(response.data.student.studentId);
-      
-      // Optionally reset form after short delay if needed
-      // setFormData({ firstName: '', lastName: '', nic: '', phone: '', address: '', guardianName: '', guardianPhone: '' });
     } catch (error) {
       toast.error(error.response?.data?.error || 'Registration failed');
     } finally {
@@ -56,6 +53,34 @@ export default function StudentRegistrationTab() {
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Card Type Selection */}
+          <div className="bg-white/5 p-4 rounded-xl border border-white/10">
+            <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wide mb-2">
+              💳 Card Type Option (ගෙවීම් ක්‍රමය) *
+            </label>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { type: 'FULL', label: 'Full Card', sub: '100% Fee', color: 'border-emerald-500 bg-emerald-500/20 text-emerald-300' },
+                { type: 'HALF', label: 'Half Card', sub: '50% Fee', color: 'border-amber-500 bg-amber-500/20 text-amber-300' },
+                { type: 'FREE', label: 'Free Card', sub: 'Free / 100% Off', color: 'border-purple-500 bg-purple-500/20 text-purple-300' }
+              ].map(opt => (
+                <button
+                  key={opt.type}
+                  type="button"
+                  onClick={() => setFormData(prev => ({ ...prev, cardType: opt.type }))}
+                  className={`p-3 rounded-xl border text-center transition-all cursor-pointer ${
+                    formData.cardType === opt.type
+                      ? `${opt.color} shadow-lg font-bold`
+                      : 'border-white/10 bg-[#0B1120] text-slate-400 hover:border-white/20'
+                  }`}
+                >
+                  <span className="block text-xs font-bold">{opt.label}</span>
+                  <span className="text-[10px] opacity-80">{opt.sub}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div>
               <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">First Name</label>
@@ -149,7 +174,7 @@ export default function StudentRegistrationTab() {
           <button 
             type="submit" 
             disabled={isLoading}
-            className="w-full mt-6 bg-gradient-to-r from-brand-accent to-rose-600 hover:from-rose-600 hover:to-brand-accent text-white font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(225,29,72,0.4)] transition-all flex justify-center items-center gap-2"
+            className="w-full mt-6 bg-gradient-to-r from-brand-accent to-rose-600 hover:from-rose-600 hover:to-brand-accent text-white font-bold py-4 rounded-xl shadow-[0_0_20px_rgba(225,29,72,0.4)] transition-all flex justify-center items-center gap-2 cursor-pointer"
           >
             {isLoading ? 'Registering...' : <><ShieldCheck size={20} /> Register & Generate ID</>}
           </button>
@@ -170,9 +195,20 @@ export default function StudentRegistrationTab() {
             <img src="/logo.png" alt="IMA Campus" className="h-10 mb-6 drop-shadow-md" onError={(e) => e.target.style.display = 'none'} />
             
             {/* Profile Photo Placeholder */}
-            <div className="w-28 h-28 bg-[#0B1120] border-4 border-white/10 rounded-xl flex items-center justify-center shadow-lg overflow-hidden mb-6">
+            <div className="w-28 h-28 bg-[#0B1120] border-4 border-white/10 rounded-xl flex items-center justify-center shadow-lg overflow-hidden mb-4">
               <User size={48} className="text-slate-600" />
             </div>
+
+            {/* Card Type Badge on ID */}
+            {formData.cardType && formData.cardType !== 'FULL' && (
+              <span className={`px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase mb-2 border ${
+                formData.cardType === 'FREE'
+                  ? 'bg-purple-500/20 text-purple-300 border-purple-500/40'
+                  : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+              }`}>
+                {formData.cardType === 'FREE' ? '🟣 Free Card' : '🟡 Half Card'}
+              </span>
+            )}
 
             <div className="text-center px-4 w-full">
               <h2 className="text-2xl font-black text-white tracking-wide truncate">
@@ -183,7 +219,7 @@ export default function StudentRegistrationTab() {
               </p>
             </div>
 
-            <div className="w-full px-6 mt-8 space-y-3">
+            <div className="w-full px-6 mt-6 space-y-2.5">
               <div className="flex items-center gap-3 text-slate-300 bg-white/5 p-2 rounded-lg">
                 <CreditCard size={14} className="text-slate-400" />
                 <span className="text-xs truncate">{formData.nic || 'NIC Number'}</span>

@@ -4,7 +4,7 @@ const physicalCrmController = require('../controllers/physicalCrmController');
 const physicalAttendanceController = require('../controllers/physicalAttendanceController');
 const physicalStudentReportController = require('../controllers/physicalStudentReportController');
 const multer = require('multer');
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ storage: multer.memoryStorage() });
 
 // Schools
 router.get('/schools', physicalCrmController.getSchools);
@@ -15,8 +15,8 @@ router.delete('/schools/:id', physicalCrmController.deleteSchool);
 // Students
 router.get('/students', physicalCrmController.getStudents);
 router.post('/students', physicalCrmController.createStudent);
-router.post('/students/import-excel', upload.single('file'), physicalCrmController.bulkImportStudents);
-router.post('/students/allocate-excel', upload.single('file'), physicalCrmController.allocateExcelToClass);
+router.post('/students/import-excel', upload.any(), physicalCrmController.bulkImportStudents);
+router.post('/students/allocate-excel', upload.any(), physicalCrmController.allocateExcelToClass);
 router.put('/students/:id', physicalCrmController.updateStudent);
 router.delete('/students/:id', physicalCrmController.deleteStudent);
 
@@ -33,6 +33,7 @@ router.get('/sms/logs', physicalStudentReportController.getSmsLogs);
 
 // Classes
 router.get('/classes', physicalCrmController.getClasses);
+router.get('/classes/compare', physicalCrmController.compareClasses);
 router.post('/classes', physicalCrmController.createClass);
 router.put('/classes/:id', physicalCrmController.updateClass);
 router.delete('/classes/:id', physicalCrmController.deleteClass);

@@ -150,11 +150,16 @@ export default function BulkSmsModal({ isOpen, onClose, classes = [], selectedSt
                 onChange={(e) => setSelectedClassId(e.target.value)}
                 className="w-full px-4 py-2.5 bg-slate-800 border border-white/10 rounded-xl text-white text-xs font-semibold focus:ring-2 focus:ring-indigo-500/50 outline-none transition-all cursor-pointer shadow-inner"
               >
-                {classes.map(c => (
-                  <option key={c.id} value={c.id} className="bg-slate-900 text-white">
-                    {c.name} ({c.grade} • {c.subject || 'All Subjects'})
-                  </option>
-                ))}
+                {classes.map(c => {
+                  const teacherNames = c.teachers && c.teachers.length > 0
+                    ? ` • ${c.teachers.map(t => t.name).join(', ')}`
+                    : '';
+                  return (
+                    <option key={c.id} value={c.id} className="bg-slate-900 text-white">
+                      {c.name} ({c.grade}{teacherNames ? teacherNames : (c.subject ? ` • ${c.subject}` : '')})
+                    </option>
+                  );
+                })}
               </select>
             </div>
           )}

@@ -871,32 +871,13 @@ function fileToGenerativePart(filePath, mimeType) {
     };
 }
 
-// Helper: Auto-create Delivery record based on ContentHub deliverTute tick
+// Helper: Auto-create Delivery record based on ContentHub deliverTute tick (Subject-level duplicate check)
 const createDeliveryForVerifiedPayment = async (payment) => {
     try {
         if (!payment || !payment.subjects) return;
 
         const existingDelivery = await prisma.delivery.findUnique({ where: { paymentId: payment.id } });
         if (existingDelivery) return;
-
-        let shouldCreateDelivery = true;
-        if (payment.payment_type === 1) {
-            if (payment.groupId) {
-                const ext = await prisma.delivery.findFirst({
-                    where: { studentId: payment.studentId.toString(), paymentType: 'Monthly', payment: { groupId: payment.groupId } }
-                });
-                if (ext) shouldCreateDelivery = false;
-            }
-        } else if (payment.payment_type === 2 || payment.payment_type === 3) {
-            if (payment.batchId) {
-                const ext = await prisma.delivery.findFirst({
-                    where: { studentId: payment.studentId.toString(), paymentType: { in: ['Installment', 'Full'] }, payment: { batchId: payment.batchId } }
-                });
-                if (ext) shouldCreateDelivery = false;
-            }
-        }
-
-        if (!shouldCreateDelivery) return;
 
         let subIds = [];
         try {
@@ -950,7 +931,51 @@ const createDeliveryForVerifiedPayment = async (payment) => {
             }
         }
 
-        if (deliverableCourses.length > 0) {
+        if (deliverableCourses.length === 0) return;
+
+        // Subject-level duplicate prevention for this student in this group/batch
+        let existingDeliveries = [];
+        if (payment.payment_type === 1 && payment.groupId) {
+            existingDeliveries = await prisma.delivery.findMany({
+                where: {
+                    studentId: payment.studentId.toString(),
+                    paymentType: 'Monthly',
+                    payment: { groupId: payment.groupId }
+                },
+                include: { items: true }
+            });
+        } else if ((payment.payment_type === 2 || payment.payment_type === 3) && payment.batchId) {
+            existingDeliveries = await prisma.delivery.findMany({
+                where: {
+                    studentId: payment.studentId.toString(),
+                    paymentType: { in: ['Installment', 'Full'] },
+                    payment: { batchId: payment.batchId }
+                },
+                include: { items: true }
+            });
+        }
+
+        const alreadyDeliveredSet = new Set();
+        existingDeliveries.forEach(d => {
+            (d.items || []).forEach(item => {
+                if (item.courseId) {
+                    alreadyDeliveredSet.add(`${item.courseId}`);
+                    if (item.tuteName) {
+                        alreadyDeliveredSet.add(`${item.courseId}_${item.tuteName.trim().toLowerCase()}`);
+                    }
+                }
+            });
+        });
+
+        const newDeliverableItems = deliverableCourses.filter(item => {
+            const keyTute = item.tuteName ? `${item.courseId}_${item.tuteName.trim().toLowerCase()}` : null;
+            const keyCourse = `${item.courseId}`;
+            if (keyTute && alreadyDeliveredSet.has(keyTute)) return false;
+            if (!keyTute && alreadyDeliveredSet.has(keyCourse)) return false;
+            return true;
+        });
+
+        if (newDeliverableItems.length > 0) {
             const paymentTypeStr = payment.payment_type === 1 ? 'Monthly' : (payment.payment_type === 2 ? 'Installment' : 'Full');
             await prisma.delivery.create({
                 data: {
@@ -959,10 +984,10 @@ const createDeliveryForVerifiedPayment = async (payment) => {
                     businessId: payment.businessId,
                     paymentType: paymentTypeStr,
                     status: 'Pending',
-                    items: { create: deliverableCourses }
+                    items: { create: newDeliverableItems }
                 }
             });
-            console.log(`[AI-Delivery] Created Delivery for Payment ID ${payment.id} with ${deliverableCourses.length} tutes.`);
+            console.log(`[AI-Delivery] Created Delivery for Payment ID ${payment.id} with ${newDeliverableItems.length} tutes.`);
         }
     } catch(err) {
         console.error("[AI-Delivery] Error in createDeliveryForVerifiedPayment:", err.message);

@@ -53,6 +53,14 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
                 <span className="text-xs bg-indigo-500/20 text-indigo-300 font-mono font-bold px-2.5 py-0.5 rounded-full border border-indigo-400/30">
                   {student?.studentId}
                 </span>
+                {student?.cardType && student?.cardType !== 'FULL' && (
+                  <span className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded-full border ${
+                    student?.cardType === 'FREE' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' :
+                    'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                  }`}>
+                    {student?.cardType === 'FREE' ? '🟣 Free Card' : '🟡 Half Card'}
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-400 mt-1 flex items-center gap-3">
                 <span>School: <strong className="text-slate-200">{student?.school?.name || 'N/A'}</strong></span>

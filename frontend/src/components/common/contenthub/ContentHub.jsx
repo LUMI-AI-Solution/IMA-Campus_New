@@ -584,21 +584,43 @@ export default function ContentHub() {
       } catch (error) { toast.error("Action Failed"); }
   };
 
+  const [parentFolderForSub, setParentFolderForSub] = useState(null);
+  const [selectedFolderParentId, setSelectedFolderParentId] = useState('');
+
+  const openCreateSubFolderModal = (parentFolder) => {
+    setParentFolderForSub(parentFolder);
+    setSelectedFolderParentId(parentFolder ? String(parentFolder.id) : '');
+    setEditData(null);
+    setEditMode(false);
+    setShowLessonGroupModal(true);
+  };
+
   const handleLessonGroupSubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
       const folderType = getTypeInt(contentTab); 
+      const chosenParent = formData.get('parentId') !== null ? formData.get('parentId') : selectedFolderParentId;
+      const parsedParentId = (chosenParent && chosenParent !== '' && chosenParent !== 'null' && chosenParent !== '0') ? parseInt(chosenParent) : null;
+      
       const payload = { 
-          contentGroupId: editData?.id, title: formData.get('title'), type: folderType, order: formData.get('order') || 1, 
-          batch_id: activeBatch.id, course_code: activeSubject.code || `SUB_${activeSubject.id}`,
+          contentGroupId: editData?.id, 
+          title: formData.get('title'), 
+          type: folderType, 
+          order: formData.get('order') || 1, 
+          batch_id: activeBatch.id, 
+          course_code: activeSubject.code || `SUB_${activeSubject.id}`,
+          parentId: parsedParentId,
           selectedBatches: selectedBatchesForContent
       };
 
       try {
           if(editMode) await api.put('/admin/content-group/update', payload); 
           else await api.post('/admin/manager/content-group/add', payload);
-          toast.success(editMode ? "Folder Updated!" : "Folder Created!");
-          setShowLessonGroupModal(false); fetchContents(activeSubject, activeBatch); 
+          toast.success(editMode ? (payload.parentId ? "Sub-folder Updated!" : "Folder Updated!") : (payload.parentId ? "Sub-folder Created!" : "Folder Created!"));
+          setShowLessonGroupModal(false); 
+          setParentFolderForSub(null);
+          setSelectedFolderParentId('');
+          fetchContents(activeSubject, activeBatch); 
       } catch (error) { toast.error("Action Failed"); }
   };
 
@@ -677,7 +699,7 @@ export default function ContentHub() {
     showLessonGroupModal, showContentModal, showPostModal, showManagePostsModal, previewData, editMode, editData, selectedLogoName,
     selectedGroupPrices, discountRules, contentType, prefilledFolder, selectedBatchesForContent, massAssignSubjects, openFolders,
     postBizId, postBatches, showInstallmentModal, existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, groupedSubjects, loading, showLecturerModal, masterTutes,
-    hubBatchConfigs, hubActiveBatchTab
+    hubBatchConfigs, hubActiveBatchTab, parentFolderForSub, selectedFolderParentId
   };
 
   const actionsData = {
@@ -691,7 +713,8 @@ export default function ContentHub() {
     handleDiscountRuleChange, addInstallmentStep, removeInstallmentStep, toggleGroupPrice, updateGroupData, toggleMassAssignSubject,
     fetchPosts, setPostBizId, setBatchTab, setContentTab, getTypeInt, getEmbedUrl, isMatchedType, getFolderId, setShowInstallmentModal, 
     setInstallmentSubjectCount, setInstallmentSteps, setEditInstallmentId, setEditData, setDiscountRules, setSelectedGroupPrices,
-    setShowLecturerModal, handleLecturerSubmit, handleDeleteLecturer, setHubBatchConfigs, setHubActiveBatchTab
+    setShowLecturerModal, handleLecturerSubmit, handleDeleteLecturer, setHubBatchConfigs, setHubActiveBatchTab,
+    setParentFolderForSub, openCreateSubFolderModal, setSelectedFolderParentId
   };
 
   if (loading) return <div className="flex h-full items-center justify-center min-h-[60vh]"><Loader2 size={50} className="animate-spin text-brand-accent" /></div>;
@@ -744,7 +767,7 @@ export default function ContentHub() {
                   )}
                   {viewLevel === 'contents' && canManageContent && (
                       <>
-                          <button onClick={() => { setShowLessonGroupModal(true); setEditMode(false); }} className="flex-1 sm:flex-none bg-white/5 hover:bg-white/10 text-gray-200 px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors border border-white/10 shadow-sm outline-none"><FolderPlus size={16}/> Add Folder</button>
+                          <button onClick={() => { setParentFolderForSub(null); setSelectedFolderParentId(''); setEditData(null); setShowLessonGroupModal(true); setEditMode(false); }} className="flex-1 sm:flex-none bg-white/5 hover:bg-white/10 text-gray-200 px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-colors border border-white/10 shadow-sm outline-none"><FolderPlus size={16}/> Add Folder</button>
                           <button onClick={() => { 
                               setShowContentModal(true); setContentType(''); setPrefilledFolder(''); setEditMode(false); 
                               setSelectedBatchesForContent([activeBatch.id]); 

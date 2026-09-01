@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { physicalCrmService } from '../../api/physicalCrm';
 import { physicalFinanceService } from '../../api/physicalFinance';
 import SchoolManagerModal from '../../components/PhysicalCRM/SchoolManagerModal';
@@ -10,6 +10,7 @@ const initialFormData = {
   nic: '',
   classId: '',
   classIds: [],
+  enrollmentCardTypes: {},
   schoolId: '',
   phone: '',
   address: '',
@@ -18,6 +19,7 @@ const initialFormData = {
   guardianName: '',
   guardianPhone: '',
   rfid: '',
+  cardType: 'FULL',
   registrationFeeAmount: '',
   registrationFeeStatus: 'PENDING'
 };
@@ -46,6 +48,10 @@ export default function StudentRegistration() {
   // Search & Filter
   const [searchTerm, setSearchTerm] = useState('');
   const [filterClass, setFilterClass] = useState('');
+  const [filterCardType, setFilterCardType] = useState('ALL');
+  const [allocatorClassSearch, setAllocatorClassSearch] = useState('');
+  const [formClassSearch, setFormClassSearch] = useState('');
+  const [importBatchClassSearch, setImportBatchClassSearch] = useState('');
 
   // Form State
   const [editingStudentId, setEditingStudentId] = useState(null);
@@ -88,11 +94,17 @@ export default function StudentRegistration() {
       ? student.enrollments.map(e => e.classId) 
       : (student.classId ? [student.classId] : []);
 
+    const cardMap = {};
+    (student.enrollments || []).forEach(e => {
+      cardMap[e.classId] = e.cardType || student.cardType || 'FULL';
+    });
+
     setFormData({
       studentName: student.studentName || `${student.firstName || ''} ${student.lastName || ''}`.trim(),
       nic: student.nic || '',
       classId: student.classId || (existingClassIds[0] || ''),
       classIds: existingClassIds,
+      enrollmentCardTypes: cardMap,
       schoolId: student.schoolId || '',
       phone: student.phone || '',
       address: student.address || '',
@@ -101,6 +113,7 @@ export default function StudentRegistration() {
       guardianName: student.guardianName || '',
       guardianPhone: student.guardianPhone || '',
       rfid: student.rfid || '',
+      cardType: student.cardType || 'FULL',
       registrationFeeAmount: student.registrationFeeAmount || '',
       registrationFeeStatus: student.registrationFeeStatus || 'PENDING'
     });
@@ -162,6 +175,7 @@ export default function StudentRegistration() {
     try {
       setImporting(true);
       const data = new FormData();
+      data.append('file', excelFile);
       data.append('excel', excelFile);
       if (importClassId) data.append('defaultClassId', importClassId);
       if (importSchoolId) data.append('defaultSchoolId', importSchoolId);
@@ -196,6 +210,7 @@ export default function StudentRegistration() {
     try {
       setImporting(true);
       const data = new FormData();
+      data.append('file', excelFile);
       data.append('excel', excelFile);
       data.append('classId', allocateClassId);
       data.append('autoCreateUnmatched', autoCreateUnmatched);
@@ -238,9 +253,28 @@ export default function StudentRegistration() {
     const sGuardianPhone = (s.guardianPhone || '').toLowerCase();
 
     const matchSearch = !term || sName.includes(term) || sId.includes(term) || sPhone.includes(term) || sNic.includes(term) || sGuardianPhone.includes(term);
-    const matchClass = filterClass ? s.classId?.toString() === filterClass : true;
-    return matchSearch && matchClass;
+    const matchClass = filterClass ? (s.classId?.toString() === filterClass || (s.enrollments && s.enrollments.some(e => e.classId?.toString() === filterClass))) : true;
+    const matchCardType = filterCardType === 'ALL' || (s.cardType || 'FULL') === filterCardType;
+    return matchSearch && matchClass && matchCardType;
   });
+
+  const filterClassList = (classList, searchStr) => {
+    if (!searchStr || !searchStr.trim()) return classList;
+    const q = searchStr.toLowerCase().trim();
+    return classList.filter(c => {
+      const nameMatch = (c.name || '').toLowerCase().includes(q);
+      const gradeMatch = (c.grade || '').toLowerCase().includes(q);
+      const streamMatch = (c.stream || '').toLowerCase().includes(q);
+      const subjectMatch = (c.subject || '').toLowerCase().includes(q);
+      const teacherMatch = c.teachers && c.teachers.some(t => (t.name || '').toLowerCase().includes(q));
+      return nameMatch || gradeMatch || streamMatch || subjectMatch || teacherMatch;
+    });
+  };
+
+  const filteredAllocatorClasses = useMemo(() => filterClassList(classes, allocatorClassSearch), [classes, allocatorClassSearch]);
+  const filteredFormClasses = useMemo(() => filterClassList(classes, formClassSearch), [classes, formClassSearch]);
+  const filteredBatchClasses = useMemo(() => filterClassList(classes, importBatchClassSearch), [classes, importBatchClassSearch]);
+  const selectedAllocClass = useMemo(() => classes.find(c => c.id === parseInt(allocateClassId)), [classes, allocateClassId]);
 
   const totalPages = Math.ceil(filteredStudents.length / itemsPerPage) || 1;
   const paginatedStudents = filteredStudents.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -360,9 +394,17 @@ export default function StudentRegistration() {
                     {(formData.classIds || []).map(cId => {
                       const cls = classes.find(c => c.id === parseInt(cId));
                       if (!cls) return null;
+                      const teacherNames = cls.teachers && cls.teachers.length > 0
+                        ? cls.teachers.map(t => t.name).join(', ')
+                        : '';
                       return (
                         <span key={cId} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-brand-accent/20 border border-brand-accent/40 text-brand-accent rounded-lg text-xs font-bold shadow-sm">
                           <span>{cls.name}</span>
+                          {teacherNames && (
+                            <span className="text-[10px] text-white/70 font-normal">
+                              ({teacherNames})
+                            </span>
+                          )}
                           {cls.monthlyFee > 0 && (
                             <span className="text-[10px] text-emerald-400 font-extrabold bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
                               Rs. {Number(cls.monthlyFee).toLocaleString()}
@@ -386,6 +428,29 @@ export default function StudentRegistration() {
                     })}
                   </div>
 
+                  {classes.length > 4 && (
+                    <div className="relative mb-1.5">
+                      <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
+                      <input
+                        type="text"
+                        value={formClassSearch}
+                        onChange={(e) => setFormClassSearch(e.target.value)}
+                        placeholder="🔍 Search class by Lecturer / Subject / Grade..."
+                        className="w-full pl-8 pr-7 py-1.5 bg-black/40 border border-white/10 rounded-lg text-[11px] text-white placeholder:text-white/30 focus:border-brand-accent outline-none transition-all"
+                      />
+                      {formClassSearch && (
+                        <button
+                          type="button"
+                          onClick={() => setFormClassSearch('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-0.5"
+                          title="Clear"
+                        >
+                          <X size={12} />
+                        </button>
+                      )}
+                    </div>
+                  )}
+
                   <select
                     value=""
                     onChange={(e) => {
@@ -395,16 +460,22 @@ export default function StudentRegistration() {
                           const newIds = [...(prev.classIds || []), val];
                           return { ...prev, classIds: newIds, classId: newIds[0] };
                         });
+                        setFormClassSearch('');
                       }
                     }}
                     className={inputBaseClass + " appearance-none font-medium text-xs"}
                   >
-                    <option value="" className="text-black">+ Add a Class to Student...</option>
-                    {classes.map(c => (
-                      <option key={c.id} value={c.id} className="text-black" disabled={formData.classIds?.includes(c.id)}>
-                        {c.name} ({c.grade}){c.monthlyFee > 0 ? ` - Rs. ${Number(c.monthlyFee).toLocaleString()}` : ''} {formData.classIds?.includes(c.id) ? '✓ Enrolled' : ''}
-                      </option>
-                    ))}
+                    <option value="" className="text-black">+ Add a Class to Student {formClassSearch ? `(${filteredFormClasses.length} matches)` : ''}...</option>
+                    {filteredFormClasses.map(c => {
+                      const teacherNames = c.teachers && c.teachers.length > 0
+                        ? c.teachers.map(t => t.name).join(', ')
+                        : '';
+                      return (
+                        <option key={c.id} value={c.id} className="text-black" disabled={formData.classIds?.includes(c.id)}>
+                          {c.name} ({c.grade}){c.stream ? ` - ${c.stream}` : ''}{teacherNames ? ` • ${teacherNames}` : ''}{c.monthlyFee > 0 ? ` - Rs. ${Number(c.monthlyFee).toLocaleString()}` : ''} {formData.classIds?.includes(c.id) ? '✓ Enrolled' : ''}
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -462,6 +533,44 @@ export default function StudentRegistration() {
                   <div>
                     <input type="text" name="guardianPhone" placeholder="Parent Mobile (Optional)" value={formData.guardianPhone} onChange={handleInputChange} className={inputBaseClass} />
                   </div>
+                </div>
+              </div>
+
+              {/* Student Card Type Selection (Full / Half / Free) */}
+              <div className="bg-white/5 p-4 rounded-2xl border border-white/10 mt-4 shadow-inner">
+                <div className="flex justify-between items-center mb-2">
+                  <h3 className="text-[10px] font-bold text-white/50 uppercase tracking-wider">
+                    💳 Student Card Concession (ගෙවීම් ක්‍රමය)
+                  </h3>
+                  {formData.cardType !== 'FULL' && (
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
+                      formData.cardType === 'FREE' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' :
+                      'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                    }`}>
+                      {formData.cardType === 'FREE' ? '🟣 Free Card' : '🟡 Half Card'}
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-3 gap-2.5">
+                  {[
+                    { type: 'FULL', label: 'Full (Normal)', desc: '100% Fee', color: 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300' },
+                    { type: 'HALF', label: 'Half Card', desc: '50% Fee', color: 'border-amber-500 bg-amber-500/20 text-amber-300' },
+                    { type: 'FREE', label: 'Free Card', desc: 'Free (100% Off)', color: 'border-purple-500 bg-purple-500/20 text-purple-300' }
+                  ].map(opt => (
+                    <button
+                      key={opt.type}
+                      type="button"
+                      onClick={() => setFormData(prev => ({ ...prev, cardType: opt.type }))}
+                      className={`p-2.5 rounded-xl border text-center transition-all cursor-pointer ${
+                        formData.cardType === opt.type
+                          ? `${opt.color} shadow-lg font-bold`
+                          : 'border-white/10 bg-black/30 text-white/60 hover:border-white/20'
+                      }`}
+                    >
+                      <span className="block text-xs font-bold">{opt.label}</span>
+                      <span className="text-[9px] opacity-75">{opt.desc}</span>
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -523,20 +632,40 @@ export default function StudentRegistration() {
                     placeholder="Search Name, ID, Phone..." 
                     value={searchTerm}
                     onChange={handleSearchChange}
-                    className="pl-8 pr-3 py-1.5 bg-white/5 border border-white/10 rounded-full focus:ring-2 focus:ring-brand-accent/50 outline-none text-white text-xs w-full sm:w-44 transition-all shadow-inner placeholder:text-white/30" 
+                    className="pl-8 pr-3 py-1.5 bg-white/5 border border-white/10 rounded-full focus:ring-2 focus:ring-brand-accent/50 outline-none text-white text-xs w-full sm:w-36 transition-all shadow-inner placeholder:text-white/30" 
                   />
                 </div>
+                
+                {/* Card Type Filter */}
+                <div className="relative flex-1 sm:flex-initial">
+                  <select 
+                    value={filterCardType} 
+                    onChange={(e) => { setFilterCardType(e.target.value); setCurrentPage(1); }} 
+                    className="px-3 py-1.5 bg-white/5 border border-white/10 rounded-full focus:ring-2 focus:ring-brand-accent/50 outline-none text-white text-xs transition-all appearance-none shadow-inner cursor-pointer font-bold"
+                  >
+                    <option value="ALL" className="text-black">All Cards</option>
+                    <option value="FULL" className="text-black">🟢 Full Card</option>
+                    <option value="HALF" className="text-black">🟡 Half Card</option>
+                    <option value="FREE" className="text-black">🟣 Free Card</option>
+                  </select>
+                </div>
+
                 <div className="relative flex-1 sm:flex-initial">
                   <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" size={15} />
                   <select 
                     value={filterClass} 
                     onChange={handleFilterClassChange} 
-                    className="pl-8 pr-6 py-1.5 bg-white/5 border border-white/10 rounded-full focus:ring-2 focus:ring-brand-accent/50 outline-none text-white text-xs w-full sm:w-32 transition-all appearance-none shadow-inner"
+                    className="pl-8 pr-6 py-1.5 bg-white/5 border border-white/10 rounded-full focus:ring-2 focus:ring-brand-accent/50 outline-none text-white text-xs w-full sm:w-28 transition-all appearance-none shadow-inner"
                   >
                     <option value="" className="text-black">All Classes</option>
-                    {classes.map(c => (
-                      <option key={c.id} value={c.id} className="text-black">{c.name}</option>
-                    ))}
+                    {classes.map(c => {
+                      const teacherNames = c.teachers && c.teachers.length > 0
+                        ? ` • ${c.teachers.map(t => t.name).join(', ')}`
+                        : '';
+                      return (
+                        <option key={c.id} value={c.id} className="text-black">{c.name} ({c.grade}){teacherNames}</option>
+                      );
+                    })}
                   </select>
                 </div>
               </div>
@@ -580,18 +709,33 @@ export default function StudentRegistration() {
                         <div>
                           <div className="flex justify-between items-start mb-3 pr-8">
                             <div>
-                              <h3 className="font-bold text-white text-base drop-shadow-md">
-                                {student.studentName || `${student.firstName} ${student.lastName}`}
-                              </h3>
+                              <div className="flex items-center gap-2">
+                                <h3 className="font-bold text-white text-base drop-shadow-md">
+                                  {student.studentName || `${student.firstName} ${student.lastName}`}
+                                </h3>
+                                {student.cardType && student.cardType !== 'FULL' && (
+                                  <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase border ${
+                                    student.cardType === 'FREE' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' :
+                                    'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                  }`}>
+                                    {student.cardType === 'FREE' ? 'Free' : 'Half'}
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-xs text-gray-400 font-mono">{student.studentId} {student.nic ? `• ${student.nic}` : ''}</p>
                             </div>
                             <div className="flex flex-wrap gap-1 max-w-[150px] justify-end">
                               {student.enrollments && student.enrollments.length > 0 ? (
-                                student.enrollments.map(e => (
-                                  <span key={e.id} className="px-2 py-0.5 bg-brand-accent/20 border border-brand-accent/40 text-brand-accent rounded-md text-[10px] font-bold">
-                                    {e.class?.name || 'Class'}
-                                  </span>
-                                ))
+                                student.enrollments.map(e => {
+                                  const tNames = e.class?.teachers && e.class.teachers.length > 0
+                                    ? e.class.teachers.map(t => t.name).join(', ')
+                                    : '';
+                                  return (
+                                    <span key={e.id} title={tNames ? `Teacher: ${tNames}` : ''} className="px-2 py-0.5 bg-brand-accent/20 border border-brand-accent/40 text-brand-accent rounded-md text-[10px] font-bold">
+                                      {e.class?.name || 'Class'}{tNames ? ` (${tNames})` : ''}
+                                    </span>
+                                  );
+                                })
                               ) : (
                                 <span className="px-2.5 py-1 bg-brand-accent/10 text-brand-accent rounded-full text-[11px] font-bold whitespace-nowrap">
                                   {student.class ? student.class.name : (student.grade || 'No Class')}
@@ -716,24 +860,85 @@ export default function StudentRegistration() {
                     <form onSubmit={handleAllocateSubmit} className="space-y-4">
                       
                       {/* Step 1: Select Target Class */}
-                      <div>
-                        <label className="block text-[11px] font-bold text-purple-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                          <span>1. Select Target Class to Allocate *</span>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
+                            <span>1. Select Target Class to Allocate *</span>
+                            {allocatorClassSearch && (
+                              <span className="text-[10px] text-purple-300 font-semibold bg-purple-500/20 px-2 py-0.5 rounded-md border border-purple-500/30">
+                                {filteredAllocatorClasses.length} of {classes.length} classes found
+                              </span>
+                            )}
+                          </label>
                           <span className="text-[10px] text-white/50 lowercase font-normal">multi-class enrollment enabled</span>
-                        </label>
+                        </div>
+
+                        {/* Search Bar for Lecturer / Sir Name */}
+                        <div className="relative">
+                          <Search size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-purple-400" />
+                          <input
+                            type="text"
+                            value={allocatorClassSearch}
+                            onChange={(e) => setAllocatorClassSearch(e.target.value)}
+                            placeholder="🔍 Type Lecturer / Sir Name, Subject, Grade to search..."
+                            className="w-full pl-10 pr-9 py-2.5 bg-black/60 border border-purple-500/40 hover:border-purple-400 focus:border-purple-400 rounded-xl text-xs text-white placeholder:text-purple-300/40 outline-none focus:ring-2 focus:ring-purple-500/50 shadow-inner transition-all"
+                          />
+                          {allocatorClassSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setAllocatorClassSearch('')}
+                              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1"
+                              title="Clear Search"
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Class Dropdown */}
                         <select
                           required
                           value={allocateClassId}
                           onChange={(e) => setAllocateClassId(e.target.value)}
-                          className="w-full px-4 py-3 bg-black/60 border border-purple-500/40 rounded-xl text-sm font-semibold text-white outline-none focus:ring-2 focus:ring-purple-500/50"
+                          className="w-full px-4 py-3 bg-black/70 border border-purple-500/40 rounded-xl text-sm font-semibold text-white outline-none focus:ring-2 focus:ring-purple-500/50 cursor-pointer shadow-inner transition-all"
                         >
-                          <option value="" className="text-black">-- Choose Class to Allocate Students --</option>
-                          {classes.map(c => (
-                            <option key={c.id} value={c.id} className="text-black">
-                              {c.name} ({c.grade}){c.stream ? ` - ${c.stream}` : ''}{c.monthlyFee > 0 ? ` [Rs. ${Number(c.monthlyFee).toLocaleString()}]` : ''}
-                            </option>
-                          ))}
+                          <option value="" className="text-black">
+                            {filteredAllocatorClasses.length === 0 ? '-- No Classes Found Matching Search --' : `-- Choose Class to Allocate Students (${filteredAllocatorClasses.length} available) --`}
+                          </option>
+                          {filteredAllocatorClasses.map(c => {
+                            const teacherNames = c.teachers && c.teachers.length > 0
+                              ? c.teachers.map(t => t.name).join(', ')
+                              : '';
+                            return (
+                              <option key={c.id} value={c.id} className="text-black">
+                                {c.name} ({c.grade}){c.stream ? ` - ${c.stream}` : ''}{teacherNames ? ` • ${teacherNames}` : ''}{c.monthlyFee > 0 ? ` [Rs. ${Number(c.monthlyFee).toLocaleString()}]` : ''}
+                              </option>
+                            );
+                          })}
                         </select>
+
+                        {/* Selected Class Highlight Card */}
+                        {selectedAllocClass && (
+                          <div className="p-3 bg-purple-950/50 border border-purple-500/40 rounded-xl flex items-center justify-between text-xs animate-in fade-in">
+                            <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                <span className="font-extrabold text-white">{selectedAllocClass.name}</span>
+                                <span className="text-purple-300 font-bold">({selectedAllocClass.grade})</span>
+                              </div>
+                              {selectedAllocClass.teachers && selectedAllocClass.teachers.length > 0 && (
+                                <span className="text-purple-200 bg-purple-500/25 px-2 py-0.5 rounded-md border border-purple-500/30 text-[11px] font-semibold flex items-center gap-1 w-fit">
+                                  👨‍🏫 {selectedAllocClass.teachers.map(t => t.name).join(', ')}
+                                </span>
+                              )}
+                            </div>
+                            {selectedAllocClass.monthlyFee > 0 && (
+                              <span className="text-emerald-400 font-extrabold text-xs bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/20 whitespace-nowrap">
+                                Rs. {Number(selectedAllocClass.monthlyFee).toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
 
                       {/* Step 2: Excel Dropzone */}
@@ -816,7 +1021,14 @@ export default function StudentRegistration() {
                       <div className="bg-gradient-to-r from-purple-900/50 to-indigo-900/50 border border-purple-500/40 p-4 rounded-2xl flex items-center justify-between">
                         <div>
                           <p className="text-[10px] uppercase font-bold text-purple-300 tracking-wider">Target Allocated Class</p>
-                          <h4 className="text-lg font-extrabold text-white">{allocationResult.targetClass?.name} ({allocationResult.targetClass?.grade})</h4>
+                          <h4 className="text-lg font-extrabold text-white">
+                            {allocationResult.targetClass?.name} ({allocationResult.targetClass?.grade})
+                            {allocationResult.targetClass?.teachers && allocationResult.targetClass.teachers.length > 0 && (
+                              <span className="text-xs font-semibold text-purple-200 ml-2 bg-purple-500/20 px-2 py-0.5 rounded-md border border-purple-500/30">
+                                👨‍🏫 {allocationResult.targetClass.teachers.map(t => t.name).join(', ')}
+                              </span>
+                            )}
+                          </h4>
                         </div>
                         <div className="text-right">
                           <span className="px-3 py-1 bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-extrabold rounded-xl text-xs">
@@ -993,15 +1205,41 @@ export default function StudentRegistration() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Batch Class (Optional)</label>
+                      {classes.length > 4 && (
+                        <div className="relative mb-1">
+                          <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-white/30" />
+                          <input
+                            type="text"
+                            value={importBatchClassSearch}
+                            onChange={(e) => setImportBatchClassSearch(e.target.value)}
+                            placeholder="Search class / lecturer..."
+                            className="w-full pl-7 pr-6 py-1 bg-black/40 border border-white/10 rounded-lg text-[10px] text-white placeholder:text-white/30 outline-none focus:border-emerald-500"
+                          />
+                          {importBatchClassSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setImportBatchClassSearch('')}
+                              className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
+                            >
+                              <X size={10} />
+                            </button>
+                          )}
+                        </div>
+                      )}
                       <select
                         value={importClassId}
                         onChange={(e) => setImportClassId(e.target.value)}
                         className="w-full px-3 py-2.5 bg-black/60 border border-white/10 rounded-xl text-xs text-white outline-none"
                       >
                         <option value="" className="text-black">No Class (Assign Later)</option>
-                        {classes.map(c => (
-                          <option key={c.id} value={c.id} className="text-black">{c.name}</option>
-                        ))}
+                        {filteredBatchClasses.map(c => {
+                          const teacherNames = c.teachers && c.teachers.length > 0
+                            ? ` • ${c.teachers.map(t => t.name).join(', ')}`
+                            : '';
+                          return (
+                            <option key={c.id} value={c.id} className="text-black">{c.name} ({c.grade}){teacherNames}</option>
+                          );
+                        })}
                       </select>
                     </div>
                     <div>

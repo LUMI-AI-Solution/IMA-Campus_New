@@ -107,7 +107,7 @@ exports.getStudentReports = async (req, res) => {
         }
       }),
       prisma.physicalClass.findMany({
-        include: { timetables: true },
+        include: { teachers: true, timetables: true },
         orderBy: { name: 'asc' }
       }),
       prisma.physicalSchool.findMany({
@@ -248,6 +248,7 @@ exports.getStudentReports = async (req, res) => {
         gender: student.gender,
         dob: student.dob,
         school: student.school ? { id: student.school.id, name: student.school.name } : null,
+        cardType: student.cardType || 'FULL',
         registrationFeeAmount: student.registrationFeeAmount,
         registrationFeeStatus: student.registrationFeeStatus || 'PENDING',
         totalClassesEnrolled: enrolledClassesList.length,

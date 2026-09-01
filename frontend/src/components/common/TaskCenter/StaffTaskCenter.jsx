@@ -271,6 +271,7 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
 
     const [isCreatingFolder, setIsCreatingFolder] = useState(null); // stores courseId
     const [newFolderName, setNewFolderName] = useState('');
+    const [newFolderParentId, setNewFolderParentId] = useState('');
 
     const [isVerification, setIsVerification] = useState(false); 
     const [selectedExistingContent, setSelectedExistingContent] = useState(null);
@@ -373,10 +374,11 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                 order: 1, 
                 batch_id: activeBatchTab, 
                 course_code: courseCode,
+                parentId: newFolderParentId ? parseInt(newFolderParentId) : null,
                 selectedBatches: []
             };
             const res = await api.post('/admin/manager/content-group/add', payload);
-            toast.success("Folder Created!");
+            toast.success(payload.parentId ? "Sub-folder Created!" : "Folder Created!");
             if(res.data?.data) { 
                 setBatchConfigs(prev => {
                     const newConfig = { ...prev };
@@ -389,7 +391,9 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                     return newConfig;
                 });
             }
-            setIsCreatingFolder(null); setNewFolderName('');
+            setIsCreatingFolder(null); 
+            setNewFolderName('');
+            setNewFolderParentId('');
         } catch (e) { toast.error("Failed to create folder"); }
     };
 
@@ -778,10 +782,30 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                                                             {pg.isChecked && (
                                                                 <div className="flex gap-2 pl-8 transition-all animate-in slide-in-from-top-2 duration-200">
                                                                     {isCreatingFolder === uniqueKey ? (
-                                                                        <div className="flex w-full gap-2 transition-all">
-                                                                            <input type="text" value={newFolderName} onChange={e=>setNewFolderName(e.target.value)} placeholder="Folder Name..." className="flex-1 bg-white dark:bg-slate-900 border border-brand-accent/30 dark:border-brand-accent/30 rounded-xl p-2.5 text-xs outline-none focus:border-brand-accent text-gray-900 dark:text-white shadow-inner" />
-                                                                            <button type="button" onClick={() => handleCreateFolder(uniqueKey, pg.courseCode)} className="bg-emerald-500 text-white px-4 rounded-xl hover:bg-emerald-600 transition-all shadow-md outline-none font-bold text-xs flex items-center gap-1.5"><CheckCircle2 size={14}/> Save</button>
-                                                                            <button type="button" onClick={() => setIsCreatingFolder(null)} className="bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 px-3 rounded-xl hover:bg-gray-200 dark:hover:bg-slate-700 transition-all outline-none"><X size={16}/></button>
+                                                                        <div className="flex flex-col w-full gap-2 p-2.5 bg-gray-50 dark:bg-slate-900/80 rounded-xl border border-brand-accent/20 transition-all">
+                                                                            <div className="flex flex-col sm:flex-row gap-2">
+                                                                                <select
+                                                                                    value={newFolderParentId}
+                                                                                    onChange={e => setNewFolderParentId(e.target.value)}
+                                                                                    className="sm:w-1/2 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl p-2 text-xs text-gray-800 dark:text-slate-200 outline-none focus:border-brand-accent shadow-inner"
+                                                                                >
+                                                                                    <option value="">📁 Root Folder</option>
+                                                                                    {courseCodeFolders.filter(f => !f.parentId).map(rf => (
+                                                                                        <option key={rf.id} value={rf.id}>↳ 📂 Sub of: {rf.title || rf.name}</option>
+                                                                                    ))}
+                                                                                </select>
+                                                                                <input 
+                                                                                    type="text" 
+                                                                                    value={newFolderName} 
+                                                                                    onChange={e=>setNewFolderName(e.target.value)} 
+                                                                                    placeholder={newFolderParentId ? "Sub-folder Name..." : "Folder Name..."}
+                                                                                    className="flex-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl p-2 text-xs outline-none focus:border-brand-accent text-gray-900 dark:text-white shadow-inner" 
+                                                                                />
+                                                                            </div>
+                                                                            <div className="flex justify-end gap-2">
+                                                                                <button type="button" onClick={() => { setIsCreatingFolder(null); setNewFolderParentId(''); }} className="bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-400 px-3 py-1.5 rounded-lg hover:bg-gray-200 dark:hover:bg-slate-700 transition-all text-xs font-bold outline-none">Cancel</button>
+                                                                                <button type="button" onClick={() => handleCreateFolder(uniqueKey, pg.courseCode)} className="bg-emerald-500 text-white px-4 py-1.5 rounded-lg hover:bg-emerald-600 transition-all shadow-md outline-none font-bold text-xs flex items-center gap-1.5"><CheckCircle2 size={14}/> Save</button>
+                                                                            </div>
                                                                         </div>
                                                                     ) : (
                                                                         <>
@@ -791,9 +815,23 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                                                                                 className="flex-1 bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-700 rounded-xl p-2.5 text-xs font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent text-gray-800 dark:text-slate-200 cursor-pointer shadow-sm"
                                                                             >
                                                                                 <option value="" className="text-gray-500">Uncategorized (Root)</option>
-                                                                                {courseCodeFolders.map(f => <option key={f.id} value={f.id}>{f.title || f.name}</option>)}
+                                                                                {courseCodeFolders
+                                                                                    .filter(f => !f.parentId)
+                                                                                    .map(rf => {
+                                                                                        const sfs = courseCodeFolders.filter(f => f.parentId === rf.id);
+                                                                                        return (
+                                                                                            <React.Fragment key={rf.id}>
+                                                                                                <option value={rf.id} className="font-bold">📁 {rf.title || rf.name}</option>
+                                                                                                {sfs.map(sf => (
+                                                                                                    <option key={sf.id} value={sf.id} className="text-indigo-400">
+                                                                                                        &nbsp;&nbsp;&nbsp;&nbsp;↳ 📂 {sf.title || sf.name}
+                                                                                                    </option>
+                                                                                                ))}
+                                                                                            </React.Fragment>
+                                                                                        );
+                                                                                    })}
                                                                             </select>
-                                                                            <button type="button" onClick={() => setIsCreatingFolder(uniqueKey)} className="bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 px-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 outline-none shrink-0 shadow-sm transition-colors border border-blue-200 dark:border-blue-500/20"><Plus size={14}/> New Folder</button>
+                                                                            <button type="button" onClick={() => { setIsCreatingFolder(uniqueKey); setNewFolderParentId(''); }} className="bg-blue-50 dark:bg-blue-500/10 hover:bg-blue-100 dark:hover:bg-blue-500/20 text-blue-600 dark:text-blue-400 px-3.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 outline-none shrink-0 shadow-sm transition-colors border border-blue-200 dark:border-blue-500/20"><Plus size={14}/> New Folder</button>
                                                                         </>
                                                                     )}
                                                                 </div>

@@ -535,37 +535,102 @@ exports.updateInstallment = async (req, res) => {
 // ================= FOLDERS (CONTENT GROUPS) =================
 exports.addContentGroup = async (req, res) => {
     try {
-        const { title, type, order, batch_id, course_code } = req.body;
+        const { title, type, order, batch_id, course_code, parentId, parent_id, selectedBatches } = req.body;
+        const parsedParentId = (parentId !== undefined && parentId !== null && parentId !== '' && parentId !== 'null' && parentId !== '0') 
+            ? parseInt(parentId) 
+            : ((parent_id !== undefined && parent_id !== null && parent_id !== '' && parent_id !== 'null' && parent_id !== '0') ? parseInt(parent_id) : null);
+
+        let additionalBatchStr = null;
+        if (selectedBatches) {
+            try {
+                const bArray = Array.isArray(selectedBatches) ? selectedBatches : JSON.parse(selectedBatches);
+                if (bArray && bArray.length > 0) {
+                    const others = bArray.filter(id => parseInt(id) !== parseInt(batch_id));
+                    if (others.length > 0) additionalBatchStr = `,${others.join(',')},`;
+                }
+            } catch (err) {
+                console.error("Error parsing selectedBatches for folder:", err);
+            }
+        }
+
         const newFolder = await prisma.contentGroup.create({
-            data: { title, type: parseInt(type), itemOrder: parseInt(order) || 1, batchId: parseInt(batch_id), courseCode: course_code === 'NULL' ? null : course_code }
+            data: { 
+                title, 
+                type: parseInt(type), 
+                itemOrder: parseInt(order) || 1, 
+                batchId: parseInt(batch_id), 
+                courseCode: course_code === 'NULL' ? null : course_code,
+                parentId: parsedParentId,
+                additionalBatchIds: additionalBatchStr
+            },
+            include: {
+                parent: true,
+                subFolders: true
+            }
         });
         res.status(201).json({ message: "Folder Created", data: newFolder });
-    } catch (e) { res.status(500).json({ error: "Failed to create folder" }); }
+    } catch (e) { 
+        console.error("Add Folder Error:", e);
+        res.status(500).json({ error: "Failed to create folder" }); 
+    }
 };
 
 exports.updateContentGroup = async (req, res) => {
     try {
-        const { contentGroupId, title, type, order, course_code } = req.body;
+        const { contentGroupId, title, type, order, course_code, parentId, parent_id } = req.body;
+        const updateData = { 
+            title, 
+            type: parseInt(type), 
+            itemOrder: parseInt(order) || 1, 
+            courseCode: course_code === 'NULL' ? null : course_code 
+        };
+
+        if (parentId !== undefined || parent_id !== undefined) {
+            const rawPId = parentId !== undefined ? parentId : parent_id;
+            updateData.parentId = (rawPId !== null && rawPId !== '' && rawPId !== 'null' && rawPId !== '0') ? parseInt(rawPId) : null;
+        }
+
         const updatedFolder = await prisma.contentGroup.update({
             where: { id: parseInt(contentGroupId) },
-            data: { title, type: parseInt(type), itemOrder: parseInt(order) || 1, courseCode: course_code === 'NULL' ? null : course_code }
+            data: updateData,
+            include: {
+                parent: true,
+                subFolders: true
+            }
         });
         res.status(200).json({ message: "Folder Updated", data: updatedFolder });
-    } catch (e) { console.error(e); res.status(500).json({ error: "Failed to update folder" }); }
+    } catch (e) { console.error("Update Folder Error:", e); res.status(500).json({ error: "Failed to update folder" }); }
 };
 
 exports.deleteContentGroup = async (req, res) => {
     try {
-        await prisma.contentGroup.delete({ where: { id: parseInt(req.body.contentGroupId) } });
+        const folderId = parseInt(req.body.contentGroupId);
+        if (!folderId) return res.status(400).json({ error: "Invalid Folder ID" });
+
+        // Find all nested subfolder IDs
+        const subFolders = await prisma.contentGroup.findMany({ where: { parentId: folderId } });
+        const allGroupIds = [folderId, ...subFolders.map(sf => sf.id)];
+
+        // Unlink content items from deleted folder(s) so content is not lost
+        await prisma.content.updateMany({
+            where: { contentGroupId: { in: allGroupIds } },
+            data: { contentGroupId: null }
+        });
+
+        // Delete subfolders first
+        await prisma.contentGroup.deleteMany({ where: { parentId: folderId } });
+
+        // Delete the parent folder
+        await prisma.contentGroup.delete({ where: { id: folderId } });
         res.status(200).json({ message: "Folder Deleted" });
-    } catch (e) { res.status(500).json({ error: "Failed to delete folder. Delete contents first." }); }
+    } catch (e) { console.error("Delete Folder Error:", e); res.status(500).json({ error: "Failed to delete folder" }); }
 };
 
 // ================= CONTENT & MASS ASSIGN =================
 exports.addContentMassAssign = async (req, res) => {
     try {
         console.log("MASS ASSIGN REQ BODY:", req.body);
-        const { type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, paperTime, questionCount, isFree, selectedCourses, batch_id, itemOrder, youtubeLink, vimeoLink, selectedBatches } = req.body;
+        const { type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, autoDeleteHours, paperTime, questionCount, isFree, selectedCourses, batch_id, itemOrder, youtubeLink, vimeoLink, selectedBatches } = req.body;
         
         let fileName = null;
         let thumbnail = null;
@@ -587,11 +652,9 @@ exports.addContentMassAssign = async (req, res) => {
             try {
                 const batchesArray = JSON.parse(selectedBatches);
                 if (batchesArray && batchesArray.length > 0) {
-                    // Make sure primary batch is in the array, or just use the first one if not
                     if (!batchesArray.includes(primaryBatchId)) {
                         primaryBatchId = parseInt(batchesArray[0]);
                     }
-                    // The rest go into additionalBatchIds (format: ,id1,id2,)
                     const others = batchesArray.filter(id => parseInt(id) !== primaryBatchId);
                     if (others.length > 0) {
                         additionalBatchStr = `,${others.join(',')},`;
@@ -602,12 +665,14 @@ exports.addContentMassAssign = async (req, res) => {
             }
         }
 
-        // 🔥 FIX: මෙතනින් Zoom direct link එක fetch කරලා Database එකට save කරන එක අයින් කළා. 
-        // Token එකක් paya 1කින් expire වෙන නිසා DB එකේ save කරලා වැඩක් නෑ. DB crash වෙන එකත් නවතිනවා.
+        const parsedAutoDeleteHours = (autoDeleteHours !== undefined && autoDeleteHours !== null && autoDeleteHours !== '' && autoDeleteHours !== 'null') 
+            ? parseFloat(autoDeleteHours) 
+            : null;
+
         const data = {
             title, 
             contentType: type, 
-            link: link, // Normal Link එක විතරක් save කරනවා
+            link: link, 
             youtubeLink,
             vimeoLink,
             meetingId: sanitizedMeetingId, 
@@ -616,6 +681,7 @@ exports.addContentMassAssign = async (req, res) => {
             date: date ? new Date(date) : null, 
             startTime, 
             endTime,
+            autoDeleteHours: parsedAutoDeleteHours,
             paperTime: paperTime ? parseInt(paperTime) : null, 
             questionCount: questionCount ? parseInt(questionCount) : null,
             isFree: isFree === '1', 
@@ -625,7 +691,7 @@ exports.addContentMassAssign = async (req, res) => {
             itemOrder: parseInt(itemOrder || 1)
         };
 
-        if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined' && contentGroupId !== '') {
+        if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined' && contentGroupId !== '' && contentGroupId !== '0') {
             data.contentGroupId = parseInt(contentGroupId);
         }
 
@@ -638,16 +704,20 @@ exports.addContentMassAssign = async (req, res) => {
         }
         res.status(201).json({ message: "Assigned Successfully", data: newContent });
     } catch (e) { 
-        console.error(e); 
+        console.error("addContentMassAssign Error:", e); 
         res.status(500).json({ error: "Failed to add content" }); 
     }
 };
 
 exports.updateContentMassAssign = async (req, res) => {
     try {
-        const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, paperTime, questionCount, isFree, itemOrder, selectedCourses, youtubeLink, vimeoLink } = req.body;
+        const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, autoDeleteHours, paperTime, questionCount, isFree, itemOrder, selectedCourses, youtubeLink, vimeoLink } = req.body;
         
         const sanitizedMeetingId = zoomMeetingId ? zoomMeetingId.replace(/\s+/g, '') : null;
+
+        const parsedAutoDeleteHours = (autoDeleteHours !== undefined && autoDeleteHours !== null && autoDeleteHours !== '' && autoDeleteHours !== 'null') 
+            ? parseFloat(autoDeleteHours) 
+            : null;
 
         let updateData = { 
             title, 
@@ -659,6 +729,7 @@ exports.updateContentMassAssign = async (req, res) => {
             date: date ? new Date(date) : null, 
             startTime, 
             endTime, 
+            autoDeleteHours: parsedAutoDeleteHours,
             paperTime: paperTime ? parseInt(paperTime) : null, 
             questionCount: questionCount ? parseInt(questionCount) : null, 
             isFree: isFree === '1',
@@ -700,7 +771,7 @@ exports.updateContentMassAssign = async (req, res) => {
 
         res.status(200).json(updated);
     } catch (e) { 
-        console.error(e); 
+        console.error("updateContentMassAssign Error:", e); 
         res.status(500).json({ error: "Failed to update content" }); 
     }
 };
@@ -708,10 +779,13 @@ exports.updateContentMassAssign = async (req, res) => {
 exports.deleteContent = async (req, res) => {
     try {
         const { content_id } = req.body;
-        await prisma.content.delete({ where: { id: parseInt(content_id) } });
-        await prisma.contentCourse.deleteMany({ where: { content_id: parseInt(content_id) } });
+        const cId = parseInt(content_id);
+        // Unlink any tasks referencing this content
+        await prisma.task.updateMany({ where: { contentId: cId }, data: { contentId: null } });
+        await prisma.contentCourse.deleteMany({ where: { content_id: cId } });
+        await prisma.content.delete({ where: { id: cId } });
         res.status(200).json({ message: "Deleted" });
-    } catch (e) { res.status(500).json({ error: "Failed to delete" }); }
+    } catch (e) { console.error("Delete Content Error:", e); res.status(500).json({ error: "Failed to delete" }); }
 };
 
 exports.getContents = async (req, res) => {
@@ -726,7 +800,12 @@ exports.getContents = async (req, res) => {
                 ],
                 courseCode: courseCode === 'null' ? null : courseCode
             },
-            orderBy: { itemOrder: 'asc' }
+            orderBy: { itemOrder: 'asc' },
+            include: {
+                subFolders: {
+                    orderBy: { itemOrder: 'asc' }
+                }
+            }
         });
 
         const rawIds = courseIds ? courseIds.split(',') : [req.query.courseId];
@@ -764,7 +843,7 @@ exports.getContents = async (req, res) => {
 
         const safeJson = (data) => JSON.parse(JSON.stringify(data, (k, v) => typeof v === 'bigint' ? v.toString() : v));
         res.status(200).json({ lessonGroups, contents: safeJson(contentsWithCourses) });
-    } catch (e) { console.error(e); res.status(500).json({ error: "Failed to fetch contents" }); }
+    } catch (e) { console.error("getContents Error:", e); res.status(500).json({ error: "Failed to fetch contents" }); }
 };
 
 // ================= BATCHES FULL DATA =================

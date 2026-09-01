@@ -1095,16 +1095,43 @@ exports.getCourseModules = async (req, res) => {
 
         const groupIds = [...new Set(contents.map(c => c.contentGroupId).filter(Boolean))];
         const groupTitles = [...new Set(contents.map(c => c.group?.title).filter(Boolean))];
-        
-        const lessonGroups = await prisma.contentGroup.findMany({
+        const batchIdForGroups = requestedCourse?.group?.batchId;
+        const courseCodeForGroups = requestedCourse?.code || `SUB_${requestedCourse?.id}`;
+
+        const initialGroups = await prisma.contentGroup.findMany({
              where: { 
                  OR: [
-                     { id: { in: groupIds } },
-                     { title: { in: groupTitles } }
-                 ]
+                     batchIdForGroups ? { batchId: batchIdForGroups, courseCode: courseCodeForGroups } : undefined,
+                     batchIdForGroups ? { additionalBatchIds: { contains: `,${batchIdForGroups},` }, courseCode: courseCodeForGroups } : undefined,
+                     batchIdForGroups && groupTitles.length > 0 ? { batchId: batchIdForGroups, title: { in: groupTitles } } : undefined,
+                     { id: { in: groupIds } }
+                 ].filter(Boolean)
              },
              orderBy: { itemOrder: 'asc' }
         });
+
+        // Also fetch any missing parent folders for subfolders
+        const parentIdsToFetch = initialGroups.map(g => g.parentId).filter(Boolean);
+        let allGroupsMap = new Map();
+        initialGroups.forEach(g => allGroupsMap.set(g.id, g));
+
+        if (parentIdsToFetch.length > 0) {
+            const parentGroups = await prisma.contentGroup.findMany({
+                where: { id: { in: parentIdsToFetch } }
+            });
+            parentGroups.forEach(pg => allGroupsMap.set(pg.id, pg));
+        }
+
+        // Also fetch any subfolders of root folders
+        const rootIds = Array.from(allGroupsMap.values()).filter(g => !g.parentId).map(g => g.id);
+        if (rootIds.length > 0) {
+            const subGroups = await prisma.contentGroup.findMany({
+                where: { parentId: { in: rootIds } }
+            });
+            subGroups.forEach(sg => allGroupsMap.set(sg.id, sg));
+        }
+
+        const lessonGroups = Array.from(allGroupsMap.values()).sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1));
 
         const contentsProcessed = contents.map(c => ({
             ...c,

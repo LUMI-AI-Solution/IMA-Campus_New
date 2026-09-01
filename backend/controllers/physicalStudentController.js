@@ -4,7 +4,7 @@ const prisma = new PrismaClient();
 // Create a new Physical Student
 exports.createPhysicalStudent = async (req, res) => {
   try {
-    const { firstName, lastName, nic, phone, address, guardianName, guardianPhone, rfid } = req.body;
+    const { firstName, lastName, nic, phone, address, guardianName, guardianPhone, rfid, cardType } = req.body;
 
     // Validation
     if (!firstName || !lastName) {
@@ -59,7 +59,8 @@ exports.createPhysicalStudent = async (req, res) => {
         address,
         guardianName,
         guardianPhone,
-        rfid: rfid || null
+        rfid: rfid || null,
+        cardType: cardType || 'FULL'
       }
     });
 

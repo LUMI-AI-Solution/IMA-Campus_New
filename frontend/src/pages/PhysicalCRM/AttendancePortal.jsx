@@ -406,7 +406,17 @@ export default function AttendancePortal() {
                                 </div>
                                 <div className="min-w-0">
                                     <h3 className="text-lg font-bold drop-shadow-sm truncate">{studentData.studentName || `${studentData.firstName} ${studentData.lastName}`}</h3>
-                                    <p className="text-red-400 font-bold text-xs mt-0.5">{studentData.studentId}</p>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <p className="text-red-400 font-bold text-xs">{studentData.studentId}</p>
+                                        {studentData.cardType && studentData.cardType !== 'FULL' && (
+                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase border ${
+                                                studentData.cardType === 'FREE' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' :
+                                                'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                            }`}>
+                                                {studentData.cardType === 'FREE' ? '🟣 Free Card' : '🟡 Half Card'}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 
@@ -461,7 +471,12 @@ export default function AttendancePortal() {
                                     <div className="space-y-2">
                                         {studentEnrolledClasses.map(cls => {
                                             const pRecord = feePayments.find(p => p.classId === cls.id && p.month === activeMonthStr);
-                                            const isPaid = pRecord && (pRecord.status === 'PAID' || pRecord.status === 'FREE_CARD');
+                                            const isPaid = pRecord && (pRecord.status === 'PAID' || pRecord.status === 'FREE_CARD' || pRecord.status === 'HALF_PAYMENT');
+                                            
+                                            // Check enrollment cardType or student default
+                                            const enr = studentData.enrollments?.find(e => e.classId === cls.id);
+                                            const cType = enr?.cardType || studentData.cardType || 'FULL';
+                                            const expectedFee = cType === 'FREE' ? 0 : (cType === 'HALF' ? (cls.monthlyFee || 0) / 2 : (cls.monthlyFee || 0));
 
                                             return (
                                                 <div 
@@ -469,8 +484,17 @@ export default function AttendancePortal() {
                                                     className="bg-white/5 p-2.5 rounded-xl border border-white/5 flex items-center justify-between gap-2"
                                                 >
                                                     <div className="min-w-0">
-                                                        <p className="text-xs font-bold text-white truncate">{cls.name}</p>
-                                                        <p className="text-[11px] text-emerald-400 font-semibold">Fee: Rs. {cls.monthlyFee || 0}</p>
+                                                        <div className="flex items-center gap-2">
+                                                            <p className="text-xs font-bold text-white truncate">{cls.name}</p>
+                                                            {cType !== 'FULL' && (
+                                                                <span className="text-[9px] font-extrabold text-amber-300 bg-amber-500/20 px-1.5 py-0.2 rounded border border-amber-500/30">
+                                                                    {cType} CARD
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <p className="text-[11px] text-emerald-400 font-semibold">
+                                                            Fee: Rs. {expectedFee} {cType === 'HALF' ? '(50% Off)' : cType === 'FREE' ? '(Free)' : ''}
+                                                        </p>
                                                     </div>
 
                                                     <button
@@ -484,7 +508,7 @@ export default function AttendancePortal() {
                                                         {isPaid ? (
                                                             <>
                                                                 <Check size={12} />
-                                                                <span>PAID ✓</span>
+                                                                <span>{pRecord?.status === 'FREE_CARD' ? 'FREE ✓' : pRecord?.status === 'HALF_PAYMENT' ? 'HALF PAID ✓' : 'PAID ✓'}</span>
                                                             </>
                                                         ) : (
                                                             <span>Mark Paid</span>
@@ -526,9 +550,14 @@ export default function AttendancePortal() {
                                         className="flex-1 min-w-0 bg-slate-800 border border-white/20 rounded-xl px-3 py-2 text-white outline-none focus:border-blue-500 text-xs cursor-pointer truncate"
                                     >
                                         <option value="">+ Add another class...</option>
-                                        {availableClasses.map(c => (
-                                            <option key={c.id} value={c.id}>{c.name} ({c.grade})</option>
-                                        ))}
+                                        {availableClasses.map(c => {
+                                            const teacherNames = c.teachers && c.teachers.length > 0
+                                                ? ` • ${c.teachers.map(t => t.name).join(', ')}`
+                                                : '';
+                                            return (
+                                                <option key={c.id} value={c.id}>{c.name} ({c.grade}){teacherNames}</option>
+                                            );
+                                        })}
                                     </select>
                                     <button 
                                         type="button"

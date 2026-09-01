@@ -325,11 +325,16 @@ export default function StudentReports() {
               className="w-full px-3.5 py-2.5 bg-slate-800 border border-white/10 rounded-xl text-white text-xs font-normal focus:ring-2 focus:ring-red-500/50 outline-none transition-all cursor-pointer"
             >
               <option value="ALL">All Physical Classes</option>
-              {data.classes.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
+              {data.classes.map(c => {
+                const teacherNames = c.teachers && c.teachers.length > 0
+                  ? ` • ${c.teachers.map(t => t.name).join(', ')}`
+                  : '';
+                return (
+                  <option key={c.id} value={c.id}>
+                    {c.name} ({c.grade}){teacherNames}
+                  </option>
+                );
+              })}
             </select>
           </div>
 

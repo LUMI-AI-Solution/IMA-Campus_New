@@ -44,12 +44,21 @@ export default function OverviewTab() {
     },
     { 
       title: 'Student Reports & Matrix', 
-      image: '/card_registration.png',
+      image: '/card_student_reports_169.png',
       path: '/physical/dashboard/student-reports', 
       color: 'text-rose-400', 
       bg: 'bg-rose-400/20',
       border: 'hover:border-rose-400/50',
       shadow: 'hover:shadow-rose-400/20'
+    },
+    { 
+      title: 'Class Compare Report', 
+      image: '/card_class_compare_169.png',
+      path: '/physical/dashboard/class-compare', 
+      color: 'text-purple-400', 
+      bg: 'bg-purple-400/20',
+      border: 'hover:border-purple-400/50',
+      shadow: 'hover:shadow-purple-400/20'
     },
     { 
       title: 'Cash Flow Portal', 

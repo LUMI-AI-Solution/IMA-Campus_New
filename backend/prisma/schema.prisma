@@ -188,15 +188,18 @@ model Post {
 }
 
 model ContentGroup {
-  id         Int       @id @default(autoincrement())
-  title      String
-  type       Int
-  itemOrder  Int       @default(1)
-  batchId    Int
+  id                 Int            @id @default(autoincrement())
+  title              String
+  type               Int
+  itemOrder          Int            @default(1)
+  batchId            Int
   additionalBatchIds String?
-  courseCode String?
-  createdAt  DateTime  @default(now())
-  contents   Content[]
+  courseCode         String?
+  parentId           Int?
+  parent             ContentGroup?  @relation("SubFolders", fields: [parentId], references: [id], onDelete: Cascade)
+  subFolders         ContentGroup[] @relation("SubFolders")
+  createdAt          DateTime       @default(now())
+  contents           Content[]
 }
 
 model Content {
@@ -216,7 +219,7 @@ model Content {
   questionCount   Int?
   isFree          Boolean       @default(false)
   contentGroupId  Int?
-  autoDeleteHours Int?
+  autoDeleteHours Float?
   reminderSent    Boolean       @default(false)
   group           ContentGroup? @relation(fields: [contentGroupId], references: [id])
   batchId         Int
@@ -868,6 +871,7 @@ model PhysicalStudent {
   gender      String?
   dob         String?
   rfid        String? @unique
+  cardType    String? @default("FULL") // "FULL", "HALF", "FREE"
 
   registrationFeeAmount Float?
   registrationFeeStatus String @default("PENDING") // "PAID" or "PENDING"
@@ -909,6 +913,7 @@ model PhysicalStudentClassEnrollment {
   student   PhysicalStudent @relation(fields: [studentId], references: [id], onDelete: Cascade)
   classId   Int
   class     PhysicalClass   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  cardType  String?         @default("FULL") // "FULL", "HALF", "FREE"
   createdAt DateTime        @default(now())
 
   @@unique([studentId, classId])

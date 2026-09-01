@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderOpen, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp, Copy, Link, Building2 } from 'lucide-react';
+import { FolderOpen, Folder, FolderPlus, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp, Copy, Link, Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../../api/axios'; 
 import UpgradePricingConfig from '../../admin/UpgradePricingConfig'; 
@@ -8,14 +8,15 @@ export default function ContentHubViews({ state, actions }) {
     const {
         isSystemAdmin, canManageBusiness, canManageBatches, canManageGroupsAndSubjects, canManageContent,
         viewLevel, activeBusiness, activeBatch, batchTab, activeSubject, contentTab, businesses, batches, uniqueSubjects,
-        lessonGroups, subjectContents, editMode, openFolders, groupedSubjects
+        lessonGroups, subjectContents, editMode, openFolders, groupedSubjects, parentFolderForSub, selectedFolderParentId
     } = state;
 
     const {
         openBusinessDetails, openBatchDetails, openContentsView, getImageUrl, getManagerName, toggleBusinessStatus, toggleBatchStatus, deleteItem,
         setEditData, setEditMode, setSelectedLogoName, setShowBusinessModal, setShowAssignModal, setShowBatchModal, setShowGroupModal, setShowCourseModal,
         setShowLessonGroupModal, setShowContentModal, setPreviewData, setContentType, setPrefilledFolder, setSelectedBatchesForContent,
-        toggleFolder, setBatchTab, setContentTab, isMatchedType, getFolderId, setDiscountRules, setSelectedGroupPrices, setMassAssignSubjects
+        toggleFolder, setBatchTab, setContentTab, isMatchedType, getFolderId, setDiscountRules, setSelectedGroupPrices, setMassAssignSubjects,
+        openCreateSubFolderModal, setSelectedFolderParentId
     } = actions;
 
     const getBaseUrl = () => {
@@ -38,6 +39,7 @@ export default function ContentHubViews({ state, actions }) {
     const isItemInFolder = (c, folder) => {
         const fId = c.content_group_id ?? c.contentGroupId ?? c.folder_id;
         if (fId && String(fId) === String(folder.id)) return true;
+        if (fId && String(fId) !== String(folder.id)) return false;
         const itemGroupTitle = c.groupTitle || c.group?.title;
         if (itemGroupTitle && folder?.title) {
             const rawItem = itemGroupTitle.trim().toLowerCase();
@@ -52,10 +54,10 @@ export default function ContentHubViews({ state, actions }) {
     };
 
     const isUncategorized = (c) => {
-        const activeFolders = (lessonGroups || []).filter(isMatchedType);
         const fId = c.content_group_id ?? c.contentGroupId ?? c.folder_id;
         if (!fId) return true;
-        const hasMatch = activeFolders.some(folder => isItemInFolder(c, folder));
+        const activeFolders = (lessonGroups || []).filter(isMatchedType);
+        const hasMatch = activeFolders.some(folder => String(folder.id) === String(fId) || isItemInFolder(c, folder));
         return !hasMatch;
     };
 
@@ -420,110 +422,196 @@ export default function ContentHubViews({ state, actions }) {
                     <div className="p-3.5 sm:p-6 md:p-8 space-y-6 sm:space-y-10 overflow-y-auto custom-scrollbar">
                         
                         {/* ORGANIZED FOLDERS */}
-                        {lessonGroups.filter(isMatchedType).length > 0 && (
+                        {lessonGroups.filter(g => isMatchedType(g) && !g.parentId).length > 0 && (
                             <div className="space-y-4 sm:space-y-6">
                                 <h4 className="text-xs font-extrabold text-gray-400 uppercase tracking-widest pl-1 sm:pl-2 drop-shadow-sm">Organized Folders</h4>
                                 
-                                {lessonGroups.filter(isMatchedType).map((folder) => (
-                                    <div key={folder.id} className="bg-white/[0.02] backdrop-blur-xl border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden transition-all shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
-                                        <div className="flex flex-wrap justify-between items-center cursor-pointer p-3.5 sm:p-5 bg-white/[0.05] hover:bg-white/10 transition-colors gap-3" onClick={() => toggleFolder(folder.id)}>
-                                            <div className="flex items-center gap-2.5 sm:gap-4 overflow-hidden">
-                                                <div className={`p-2.5 sm:p-3 rounded-xl transition-colors shadow-sm shrink-0 ${openFolders[folder.id] ? 'bg-brand-accent/20 text-brand-accent border border-brand-accent/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
-                                                    <FolderOpen size={20} className="sm:w-6 sm:h-6"/>
+                                {lessonGroups.filter(g => isMatchedType(g) && !g.parentId).map((folder) => {
+                                    const subFolders = lessonGroups.filter(g => isMatchedType(g) && g.parentId === folder.id);
+                                    const directContents = subjectContents.filter(c => isMatchedType(c) && (c.contentGroupId === folder.id || (isItemInFolder(c, folder) && !subFolders.some(sf => sf.id === c.contentGroupId))));
+
+                                    const renderContentCard = (content) => (
+                                        <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
+                                            {/* Drag handle */}
+                                            {canManageContent && (
+                                                <div className="absolute top-2.5 left-2.5 z-10 bg-black/50 p-1.5 rounded-lg backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity cursor-grab shadow-sm border border-white/10">
+                                                    <GripVertical size={14} className="text-white"/>
                                                 </div>
-                                                <h4 className={`text-sm sm:text-lg font-extrabold transition-colors truncate max-w-[130px] sm:max-w-[300px] md:max-w-[400px] drop-shadow-sm ${openFolders[folder.id] ? 'text-brand-accent' : 'text-slate-200'}`} title={folder.title || folder.name}>{folder.title || folder.name}</h4>
-                                                <ChevronDown size={18} className={`text-gray-400 transition-transform shrink-0 ${openFolders[folder.id] ? 'rotate-180 text-brand-accent' : ''}`}/>
-                                            </div>
-                                            <div className="flex gap-1.5 sm:gap-2 items-center shrink-0">
-                                                {canManageContent && (
-                                                    <>
-                                                        <button onClick={(e) => { e.stopPropagation(); setContentType(contentTab); setPrefilledFolder(folder.id); setSelectedBatchesForContent([activeBatch.id]); setMassAssignSubjects([activeSubject.id]); setShowContentModal(true); setEditMode(false); }} className="bg-green-600/90 hover:bg-green-500 text-white px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider font-extrabold flex items-center gap-1.5 transition-colors shadow-[0_4px_15px_rgba(22,163,74,0.4)] border border-transparent outline-none"><Plus size={14}/> <span className="hidden xs:inline">Add Content</span></button>
-                                                        <button onClick={(e) => { e.stopPropagation(); setEditData(folder); setEditMode(true); setShowLessonGroupModal(true); }} className="text-blue-400 hover:bg-blue-500 hover:text-white bg-blue-500/10 border border-transparent hover:border-blue-500/50 p-2 sm:p-2.5 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={16}/></button>
-                                                        <button onClick={(e) => { e.stopPropagation(); deleteItem('/admin/content-group/delete', { contentGroupId: folder.id }, "Folder Deleted"); }} className="text-red-400 hover:bg-red-500 hover:text-white bg-red-500/10 border border-transparent hover:border-red-500/50 p-2 sm:p-2.5 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={16}/></button>
-                                                    </>
+                                            )}
+
+                                            {/* Thumbnail Image Section */}
+                                            <div className="h-36 sm:h-40 w-full bg-black/40 relative overflow-hidden shrink-0 border-b border-white/5">
+                                                {content.thumbnail ? (
+                                                    <img src={`${getBaseUrl()}/storage/documents/${content.thumbnail}`} alt="Thumbnail" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                                                ) : (
+                                                    <div className="w-full h-full bg-gradient-to-br from-slate-800/50 to-black flex items-center justify-center opacity-80 group-hover:scale-105 transition-transform duration-500">
+                                                        <MonitorPlay size={36} className="text-white/20" />
+                                                    </div>
                                                 )}
+                                                
+                                                {/* Date Badge */}
+                                                <div className="absolute top-2.5 right-2.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-white shadow-sm">
+                                                    {content.date ? content.date.split('T')[0] : 'No Date'}
+                                                </div>
+                                            </div>
+
+                                            {/* Content Details */}
+                                            <div className="p-3.5 sm:p-5 flex-1 flex flex-col justify-between">
+                                                <h4 className="text-xs sm:text-base font-extrabold text-white mb-3 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
+                                                    {content.title}
+                                                </h4>
+                                                
+                                                {/* Action Buttons */}
+                                                <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-1.5 mt-auto">
+                                                    <button onClick={() => {
+                                                        let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
+                                                        setPreviewData({ ...content, link: fileUrl });
+                                                    }} className="flex-1 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none text-center">
+                                                        PREVIEW
+                                                    </button>
+                                                    <button onClick={() => {
+                                                        let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
+                                                        copyToClipboard(fileUrl);
+                                                    }} className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none flex items-center justify-center gap-1">
+                                                        <Copy size={12}/> COPY
+                                                    </button>
+                                                    
+                                                    {canManageContent && (
+                                                        <div className="flex gap-1">
+                                                            <button onClick={() => { 
+                                                                setEditData(content); setEditMode(true); setShowContentModal(true); setContentType(contentTab); 
+                                                                setPrefilledFolder(content.contentGroupId ? String(content.contentGroupId) : (content.content_group_id ? String(content.content_group_id) : ''));
+                                                                if(content.assignedCourses && content.assignedCourses.length > 0) { setMassAssignSubjects(content.assignedCourses); } 
+                                                                else { setMassAssignSubjects([activeSubject.id]); }
+                                                                setSelectedBatchesForContent([activeBatch.id]);
+                                                            }} className="bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none">
+                                                                <Edit3 size={16}/>
+                                                            </button>
+                                                            <button onClick={() => deleteItem('/admin/content/delete', { content_id: content.id }, "Content Deleted")} className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none">
+                                                                <Trash2 size={16}/>
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
-                                        
-                                        {openFolders[folder.id] && (
-                                          <div className="border-t border-white/10 bg-black/20 p-3.5 sm:p-6 md:p-8 shadow-inner">
-                                              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 sm:gap-6">
-                                                  {subjectContents
-                                                      .filter(c => isMatchedType(c) && isItemInFolder(c, folder))
-                                                      .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1))
-                                                      .map((content) => (
-                                                        <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
-                                                            
-                                                            {/* Drag handle */}
-                                                            {canManageContent && (
-                                                                <div className="absolute top-2.5 left-2.5 z-10 bg-black/50 p-1.5 rounded-lg backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity cursor-grab shadow-sm border border-white/10">
-                                                                    <GripVertical size={14} className="text-white"/>
-                                                                </div>
-                                                            )}
+                                    );
 
-                                                            {/* Thumbnail Image Section */}
-                                                            <div className="h-36 sm:h-40 w-full bg-black/40 relative overflow-hidden shrink-0 border-b border-white/5">
-                                                                {content.thumbnail ? (
-                                                                    <img src={`${getBaseUrl()}/storage/documents/${content.thumbnail}`} alt="Thumbnail" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                                                                ) : (
-                                                                    <div className="w-full h-full bg-gradient-to-br from-slate-800/50 to-black flex items-center justify-center opacity-80 group-hover:scale-105 transition-transform duration-500">
-                                                                        <MonitorPlay size={36} className="text-white/20" />
-                                                                    </div>
+                                    return (
+                                        <div key={folder.id} className="bg-white/[0.02] backdrop-blur-xl border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden transition-all shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
+                                            <div className="flex flex-wrap justify-between items-center cursor-pointer p-3.5 sm:p-5 bg-white/[0.05] hover:bg-white/10 transition-colors gap-3" onClick={() => toggleFolder(folder.id)}>
+                                                <div className="flex items-center gap-2.5 sm:gap-4 overflow-hidden">
+                                                    <div className={`p-2.5 sm:p-3 rounded-xl transition-colors shadow-sm shrink-0 ${openFolders[folder.id] ? 'bg-brand-accent/20 text-brand-accent border border-brand-accent/30' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+                                                        <FolderOpen size={20} className="sm:w-6 sm:h-6"/>
+                                                    </div>
+                                                    <h4 className={`text-sm sm:text-lg font-extrabold transition-colors truncate max-w-[130px] sm:max-w-[300px] md:max-w-[400px] drop-shadow-sm ${openFolders[folder.id] ? 'text-brand-accent' : 'text-slate-200'}`} title={folder.title || folder.name}>{folder.title || folder.name}</h4>
+                                                    <ChevronDown size={18} className={`text-gray-400 transition-transform shrink-0 ${openFolders[folder.id] ? 'rotate-180 text-brand-accent' : ''}`}/>
+                                                </div>
+                                                <div className="flex gap-1.5 sm:gap-2 items-center shrink-0">
+                                                    {canManageContent && (
+                                                        <>
+                                                            <button onClick={(e) => { e.stopPropagation(); openCreateSubFolderModal(folder); }} className="bg-indigo-600/90 hover:bg-indigo-500 text-white px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider font-extrabold flex items-center gap-1.5 transition-colors shadow-[0_4px_15px_rgba(99,102,241,0.4)] border border-transparent outline-none" title="Create Sub-folder inside this folder"><FolderPlus size={14}/> <span className="hidden xs:inline">+ Sub-folder</span></button>
+                                                            <button onClick={(e) => { e.stopPropagation(); setContentType(contentTab); setPrefilledFolder(String(folder.id)); setSelectedBatchesForContent([activeBatch.id]); setMassAssignSubjects([activeSubject.id]); setShowContentModal(true); setEditMode(false); }} className="bg-green-600/90 hover:bg-green-500 text-white px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider font-extrabold flex items-center gap-1.5 transition-colors shadow-[0_4px_15px_rgba(22,163,74,0.4)] border border-transparent outline-none"><Plus size={14}/> <span className="hidden xs:inline">Add Content</span></button>
+                                                            <button onClick={(e) => { e.stopPropagation(); setEditData(folder); setSelectedFolderParentId(folder.parentId ? String(folder.parentId) : ''); setEditMode(true); setShowLessonGroupModal(true); }} className="text-blue-400 hover:bg-blue-500 hover:text-white bg-blue-500/10 border border-transparent hover:border-blue-500/50 p-2 sm:p-2.5 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={16}/></button>
+                                                            <button onClick={(e) => { e.stopPropagation(); deleteItem('/admin/content-group/delete', { contentGroupId: folder.id }, "Folder Deleted"); }} className="text-red-400 hover:bg-red-500 hover:text-white bg-red-500/10 border border-transparent hover:border-red-500/50 p-2 sm:p-2.5 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={16}/></button>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            
+                                            {openFolders[folder.id] && (
+                                                <div className="border-t border-white/10 bg-black/20 p-3.5 sm:p-6 md:p-8 space-y-6 shadow-inner">
+                                                    
+                                                    {/* NESTED SUB-FOLDERS */}
+                                                    {subFolders.length > 0 && (
+                                                        <div className="space-y-4">
+                                                            <div className="flex items-center justify-between">
+                                                                <h5 className="text-xs font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2">
+                                                                    <Folder size={14}/> Sub-folders ({subFolders.length})
+                                                                </h5>
+                                                                {canManageContent && (
+                                                                    <button onClick={() => openCreateSubFolderModal(folder)} className="text-indigo-400 hover:text-indigo-300 text-xs font-bold flex items-center gap-1">
+                                                                        <Plus size={12}/> Add Sub-folder
+                                                                    </button>
                                                                 )}
-                                                                
-                                                                {/* Date Badge */}
-                                                                <div className="absolute top-2.5 right-2.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-white shadow-sm">
-                                                                    {content.date ? content.date.split('T')[0] : 'No Date'}
-                                                                </div>
                                                             </div>
+                                                            
+                                                            <div className="space-y-3 pl-2 sm:pl-4 border-l-2 border-indigo-500/30">
+                                                                {subFolders.map((subFolder) => {
+                                                                    const subContents = subjectContents.filter(c => isMatchedType(c) && (c.contentGroupId === subFolder.id || isItemInFolder(c, subFolder)));
 
-                                                            {/* Content Details */}
-                                                            <div className="p-3.5 sm:p-5 flex-1 flex flex-col justify-between">
-                                                                <h4 className="text-xs sm:text-base font-extrabold text-white mb-3 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
-                                                                    {content.title}
-                                                                </h4>
-                                                                
-                                                                {/* Action Buttons */}
-                                                                <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-1.5 mt-auto">
-                                                                    <button onClick={() => {
-                                                                        let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
-                                                                        setPreviewData({ ...content, link: fileUrl });
-                                                                    }} className="flex-1 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none text-center">
-                                                                        PREVIEW
-                                                                    </button>
-                                                                    <button onClick={() => {
-                                                                        let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
-                                                                        copyToClipboard(fileUrl);
-                                                                    }} className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none flex items-center justify-center gap-1">
-                                                                        <Copy size={12}/> COPY
-                                                                    </button>
-                                                                    
-                                                                    {canManageContent && (
-                                                                        <div className="flex gap-1">
-                                                                            <button onClick={() => { 
-                                                                                setEditData(content); setEditMode(true); setShowContentModal(true); setContentType(contentTab); 
-                                                                                if(content.assignedCourses && content.assignedCourses.length > 0) { setMassAssignSubjects(content.assignedCourses); } 
-                                                                                else { setMassAssignSubjects([activeSubject.id]); }
-                                                                                setSelectedBatchesForContent([activeBatch.id]);
-                                                                            }} className="bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none">
-                                                                                <Edit3 size={16}/>
-                                                                            </button>
-                                                                            <button onClick={() => deleteItem('/admin/content/delete', { content_id: content.id }, "Content Deleted")} className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none">
-                                                                                <Trash2 size={16}/>
-                                                                            </button>
+                                                                    return (
+                                                                        <div key={subFolder.id} className="bg-white/[0.03] border border-white/10 rounded-xl sm:rounded-2xl overflow-hidden transition-all">
+                                                                            <div className="flex flex-wrap justify-between items-center cursor-pointer p-3 sm:p-4 bg-white/[0.04] hover:bg-white/[0.08] transition-colors gap-2" onClick={() => toggleFolder(subFolder.id)}>
+                                                                                <div className="flex items-center gap-2 sm:gap-3 overflow-hidden">
+                                                                                    <div className={`p-2 rounded-lg transition-colors shrink-0 ${openFolders[subFolder.id] ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-500/40' : 'bg-white/5 text-gray-400 border border-white/10'}`}>
+                                                                                        <FolderOpen size={16}/>
+                                                                                    </div>
+                                                                                    <div className="flex items-center gap-2 truncate">
+                                                                                        <h5 className={`text-xs sm:text-sm font-bold truncate ${openFolders[subFolder.id] ? 'text-indigo-300' : 'text-slate-300'}`} title={subFolder.title || subFolder.name}>{subFolder.title || subFolder.name}</h5>
+                                                                                        <span className="text-[9px] font-black uppercase tracking-wider bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-md border border-indigo-500/30 shrink-0">Sub-folder</span>
+                                                                                    </div>
+                                                                                    <ChevronDown size={14} className={`text-gray-400 transition-transform shrink-0 ${openFolders[subFolder.id] ? 'rotate-180 text-indigo-400' : ''}`}/>
+                                                                                </div>
+                                                                                <div className="flex gap-1.5 items-center shrink-0">
+                                                                                    {canManageContent && (
+                                                                                        <>
+                                                                                            <button onClick={(e) => { e.stopPropagation(); setContentType(contentTab); setPrefilledFolder(String(subFolder.id)); setSelectedBatchesForContent([activeBatch.id]); setMassAssignSubjects([activeSubject.id]); setShowContentModal(true); setEditMode(false); }} className="bg-green-600/90 hover:bg-green-500 text-white px-2.5 py-1.5 rounded-lg text-[10px] uppercase tracking-wider font-extrabold flex items-center gap-1 transition-colors shadow-sm border border-transparent outline-none"><Plus size={12}/> Add Content</button>
+                                                                                            <button onClick={(e) => { e.stopPropagation(); setEditData(subFolder); setSelectedFolderParentId(subFolder.parentId ? String(subFolder.parentId) : ''); setEditMode(true); setShowLessonGroupModal(true); }} className="text-blue-400 hover:bg-blue-500 hover:text-white bg-blue-500/10 p-1.5 rounded-lg transition-colors outline-none shadow-sm"><Edit3 size={14}/></button>
+                                                                                            <button onClick={(e) => { e.stopPropagation(); deleteItem('/admin/content-group/delete', { contentGroupId: subFolder.id }, "Sub-folder Deleted"); }} className="text-red-400 hover:bg-red-500 hover:text-white bg-red-500/10 p-1.5 rounded-lg transition-colors outline-none shadow-sm"><Trash2 size={14}/></button>
+                                                                                        </>
+                                                                                    )}
+                                                                                </div>
+                                                                            </div>
+
+                                                                            {openFolders[subFolder.id] && (
+                                                                                <div className="border-t border-white/10 bg-black/40 p-3 sm:p-5 shadow-inner">
+                                                                                    {subContents.length > 0 ? (
+                                                                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+                                                                                            {subContents.sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1)).map(renderContentCard)}
+                                                                                        </div>
+                                                                                    ) : (
+                                                                                        <p className="text-xs text-gray-400 py-4 text-center font-bold bg-white/5 rounded-xl border border-white/10">This sub-folder is empty.</p>
+                                                                                    )}
+                                                                                </div>
+                                                                            )}
                                                                         </div>
-                                                                    )}
-                                                                </div>
+                                                                    );
+                                                                })}
                                                             </div>
                                                         </div>
-                                                      ))}
-                                               </div>
-                                               
-                                               {subjectContents.filter(c => isMatchedType(c) && isItemInFolder(c, folder)).length === 0 && <p className="text-xs sm:text-sm text-gray-400 py-6 text-center font-bold bg-white/5 rounded-2xl border border-white/10 shadow-inner">This folder is empty.</p>}
-                                           </div>
-                                         )}
-                                     </div>
-                                ))}
+                                                    )}
+
+                                                    {/* DIRECT MAIN FOLDER CONTENTS */}
+                                                    {directContents.length > 0 && (
+                                                        <div className="space-y-3">
+                                                            {subFolders.length > 0 && (
+                                                                <h5 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                                                    <Layers size={14}/> Main Folder Items ({directContents.length})
+                                                                </h5>
+                                                            )}
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3.5 sm:gap-6">
+                                                                {directContents.sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1)).map(renderContentCard)}
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {subFolders.length === 0 && directContents.length === 0 && (
+                                                        <div className="py-8 text-center bg-white/5 rounded-2xl border border-white/10 space-y-3">
+                                                            <p className="text-xs sm:text-sm text-gray-400 font-bold">This folder is empty.</p>
+                                                            {canManageContent && (
+                                                                <div className="flex justify-center gap-3">
+                                                                    <button onClick={() => openCreateSubFolderModal(folder)} className="bg-indigo-600/80 hover:bg-indigo-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"><FolderPlus size={14}/> Create Sub-folder</button>
+                                                                    <button onClick={() => { setContentType(contentTab); setPrefilledFolder(folder.id); setSelectedBatchesForContent([activeBatch.id]); setMassAssignSubjects([activeSubject.id]); setShowContentModal(true); setEditMode(false); }} className="bg-green-600/80 hover:bg-green-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"><Plus size={14}/> Add Content</button>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
 
@@ -586,6 +674,7 @@ export default function ContentHubViews({ state, actions }) {
                                                         <div className="flex gap-1">
                                                             <button onClick={() => { 
                                                                 setEditData(content); setEditMode(true); setShowContentModal(true); setContentType(contentTab); 
+                                                                setPrefilledFolder(content.contentGroupId ? String(content.contentGroupId) : (content.content_group_id ? String(content.content_group_id) : ''));
                                                                 if(content.assignedCourses && content.assignedCourses.length > 0) { setMassAssignSubjects(content.assignedCourses); } 
                                                                 else { setMassAssignSubjects([activeSubject.id]); }
                                                                 setSelectedBatchesForContent([activeBatch.id]);

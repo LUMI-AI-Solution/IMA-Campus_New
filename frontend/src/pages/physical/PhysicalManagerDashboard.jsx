@@ -10,6 +10,7 @@ import PhysicalTimetable from '../PhysicalCRM/PhysicalTimetable';
 import FinancialReports from '../PhysicalCRM/FinancialReports';
 import LecturerReports from '../PhysicalCRM/LecturerReports';
 import StudentReports from '../PhysicalCRM/StudentReports';
+import ClassComparisonReport from '../PhysicalCRM/ClassComparisonReport';
 
 export default function PhysicalManagerDashboard() {
   const { tab } = useParams();
@@ -21,6 +22,7 @@ export default function PhysicalManagerDashboard() {
     staff: 'Teachers & Classes',
     attendance: 'Student Attendance Portal',
     'student-reports': 'Student Reports & Attendance Matrix',
+    'class-compare': 'Class Comparison & Overlap Reports',
     finance: 'Cash Flow Portal',
     timetable: 'Class Timetable',
     reports: 'Financial Reports & Analytics',
@@ -52,6 +54,7 @@ export default function PhysicalManagerDashboard() {
           {activeTab === 'staff' && <ClassTeacherManagement />}
           {activeTab === 'attendance' && <AttendancePortal />}
           {activeTab === 'student-reports' && <StudentReports />}
+          {activeTab === 'class-compare' && <ClassComparisonReport />}
           {activeTab === 'finance' && <CashFlowPortal />}
           {activeTab === 'timetable' && <PhysicalTimetable />}
           {activeTab === 'reports' && <FinancialReports />}

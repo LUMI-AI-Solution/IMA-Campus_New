@@ -1,6 +1,6 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
-import { X, Send, UploadCloud, Users, UserPlus, CheckCircle, Plus, Edit3, Trash2, CreditCard, MessageSquare, MonitorPlay, ExternalLink, Ban, BookOpen, Building2, User, Layers, Save } from 'lucide-react';
+import { X, Send, UploadCloud, Users, UserPlus, CheckCircle, Plus, Edit3, Trash2, CreditCard, MessageSquare, MonitorPlay, ExternalLink, Ban, BookOpen, Building2, User, Layers, Save, FolderOpen } from 'lucide-react';
 import api from '../../../api/axios'; 
 
 export default function ContentHubModals({ state, actions }) {
@@ -9,7 +9,7 @@ export default function ContentHubModals({ state, actions }) {
         showCourseModal, showLessonGroupModal, showContentModal, showPostModal, showManagePostsModal, previewData, editMode, editData, selectedLogoName,
         selectedGroupPrices, discountRules, contentType, prefilledFolder, selectedBatchesForContent, massAssignSubjects, postBizId, postBatches, showInstallmentModal,
         existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, activeBusiness, activeBatch, loading, showLecturerModal, masterTutes,
-        hubBatchConfigs, hubActiveBatchTab
+        hubBatchConfigs, hubActiveBatchTab, parentFolderForSub, selectedFolderParentId
     } = state;
 
     const {
@@ -19,7 +19,8 @@ export default function ContentHubModals({ state, actions }) {
         getPostImageUrl, getEmbedUrl, deleteItem, fetchPosts, addDiscountRule, removeDiscountRule, handleDiscountRuleChange, addInstallmentStep, removeInstallmentStep,
         toggleGroupPrice, updateGroupData, toggleMassAssignSubject, getTypeInt, setPrefilledFolder, setSelectedBatchesForContent, setMassAssignSubjects,
         setShowInstallmentModal, handleEditInstallment, handleDeleteInstallment, handleInstallmentSubmit, setInstallmentSubjectCount, setInstallmentSteps, setEditInstallmentId, getBatchStreams,
-        setEditData, setDiscountRules, setSelectedGroupPrices, setShowLecturerModal, handleLecturerSubmit, setHubBatchConfigs, setHubActiveBatchTab
+        setEditData, setDiscountRules, setSelectedGroupPrices, setShowLecturerModal, handleLecturerSubmit, setHubBatchConfigs, setHubActiveBatchTab,
+        setSelectedFolderParentId
     } = actions;
 
     const getBaseUrl = () => {
@@ -85,12 +86,38 @@ export default function ContentHubModals({ state, actions }) {
                                     
                                     {contentType && (
                                         <div className="flex-1 animate-in fade-in duration-300">
-                                            <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Target Folder (Current Batch Only)</label>
-                                            <select name="contentGroupId" value={editMode ? (editData?.content_group_id || editData?.contentGroupId || "") : prefilledFolder} onChange={(e) => { if (editMode) { setEditData({...editData, contentGroupId: e.target.value}) } else { setPrefilledFolder(e.target.value) } }} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-white outline-none focus:border-green-500 shadow-inner cursor-pointer appearance-none">
+                                            <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Target Folder (Current Batch)</label>
+                                            <select 
+                                                name="contentGroupId" 
+                                                value={editMode ? (editData?.contentGroupId !== undefined && editData?.contentGroupId !== null ? String(editData.contentGroupId) : (editData?.content_group_id !== undefined && editData?.content_group_id !== null ? String(editData.content_group_id) : '')) : (prefilledFolder ? String(prefilledFolder) : '')} 
+                                                onChange={(e) => { 
+                                                    const val = e.target.value;
+                                                    if (editMode) { 
+                                                        setEditData(prev => ({...prev, contentGroupId: val, content_group_id: val}));
+                                                    } else { 
+                                                        setPrefilledFolder(val); 
+                                                    } 
+                                                }} 
+                                                className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-white outline-none focus:border-green-500 shadow-inner cursor-pointer"
+                                            >
                                                 <option value="" className="bg-slate-800 text-white">No Folder (Uncategorized)</option>
-                                                {lessonGroups.filter(g => parseInt(g.type) === getTypeInt(contentType)).map(folder => (
-                                                    <option key={folder.id} value={folder.id} className="bg-slate-800 text-white">{folder.title || folder.name}</option>
-                                                ))}
+                                                {lessonGroups
+                                                    .filter(g => parseInt(g.type) === getTypeInt(contentType) && !g.parentId)
+                                                    .map(rootFolder => {
+                                                        const subs = lessonGroups.filter(g => parseInt(g.type) === getTypeInt(contentType) && g.parentId === rootFolder.id);
+                                                        return (
+                                                            <React.Fragment key={rootFolder.id}>
+                                                                <option value={String(rootFolder.id)} className="bg-slate-800 text-white font-bold">
+                                                                    📁 {rootFolder.title || rootFolder.name}
+                                                                </option>
+                                                                {subs.map(sub => (
+                                                                    <option key={sub.id} value={String(sub.id)} className="bg-slate-900 text-indigo-300 font-semibold">
+                                                                        &nbsp;&nbsp;&nbsp;&nbsp;↳ 📂 {sub.title || sub.name} (Sub-folder)
+                                                                    </option>
+                                                                ))}
+                                                            </React.Fragment>
+                                                        );
+                                                    })}
                                             </select>
                                         </div>
                                     )}
@@ -315,9 +342,21 @@ export default function ContentHubModals({ state, actions }) {
                                                                                                 >
                                                                                                     <option value="" className="bg-slate-900">Select Folder</option>
                                                                                                     <option value="uncategorized" className="bg-slate-900 text-yellow-400 font-bold">No Folder (Uncategorized)</option>
-                                                                                                    {availableFolders.map(f => (
-                                                                                                        <option key={`hf-${f.id}`} value={f.id} className="bg-slate-900">{f.name || f.title}</option>
-                                                                                                    ))}
+                                                                                                    {availableFolders
+                                                                                                        .filter(f => !f.parentId)
+                                                                                                        .map(rf => {
+                                                                                                            const sfs = availableFolders.filter(f => f.parentId === rf.id);
+                                                                                                            return (
+                                                                                                                <React.Fragment key={`hf-${rf.id}`}>
+                                                                                                                    <option value={rf.id} className="bg-slate-900 font-bold">📁 {rf.name || rf.title}</option>
+                                                                                                                    {sfs.map(sf => (
+                                                                                                                        <option key={`hf-sub-${sf.id}`} value={sf.id} className="bg-slate-950 text-indigo-300">
+                                                                                                                            &nbsp;&nbsp;&nbsp;&nbsp;↳ 📂 {sf.name || sf.title}
+                                                                                                                        </option>
+                                                                                                                    ))}
+                                                                                                                </React.Fragment>
+                                                                                                            );
+                                                                                                        })}
                                                                                                 </select>
                                                                                                 <button type="button" onClick={() => { setShowLessonGroupModal(true); setPrefilledFolder(courseCode); }} className="flex-shrink-0 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors border border-white/10 flex items-center gap-2 outline-none">
                                                                                                     <Plus size={16}/> New
@@ -943,14 +982,52 @@ export default function ContentHubModals({ state, actions }) {
             {showLessonGroupModal && (
                 <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-8 w-full max-w-2xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] flex flex-col backdrop-blur-3xl">
-                        <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-4">
-                            <h3 className="text-2xl font-extrabold text-white drop-shadow-sm">{editMode ? 'Edit Folder' : 'New Folder'}</h3>
+                        <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
+                            <div>
+                                <h3 className="text-2xl font-extrabold text-white drop-shadow-sm flex items-center gap-2.5">
+                                    <FolderOpen className={selectedFolderParentId ? "text-indigo-400" : "text-brand-accent"} size={26} />
+                                    {editMode ? (selectedFolderParentId ? 'Edit Sub-folder' : 'Edit Folder') : (selectedFolderParentId ? 'New Sub-folder' : 'New Folder')}
+                                </h3>
+                                {selectedFolderParentId && (
+                                    <p className="text-xs text-indigo-400 font-semibold mt-1">
+                                        Inside: <span className="font-bold underline">{lessonGroups.find(g => String(g.id) === String(selectedFolderParentId))?.title || 'Selected Main Folder'}</span>
+                                    </p>
+                                )}
+                            </div>
                             <button onClick={() => setShowLessonGroupModal(false)} className="text-gray-400 hover:text-white bg-white/5 p-2.5 rounded-xl border border-white/10 transition-colors hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={20}/></button>
                         </div>
                         <form onSubmit={handleLessonGroupSubmit} className="space-y-6">
                             <div>
-                                <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Folder Title *</label>
-                                <input type="text" name="title" defaultValue={editData?.title || editData?.name} required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" />
+                                <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">
+                                    Folder Location / Parent Folder
+                                </label>
+                                <select 
+                                    name="parentId" 
+                                    value={selectedFolderParentId ? String(selectedFolderParentId) : ''} 
+                                    onChange={(e) => setSelectedFolderParentId(e.target.value)} 
+                                    className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner cursor-pointer"
+                                >
+                                    <option value="" className="bg-slate-900 text-white font-bold">
+                                        📁 Root Folder (Main Level)
+                                    </option>
+                                    {lessonGroups
+                                        .filter(g => parseInt(g.type) === getTypeInt(contentType || 'recording') && !g.parentId && (!editData || g.id !== editData.id))
+                                        .map(root => (
+                                            <option key={root.id} value={String(root.id)} className="bg-slate-900 text-indigo-300 font-semibold">
+                                                ↳ 📂 Inside Sub-folder of: {root.title || root.name}
+                                            </option>
+                                        ))}
+                                </select>
+                                <p className="text-[11px] text-gray-400 mt-1">
+                                    Select a parent folder above to place this as a Sub-folder, or choose "Root Folder" for a top-level folder.
+                                </p>
+                            </div>
+
+                            <div>
+                                <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">
+                                    {selectedFolderParentId ? 'Sub-folder Title *' : 'Folder Title *'}
+                                </label>
+                                <input type="text" name="title" defaultValue={editData?.title || editData?.name} placeholder={selectedFolderParentId ? "e.g. Unit 01 Discussions" : "e.g. June Theory"} required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" />
                             </div>
                             <div>
                                 <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Display Order</label>
@@ -978,7 +1055,7 @@ export default function ContentHubModals({ state, actions }) {
                                 </div>
                             </div>
                             <button type="submit" className="w-full bg-brand-accent/90 hover:bg-brand-accent text-white font-extrabold py-4 text-lg rounded-2xl shadow-[0_4px_15px_rgba(225,29,72,0.4)] mt-6 outline-none transition-transform hover:scale-[1.01] uppercase tracking-wide border border-transparent">
-                                {editMode ? 'Update Folder' : 'Create Folder'}
+                                {editMode ? (selectedFolderParentId ? 'Update Sub-folder' : 'Update Folder') : (selectedFolderParentId ? 'Create Sub-folder' : 'Create Folder')}
                             </button>
                         </form>
                     </div>

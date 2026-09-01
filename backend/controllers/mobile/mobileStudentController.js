@@ -357,10 +357,122 @@ exports.getCourseModules = async (req, res) => {
         const contents = Array.from(uniqueContentsMap.values());
 
         const groupIds = [...new Set(contents.map(c => c.contentGroupId).filter(Boolean))];
-        const lessonGroups = await prisma.contentGroup.findMany({
-             where: { id: { in: groupIds } },
+        const groupTitles = [...new Set(contents.map(c => c.group?.title).filter(Boolean))];
+        const batchIdForGroups = requestedCourse?.group?.batchId;
+        const courseCodeForGroups = requestedCourse?.code || `SUB_${requestedCourse?.id}`;
+
+        const initialGroups = await prisma.contentGroup.findMany({
+             where: { 
+                 OR: [
+                     batchIdForGroups ? { batchId: batchIdForGroups, courseCode: courseCodeForGroups } : undefined,
+                     batchIdForGroups ? { additionalBatchIds: { contains: `,${batchIdForGroups},` }, courseCode: courseCodeForGroups } : undefined,
+                     batchIdForGroups && groupTitles.length > 0 ? { batchId: batchIdForGroups, title: { in: groupTitles } } : undefined,
+                     { id: { in: groupIds } }
+                 ].filter(Boolean)
+             },
              orderBy: { itemOrder: 'asc' }
         });
+
+        // Also fetch any missing parent folders for subfolders
+        const parentIdsToFetch = initialGroups.map(g => g.parentId).filter(Boolean);
+        let allGroupsMap = new Map();
+        initialGroups.forEach(g => allGroupsMap.set(g.id, g));
+
+        if (parentIdsToFetch.length > 0) {
+            const parentGroups = await prisma.contentGroup.findMany({
+                where: { id: { in: parentIdsToFetch } }
+            });
+            parentGroups.forEach(pg => allGroupsMap.set(pg.id, pg));
+        }
+
+        // Also fetch any subfolders of root folders
+        const rootIds = Array.from(allGroupsMap.values()).filter(g => !g.parentId).map(g => g.id);
+        if (rootIds.length > 0) {
+            const subGroups = await prisma.contentGroup.findMany({
+                where: { parentId: { in: rootIds } }
+            });
+            subGroups.forEach(sg => allGroupsMap.set(sg.id, sg));
+        }
+
+        const allGroups = Array.from(allGroupsMap.values());
+
+        const normalizeFolderTitle = (title) => {
+            if (!title) return '';
+            return title
+                .toLowerCase()
+                .replace(/[\s_-]+/g, ' ')
+                .replace(/\b(month|batch|මාසය|මාස|පාඩම|පාඩම්)\b/gi, '')
+                .trim();
+        };
+
+        // Map each group to its top-level root group
+        const groupToRootMap = new Map();
+        allGroups.forEach(g => {
+            let curr = g;
+            while (curr.parentId && allGroupsMap.has(curr.parentId)) {
+                curr = allGroupsMap.get(curr.parentId);
+            }
+            groupToRootMap.set(g.id, curr);
+        });
+
+        // Merge root folders with identical type and normalized title
+        const rootFoldersByTypeAndTitle = new Map(); // key: type_normTitle -> primaryRootGroup
+        const rootRedirectMap = new Map(); // rootId -> primaryRootGroup
+
+        allGroups.filter(g => !g.parentId).forEach(rf => {
+            const norm = normalizeFolderTitle(rf.title);
+            const typeKey = `${rf.type || 1}_${norm || (rf.title || '').trim().toLowerCase() || rf.id}`;
+            if (!rootFoldersByTypeAndTitle.has(typeKey)) {
+                rootFoldersByTypeAndTitle.set(typeKey, rf);
+                rootRedirectMap.set(rf.id, rf);
+            } else {
+                const primary = rootFoldersByTypeAndTitle.get(typeKey);
+                rootRedirectMap.set(rf.id, primary);
+            }
+        });
+
+        // Remap all groups in groupToRootMap to the primary root group
+        allGroups.forEach(g => {
+            const directRoot = groupToRootMap.get(g.id) || g;
+            const primary = rootRedirectMap.get(directRoot.id) || directRoot;
+            groupToRootMap.set(g.id, primary);
+        });
+        // Process contents - all subfolder and duplicate folder recordings map directly to the primary root folder
+        const contentsProcessed = contents.map(c => {
+            let root = c.contentGroupId ? groupToRootMap.get(c.contentGroupId) : null;
+            if (!root && c.group?.title) {
+                const norm = normalizeFolderTitle(c.group.title);
+                const typeStr = c.contentType;
+                let typeInt = 1;
+                if (typeStr === 'recording' || typeStr === '2') typeInt = 2;
+                else if (typeStr === 'document' || typeStr === '3') typeInt = 3;
+                else if (typeStr === 'sPaper' || typeStr === '4') typeInt = 4;
+                else if (typeStr === 'paper' || typeStr === '5') typeInt = 5;
+
+                const typeKey = `${typeInt}_${norm || c.group.title.trim().toLowerCase()}`;
+                if (rootFoldersByTypeAndTitle.has(typeKey)) {
+                    root = rootFoldersByTypeAndTitle.get(typeKey);
+                }
+            }
+
+            const finalGroupId = root ? root.id : c.contentGroupId;
+            const finalGroupTitle = root ? root.title : (c.group?.title || null);
+
+            return {
+                ...c,
+                contentGroupId: finalGroupId,
+                content_group_id: finalGroupId,
+                folder_id: finalGroupId,
+                groupTitle: finalGroupTitle,
+                group: root ? root : c.group
+            };
+        });
+
+        const contentGroupIdsWithItems = new Set(contentsProcessed.map(c => c.contentGroupId).filter(Boolean));
+        let lessonGroups = Array.from(rootFoldersByTypeAndTitle.values()).sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1));
+        if (contentGroupIdsWithItems.size > 0) {
+            lessonGroups = lessonGroups.filter(g => contentGroupIdsWithItems.has(g.id));
+        }
 
         // 🔥 ලින්ක් එක අපේ සර්වර් එකේ Redirect ලින්ක් එකට හරවන Function එක
         const modifyLinks = (items) => {
@@ -378,15 +490,15 @@ exports.getCourseModules = async (req, res) => {
         };
 
         // පරණ විදියටම ගන්නවා
-        const liveClasses = contents.filter(c => c.contentType === 'live' || c.contentType === '1');
-        const recordings = contents.filter(c => c.contentType === 'recording' || c.contentType === '2');
-        const documents = contents.filter(c => c.contentType === 'document' || c.contentType === '3');
-        const sPapers = contents.filter(c => c.contentType === 'sPaper' || c.contentType === '4');
-        const papers = contents.filter(c => c.contentType === 'paper' || c.contentType === '5');
+        const liveClasses = contentsProcessed.filter(c => c.contentType === 'live' || c.contentType === '1');
+        const recordings = contentsProcessed.filter(c => c.contentType === 'recording' || c.contentType === '2');
+        const documents = contentsProcessed.filter(c => c.contentType === 'document' || c.contentType === '3');
+        const sPapers = contentsProcessed.filter(c => c.contentType === 'sPaper' || c.contentType === '4');
+        const papers = contentsProcessed.filter(c => c.contentType === 'paper' || c.contentType === '5');
 
         const safeData = JSON.parse(JSON.stringify({ 
             lessonGroups, 
-            contents: contents,
+            contents: contentsProcessed,
             liveClasses: liveClasses, 
             recordings: recordings, 
             documents, sPapers, papers,

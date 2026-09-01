@@ -76,9 +76,15 @@ exports.getStudents = async (req, res) => {
     const students = await prisma.physicalStudent.findMany({
       include: {
         school: true,
-        class: true,
+        class: {
+          include: { teachers: true }
+        },
         enrollments: {
-          include: { class: true }
+          include: {
+            class: {
+              include: { teachers: true }
+            }
+          }
         }
       },
       orderBy: { id: 'desc' }
@@ -91,7 +97,7 @@ exports.getStudents = async (req, res) => {
 
 exports.createStudent = async (req, res) => {
   try {
-    const { studentName, firstName, lastName, grade, nic, phone, whatsapp, address, gender, dob, schoolId, classId, classIds, guardianName, guardianPhone, guardianWhatsapp, rfid, registrationFeeAmount, registrationFeeStatus } = req.body;
+    const { studentName, firstName, lastName, grade, nic, phone, whatsapp, address, gender, dob, schoolId, classId, classIds, guardianName, guardianPhone, guardianWhatsapp, rfid, registrationFeeAmount, registrationFeeStatus, cardType, enrollmentCardTypes, classEnrollments } = req.body;
     
     // Generate unique studentId
     const count = await prisma.physicalStudent.count();
@@ -109,6 +115,7 @@ exports.createStudent = async (req, res) => {
     }
 
     const primaryClassId = selectedClassIds.length > 0 ? selectedClassIds[0] : (classId ? parseInt(classId) : null);
+    const globalCardType = cardType || 'FULL';
 
     const student = await prisma.physicalStudent.create({
       data: {
@@ -129,17 +136,32 @@ exports.createStudent = async (req, res) => {
         guardianPhone,
         guardianWhatsapp,
         rfid: rfid || null,
+        cardType: globalCardType,
         registrationFeeAmount: registrationFeeAmount ? parseFloat(registrationFeeAmount) : null,
         registrationFeeStatus: registrationFeeStatus || 'PENDING'
       }
     });
+
+    // Build enrollment card type map if passed
+    const cardMap = {};
+    if (enrollmentCardTypes && typeof enrollmentCardTypes === 'object') {
+      Object.keys(enrollmentCardTypes).forEach(k => {
+        cardMap[parseInt(k)] = enrollmentCardTypes[k];
+      });
+    }
+    if (Array.isArray(classEnrollments)) {
+      classEnrollments.forEach(item => {
+        if (item.classId) cardMap[parseInt(item.classId)] = item.cardType || globalCardType;
+      });
+    }
 
     // Create enrollments for all selected classIds
     if (selectedClassIds.length > 0) {
       await prisma.physicalStudentClassEnrollment.createMany({
         data: selectedClassIds.map(cId => ({
           studentId: student.id,
-          classId: cId
+          classId: cId,
+          cardType: cardMap[cId] || globalCardType
         })),
         skipDuplicates: true
       });
@@ -182,7 +204,7 @@ exports.createStudent = async (req, res) => {
 exports.updateStudent = async (req, res) => {
   try {
     const { id } = req.params;
-    const { studentName, firstName, lastName, grade, nic, phone, whatsapp, address, gender, dob, schoolId, classId, classIds, guardianName, guardianPhone, guardianWhatsapp, rfid, registrationFeeAmount, registrationFeeStatus } = req.body;
+    const { studentName, firstName, lastName, grade, nic, phone, whatsapp, address, gender, dob, schoolId, classId, classIds, guardianName, guardianPhone, guardianWhatsapp, rfid, registrationFeeAmount, registrationFeeStatus, cardType, enrollmentCardTypes, classEnrollments } = req.body;
     
     const oldStudent = await prisma.physicalStudent.findUnique({ where: { id: parseInt(id) }});
 
@@ -198,6 +220,7 @@ exports.updateStudent = async (req, res) => {
     }
 
     const primaryClassId = selectedClassIds.length > 0 ? selectedClassIds[0] : (classId ? parseInt(classId) : null);
+    const globalCardType = cardType !== undefined ? cardType : (oldStudent?.cardType || 'FULL');
 
     const student = await prisma.physicalStudent.update({
       where: { id: parseInt(id) },
@@ -218,10 +241,24 @@ exports.updateStudent = async (req, res) => {
         guardianPhone,
         guardianWhatsapp,
         rfid: rfid || null,
+        cardType: globalCardType,
         registrationFeeAmount: registrationFeeAmount ? parseFloat(registrationFeeAmount) : null,
         registrationFeeStatus: registrationFeeStatus || 'PENDING'
       }
     });
+
+    // Build enrollment card type map if passed
+    const cardMap = {};
+    if (enrollmentCardTypes && typeof enrollmentCardTypes === 'object') {
+      Object.keys(enrollmentCardTypes).forEach(k => {
+        cardMap[parseInt(k)] = enrollmentCardTypes[k];
+      });
+    }
+    if (Array.isArray(classEnrollments)) {
+      classEnrollments.forEach(item => {
+        if (item.classId) cardMap[parseInt(item.classId)] = item.cardType || globalCardType;
+      });
+    }
 
     // Update enrollments if classIds is explicitly passed
     if (Array.isArray(classIds)) {
@@ -233,7 +270,8 @@ exports.updateStudent = async (req, res) => {
         await prisma.physicalStudentClassEnrollment.createMany({
           data: selectedClassIds.map(cId => ({
             studentId: student.id,
-            classId: cId
+            classId: cId,
+            cardType: cardMap[cId] || globalCardType
           })),
           skipDuplicates: true
         });
@@ -280,16 +318,25 @@ const XLSX = require('xlsx');
 
 exports.bulkImportStudents = async (req, res) => {
   try {
-    if (!req.file) {
+    const file = req.file || (req.files && req.files.length > 0 ? req.files[0] : null);
+    if (!file) {
       console.error('[Bulk Excel Import] No file uploaded in request.');
       return res.status(400).json({ error: 'Please select and upload an Excel (.xlsx, .csv) file.' });
     }
 
-    console.log(`[Bulk Excel Import] Processing file: ${req.file.originalname}, Size: ${req.file.size} bytes`);
+    let fileBuffer = file.buffer;
+    if (!fileBuffer && file.path && fs.existsSync(file.path)) {
+      fileBuffer = fs.readFileSync(file.path);
+    }
+    if (!fileBuffer) {
+      return res.status(400).json({ error: 'Could not read uploaded file content.' });
+    }
+
+    console.log(`[Bulk Excel Import] Processing file: ${file.originalname || 'unknown'}, Size: ${file.size || fileBuffer.length} bytes`);
 
     let workbook;
     try {
-      workbook = XLSX.read(req.file.buffer, { type: 'buffer' });
+      workbook = XLSX.read(fileBuffer, { type: 'buffer' });
     } catch (readErr) {
       console.error('[Bulk Excel Import] Failed to read Excel workbook:', readErr);
       return res.status(400).json({ error: 'Could not parse Excel file format. Please upload a valid .xlsx or .csv file.' });
@@ -474,7 +521,8 @@ exports.bulkImportStudents = async (req, res) => {
 
 exports.allocateExcelToClass = async (req, res) => {
   try {
-    if (!req.file) {
+    const file = req.file || (req.files && req.files.length > 0 ? req.files[0] : null);
+    if (!file) {
       return res.status(400).json({ error: 'Please upload an Excel file (.xlsx, .xls, .csv).' });
     }
 
@@ -485,14 +533,29 @@ exports.allocateExcelToClass = async (req, res) => {
 
     const targetClassId = parseInt(classId);
     const targetClass = await prisma.physicalClass.findUnique({
-      where: { id: targetClassId }
+      where: { id: targetClassId },
+      include: { teachers: true }
     });
 
     if (!targetClass) {
       return res.status(404).json({ error: 'Target Class not found in database.' });
     }
 
-    const workbook = xlsx.read(req.file.buffer, { type: 'buffer' });
+    let fileBuffer = file.buffer;
+    if (!fileBuffer && file.path && fs.existsSync(file.path)) {
+      fileBuffer = fs.readFileSync(file.path);
+    }
+    if (!fileBuffer) {
+      return res.status(400).json({ error: 'Could not read uploaded file content.' });
+    }
+
+    let workbook;
+    try {
+      workbook = xlsx.read(fileBuffer, { type: 'buffer' });
+    } catch (readErr) {
+      console.error('[Class Allocator] Failed to read Excel workbook:', readErr);
+      return res.status(400).json({ error: 'Could not parse Excel file format. Please upload a valid .xlsx or .csv file.' });
+    }
     const sheetName = workbook.SheetNames[0];
     const rawRows = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: '' });
 
@@ -724,7 +787,8 @@ exports.allocateExcelToClass = async (req, res) => {
         name: targetClass.name,
         grade: targetClass.grade,
         stream: targetClass.stream,
-        subject: targetClass.subject
+        subject: targetClass.subject,
+        teachers: targetClass.teachers || []
       },
       allocatedList,
       alreadyEnrolledList,
@@ -1162,9 +1226,37 @@ exports.toggleStudentFeePayment = async (req, res) => {
       return res.status(404).json({ error: 'Student or Class not found' });
     }
 
-    const feeAmount = amount !== undefined && amount !== null && amount !== ''
-      ? parseFloat(amount)
-      : (targetClass.monthlyFee || 0);
+    // Check enrollment specific cardType or student default cardType
+    const enrollment = await prisma.physicalStudentClassEnrollment.findUnique({
+      where: {
+        studentId_classId: {
+          studentId: sId,
+          classId: cId
+        }
+      }
+    });
+
+    const effectiveCardType = enrollment?.cardType || targetStudent.cardType || 'FULL';
+
+    let feeAmount;
+    if (amount !== undefined && amount !== null && amount !== '') {
+      feeAmount = parseFloat(amount);
+    } else {
+      if (effectiveCardType === 'FREE') {
+        feeAmount = 0;
+      } else if (effectiveCardType === 'HALF') {
+        feeAmount = (targetClass.monthlyFee || 0) / 2;
+      } else {
+        feeAmount = targetClass.monthlyFee || 0;
+      }
+    }
+
+    let finalStatus = targetStatus;
+    if (effectiveCardType === 'FREE' && targetStatus === 'PAID') {
+      finalStatus = 'FREE_CARD';
+    } else if (effectiveCardType === 'HALF' && targetStatus === 'PAID' && feeAmount < (targetClass.monthlyFee || 0)) {
+      finalStatus = 'HALF_PAYMENT';
+    }
 
     if (targetStatus === 'PENDING' || targetStatus === 'UNPAID') {
       // Remove payment record or set status PENDING
@@ -1193,7 +1285,7 @@ exports.toggleStudentFeePayment = async (req, res) => {
         }
       },
       update: {
-        status: targetStatus,
+        status: finalStatus,
         amount: feeAmount,
         paidDate: new Date(),
         paymentMethod: paymentMethod || 'CASH',
@@ -1203,7 +1295,7 @@ exports.toggleStudentFeePayment = async (req, res) => {
         studentId: sId,
         classId: cId,
         month,
-        status: targetStatus,
+        status: finalStatus,
         amount: feeAmount,
         paidDate: new Date(),
         paymentMethod: paymentMethod || 'CASH',
@@ -1212,14 +1304,14 @@ exports.toggleStudentFeePayment = async (req, res) => {
     });
 
     // Optionally record income transaction in PhysicalTransaction
-    if (targetStatus === 'PAID' && feeAmount > 0) {
+    if ((finalStatus === 'PAID' || finalStatus === 'HALF_PAYMENT') && feeAmount > 0) {
       const sName = targetStudent.studentName || `${targetStudent.firstName || ''} ${targetStudent.lastName || ''}`.trim() || 'Student';
       await prisma.physicalTransaction.create({
         data: {
           type: 'INCOME',
           category: 'Class Fee',
           amount: feeAmount,
-          description: `Class Fee (${month}) - ${targetClass.name} - ${targetStudent.studentId} (${sName})`,
+          description: `Class Fee (${month}) - ${targetClass.name} - ${targetStudent.studentId} (${sName}) [${effectiveCardType} CARD]`,
           studentId: sId
         }
       });
@@ -1228,12 +1320,264 @@ exports.toggleStudentFeePayment = async (req, res) => {
     res.json({
       success: true,
       payment,
-      message: `Payment for ${month} saved successfully!`
+      message: `Payment for ${month} saved successfully as ${finalStatus}!`
     });
 
   } catch (error) {
     console.error('Error toggling fee payment:', error);
     res.status(500).json({ error: error.message });
+  }
+};
+
+// --- CLASS COMPARISON & REPORT CONTROLLER ---
+exports.compareClasses = async (req, res) => {
+  try {
+    const { classIds } = req.query;
+    if (!classIds) {
+      return res.status(400).json({ error: 'classIds query parameter is required (e.g. ?classIds=1,2)' });
+    }
+
+    let parsedIds = [];
+    if (typeof classIds === 'string') {
+      parsedIds = classIds.split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id) && id > 0);
+    } else if (Array.isArray(classIds)) {
+      parsedIds = classIds.map(id => parseInt(id)).filter(id => !isNaN(id) && id > 0);
+    }
+
+    if (parsedIds.length < 1) {
+      return res.status(400).json({ error: 'At least one valid class ID must be provided' });
+    }
+
+    // Parallel optimized fetch: classes info, enrollments, and direct students with exact field selections
+    const [classes, enrollments, directStudents] = await Promise.all([
+      prisma.physicalClass.findMany({
+        where: { id: { in: parsedIds } },
+        select: {
+          id: true,
+          name: true,
+          grade: true,
+          stream: true,
+          subject: true,
+          monthlyFee: true,
+          teachers: {
+            select: { id: true, name: true, phone: true }
+          }
+        }
+      }),
+      prisma.physicalStudentClassEnrollment.findMany({
+        where: { classId: { in: parsedIds } },
+        select: {
+          classId: true,
+          cardType: true,
+          student: {
+            select: {
+              id: true,
+              studentId: true,
+              studentName: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+              whatsapp: true,
+              guardianName: true,
+              guardianPhone: true,
+              nic: true,
+              rfid: true,
+              address: true,
+              cardType: true,
+              registrationFeeStatus: true,
+              registrationFeeAmount: true,
+              school: {
+                select: { id: true, name: true }
+              }
+            }
+          }
+        }
+      }),
+      prisma.physicalStudent.findMany({
+        where: {
+          classId: { in: parsedIds }
+        },
+        select: {
+          id: true,
+          studentId: true,
+          studentName: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          whatsapp: true,
+          guardianName: true,
+          guardianPhone: true,
+          nic: true,
+          rfid: true,
+          address: true,
+          classId: true,
+          cardType: true,
+          registrationFeeStatus: true,
+          registrationFeeAmount: true,
+          school: {
+            select: { id: true, name: true }
+          }
+        }
+      })
+    ]);
+
+    if (classes.length === 0) {
+      return res.status(404).json({ error: 'No classes found for the provided IDs' });
+    }
+
+    // Build unique students map
+    const studentMap = new Map();
+
+    const processStudentEnrollment = (student, clsId, enrollmentCardType) => {
+      if (!student || !student.id) return;
+      if (['id_number', 'student_name', 'Name'].includes(student.studentName)) return;
+
+      if (!studentMap.has(student.id)) {
+        const studentName = student.studentName || `${student.firstName || ''} ${student.lastName || ''}`.trim() || 'Student';
+        studentMap.set(student.id, {
+          id: student.id,
+          studentId: student.studentId,
+          studentName,
+          firstName: student.firstName,
+          lastName: student.lastName,
+          phone: student.phone,
+          whatsapp: student.whatsapp,
+          guardianName: student.guardianName,
+          guardianPhone: student.guardianPhone,
+          nic: student.nic,
+          rfid: student.rfid,
+          address: student.address,
+          school: student.school ? { id: student.school.id, name: student.school.name } : null,
+          cardType: student.cardType || 'FULL',
+          registrationFeeStatus: student.registrationFeeStatus || 'PENDING',
+          registrationFeeAmount: student.registrationFeeAmount,
+          enrolledClasses: {}
+        });
+      }
+
+      const sObj = studentMap.get(student.id);
+      const effectiveCardType = enrollmentCardType || sObj.cardType || student.cardType || 'FULL';
+      sObj.enrolledClasses[clsId] = {
+        enrolled: true,
+        cardType: effectiveCardType
+      };
+    };
+
+    // Process enrollments table
+    enrollments.forEach(en => {
+      processStudentEnrollment(en.student, en.classId, en.cardType);
+    });
+
+    // Process direct classId students
+    directStudents.forEach(st => {
+      processStudentEnrollment(st, st.classId, st.cardType);
+    });
+
+    const allStudentsList = Array.from(studentMap.values());
+
+    // Categorize students
+    const enhancedStudents = allStudentsList.map(st => {
+      const enrolledInIds = Object.keys(st.enrolledClasses).map(Number);
+      const enrolledCount = enrolledInIds.length;
+      const isCommonInAll = parsedIds.every(id => st.enrolledClasses[id]?.enrolled);
+      const isExclusive = enrolledCount === 1;
+      const exclusiveClassId = isExclusive ? enrolledInIds[0] : null;
+
+      return {
+        ...st,
+        enrolledCount,
+        isCommonInAll,
+        isExclusive,
+        exclusiveClassId,
+        enrolledClassIds: enrolledInIds
+      };
+    });
+
+    // Sort students: common in all first, then by name
+    enhancedStudents.sort((a, b) => {
+      if (a.isCommonInAll && !b.isCommonInAll) return -1;
+      if (!a.isCommonInAll && b.isCommonInAll) return 1;
+      if (b.enrolledCount !== a.enrolledCount) return b.enrolledCount - a.enrolledCount;
+      return (a.studentName || '').localeCompare(b.studentName || '');
+    });
+
+    const commonStudents = enhancedStudents.filter(s => s.isCommonInAll);
+
+    // Exclusive students by class
+    const exclusiveStudentsByClass = {};
+    const classEnrollmentCounts = {};
+
+    parsedIds.forEach(cId => {
+      exclusiveStudentsByClass[cId] = enhancedStudents.filter(s => s.exclusiveClassId === cId);
+      classEnrollmentCounts[cId] = enhancedStudents.filter(s => s.enrolledClasses[cId]?.enrolled).length;
+    });
+
+    // Pairwise overlap matrix
+    const pairwiseOverlap = {};
+    for (let i = 0; i < parsedIds.length; i++) {
+      for (let j = i + 1; j < parsedIds.length; j++) {
+        const idA = parsedIds[i];
+        const idB = parsedIds[j];
+        const overlapKey = `${idA}_${idB}`;
+        const overlapList = enhancedStudents.filter(s => s.enrolledClasses[idA]?.enrolled && s.enrolledClasses[idB]?.enrolled);
+        pairwiseOverlap[overlapKey] = {
+          classAId: idA,
+          classBId: idB,
+          count: overlapList.length,
+          studentIds: overlapList.map(s => s.id)
+        };
+      }
+    }
+
+    // Card Type distribution
+    const cardDistribution = {
+      overall: {
+        FULL: enhancedStudents.filter(s => s.cardType === 'FULL').length,
+        HALF: enhancedStudents.filter(s => s.cardType === 'HALF').length,
+        FREE: enhancedStudents.filter(s => s.cardType === 'FREE').length
+      },
+      common: {
+        FULL: commonStudents.filter(s => s.cardType === 'FULL').length,
+        HALF: commonStudents.filter(s => s.cardType === 'HALF').length,
+        FREE: commonStudents.filter(s => s.cardType === 'FREE').length
+      }
+    };
+
+    return res.json({
+      success: true,
+      classes: classes.map(c => ({
+        id: c.id,
+        name: c.name,
+        grade: c.grade,
+        stream: c.stream,
+        subject: c.subject,
+        monthlyFee: c.monthlyFee || 0,
+        teachers: (c.teachers || []).map(t => ({ id: t.id, name: t.name, phone: t.phone })),
+        totalStudentsCount: classEnrollmentCounts[c.id] || 0,
+        exclusiveStudentsCount: (exclusiveStudentsByClass[c.id] || []).length
+      })),
+      stats: {
+        totalSelectedClasses: parsedIds.length,
+        totalUniqueStudents: enhancedStudents.length,
+        commonInAllCount: commonStudents.length,
+        commonInAllPercentage: enhancedStudents.length > 0
+          ? Math.round((commonStudents.length / enhancedStudents.length) * 100)
+          : 0,
+        cardDistribution,
+        classEnrollmentCounts,
+        exclusiveCounts: Object.keys(exclusiveStudentsByClass).reduce((acc, cId) => {
+          acc[cId] = exclusiveStudentsByClass[cId].length;
+          return acc;
+        }, {})
+      },
+      pairwiseOverlap,
+      students: enhancedStudents,
+      commonStudents,
+      exclusiveStudentsByClass
+    });
+  } catch (error) {
+    console.error('Error comparing classes:', error);
+    return res.status(500).json({ error: 'Failed to compare classes: ' + error.message });
   }
 };
 

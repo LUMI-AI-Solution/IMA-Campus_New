@@ -506,38 +506,68 @@ exports.paymentAction = async (req, res) => {
 
         // 🔥 Auto Delivery ONLY for normal Approve (Not Free Card/Discount)
         if (action === 'Approve') {
-            let shouldCreateDelivery = true;
-            if (updatedPayment.payment_type === 1) {
-                if (updatedPayment.groupId) {
-                    const ext = await prisma.delivery.findFirst({
-                        where: { studentId: updatedPayment.studentId.toString(), paymentType: 'Monthly', payment: { groupId: updatedPayment.groupId } }
-                    });
-                    if (ext) shouldCreateDelivery = false;
-                }
-            } else if (updatedPayment.payment_type === 2 || updatedPayment.payment_type === 3) {
-                if (updatedPayment.batchId) {
-                    const ext = await prisma.delivery.findFirst({
-                        where: { studentId: updatedPayment.studentId.toString(), paymentType: { in: ['Installment', 'Full'] }, payment: { batchId: updatedPayment.batchId } }
-                    });
-                    if (ext) shouldCreateDelivery = false;
-                }
-            }
-
-            if (shouldCreateDelivery && updatedPayment.subjects) {
+            if (updatedPayment.subjects) {
                 try {
                     const subIds = JSON.parse(updatedPayment.subjects).map(id => parseInt(id));
                     const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
                     if (courses.length > 0) {
                         const deliverableItems = await getDeliverableCoursesForPayment(updatedPayment, courses);
                         if (deliverableItems.length > 0) {
-                            const paymentTypeStr = updatedPayment.payment_type === 1 ? 'Monthly' : (updatedPayment.payment_type === 2 ? 'Installment' : 'Full');
-                            await prisma.delivery.create({
-                                data: {
-                                    paymentId: updatedPayment.id, studentId: updatedPayment.studentId.toString(), businessId: updatedPayment.businessId,
-                                    paymentType: paymentTypeStr, status: isSelfPicked ? 'Delivered' : 'Pending',
-                                    items: { create: deliverableItems }
-                                }
+                            // Find existing deliveries for this student in the same Group (Monthly) or Batch (Installment/Full)
+                            let existingDeliveries = [];
+                            if (updatedPayment.payment_type === 1 && updatedPayment.groupId) {
+                                existingDeliveries = await prisma.delivery.findMany({
+                                    where: {
+                                        studentId: updatedPayment.studentId.toString(),
+                                        paymentType: 'Monthly',
+                                        payment: { groupId: updatedPayment.groupId }
+                                    },
+                                    include: { items: true }
+                                });
+                            } else if ((updatedPayment.payment_type === 2 || updatedPayment.payment_type === 3) && updatedPayment.batchId) {
+                                existingDeliveries = await prisma.delivery.findMany({
+                                    where: {
+                                        studentId: updatedPayment.studentId.toString(),
+                                        paymentType: { in: ['Installment', 'Full'] },
+                                        payment: { batchId: updatedPayment.batchId }
+                                    },
+                                    include: { items: true }
+                                });
+                            }
+
+                            // Collect already delivered/queued items for this student in this scope
+                            const alreadyDeliveredSet = new Set();
+                            existingDeliveries.forEach(d => {
+                                (d.items || []).forEach(item => {
+                                    if (item.courseId) {
+                                        alreadyDeliveredSet.add(`${item.courseId}`);
+                                        if (item.tuteName) {
+                                            alreadyDeliveredSet.add(`${item.courseId}_${item.tuteName.trim().toLowerCase()}`);
+                                        }
+                                    }
+                                });
                             });
+
+                            // Filter out already delivered tutes, keep newly paid subjects/tutes!
+                            const newDeliverableItems = deliverableItems.filter(item => {
+                                const keyTute = item.tuteName ? `${item.courseId}_${item.tuteName.trim().toLowerCase()}` : null;
+                                const keyCourse = `${item.courseId}`;
+                                if (keyTute && alreadyDeliveredSet.has(keyTute)) return false;
+                                if (!keyTute && alreadyDeliveredSet.has(keyCourse)) return false;
+                                return true;
+                            });
+
+                            if (newDeliverableItems.length > 0) {
+                                const paymentTypeStr = updatedPayment.payment_type === 1 ? 'Monthly' : (updatedPayment.payment_type === 2 ? 'Installment' : 'Full');
+                                await prisma.delivery.create({
+                                    data: {
+                                        paymentId: updatedPayment.id, studentId: updatedPayment.studentId.toString(), businessId: updatedPayment.businessId,
+                                        paymentType: paymentTypeStr, status: isSelfPicked ? 'Delivered' : 'Pending',
+                                        items: { create: newDeliverableItems }
+                                    }
+                                });
+                                console.log(`🚚 Auto Delivery created for Payment #${updatedPayment.id} with ${newDeliverableItems.length} items.`);
+                            }
                         }
                     }
                 } catch (e) {
@@ -604,6 +634,10 @@ exports.approveInstallment = async (req, res) => {
                 : (payRecord.remark ? `${payRecord.remark}\n\n[ADMIN]: ${remark}` : `[ADMIN]: ${remark}`);
         }
 
+        if (nextDueDate) {
+            updateData.due_date = new Date(nextDueDate);
+        }
+
         const updatedPayment = await prisma.payment.update({
             where: { id: parseInt(paymentId) },
             data: updateData
@@ -611,31 +645,55 @@ exports.approveInstallment = async (req, res) => {
 
         await syncLeadEnrollment(updatedPayment.studentId, updatedPayment.payment_type, updatedPayment);
 
-
-
-        // 🔥 Auto Delivery Logic
-        let shouldCreateDelivery = true;
-        if (updatedPayment.batchId) {
-            const ext = await prisma.delivery.findFirst({
-                where: { studentId: updatedPayment.studentId.toString(), paymentType: { in: ['Installment', 'Full'] }, payment: { batchId: updatedPayment.batchId } }
-            });
-            if (ext) shouldCreateDelivery = false;
-        }
-
-        if (shouldCreateDelivery && updatedPayment.subjects) {
+        // 🔥 Auto Delivery Logic (Subject-level duplicate check)
+        if (updatedPayment.subjects) {
             try {
                 const subIds = JSON.parse(updatedPayment.subjects).map(id => parseInt(id));
                 const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
                 if (courses.length > 0) {
                     const deliverableItems = await getDeliverableCoursesForPayment(updatedPayment, courses);
                     if (deliverableItems.length > 0) {
-                        await prisma.delivery.create({
-                            data: {
-                                paymentId: updatedPayment.id, studentId: updatedPayment.studentId.toString(), businessId: updatedPayment.businessId,
-                                paymentType: 'Installment', status: isSelfPicked ? 'Delivered' : 'Pending',
-                                items: { create: deliverableItems }
-                            }
+                        let existingDeliveries = [];
+                        if (updatedPayment.batchId) {
+                            existingDeliveries = await prisma.delivery.findMany({
+                                where: {
+                                    studentId: updatedPayment.studentId.toString(),
+                                    paymentType: { in: ['Installment', 'Full'] },
+                                    payment: { batchId: updatedPayment.batchId }
+                                },
+                                include: { items: true }
+                            });
+                        }
+
+                        const alreadyDeliveredSet = new Set();
+                        existingDeliveries.forEach(d => {
+                            (d.items || []).forEach(item => {
+                                if (item.courseId) {
+                                    alreadyDeliveredSet.add(`${item.courseId}`);
+                                    if (item.tuteName) {
+                                        alreadyDeliveredSet.add(`${item.courseId}_${item.tuteName.trim().toLowerCase()}`);
+                                    }
+                                }
+                            });
                         });
+
+                        const newDeliverableItems = deliverableItems.filter(item => {
+                            const keyTute = item.tuteName ? `${item.courseId}_${item.tuteName.trim().toLowerCase()}` : null;
+                            const keyCourse = `${item.courseId}`;
+                            if (keyTute && alreadyDeliveredSet.has(keyTute)) return false;
+                            if (!keyTute && alreadyDeliveredSet.has(keyCourse)) return false;
+                            return true;
+                        });
+
+                        if (newDeliverableItems.length > 0) {
+                            await prisma.delivery.create({
+                                data: {
+                                    paymentId: updatedPayment.id, studentId: updatedPayment.studentId.toString(), businessId: updatedPayment.businessId,
+                                    paymentType: 'Installment', status: isSelfPicked ? 'Delivered' : 'Pending',
+                                    items: { create: newDeliverableItems }
+                                }
+                            });
+                        }
                     }
                 }
             } catch (e) {
