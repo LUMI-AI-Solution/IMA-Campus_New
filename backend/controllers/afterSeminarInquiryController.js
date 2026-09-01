@@ -124,10 +124,14 @@ exports.getLeads = async (req, res) => {
         const userRoleRaw = req.user?.role || req.query.loggedUserRole || 'STAFF'; 
         const userRole = String(userRoleRaw).toUpperCase().replace(/ /g, '_');
 
-        const { tab, subTab, staffPhase, status, staffId, batchId, businessId, paymentGroup, enrollmentStatus, inquiryType, round, phase, excludeColdBridge, searchQuery, page, limit, unassignedOnly } = req.query; 
+        const { tab, subTab, staffPhase, status, staffId, batchId, businessId, paymentGroup, enrollmentStatus, inquiryType, round, phase, excludeColdBridge, searchQuery, page, limit, unassignedOnly, source } = req.query; 
         const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER'].includes(userRole);
 
         let whereClause = { campaignType: 'AFTER_SEMINAR', source: { not: 'system' }, AND: [] };
+
+        if (source && source !== '') {
+            whereClause.source = source;
+        }
 
         if (businessId && businessId !== '') {
             whereClause.AND.push({
