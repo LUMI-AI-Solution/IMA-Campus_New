@@ -330,6 +330,115 @@ exports.deleteStaff = async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Failed to delete staff" }); }
 };
 
+// 8. Get Lumi Invoice Billing Data
+exports.getLumiInvoiceData = async (req, res) => {
+    try {
+        const { startDate, endDate, month } = req.query;
+
+        let start, end;
+        if (month) {
+            const [y, m] = month.split('-').map(Number);
+            start = new Date(Date.UTC(y, m - 1, 1, 0, 0, 0));
+            end = new Date(Date.UTC(y, m, 0, 23, 59, 59, 999));
+        } else if (startDate && endDate) {
+            start = new Date(startDate);
+            end = new Date(new Date(endDate).setHours(23, 59, 59, 999));
+        } else {
+            const now = new Date();
+            start = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1, 0, 0, 0));
+            end = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999));
+        }
+
+        const dateFilter = {
+            createdAt: {
+                gte: start,
+                lte: end
+            }
+        };
+
+        const businesses = await prisma.business.findMany({
+            select: { id: true, name: true, logo: true }
+        });
+
+        // Group outbound completed calls by businessId and campaignType
+        const callStats = await prisma.whatsAppCallRecord.groupBy({
+            by: ['businessId', 'campaignType', 'direction', 'status'],
+            where: {
+                ...dateFilter,
+                direction: { in: ['OUTBOUND', 'outbound'] },
+                status: { in: ['COMPLETED', 'completed', 'ANSWERED', 'answered'] }
+            },
+            _count: { id: true },
+            _sum: { duration: true }
+        });
+
+        const invoiceBusinesses = businesses.map(biz => {
+            const bizCalls = callStats.filter(c => c.businessId === biz.id);
+
+            const freeCalls = bizCalls.filter(c => c.campaignType === 'FREE_SEMINAR');
+            const afterCalls = bizCalls.filter(c => c.campaignType === 'AFTER_SEMINAR');
+            const otherCalls = bizCalls.filter(c => c.campaignType !== 'FREE_SEMINAR' && c.campaignType !== 'AFTER_SEMINAR');
+
+            const freeCount = freeCalls.reduce((acc, curr) => acc + (curr._count?.id || 0), 0);
+            const freeDurationSec = freeCalls.reduce((acc, curr) => acc + (curr._sum?.duration || 0), 0);
+            const freeMinutes = Math.ceil(freeDurationSec / 60);
+
+            const afterCount = afterCalls.reduce((acc, curr) => acc + (curr._count?.id || 0), 0);
+            const afterDurationSec = afterCalls.reduce((acc, curr) => acc + (curr._sum?.duration || 0), 0);
+            const afterMinutes = Math.ceil(afterDurationSec / 60);
+
+            const otherCount = otherCalls.reduce((acc, curr) => acc + (curr._count?.id || 0), 0);
+            const otherDurationSec = otherCalls.reduce((acc, curr) => acc + (curr._sum?.duration || 0), 0);
+            const otherMinutes = Math.ceil(otherDurationSec / 60);
+
+            return {
+                id: biz.id,
+                name: biz.name,
+                logo: biz.logo,
+                freeSeminar: {
+                    active: true,
+                    callCount: freeCount,
+                    durationSeconds: freeDurationSec,
+                    durationMinutes: freeMinutes,
+                    fixedRental: 2500,
+                    ratePerMinute: 5.0
+                },
+                afterSeminar: {
+                    active: true,
+                    callCount: afterCount + otherCount,
+                    durationSeconds: afterDurationSec + otherDurationSec,
+                    durationMinutes: afterMinutes + otherMinutes,
+                    fixedRental: 2500,
+                    ratePerMinute: 5.0
+                }
+            };
+        });
+
+        res.status(200).json({
+            success: true,
+            period: {
+                start: start.toISOString(),
+                end: end.toISOString()
+            },
+            rateConfig: {
+                fixedRentalPerNumber: 2500,
+                costPerMinute: 5.0
+            },
+            bankDetails: {
+                accountNumber: "115452324957",
+                bankName: "Sampath Bank",
+                branch: "Aralaganwila Branch",
+                accountName: "Chamindu Dilshan"
+            },
+            businesses: invoiceBusinesses
+        });
+
+    } catch (error) {
+        console.error("Lumi Invoice Data Error:", error);
+        res.status(500).json({ error: "Failed to generate Lumi invoice data" });
+    }
+};
+
 exports.getLumiStats = async (req, res) => {
     try {
         const totalCalls = await prisma.whatsAppCallRecord.count();

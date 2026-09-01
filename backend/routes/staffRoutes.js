@@ -16,6 +16,7 @@ router.use(verifyToken);
 // 🔥 IMPORTANT: /businesses eka /:id ekata udin danna ona
 router.get('/lumi-stats', staffController.getLumiStats);
 router.get('/lumi-missed-calls', staffController.getLumiMissedCalls);
+router.get('/lumi-invoice-data', staffController.getLumiInvoiceData);
 router.get('/businesses', staffController.getBusinesses); 
 router.get('/', staffController.getStaff);
 router.post('/', staffController.createStaff);

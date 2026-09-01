@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { PhoneCall, Activity, Coffee, UserX, PhoneOff, Users, BarChart, ChevronDown, ChevronUp, CheckCircle, Clock, Upload, X, Edit2, Database, PhoneIncoming, ShieldCheck, FileSpreadsheet } from 'lucide-react';
 import RingtoneSelector from './RingtoneSelector';
 import InboundCallLogs from './InboundCallLogs';
+import LumiInvoiceGenerator from './LumiInvoiceGenerator';
 import CallPermissionsWidget from '../../components/common/CallPermissionsWidget';
 import InboundMissedCallsReportModal from '../../components/common/InboundMissedCallsReportModal';
 import { toast } from 'react-hot-toast';
@@ -540,6 +541,7 @@ export default function LumiCallerMain({ loggedInUser }) {
                         <div className="flex flex-wrap bg-black/40 p-2 rounded-xl border border-gray-700/50 w-max gap-1">
                             {[
                                 { id: 'WHATSAPP', label: 'Outbound Reports' },
+                                { id: 'INVOICE_GENERATOR', label: '🧾 Lumi Invoice Generator' },
                                 { id: 'INBOUND_MISSED', label: 'Incoming & Missed Calls Detailed' },
                                 { id: 'CALL_REQUESTS', label: 'Call Requests History' },
                                 { id: 'CALL_TREE', label: 'Call Tree' }
@@ -816,6 +818,9 @@ export default function LumiCallerMain({ loggedInUser }) {
                                     </div>
                                 </div>
                             </div>
+                        )}
+                        {activeReportTab === 'INVOICE_GENERATOR' && (
+                            <LumiInvoiceGenerator />
                         )}
                         {activeReportTab === 'INBOUND_MISSED' && (
                             <div className="space-y-6">
