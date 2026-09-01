@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import api from '../../api/axios';
 import { toast } from 'react-hot-toast';
 import { toPng } from 'html-to-image';
+import jsPDF from 'jspdf';
 import { 
     Printer, Download, RefreshCw, CheckSquare, Square, 
     Calendar, DollarSign, PhoneCall, Building2, Sparkles, 
@@ -355,18 +356,84 @@ export default function LumiInvoiceGenerator() {
         };
     }, [businessItems, rateConfig]);
 
-    // 📥 Direct High-Resolution PNG / PDF Image Download
+    // 📄 1-CLICK DIRECT A4 PDF DOWNLOAD (Using jsPDF + High-Res Canvas)
+    const handleDownloadInvoicePDF = async () => {
+        if (!invoiceRef.current) return;
+        setDownloading(true);
+        const toastId = toast.loading("Generating Official A4 Invoice PDF...");
+        try {
+            await new Promise(r => setTimeout(r, 120));
+
+            const element = invoiceRef.current;
+
+            const imgData = await toPng(element, {
+                quality: 1,
+                pixelRatio: 2.5,
+                backgroundColor: '#ffffff',
+                cacheBust: true,
+                style: {
+                    borderRadius: '0px',
+                    margin: '0px'
+                }
+            });
+
+            // Initialize jsPDF A4 Document
+            const pdf = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: 'a4',
+                compress: true
+            });
+
+            const pageWidth = 210;
+            const pageHeight = 297;
+            const margin = 8; // 8mm margin
+            const printableWidth = pageWidth - (margin * 2);
+
+            const img = new Image();
+            img.src = imgData;
+            await new Promise((resolve) => { img.onload = resolve; });
+
+            const imgWidth = printableWidth;
+            const imgHeight = (img.height * printableWidth) / img.width;
+
+            if (imgHeight <= pageHeight - (margin * 2)) {
+                pdf.addImage(imgData, 'PNG', margin, margin, imgWidth, imgHeight, undefined, 'FAST');
+            } else {
+                let heightLeft = imgHeight;
+                let position = margin;
+
+                pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight, undefined, 'FAST');
+                heightLeft -= (pageHeight - (margin * 2));
+
+                while (heightLeft > 0) {
+                    position = heightLeft - imgHeight + margin;
+                    pdf.addPage();
+                    pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight, undefined, 'FAST');
+                    heightLeft -= (pageHeight - (margin * 2));
+                }
+            }
+
+            pdf.save(`${invoiceNo || 'LUMI_INVOICE'}.pdf`);
+            toast.success("Invoice PDF Downloaded Successfully!", { id: toastId });
+        } catch (error) {
+            console.error("PDF generation failed:", error);
+            toast.error("Failed to generate PDF download. Please try again.", { id: toastId });
+        }
+        setDownloading(false);
+    };
+
+    // 📥 High-Resolution PNG Image Download
     const handleDownloadInvoiceImage = async () => {
         if (!invoiceRef.current) return;
         setDownloading(true);
         const toastId = toast.loading("Generating high-resolution invoice image...");
         try {
-            // Give 100ms for layout stabilization
             await new Promise(r => setTimeout(r, 100));
 
             const dataUrl = await toPng(invoiceRef.current, {
                 quality: 1,
-                pixelRatio: 2.5, // Crisp 2.5x retina resolution
+                pixelRatio: 2.5,
                 backgroundColor: '#ffffff',
                 cacheBust: true,
                 style: {
@@ -382,15 +449,15 @@ export default function LumiInvoiceGenerator() {
             link.click();
             document.body.removeChild(link);
 
-            toast.success("Invoice downloaded successfully!", { id: toastId });
+            toast.success("Invoice image downloaded successfully!", { id: toastId });
         } catch (error) {
             console.error("Invoice download failed:", error);
-            toast.error("Failed to generate image download. Please try again.", { id: toastId });
+            toast.error("Failed to generate image download.", { id: toastId });
         }
         setDownloading(false);
     };
 
-    // 🖨️ Clean Standalone Print Window (Zero sidebar leaks)
+    // 🖨️ Clean Standalone Print Window
     const handleCleanPrint = () => {
         if (!invoiceRef.current) return;
         
@@ -398,7 +465,6 @@ export default function LumiInvoiceGenerator() {
         const printWindow = window.open('', '_blank', 'width=1000,height=900');
         
         if (!printWindow) {
-            // Fallback to normal window print if popups blocked
             window.print();
             return;
         }
@@ -424,7 +490,7 @@ export default function LumiInvoiceGenerator() {
                         }
                         @page {
                             size: A4 portrait;
-                            margin: 12mm;
+                            margin: 10mm;
                         }
                     </style>
                 </head>
@@ -541,10 +607,10 @@ export default function LumiInvoiceGenerator() {
                     <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
                         <button 
                             onClick={() => setIsAddModalOpen(true)}
-                            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all hover:scale-105"
+                            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 transition-all shadow-sm"
                         >
                             <Plus size={15} />
-                            Add Business / Item
+                            Add Business
                         </button>
 
                         <button 
@@ -564,32 +630,32 @@ export default function LumiInvoiceGenerator() {
                             Copy Text
                         </button>
 
-                        {/* 📥 1-CLICK DIRECT DOWNLOAD BUTTON */}
+                        {/* 📄 1-CLICK DIRECT PDF DOWNLOAD BUTTON */}
                         <button 
-                            onClick={handleDownloadInvoiceImage}
+                            onClick={handleDownloadInvoicePDF}
                             disabled={downloading}
-                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all hover:scale-105 disabled:opacity-50"
+                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black px-6 py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all hover:scale-105 disabled:opacity-50"
                         >
                             {downloading ? (
                                 <>
                                     <Loader2 size={15} className="animate-spin" />
-                                    Downloading...
+                                    Generating PDF...
                                 </>
                             ) : (
                                 <>
                                     <Download size={15} />
-                                    Download Invoice (Image)
+                                    Download PDF
                                 </>
                             )}
                         </button>
 
-                        {/* 🖨️ CLEAN PRINT / PDF EXPORT */}
+                        {/* 🖨️ CLEAN PRINT / VIEW */}
                         <button 
                             onClick={handleCleanPrint}
-                            className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all hover:scale-105"
+                            className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 transition-all shadow-sm"
                         >
                             <Printer size={15} />
-                            Print / PDF
+                            Print
                         </button>
                     </div>
                 </div>
