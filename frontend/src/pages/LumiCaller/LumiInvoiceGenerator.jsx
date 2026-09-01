@@ -356,11 +356,11 @@ export default function LumiInvoiceGenerator() {
         };
     }, [businessItems, rateConfig]);
 
-    // 📄 1-CLICK DIRECT A4 PDF DOWNLOAD (Using jsPDF + High-Res Canvas)
+    // 📄 1-CLICK DIRECT A4 PDF DOWNLOAD (FIT TO 1 CLEAN A4 PAGE)
     const handleDownloadInvoicePDF = async () => {
         if (!invoiceRef.current) return;
         setDownloading(true);
-        const toastId = toast.loading("Generating Official A4 Invoice PDF...");
+        const toastId = toast.loading("Generating Official Single-Page A4 PDF...");
         try {
             await new Promise(r => setTimeout(r, 120));
 
@@ -387,30 +387,40 @@ export default function LumiInvoiceGenerator() {
 
             const pageWidth = 210;
             const pageHeight = 297;
-            const margin = 8; // 8mm margin
+            const margin = 6; // 6mm margin
             const printableWidth = pageWidth - (margin * 2);
+            const printableHeight = pageHeight - (margin * 2);
 
             const img = new Image();
             img.src = imgData;
             await new Promise((resolve) => { img.onload = resolve; });
 
             const imgWidth = printableWidth;
-            const imgHeight = (img.height * printableWidth) / img.width;
+            let imgHeight = (img.height * printableWidth) / img.width;
 
-            if (imgHeight <= pageHeight - (margin * 2)) {
+            // Fit perfectly to 1 single A4 page
+            if (imgHeight <= printableHeight) {
                 pdf.addImage(imgData, 'PNG', margin, margin, imgWidth, imgHeight, undefined, 'FAST');
+            } else if (imgHeight <= printableHeight * 1.25) {
+                // Scale proportionally so it fits on 1 single page without breaking
+                const scale = printableHeight / imgHeight;
+                const scaledWidth = imgWidth * scale;
+                const scaledHeight = printableHeight;
+                const offsetX = margin + (printableWidth - scaledWidth) / 2;
+                pdf.addImage(imgData, 'PNG', offsetX, margin, scaledWidth, scaledHeight, undefined, 'FAST');
             } else {
+                // Multi-page slicing only if extremely long
                 let heightLeft = imgHeight;
                 let position = margin;
 
                 pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight, undefined, 'FAST');
-                heightLeft -= (pageHeight - (margin * 2));
+                heightLeft -= printableHeight;
 
                 while (heightLeft > 0) {
                     position = heightLeft - imgHeight + margin;
                     pdf.addPage();
                     pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight, undefined, 'FAST');
-                    heightLeft -= (pageHeight - (margin * 2));
+                    heightLeft -= printableHeight;
                 }
             }
 
@@ -483,14 +493,14 @@ export default function LumiInvoiceGenerator() {
                             font-family: 'Plus Jakarta Sans', sans-serif;
                             background: #ffffff;
                             margin: 0;
-                            padding: 24px;
+                            padding: 20px;
                             color: #1e293b;
                             -webkit-print-color-adjust: exact;
                             print-color-adjust: exact;
                         }
                         @page {
                             size: A4 portrait;
-                            margin: 10mm;
+                            margin: 8mm;
                         }
                     </style>
                 </head>
@@ -597,7 +607,7 @@ export default function LumiInvoiceGenerator() {
                             <h2 className="text-xl font-bold text-white tracking-wide flex items-center gap-2">
                                 Lumi WhatsApp Caller Invoice Generator
                                 <span className="bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full">
-                                    Consolidated
+                                    Single-Page Fit
                                 </span>
                             </h2>
                             <p className="text-xs text-slate-400">Generate clean consolidated monthly statements for IMA Campus</p>
@@ -852,112 +862,89 @@ export default function LumiInvoiceGenerator() {
                 </div>
             </div>
 
-            {/* 🧾 ACTUAL INVOICE DOCUMENT (PRINT-READY SHEET WITH MODERN TYPOGRAPHY & GROUPED COLUMNS) */}
+            {/* 🧾 ACTUAL INVOICE DOCUMENT (CLEAN COMPACT SINGLE-PAGE A4 FORMAT) */}
             <div 
                 id="lumi-invoice-sheet"
                 ref={invoiceRef}
-                className="bg-white text-slate-800 p-8 sm:p-12 rounded-3xl shadow-2xl border border-slate-200 max-w-5xl mx-auto print:max-w-none print:m-0 print:p-6 print:shadow-none print:border-none print:rounded-none font-sans"
+                className="bg-white text-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl border border-slate-200 max-w-5xl mx-auto print:max-w-none print:m-0 print:p-4 print:shadow-none print:border-none print:rounded-none font-sans"
             >
-                {/* Invoice Top Header */}
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 pb-8 border-b-2 border-slate-200">
+                {/* Invoice Top Header - With Integrated LUMI From & IMA To */}
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b-2 border-slate-200">
                     
                     {/* Left: LUMI Logo & Branding */}
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-1.5">
                         <div className="flex items-center gap-3">
                             <img 
                                 src="/lumi_logo.png" 
                                 alt="LUMI AI Solutions" 
-                                className="h-16 w-auto object-contain"
+                                className="h-14 w-auto object-contain"
                             />
                         </div>
-                        <div className="text-xs text-slate-600 space-y-0.5 font-medium">
-                            <p className="font-bold text-slate-900 text-sm tracking-tight">LUMI AI SOLUTIONS (PVT) LTD</p>
-                            <p className="text-slate-500">Automate | Innovate | Elevate</p>
-                            <p>Enterprise AI & Voice Communication Services</p>
+                        <div className="text-[11px] text-slate-600 space-y-0.5 font-medium leading-tight">
+                            <p className="font-bold text-slate-900 text-xs tracking-tight">LUMI AI SOLUTIONS (PVT) LTD</p>
+                            <p className="text-slate-500">Automate | Innovate | Elevate • AI WhatsApp Calling & Voice Cloud</p>
                             <p>Web: <span className="font-semibold text-indigo-700">www.lumi.ai</span> • Email: <span className="font-semibold text-indigo-700">billing@lumi.ai</span></p>
                         </div>
                     </div>
 
-                    {/* Right: IMA Campus Logo & Invoice Title */}
-                    <div className="flex flex-col items-start sm:items-end gap-2">
+                    {/* Right: IMA Campus Logo & Invoice Details */}
+                    <div className="flex flex-col items-start sm:items-end gap-1.5">
                         <div className="flex items-center gap-3">
                             <img 
                                 src="/logo.png" 
                                 alt="IMA Campus" 
-                                className="h-12 w-auto object-contain"
+                                className="h-10 w-auto object-contain"
                             />
                             <div className="text-right">
-                                <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight uppercase">
+                                <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight uppercase leading-none">
                                     INVOICE
                                 </h1>
-                                <span className="inline-block bg-indigo-50 text-indigo-800 text-[11px] font-bold uppercase px-3 py-1 rounded-full border border-indigo-200 tracking-wide">
+                                <span className="inline-block bg-indigo-50 text-indigo-800 text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border border-indigo-200 mt-0.5">
                                     LUMI WHATSAPP CALLER
                                 </span>
                             </div>
                         </div>
 
-                        <div className="mt-3 text-xs text-slate-700 sm:text-right space-y-1 font-medium">
-                            <p><span className="text-slate-500 font-semibold">Invoice No:</span> <span className="font-bold text-indigo-950 px-2 py-0.5 rounded bg-slate-100">{invoiceNo}</span></p>
-                            <p><span className="text-slate-500 font-semibold">Billing Period:</span> <span className="font-bold text-slate-900">{monthFormatted}</span></p>
-                            <p><span className="text-slate-500 font-semibold">Invoice Date:</span> <span className="font-semibold">{invoiceDate}</span></p>
-                            <p><span className="text-slate-500 font-semibold">Due Date:</span> <span className="font-bold text-rose-700">{dueDate}</span></p>
+                        <div className="text-[11px] text-slate-700 sm:text-right space-y-0.5 font-medium leading-tight">
+                            <p><span className="text-slate-500 font-semibold">Billed To:</span> <span className="font-bold text-slate-900">IMA CAMPUS (PVT) LTD</span></p>
+                            <p><span className="text-slate-500 font-semibold">Invoice No:</span> <span className="font-bold text-indigo-950 px-1.5 py-0.5 rounded bg-slate-100">{invoiceNo}</span></p>
+                            <p><span className="text-slate-500 font-semibold">Billing Period:</span> <span className="font-bold text-slate-900">{monthFormatted}</span> | <span className="text-slate-500 font-semibold">Date:</span> {invoiceDate} | <span className="text-slate-500 font-semibold">Due:</span> <span className="font-bold text-rose-700">{dueDate}</span></p>
                         </div>
                     </div>
                 </div>
 
-                {/* Billed From / Billed To Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 py-6 border-b border-slate-200">
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-600 mb-1.5">
-                            BILLED FROM (SERVICE PROVIDER)
-                        </p>
-                        <h3 className="font-bold text-sm text-slate-900">LUMI AI Solutions</h3>
-                        <p className="text-xs text-slate-600 mt-1 font-medium">Specialized AI WhatsApp Calling & Voice Cloud</p>
-                        <p className="text-xs text-slate-600 font-medium">Colombo, Sri Lanka</p>
-                    </div>
-
-                    <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200">
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600 mb-1.5">
-                            BILLED TO (CLIENT)
-                        </p>
-                        <h3 className="font-bold text-sm text-slate-900">IMA CAMPUS (PVT) LTD</h3>
-                        <p className="text-xs text-slate-600 mt-1 font-medium">Higher Education & Student Academic Operations</p>
-                        <p className="text-xs text-slate-600 font-medium">Sri Lanka</p>
-                    </div>
-                </div>
-
-                {/* Unified Grouped Itemized Service Table (1 row per business with Free & After columns) */}
-                <div className="py-6 space-y-4">
-                    <div className="overflow-x-auto rounded-2xl border border-slate-200 shadow-sm">
-                        <table className="w-full text-left text-xs border-collapse font-sans">
+                {/* Unified Grouped Itemized Service Table */}
+                <div className="py-3.5 space-y-2">
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 shadow-sm">
+                        <table className="w-full text-left text-[11px] border-collapse font-sans">
                             <thead>
                                 {/* Top Group Header */}
-                                <tr className="bg-slate-800 text-white font-bold text-[11px] uppercase tracking-wider">
-                                    <th className="py-3 px-3 text-center w-10" rowSpan="2">#</th>
-                                    <th className="py-3 px-4" rowSpan="2">Business / Department</th>
-                                    <th className="py-2.5 px-3 text-center border-l border-slate-700 bg-slate-800/90 text-emerald-300" colSpan="2">
+                                <tr className="bg-slate-800 text-white font-bold text-[10px] uppercase tracking-wider">
+                                    <th className="py-2 px-2.5 text-center w-8" rowSpan="2">#</th>
+                                    <th className="py-2 px-3" rowSpan="2">Business / Department</th>
+                                    <th className="py-1.5 px-2 text-center border-l border-slate-700 bg-slate-800/90 text-emerald-300" colSpan="2">
                                         Free Seminar Dedicated Hotline
                                     </th>
-                                    <th className="py-2.5 px-3 text-center border-l border-slate-700 bg-slate-800/90 text-purple-300" colSpan="2">
+                                    <th className="py-1.5 px-2 text-center border-l border-slate-700 bg-slate-800/90 text-purple-300" colSpan="2">
                                         After Seminar Dedicated Hotline
                                     </th>
-                                    <th className="py-3 px-3 text-center border-l border-slate-700" rowSpan="2">Total Mins</th>
-                                    <th className="py-3 px-3 text-right border-l border-slate-700" rowSpan="2">Fixed Rental</th>
-                                    <th className="py-3 px-3 text-right border-l border-slate-700" rowSpan="2">Usage Cost</th>
-                                    <th className="py-3 px-4 text-right border-l border-slate-700 bg-slate-900" rowSpan="2">Net Total</th>
+                                    <th className="py-2 px-2 text-center border-l border-slate-700" rowSpan="2">Total Mins</th>
+                                    <th className="py-2 px-2.5 text-right border-l border-slate-700" rowSpan="2">Fixed Rental</th>
+                                    <th className="py-2 px-2.5 text-right border-l border-slate-700" rowSpan="2">Usage Cost</th>
+                                    <th className="py-2 px-3 text-right border-l border-slate-700 bg-slate-900" rowSpan="2">Net Total</th>
                                 </tr>
                                 {/* Sub Header for Free & After */}
-                                <tr className="bg-slate-100 text-slate-700 font-bold text-[10px] uppercase border-b-2 border-slate-300">
-                                    <th className="py-2 px-3 text-right border-l border-slate-200">Rental</th>
-                                    <th className="py-2 px-3 text-right">Mins</th>
-                                    <th className="py-2 px-3 text-right border-l border-slate-200">Rental</th>
-                                    <th className="py-2 px-3 text-right">Mins</th>
+                                <tr className="bg-slate-100 text-slate-700 font-bold text-[9px] uppercase border-b-2 border-slate-300">
+                                    <th className="py-1 px-2 text-right border-l border-slate-200">Rental</th>
+                                    <th className="py-1 px-2 text-right">Mins</th>
+                                    <th className="py-1 px-2 text-right border-l border-slate-200">Rental</th>
+                                    <th className="py-1 px-2 text-right">Mins</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-200 font-medium text-slate-700">
                                 {calculations.groupedRows.length === 0 ? (
                                     <tr>
-                                        <td colSpan="10" className="py-8 text-center text-slate-400 font-medium">
+                                        <td colSpan="10" className="py-6 text-center text-slate-400 font-medium">
                                             No businesses or hotlines selected for this invoice.
                                         </td>
                                     </tr>
@@ -967,14 +954,14 @@ export default function LumiInvoiceGenerator() {
 
                                         return (
                                             <tr key={row.bizId} className="hover:bg-slate-50/80 transition-colors">
-                                                <td className="py-3.5 px-3 text-center font-bold text-slate-400">
+                                                <td className="py-2 px-2.5 text-center font-bold text-slate-400">
                                                     {index + 1}
                                                 </td>
                                                 
                                                 {/* Business Name & Logo */}
-                                                <td className="py-3.5 px-4 font-bold text-slate-900">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-8 h-8 rounded-xl bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0 shadow-sm">
+                                                <td className="py-2 px-3 font-bold text-slate-900">
+                                                    <div className="flex items-center gap-2">
+                                                        <div className="w-6 h-6 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0 shadow-xs">
                                                             <img 
                                                                 src={logoUrl} 
                                                                 alt={row.bizName} 
@@ -984,45 +971,45 @@ export default function LumiInvoiceGenerator() {
                                                                 }} 
                                                             />
                                                         </div>
-                                                        <span className="text-xs font-bold text-slate-900 tracking-tight">
+                                                        <span className="text-[11px] font-bold text-slate-900 tracking-tight">
                                                             {row.bizName}
                                                         </span>
                                                     </div>
                                                 </td>
 
                                                 {/* Free Seminar Columns */}
-                                                <td className="py-3.5 px-3 text-right border-l border-slate-100 font-semibold text-slate-800">
+                                                <td className="py-2 px-2 text-right border-l border-slate-100 font-semibold text-slate-800">
                                                     {row.free.active ? formatLKR(row.free.fixed) : <span className="text-slate-300 font-normal">-</span>}
                                                 </td>
-                                                <td className="py-3.5 px-3 text-right font-bold text-emerald-700">
+                                                <td className="py-2 px-2 text-right font-bold text-emerald-700">
                                                     {row.free.active ? `${row.free.mins}m` : <span className="text-slate-300 font-normal">-</span>}
                                                 </td>
 
                                                 {/* After Seminar Columns */}
-                                                <td className="py-3.5 px-3 text-right border-l border-slate-100 font-semibold text-slate-800">
+                                                <td className="py-2 px-2 text-right border-l border-slate-100 font-semibold text-slate-800">
                                                     {row.after.active ? formatLKR(row.after.fixed) : <span className="text-slate-300 font-normal">-</span>}
                                                 </td>
-                                                <td className="py-3.5 px-3 text-right font-bold text-purple-700">
+                                                <td className="py-2 px-2 text-right font-bold text-purple-700">
                                                     {row.after.active ? `${row.after.mins}m` : <span className="text-slate-300 font-normal">-</span>}
                                                 </td>
 
                                                 {/* Total Mins */}
-                                                <td className="py-3.5 px-3 text-center border-l border-slate-100 font-bold text-slate-800 bg-slate-50/50">
+                                                <td className="py-2 px-2 text-center border-l border-slate-100 font-bold text-slate-800 bg-slate-50/50">
                                                     {row.rowMins}m
                                                 </td>
 
                                                 {/* Fixed Total */}
-                                                <td className="py-3.5 px-3 text-right border-l border-slate-100 font-semibold text-slate-800">
+                                                <td className="py-2 px-2.5 text-right border-l border-slate-100 font-semibold text-slate-800">
                                                     {formatLKR(row.rowFixed)}
                                                 </td>
 
                                                 {/* Usage Cost */}
-                                                <td className="py-3.5 px-3 text-right border-l border-slate-100 font-semibold text-slate-800">
+                                                <td className="py-2 px-2.5 text-right border-l border-slate-100 font-semibold text-slate-800">
                                                     {formatLKR(row.rowUsage)}
                                                 </td>
 
                                                 {/* Business Net Total */}
-                                                <td className="py-3.5 px-4 text-right border-l border-slate-200 font-extrabold text-slate-950 bg-slate-50/80">
+                                                <td className="py-2 px-3 text-right border-l border-slate-200 font-extrabold text-slate-950 bg-slate-50/80">
                                                     {formatLKR(row.rowTotal)}
                                                 </td>
                                             </tr>
@@ -1032,32 +1019,32 @@ export default function LumiInvoiceGenerator() {
                             </tbody>
                             {calculations.groupedRows.length > 0 && (
                                 <tfoot>
-                                    <tr className="bg-slate-100 border-t-2 border-slate-300 text-slate-900 font-extrabold text-xs">
-                                        <td colSpan="2" className="py-3.5 px-4 text-right uppercase tracking-wider font-bold text-slate-600">
+                                    <tr className="bg-slate-100 border-t-2 border-slate-300 text-slate-900 font-extrabold text-[11px]">
+                                        <td colSpan="2" className="py-2.5 px-3 text-right uppercase tracking-wider font-bold text-slate-600">
                                             TOTALS
                                         </td>
-                                        <td className="py-3.5 px-3 text-right border-l border-slate-200">
+                                        <td className="py-2.5 px-2 text-right border-l border-slate-200">
                                             {formatLKR(calculations.groupedRows.reduce((acc, r) => acc + r.free.fixed, 0))}
                                         </td>
-                                        <td className="py-3.5 px-3 text-right text-emerald-700">
+                                        <td className="py-2.5 px-2 text-right text-emerald-700">
                                             {calculations.groupedRows.reduce((acc, r) => acc + r.free.mins, 0)}m
                                         </td>
-                                        <td className="py-3.5 px-3 text-right border-l border-slate-200">
+                                        <td className="py-2.5 px-2 text-right border-l border-slate-200">
                                             {formatLKR(calculations.groupedRows.reduce((acc, r) => acc + r.after.fixed, 0))}
                                         </td>
-                                        <td className="py-3.5 px-3 text-right text-purple-700">
+                                        <td className="py-2.5 px-2 text-right text-purple-700">
                                             {calculations.groupedRows.reduce((acc, r) => acc + r.after.mins, 0)}m
                                         </td>
-                                        <td className="py-3.5 px-3 text-center border-l border-slate-200 bg-slate-200/60">
+                                        <td className="py-2.5 px-2 text-center border-l border-slate-200 bg-slate-200/60">
                                             {calculations.totalMinutes}m
                                         </td>
-                                        <td className="py-3.5 px-3 text-right border-l border-slate-200">
+                                        <td className="py-2.5 px-2.5 text-right border-l border-slate-200">
                                             {formatLKR(calculations.totalFixedRental)}
                                         </td>
-                                        <td className="py-3.5 px-3 text-right border-l border-slate-200">
+                                        <td className="py-2.5 px-2.5 text-right border-l border-slate-200">
                                             {formatLKR(calculations.totalUsageAmount)}
                                         </td>
-                                        <td className="py-3.5 px-4 text-right border-l border-slate-300 bg-slate-200 text-slate-950 font-black">
+                                        <td className="py-2.5 px-3 text-right border-l border-slate-300 bg-slate-200 text-slate-950 font-black">
                                             {formatLKR(calculations.grandTotal)}
                                         </td>
                                     </tr>
@@ -1067,55 +1054,55 @@ export default function LumiInvoiceGenerator() {
                     </div>
                 </div>
 
-                {/* Totals & Summary Calculation Deck with Modern Clean Typography */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2 pb-8">
+                {/* Totals & Summary Calculation Deck */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1 pb-4">
                     
                     {/* Left: Summary Formula Breakdown */}
-                    <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 space-y-3">
-                        <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900 flex items-center gap-2">
-                            <Info size={15} className="text-indigo-600" />
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
+                        <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
+                            <Info size={13} className="text-indigo-600" />
                             Cost Breakdown Summary
                         </h4>
                         
-                        <div className="text-xs space-y-2.5 text-slate-600 font-medium">
-                            <div className="flex justify-between items-center py-1.5 border-b border-slate-200">
+                        <div className="text-[11px] space-y-1.5 text-slate-600 font-medium leading-tight">
+                            <div className="flex justify-between items-center py-1 border-b border-slate-200">
                                 <span>1. Fixed Dedicated Number Rentals:</span>
                                 <span className="font-bold text-slate-900">{calculations.totalActiveNumbers} Numbers × LKR 2,500.00</span>
                             </div>
-                            <div className="flex justify-between items-center py-1.5 border-b border-slate-200">
+                            <div className="flex justify-between items-center py-1 border-b border-slate-200">
                                 <span>2. Outbound WhatsApp Call Minutes:</span>
                                 <span className="font-bold text-slate-900">{calculations.totalMinutes} Mins × LKR 5.00</span>
                             </div>
-                            <div className="flex justify-between items-center py-1.5 text-slate-800">
+                            <div className="flex justify-between items-center py-1 text-slate-800">
                                 <span className="font-bold">Total Active Service Hotlines:</span>
-                                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-100">{calculations.totalActiveNumbers} Channels Configured</span>
+                                <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{calculations.totalActiveNumbers} Channels Configured</span>
                             </div>
                         </div>
                     </div>
 
                     {/* Right: Grand Total Box */}
-                    <div className="flex flex-col justify-between gap-3 bg-slate-900 text-white p-6 rounded-2xl shadow-xl">
-                        <div className="space-y-2.5 text-xs font-medium">
+                    <div className="flex flex-col justify-between gap-2 bg-slate-900 text-white p-4 rounded-xl shadow-lg">
+                        <div className="space-y-1.5 text-[11px] font-medium">
                             <div className="flex justify-between items-center text-slate-300">
                                 <span>Total Fixed Number Rentals:</span>
-                                <span className="font-bold text-white text-sm">LKR {formatLKR(calculations.totalFixedRental)}</span>
+                                <span className="font-bold text-white">LKR {formatLKR(calculations.totalFixedRental)}</span>
                             </div>
                             <div className="flex justify-between items-center text-slate-300">
                                 <span>Total Outbound Call Usage:</span>
-                                <span className="font-bold text-white text-sm">LKR {formatLKR(calculations.totalUsageAmount)}</span>
+                                <span className="font-bold text-white">LKR {formatLKR(calculations.totalUsageAmount)}</span>
                             </div>
-                            <div className="h-px bg-slate-800 my-2"></div>
+                            <div className="h-px bg-slate-800 my-1"></div>
                         </div>
 
-                        <div className="flex justify-between items-end pt-1">
+                        <div className="flex justify-between items-end pt-0.5">
                             <div>
-                                <p className="text-[10px] font-bold uppercase tracking-widest text-indigo-400">
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-indigo-400">
                                     TOTAL INVOICE AMOUNT
                                 </p>
-                                <p className="text-xs text-slate-400">Inclusive of all active services</p>
+                                <p className="text-[10px] text-slate-400">Inclusive of all active services</p>
                             </div>
                             <div className="text-right">
-                                <span className="text-2xl sm:text-3xl font-extrabold text-emerald-400 tracking-tight">
+                                <span className="text-2xl font-extrabold text-emerald-400 tracking-tight">
                                     LKR {formatLKR(calculations.grandTotal)}
                                 </span>
                             </div>
@@ -1124,35 +1111,34 @@ export default function LumiInvoiceGenerator() {
                 </div>
 
                 {/* Bank Account Details & Payment Section */}
-                <div className="bg-gradient-to-br from-slate-50 to-indigo-50/40 p-6 rounded-2xl border border-indigo-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-6 mb-8">
-                    <div className="space-y-2">
-                        <div className="flex items-center gap-2">
-                            <CreditCard className="text-indigo-600" size={18} />
-                            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-900">
+                <div className="bg-gradient-to-br from-slate-50 to-indigo-50/40 p-4 rounded-xl border border-indigo-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-3">
+                    <div className="space-y-1">
+                        <div className="flex items-center gap-1.5">
+                            <CreditCard className="text-indigo-600" size={15} />
+                            <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-900">
                                 Bank Transfer & Payment Details
                             </h4>
                         </div>
-                        <div className="text-xs text-slate-700 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-1.5 pt-1 font-medium">
-                            <p><span className="text-slate-500 font-normal">Bank Name:</span> <span className="font-bold text-slate-900">{bankDetails.bankName}</span></p>
-                            <p><span className="text-slate-500 font-normal">Account Number:</span> <span className="font-bold text-indigo-950 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100">{bankDetails.accountNumber}</span></p>
+                        <div className="text-[11px] text-slate-700 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 pt-0.5 font-medium leading-tight">
+                            <p><span className="text-slate-500 font-normal">Bank:</span> <span className="font-bold text-slate-900">{bankDetails.bankName}</span></p>
+                            <p><span className="text-slate-500 font-normal">Acc No:</span> <span className="font-bold text-indigo-950 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">{bankDetails.accountNumber}</span></p>
                             <p><span className="text-slate-500 font-normal">Branch:</span> <span className="font-bold text-slate-900">{bankDetails.branch}</span></p>
-                            <p><span className="text-slate-500 font-normal">Account Holder:</span> <span className="font-bold text-slate-900">{bankDetails.accountName}</span></p>
+                            <p><span className="text-slate-500 font-normal">Account Name:</span> <span className="font-bold text-slate-900">{bankDetails.accountName}</span></p>
                         </div>
                     </div>
 
                     <div className="text-left sm:text-right shrink-0">
-                        <p className="text-[11px] font-bold text-slate-500">Authorized Signature</p>
-                        <p className="font-extrabold text-sm text-indigo-950 tracking-wider mt-1">LUMI AI SOLUTIONS</p>
-                        <span className="inline-block text-[9px] font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full mt-1.5 border border-emerald-300">
+                        <p className="text-[10px] font-bold text-slate-500">Authorized Signature</p>
+                        <p className="font-extrabold text-xs text-indigo-950 tracking-wider mt-0.5">LUMI AI SOLUTIONS</p>
+                        <span className="inline-block text-[8px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full mt-1 border border-emerald-300">
                             Verified System Invoice
                         </span>
                     </div>
                 </div>
 
                 {/* Footer Notice */}
-                <div className="text-center pt-4 border-t border-slate-200 text-[11px] font-medium text-slate-500 space-y-1">
-                    <p className="font-semibold text-slate-700">Auto generated by LUMI AI Solutions System</p>
-                    <p>Thank you for choosing LUMI AI Solutions for your enterprise communication & AI infrastructure.</p>
+                <div className="text-center pt-2 border-t border-slate-200 text-[10px] font-medium text-slate-500">
+                    <p className="font-semibold text-slate-700">Auto generated by LUMI AI Solutions System • Enterprise Communication & AI Infrastructure</p>
                 </div>
 
             </div>
