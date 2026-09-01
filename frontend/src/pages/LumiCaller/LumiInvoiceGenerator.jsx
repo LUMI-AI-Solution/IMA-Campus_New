@@ -20,19 +20,15 @@ export default function LumiInvoiceGenerator() {
     };
 
     const [selectedMonth, setSelectedMonth] = useState(getInitialMonth);
-    const [invoiceNo, setInvoiceNo] = useState(`INV-LUMI-${getInitialMonth().replace('-', '')}-001`);
+    const [invoiceNo, setInvoiceNo] = useState(`INV-SR-${getInitialMonth().replace('-', '')}-001`);
     const [invoiceDate, setInvoiceDate] = useState(() => {
         const now = new Date();
         return now.toISOString().split('T')[0];
     });
-    const [dueDate, setDueDate] = useState(() => {
-        const d = new Date();
-        d.setDate(d.getDate() + 7);
-        return d.toISOString().split('T')[0];
-    });
 
     const [loading, setLoading] = useState(true);
-    const [downloading, setDownloading] = useState(false);
+    const [downloadingPdf, setDownloadingPdf] = useState(false);
+    const [downloadingImg, setDownloadingImg] = useState(false);
     const [rateConfig, setRateConfig] = useState({
         fixedRentalPerNumber: 2500,
         costPerMinute: 5.0
@@ -132,9 +128,9 @@ export default function LumiInvoiceGenerator() {
             }
 
             const monthClean = selectedMonth.replace('-', '');
-            setInvoiceNo(`INV-LUMI-${monthClean}-001`);
+            setInvoiceNo(`INV-SR-${monthClean}-001`);
         } catch (error) {
-            console.error("Failed to load Lumi invoice data:", error);
+            console.error("Failed to load invoice data:", error);
             toast.error("Failed to fetch monthly calling data");
         }
         setLoading(false);
@@ -359,7 +355,7 @@ export default function LumiInvoiceGenerator() {
     // 📄 1-CLICK DIRECT A4 PDF DOWNLOAD (FIT TO 1 CLEAN A4 PAGE)
     const handleDownloadInvoicePDF = async () => {
         if (!invoiceRef.current) return;
-        setDownloading(true);
+        setDownloadingPdf(true);
         const toastId = toast.loading("Generating Official Single-Page A4 PDF...");
         try {
             await new Promise(r => setTimeout(r, 120));
@@ -377,7 +373,6 @@ export default function LumiInvoiceGenerator() {
                 }
             });
 
-            // Initialize jsPDF A4 Document
             const pdf = new jsPDF({
                 orientation: 'portrait',
                 unit: 'mm',
@@ -387,7 +382,7 @@ export default function LumiInvoiceGenerator() {
 
             const pageWidth = 210;
             const pageHeight = 297;
-            const margin = 6; // 6mm margin
+            const margin = 6;
             const printableWidth = pageWidth - (margin * 2);
             const printableHeight = pageHeight - (margin * 2);
 
@@ -398,18 +393,15 @@ export default function LumiInvoiceGenerator() {
             const imgWidth = printableWidth;
             let imgHeight = (img.height * printableWidth) / img.width;
 
-            // Fit perfectly to 1 single A4 page
             if (imgHeight <= printableHeight) {
                 pdf.addImage(imgData, 'PNG', margin, margin, imgWidth, imgHeight, undefined, 'FAST');
             } else if (imgHeight <= printableHeight * 1.25) {
-                // Scale proportionally so it fits on 1 single page without breaking
                 const scale = printableHeight / imgHeight;
                 const scaledWidth = imgWidth * scale;
                 const scaledHeight = printableHeight;
                 const offsetX = margin + (printableWidth - scaledWidth) / 2;
                 pdf.addImage(imgData, 'PNG', offsetX, margin, scaledWidth, scaledHeight, undefined, 'FAST');
             } else {
-                // Multi-page slicing only if extremely long
                 let heightLeft = imgHeight;
                 let position = margin;
 
@@ -424,19 +416,19 @@ export default function LumiInvoiceGenerator() {
                 }
             }
 
-            pdf.save(`${invoiceNo || 'LUMI_INVOICE'}.pdf`);
+            pdf.save(`${invoiceNo || 'SMART_REPLY_INVOICE'}.pdf`);
             toast.success("Invoice PDF Downloaded Successfully!", { id: toastId });
         } catch (error) {
             console.error("PDF generation failed:", error);
             toast.error("Failed to generate PDF download. Please try again.", { id: toastId });
         }
-        setDownloading(false);
+        setDownloadingPdf(false);
     };
 
-    // 📥 High-Resolution PNG Image Download
+    // 📥 1-CLICK DIRECT HIGH-RES PNG IMAGE DOWNLOAD
     const handleDownloadInvoiceImage = async () => {
         if (!invoiceRef.current) return;
-        setDownloading(true);
+        setDownloadingImg(true);
         const toastId = toast.loading("Generating high-resolution invoice image...");
         try {
             await new Promise(r => setTimeout(r, 100));
@@ -453,7 +445,7 @@ export default function LumiInvoiceGenerator() {
             });
 
             const link = document.createElement('a');
-            link.download = `${invoiceNo || 'LUMI_INVOICE'}.png`;
+            link.download = `${invoiceNo || 'SMART_REPLY_INVOICE'}.png`;
             link.href = dataUrl;
             document.body.appendChild(link);
             link.click();
@@ -464,7 +456,7 @@ export default function LumiInvoiceGenerator() {
             console.error("Invoice download failed:", error);
             toast.error("Failed to generate image download.", { id: toastId });
         }
-        setDownloading(false);
+        setDownloadingImg(false);
     };
 
     // 🖨️ Clean Standalone Print Window
@@ -483,7 +475,7 @@ export default function LumiInvoiceGenerator() {
             <!DOCTYPE html>
             <html>
                 <head>
-                    <title>${invoiceNo} - LUMI AI Solutions</title>
+                    <title>${invoiceNo} - SMART REPLY</title>
                     <meta charset="utf-8" />
                     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
                     <script src="https://cdn.tailwindcss.com"></script>
@@ -526,7 +518,7 @@ export default function LumiInvoiceGenerator() {
     // Copy Summary Text
     const handleCopySummary = () => {
         const monthText = new Date(selectedMonth + "-01").toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        const summaryText = `*🧾 LUMI WHATSAPP CALLER SERVICE INVOICE*\n` +
+        const summaryText = `*🧾 SMART REPLY WHATSAPP CALLER SERVICE INVOICE*\n` +
             `*Invoice No:* ${invoiceNo}\n` +
             `*Period:* ${monthText}\n` +
             `*Billed To:* IMA Campus (Pvt) Ltd\n` +
@@ -540,7 +532,7 @@ export default function LumiInvoiceGenerator() {
             `Branch: ${bankDetails.branch}\n` +
             `Account No: ${bankDetails.accountNumber}\n` +
             `Account Name: ${bankDetails.accountName}\n\n` +
-            `_Auto generated by LUMI AI Solutions System_`;
+            `_Auto generated by SMART REPLY System_`;
 
         navigator.clipboard.writeText(summaryText);
         toast.success("Invoice summary copied to clipboard!");
@@ -567,15 +559,13 @@ export default function LumiInvoiceGenerator() {
             {/* Embedded Isolation Print Style to 100% prevent sidebar leak */}
             <style dangerouslySetInnerHTML={{ __html: `
                 @media print {
-                    /* Hide EVERYTHING on the page */
                     body * {
                         visibility: hidden !important;
                     }
-                    /* Show ONLY the invoice element */
-                    #lumi-invoice-sheet, #lumi-invoice-sheet * {
+                    #smart-reply-invoice-sheet, #smart-reply-invoice-sheet * {
                         visibility: visible !important;
                     }
-                    #lumi-invoice-sheet {
+                    #smart-reply-invoice-sheet {
                         position: absolute !important;
                         left: 0 !important;
                         top: 0 !important;
@@ -586,7 +576,6 @@ export default function LumiInvoiceGenerator() {
                         box-shadow: none !important;
                         background: #ffffff !important;
                     }
-                    /* Hide sidebar and navigation completely */
                     aside, nav, header, [class*="sidebar"], [class*="Sidebar"] {
                         display: none !important;
                     }
@@ -605,12 +594,12 @@ export default function LumiInvoiceGenerator() {
                         </div>
                         <div>
                             <h2 className="text-xl font-bold text-white tracking-wide flex items-center gap-2">
-                                Lumi WhatsApp Caller Invoice Generator
-                                <span className="bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full">
-                                    Single-Page Fit
+                                Smart Reply WhatsApp Caller Invoice Generator
+                                <span className="bg-gradient-to-r from-pink-500/20 to-indigo-500/20 text-pink-400 border border-pink-500/30 text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full">
+                                    Smart Reply AI
                                 </span>
                             </h2>
-                            <p className="text-xs text-slate-400">Generate clean consolidated monthly statements for IMA Campus</p>
+                            <p className="text-xs text-slate-400">Generate clean consolidated monthly billing statements for IMA Campus</p>
                         </div>
                     </div>
 
@@ -643,10 +632,10 @@ export default function LumiInvoiceGenerator() {
                         {/* 📄 1-CLICK DIRECT PDF DOWNLOAD BUTTON */}
                         <button 
                             onClick={handleDownloadInvoicePDF}
-                            disabled={downloading}
-                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-black px-6 py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all hover:scale-105 disabled:opacity-50"
+                            disabled={downloadingPdf}
+                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all hover:scale-105 disabled:opacity-50"
                         >
-                            {downloading ? (
+                            {downloadingPdf ? (
                                 <>
                                     <Loader2 size={15} className="animate-spin" />
                                     Generating PDF...
@@ -655,6 +644,25 @@ export default function LumiInvoiceGenerator() {
                                 <>
                                     <Download size={15} />
                                     Download PDF
+                                </>
+                            )}
+                        </button>
+
+                        {/* 🖼️ 1-CLICK DIRECT IMAGE DOWNLOAD BUTTON */}
+                        <button 
+                            onClick={handleDownloadInvoiceImage}
+                            disabled={downloadingImg}
+                            className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all hover:scale-105 disabled:opacity-50"
+                        >
+                            {downloadingImg ? (
+                                <>
+                                    <Loader2 size={15} className="animate-spin" />
+                                    Downloading Image...
+                                </>
+                            ) : (
+                                <>
+                                    <ImageIcon size={15} />
+                                    Download Image
                                 </>
                             )}
                         </button>
@@ -670,8 +678,8 @@ export default function LumiInvoiceGenerator() {
                     </div>
                 </div>
 
-                {/* Configuration Controls Bar */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Configuration Controls Bar (Due Date Removed) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     
                     {/* Month Picker */}
                     <div className="bg-slate-800/60 border border-slate-700 rounded-2xl p-3.5">
@@ -708,19 +716,6 @@ export default function LumiInvoiceGenerator() {
                             type="date" 
                             value={invoiceDate}
                             onChange={(e) => setInvoiceDate(e.target.value)}
-                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-semibold text-white outline-none focus:border-indigo-500 transition-colors"
-                        />
-                    </div>
-
-                    {/* Due Date */}
-                    <div className="bg-slate-800/60 border border-slate-700 rounded-2xl p-3.5">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5 flex items-center gap-1.5">
-                            <Calendar size={12} className="text-rose-400" /> Payment Due Date
-                        </label>
-                        <input 
-                            type="date" 
-                            value={dueDate}
-                            onChange={(e) => setDueDate(e.target.value)}
                             className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-semibold text-white outline-none focus:border-indigo-500 transition-colors"
                         />
                     </div>
@@ -862,32 +857,32 @@ export default function LumiInvoiceGenerator() {
                 </div>
             </div>
 
-            {/* 🧾 ACTUAL INVOICE DOCUMENT (CLEAN COMPACT SINGLE-PAGE A4 FORMAT) */}
+            {/* 🧾 ACTUAL INVOICE DOCUMENT (SMART REPLY BRANDING - SINGLE-PAGE A4 FORMAT) */}
             <div 
-                id="lumi-invoice-sheet"
+                id="smart-reply-invoice-sheet"
                 ref={invoiceRef}
                 className="bg-white text-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl border border-slate-200 max-w-5xl mx-auto print:max-w-none print:m-0 print:p-4 print:shadow-none print:border-none print:rounded-none font-sans"
             >
-                {/* Invoice Top Header - With Integrated LUMI From & IMA To */}
+                {/* Invoice Top Header - With SMART REPLY Branding & IMA Details */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b-2 border-slate-200">
                     
-                    {/* Left: LUMI Logo & Branding */}
+                    {/* Left: SMART REPLY Logo & Branding */}
                     <div className="flex flex-col gap-1.5">
                         <div className="flex items-center gap-3">
                             <img 
-                                src="/lumi_logo.png" 
-                                alt="LUMI AI Solutions" 
+                                src="/smart_reply_logo.png" 
+                                alt="Smart Reply" 
                                 className="h-14 w-auto object-contain"
                             />
                         </div>
                         <div className="text-[11px] text-slate-600 space-y-0.5 font-medium leading-tight">
-                            <p className="font-bold text-slate-900 text-xs tracking-tight">LUMI AI SOLUTIONS (PVT) LTD</p>
+                            <p className="font-bold text-slate-900 text-xs tracking-tight">SMART REPLY (PVT) LTD</p>
                             <p className="text-slate-500">Automate | Innovate | Elevate • AI WhatsApp Calling & Voice Cloud</p>
-                            <p>Web: <span className="font-semibold text-indigo-700">www.lumi.ai</span> • Email: <span className="font-semibold text-indigo-700">billing@lumi.ai</span></p>
+                            <p>Web: <span className="font-semibold text-indigo-700">www.smartreply.ai</span> • Email: <span className="font-semibold text-indigo-700">billing@smartreply.ai</span></p>
                         </div>
                     </div>
 
-                    {/* Right: IMA Campus Logo & Invoice Details */}
+                    {/* Right: IMA Campus Logo & Invoice Details (Due Date Removed) */}
                     <div className="flex flex-col items-start sm:items-end gap-1.5">
                         <div className="flex items-center gap-3">
                             <img 
@@ -899,8 +894,8 @@ export default function LumiInvoiceGenerator() {
                                 <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight uppercase leading-none">
                                     INVOICE
                                 </h1>
-                                <span className="inline-block bg-indigo-50 text-indigo-800 text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border border-indigo-200 mt-0.5">
-                                    LUMI WHATSAPP CALLER
+                                <span className="inline-block bg-gradient-to-r from-pink-50 to-indigo-50 text-indigo-900 text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full border border-indigo-200 mt-0.5">
+                                    SMART REPLY WHATSAPP CALLER
                                 </span>
                             </div>
                         </div>
@@ -908,7 +903,7 @@ export default function LumiInvoiceGenerator() {
                         <div className="text-[11px] text-slate-700 sm:text-right space-y-0.5 font-medium leading-tight">
                             <p><span className="text-slate-500 font-semibold">Billed To:</span> <span className="font-bold text-slate-900">IMA CAMPUS (PVT) LTD</span></p>
                             <p><span className="text-slate-500 font-semibold">Invoice No:</span> <span className="font-bold text-indigo-950 px-1.5 py-0.5 rounded bg-slate-100">{invoiceNo}</span></p>
-                            <p><span className="text-slate-500 font-semibold">Billing Period:</span> <span className="font-bold text-slate-900">{monthFormatted}</span> | <span className="text-slate-500 font-semibold">Date:</span> {invoiceDate} | <span className="text-slate-500 font-semibold">Due:</span> <span className="font-bold text-rose-700">{dueDate}</span></p>
+                            <p><span className="text-slate-500 font-semibold">Billing Period:</span> <span className="font-bold text-slate-900">{monthFormatted}</span> | <span className="text-slate-500 font-semibold">Invoice Date:</span> <span className="font-bold text-slate-800">{invoiceDate}</span></p>
                         </div>
                     </div>
                 </div>
@@ -1096,7 +1091,7 @@ export default function LumiInvoiceGenerator() {
 
                         <div className="flex justify-between items-end pt-0.5">
                             <div>
-                                <p className="text-[9px] font-bold uppercase tracking-widest text-indigo-400">
+                                <p className="text-[9px] font-bold uppercase tracking-widest text-pink-400">
                                     TOTAL INVOICE AMOUNT
                                 </p>
                                 <p className="text-[10px] text-slate-400">Inclusive of all active services</p>
@@ -1129,7 +1124,7 @@ export default function LumiInvoiceGenerator() {
 
                     <div className="text-left sm:text-right shrink-0">
                         <p className="text-[10px] font-bold text-slate-500">Authorized Signature</p>
-                        <p className="font-extrabold text-xs text-indigo-950 tracking-wider mt-0.5">LUMI AI SOLUTIONS</p>
+                        <p className="font-extrabold text-xs text-indigo-950 tracking-wider mt-0.5">SMART REPLY</p>
                         <span className="inline-block text-[8px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full mt-1 border border-emerald-300">
                             Verified System Invoice
                         </span>
@@ -1138,7 +1133,7 @@ export default function LumiInvoiceGenerator() {
 
                 {/* Footer Notice */}
                 <div className="text-center pt-2 border-t border-slate-200 text-[10px] font-medium text-slate-500">
-                    <p className="font-semibold text-slate-700">Auto generated by LUMI AI Solutions System • Enterprise Communication & AI Infrastructure</p>
+                    <p className="font-semibold text-slate-700">Auto generated by SMART REPLY System • Enterprise Communication & AI Infrastructure</p>
                 </div>
 
             </div>
