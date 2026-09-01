@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import api from '../../api/axios';
 import { toast } from 'react-hot-toast';
+import { toPng } from 'html-to-image';
 import { 
     Printer, Download, RefreshCw, CheckSquare, Square, 
     Calendar, DollarSign, PhoneCall, Building2, Sparkles, 
     FileText, CheckCircle2, ShieldCheck, CreditCard, ChevronRight,
-    Edit3, Info, Copy, Plus, Trash2, X, Check
+    Edit3, Info, Copy, Plus, Trash2, X, Image as ImageIcon, Loader2
 } from 'lucide-react';
 
 export default function LumiInvoiceGenerator() {
@@ -30,6 +31,7 @@ export default function LumiInvoiceGenerator() {
     });
 
     const [loading, setLoading] = useState(true);
+    const [downloading, setDownloading] = useState(false);
     const [rateConfig, setRateConfig] = useState({
         fixedRentalPerNumber: 2500,
         costPerMinute: 5.0
@@ -353,9 +355,96 @@ export default function LumiInvoiceGenerator() {
         };
     }, [businessItems, rateConfig]);
 
-    // Print Invoice
-    const handlePrint = () => {
-        window.print();
+    // 📥 Direct High-Resolution PNG / PDF Image Download
+    const handleDownloadInvoiceImage = async () => {
+        if (!invoiceRef.current) return;
+        setDownloading(true);
+        const toastId = toast.loading("Generating high-resolution invoice image...");
+        try {
+            // Give 100ms for layout stabilization
+            await new Promise(r => setTimeout(r, 100));
+
+            const dataUrl = await toPng(invoiceRef.current, {
+                quality: 1,
+                pixelRatio: 2.5, // Crisp 2.5x retina resolution
+                backgroundColor: '#ffffff',
+                cacheBust: true,
+                style: {
+                    borderRadius: '0px',
+                    margin: '0px'
+                }
+            });
+
+            const link = document.createElement('a');
+            link.download = `${invoiceNo || 'LUMI_INVOICE'}.png`;
+            link.href = dataUrl;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+
+            toast.success("Invoice downloaded successfully!", { id: toastId });
+        } catch (error) {
+            console.error("Invoice download failed:", error);
+            toast.error("Failed to generate image download. Please try again.", { id: toastId });
+        }
+        setDownloading(false);
+    };
+
+    // 🖨️ Clean Standalone Print Window (Zero sidebar leaks)
+    const handleCleanPrint = () => {
+        if (!invoiceRef.current) return;
+        
+        const invoiceContent = invoiceRef.current.innerHTML;
+        const printWindow = window.open('', '_blank', 'width=1000,height=900');
+        
+        if (!printWindow) {
+            // Fallback to normal window print if popups blocked
+            window.print();
+            return;
+        }
+
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+                <head>
+                    <title>${invoiceNo} - LUMI AI Solutions</title>
+                    <meta charset="utf-8" />
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+                    <script src="https://cdn.tailwindcss.com"></script>
+                    <style>
+                        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap');
+                        body {
+                            font-family: 'Plus Jakarta Sans', sans-serif;
+                            background: #ffffff;
+                            margin: 0;
+                            padding: 24px;
+                            color: #1e293b;
+                            -webkit-print-color-adjust: exact;
+                            print-color-adjust: exact;
+                        }
+                        @page {
+                            size: A4 portrait;
+                            margin: 12mm;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div style="max-width: 900px; margin: 0 auto;">
+                        ${invoiceContent}
+                    </div>
+                    <script>
+                        window.onload = function() {
+                            setTimeout(function() {
+                                window.focus();
+                                window.print();
+                                window.close();
+                            }, 500);
+                        };
+                    </script>
+                </body>
+            </html>
+        `);
+        printWindow.document.close();
     };
 
     // Copy Summary Text
@@ -399,6 +488,35 @@ export default function LumiInvoiceGenerator() {
     return (
         <div className="space-y-6 font-sans text-slate-200">
             
+            {/* Embedded Isolation Print Style to 100% prevent sidebar leak */}
+            <style dangerouslySetInnerHTML={{ __html: `
+                @media print {
+                    /* Hide EVERYTHING on the page */
+                    body * {
+                        visibility: hidden !important;
+                    }
+                    /* Show ONLY the invoice element */
+                    #lumi-invoice-sheet, #lumi-invoice-sheet * {
+                        visibility: visible !important;
+                    }
+                    #lumi-invoice-sheet {
+                        position: absolute !important;
+                        left: 0 !important;
+                        top: 0 !important;
+                        width: 100% !important;
+                        margin: 0 !important;
+                        padding: 16px !important;
+                        border: none !important;
+                        box-shadow: none !important;
+                        background: #ffffff !important;
+                    }
+                    /* Hide sidebar and navigation completely */
+                    aside, nav, header, [class*="sidebar"], [class*="Sidebar"] {
+                        display: none !important;
+                    }
+                }
+            `}} />
+
             {/* Top Interactive Configuration Deck (Hidden during Print) */}
             <div className="print:hidden bg-slate-900/80 border border-slate-800 rounded-3xl p-6 shadow-xl backdrop-blur-md space-y-6">
                 
@@ -413,7 +531,7 @@ export default function LumiInvoiceGenerator() {
                             <h2 className="text-xl font-bold text-white tracking-wide flex items-center gap-2">
                                 Lumi WhatsApp Caller Invoice Generator
                                 <span className="bg-gradient-to-r from-emerald-500/20 to-teal-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase px-2.5 py-0.5 rounded-full">
-                                    Unified Grouped View
+                                    Consolidated
                                 </span>
                             </h2>
                             <p className="text-xs text-slate-400">Generate clean consolidated monthly statements for IMA Campus</p>
@@ -435,7 +553,7 @@ export default function LumiInvoiceGenerator() {
                             className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 transition-all shadow-sm"
                         >
                             <RefreshCw size={14} className={loading ? "animate-spin text-indigo-400" : "text-indigo-400"} />
-                            Refresh Live Data
+                            Refresh
                         </button>
                         
                         <button 
@@ -443,15 +561,35 @@ export default function LumiInvoiceGenerator() {
                             className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 transition-all shadow-sm"
                         >
                             <Copy size={14} className="text-emerald-400" />
-                            Copy Summary
+                            Copy Text
                         </button>
 
+                        {/* 📥 1-CLICK DIRECT DOWNLOAD BUTTON */}
                         <button 
-                            onClick={handlePrint}
-                            className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold px-6 py-2.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all hover:scale-105"
+                            onClick={handleDownloadInvoiceImage}
+                            disabled={downloading}
+                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all hover:scale-105 disabled:opacity-50"
+                        >
+                            {downloading ? (
+                                <>
+                                    <Loader2 size={15} className="animate-spin" />
+                                    Downloading...
+                                </>
+                            ) : (
+                                <>
+                                    <Download size={15} />
+                                    Download Invoice (Image)
+                                </>
+                            )}
+                        </button>
+
+                        {/* 🖨️ CLEAN PRINT / PDF EXPORT */}
+                        <button 
+                            onClick={handleCleanPrint}
+                            className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all hover:scale-105"
                         >
                             <Printer size={15} />
-                            Print / Save PDF
+                            Print / PDF
                         </button>
                     </div>
                 </div>
@@ -650,6 +788,7 @@ export default function LumiInvoiceGenerator() {
 
             {/* 🧾 ACTUAL INVOICE DOCUMENT (PRINT-READY SHEET WITH MODERN TYPOGRAPHY & GROUPED COLUMNS) */}
             <div 
+                id="lumi-invoice-sheet"
                 ref={invoiceRef}
                 className="bg-white text-slate-800 p-8 sm:p-12 rounded-3xl shadow-2xl border border-slate-200 max-w-5xl mx-auto print:max-w-none print:m-0 print:p-6 print:shadow-none print:border-none print:rounded-none font-sans"
             >
