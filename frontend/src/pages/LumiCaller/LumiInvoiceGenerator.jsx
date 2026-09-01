@@ -5,7 +5,7 @@ import {
     Printer, Download, RefreshCw, CheckSquare, Square, 
     Calendar, DollarSign, PhoneCall, Building2, Sparkles, 
     FileText, CheckCircle2, ShieldCheck, CreditCard, ChevronRight,
-    Edit3, Info, Copy, Share2
+    Edit3, Info, Copy, Plus, Trash2, X
 } from 'lucide-react';
 
 export default function LumiInvoiceGenerator() {
@@ -41,10 +41,21 @@ export default function LumiInvoiceGenerator() {
         accountName: "Chamindu Dilshan"
     });
 
-    // Business selection & items state
-    // Array of { id, name, logo, selected, freeSeminar: { selected, callCount, minutes, fixedFee, ratePerMin }, afterSeminar: { selected, callCount, minutes, fixedFee, ratePerMin } }
+    // Business items list
     const [businessItems, setBusinessItems] = useState([]);
-    const [isEditingRates, setIsEditingRates] = useState(false);
+    const [allAvailableBusinesses, setAllAvailableBusinesses] = useState([]);
+    
+    // Add Custom Business / Item Modal State
+    const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+    const [newBizForm, setNewBizForm] = useState({
+        selectedBizId: 'custom',
+        customName: '',
+        campaignName: 'Free Seminar Dedicated Hotline',
+        fixedFee: 2500,
+        minutes: 0,
+        ratePerMin: 5.0
+    });
+
     const invoiceRef = useRef(null);
 
     useEffect(() => {
@@ -54,8 +65,20 @@ export default function LumiInvoiceGenerator() {
     const fetchInvoiceData = async () => {
         setLoading(true);
         try {
-            const res = await api.get(`/admin/staff/lumi-invoice-data?month=${selectedMonth}`);
-            if (res.data && res.data.businesses) {
+            // First fetch available businesses from CRM to have list ready
+            const bizListRes = await api.get('/admin/staff/businesses').catch(() => ({ data: [] }));
+            const crmBusinesses = Array.isArray(bizListRes.data) ? bizListRes.data : [];
+            setAllAvailableBusinesses(crmBusinesses);
+
+            // Fetch invoice stats data
+            let res;
+            try {
+                res = await api.get(`/admin/staff/lumi-invoice-data?month=${selectedMonth}`);
+            } catch (err) {
+                console.warn("Using fallback businesses list for invoice generator", err);
+            }
+
+            if (res && res.data && Array.isArray(res.data.businesses) && res.data.businesses.length > 0) {
                 if (res.data.rateConfig) setRateConfig(res.data.rateConfig);
                 if (res.data.bankDetails) setBankDetails(res.data.bankDetails);
 
@@ -81,16 +104,47 @@ export default function LumiInvoiceGenerator() {
                 }));
 
                 setBusinessItems(items);
-
-                // Auto update invoice number based on month
-                const monthClean = selectedMonth.replace('-', '');
-                setInvoiceNo(`INV-LUMI-${monthClean}-001`);
+            } else if (crmBusinesses.length > 0) {
+                // Fallback: build from CRM businesses
+                const items = crmBusinesses.map(b => ({
+                    id: b.id,
+                    name: b.name,
+                    logo: b.logo,
+                    selected: true,
+                    freeSeminar: {
+                        selected: true,
+                        callCount: 0,
+                        minutes: 0,
+                        fixedFee: 2500,
+                        ratePerMin: 5.0
+                    },
+                    afterSeminar: {
+                        selected: true,
+                        callCount: 0,
+                        minutes: 0,
+                        fixedFee: 2500,
+                        ratePerMin: 5.0
+                    }
+                }));
+                setBusinessItems(items);
             }
+
+            const monthClean = selectedMonth.replace('-', '');
+            setInvoiceNo(`INV-LUMI-${monthClean}-001`);
         } catch (error) {
             console.error("Failed to load Lumi invoice data:", error);
             toast.error("Failed to fetch monthly calling data");
         }
         setLoading(false);
+    };
+
+    // Helper for Business Logo URLs
+    const getBusinessLogoUrl = (logo, name) => {
+        if (!logo || logo === 'default.png' || logo === 'null' || logo === 'undefined') {
+            return `https://ui-avatars.com/api/?name=${encodeURIComponent(name || 'Business')}&background=4F46E5&color=fff&bold=true`;
+        }
+        if (logo.startsWith('http://') || logo.startsWith('https://')) return logo;
+        return `/storage/icons/${logo}`;
     };
 
     // Toggle entire business
@@ -118,8 +172,8 @@ export default function LumiInvoiceGenerator() {
                     selected: !b[campaignType].selected
                 };
                 const anySelected = campaignType === 'freeSeminar' 
-                    ? (updatedCampaign.selected || b.afterSeminar.selected)
-                    : (b.freeSeminar.selected || updatedCampaign.selected);
+                    ? (updatedCampaign.selected || b.afterSeminar?.selected)
+                    : (b.freeSeminar?.selected || updatedCampaign.selected);
 
                 return {
                     ...b,
@@ -148,6 +202,12 @@ export default function LumiInvoiceGenerator() {
         }));
     };
 
+    // Remove a business from the invoice
+    const handleRemoveBusiness = (bizId) => {
+        setBusinessItems(prev => prev.filter(b => b.id !== bizId));
+        toast.success("Business removed from invoice");
+    };
+
     // Select / Deselect All
     const handleSelectAll = (selectStatus) => {
         setBusinessItems(prev => prev.map(b => ({
@@ -158,6 +218,67 @@ export default function LumiInvoiceGenerator() {
         })));
     };
 
+    // Add Custom Business / Item
+    const handleAddCustomBusiness = () => {
+        let name = newBizForm.customName.trim();
+        let logo = null;
+        let bizId = Date.now();
+
+        if (newBizForm.selectedBizId !== 'custom') {
+            const foundBiz = allAvailableBusinesses.find(b => String(b.id) === String(newBizForm.selectedBizId));
+            if (foundBiz) {
+                name = foundBiz.name;
+                logo = foundBiz.logo;
+                bizId = foundBiz.id;
+            }
+        }
+
+        if (!name) {
+            toast.error("Please enter a business name or select an existing business");
+            return;
+        }
+
+        // Check if already in list
+        const existing = businessItems.find(b => b.id === bizId || b.name.toLowerCase() === name.toLowerCase());
+        if (existing) {
+            toast.error(`"${name}" is already added in the invoice table.`);
+            return;
+        }
+
+        const newItem = {
+            id: bizId,
+            name: name,
+            logo: logo,
+            selected: true,
+            freeSeminar: {
+                selected: true,
+                callCount: 0,
+                minutes: newBizForm.minutes || 0,
+                fixedFee: newBizForm.fixedFee || 2500,
+                ratePerMin: newBizForm.ratePerMin || 5.0
+            },
+            afterSeminar: {
+                selected: true,
+                callCount: 0,
+                minutes: 0,
+                fixedFee: 2500,
+                ratePerMin: 5.0
+            }
+        };
+
+        setBusinessItems(prev => [newItem, ...prev]);
+        setIsAddModalOpen(false);
+        setNewBizForm({
+            selectedBizId: 'custom',
+            customName: '',
+            campaignName: 'Free Seminar Dedicated Hotline',
+            fixedFee: 2500,
+            minutes: 0,
+            ratePerMin: 5.0
+        });
+        toast.success(`Added ${name} to invoice!`);
+    };
+
     // Calculate invoice totals
     const calculations = useMemo(() => {
         let totalActiveNumbers = 0;
@@ -166,11 +287,11 @@ export default function LumiInvoiceGenerator() {
         let totalUsageAmount = 0;
         let lineItems = [];
 
-        businessItems.forEach((b, idx) => {
+        businessItems.forEach((b) => {
             if (!b.selected) return;
 
             // Free Seminar Line
-            if (b.freeSeminar.selected) {
+            if (b.freeSeminar?.selected) {
                 totalActiveNumbers += 1;
                 const fixed = b.freeSeminar.fixedFee || rateConfig.fixedRentalPerNumber;
                 const mins = b.freeSeminar.minutes || 0;
@@ -189,7 +310,7 @@ export default function LumiInvoiceGenerator() {
                     campaignType: 'FREE_SEMINAR',
                     campaignLabel: 'Free Seminar Dedicated Hotline',
                     fixedFee: fixed,
-                    calls: b.freeSeminar.callCount,
+                    calls: b.freeSeminar.callCount || 0,
                     minutes: mins,
                     ratePerMin: rate,
                     usageAmount: usage,
@@ -198,7 +319,7 @@ export default function LumiInvoiceGenerator() {
             }
 
             // After Seminar Line
-            if (b.afterSeminar.selected) {
+            if (b.afterSeminar?.selected) {
                 totalActiveNumbers += 1;
                 const fixed = b.afterSeminar.fixedFee || rateConfig.fixedRentalPerNumber;
                 const mins = b.afterSeminar.minutes || 0;
@@ -217,7 +338,7 @@ export default function LumiInvoiceGenerator() {
                     campaignType: 'AFTER_SEMINAR',
                     campaignLabel: 'After Seminar Dedicated Hotline',
                     fixedFee: fixed,
-                    calls: b.afterSeminar.callCount,
+                    calls: b.afterSeminar.callCount || 0,
                     minutes: mins,
                     ratePerMin: rate,
                     usageAmount: usage,
@@ -307,6 +428,14 @@ export default function LumiInvoiceGenerator() {
 
                     <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
                         <button 
+                            onClick={() => setIsAddModalOpen(true)}
+                            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all hover:scale-105"
+                        >
+                            <Plus size={15} />
+                            Add Business / Item
+                        </button>
+
+                        <button 
                             onClick={fetchInvoiceData} 
                             disabled={loading}
                             className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 transition-all shadow-sm"
@@ -394,7 +523,7 @@ export default function LumiInvoiceGenerator() {
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                         <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
                             <Building2 size={16} className="text-indigo-400" /> 
-                            CRM Businesses & Active WhatsApp Hotlines
+                            Configured CRM Businesses & Hotlines ({businessItems.length})
                         </h3>
                         <div className="flex items-center gap-3">
                             <button 
@@ -417,10 +546,12 @@ export default function LumiInvoiceGenerator() {
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                         {businessItems.map((biz) => {
                             const isBizActive = biz.selected;
+                            const logoUrl = getBusinessLogoUrl(biz.logo, biz.name);
+
                             return (
                                 <div 
                                     key={biz.id}
-                                    className={`p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between gap-3 ${isBizActive ? 'bg-slate-800/90 border-slate-700 shadow-md' : 'bg-slate-900/40 border-slate-800/80 opacity-60'}`}
+                                    className={`p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between gap-3 relative ${isBizActive ? 'bg-slate-800/90 border-slate-700 shadow-md' : 'bg-slate-900/40 border-slate-800/80 opacity-60'}`}
                                 >
                                     <div className="flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-3">
@@ -431,22 +562,34 @@ export default function LumiInvoiceGenerator() {
                                                 {isBizActive ? <CheckSquare size={14} /> : <Square size={14} />}
                                             </button>
 
-                                            <div className="w-8 h-8 rounded-xl bg-slate-900 border border-slate-700 overflow-hidden flex items-center justify-center shrink-0">
-                                                {biz.logo ? (
-                                                    <img src={`/storage/businesses/${biz.logo}`} alt={biz.name} className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
-                                                ) : (
-                                                    <Building2 size={16} className="text-slate-500" />
-                                                )}
+                                            <div className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-700 overflow-hidden flex items-center justify-center shrink-0">
+                                                <img 
+                                                    src={logoUrl} 
+                                                    alt={biz.name} 
+                                                    className="w-full h-full object-cover" 
+                                                    onError={(e) => { 
+                                                        e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(biz.name)}&background=4F46E5&color=fff&bold=true`;
+                                                    }} 
+                                                />
                                             </div>
 
-                                            <h4 className="text-xs font-bold text-slate-100 truncate max-w-[160px]">
-                                                {biz.name}
-                                            </h4>
+                                            <div>
+                                                <h4 className="text-xs font-bold text-slate-100 truncate max-w-[140px]">
+                                                    {biz.name}
+                                                </h4>
+                                                <span className="text-[9px] font-semibold text-slate-400">
+                                                    {isBizActive ? 'Active in Invoice' : 'Disabled'}
+                                                </span>
+                                            </div>
                                         </div>
 
-                                        <span className="text-[10px] font-bold text-slate-400 bg-slate-900 px-2 py-0.5 rounded-md border border-slate-800">
-                                            ID #{biz.id}
-                                        </span>
+                                        <button 
+                                            onClick={() => handleRemoveBusiness(biz.id)}
+                                            title="Remove from invoice"
+                                            className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-rose-500/10 transition-colors"
+                                        >
+                                            <Trash2 size={13} />
+                                        </button>
                                     </div>
 
                                     {/* Campaign lines for this business */}
@@ -457,7 +600,7 @@ export default function LumiInvoiceGenerator() {
                                             <label className="flex items-center gap-2 cursor-pointer select-none">
                                                 <input 
                                                     type="checkbox"
-                                                    checked={biz.freeSeminar.selected}
+                                                    checked={biz.freeSeminar?.selected}
                                                     onChange={() => toggleCampaign(biz.id, 'freeSeminar')}
                                                     className="rounded border-slate-700 text-indigo-600 focus:ring-0 cursor-pointer"
                                                 />
@@ -469,7 +612,7 @@ export default function LumiInvoiceGenerator() {
                                             <div className="flex items-center gap-1.5">
                                                 <input 
                                                     type="number"
-                                                    value={biz.freeSeminar.minutes}
+                                                    value={biz.freeSeminar?.minutes || 0}
                                                     onChange={(e) => handleMinutesChange(biz.id, 'freeSeminar', e.target.value)}
                                                     className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-right text-xs font-mono font-bold text-emerald-400 outline-none focus:border-indigo-500"
                                                     title="Billable Outbound Minutes"
@@ -483,7 +626,7 @@ export default function LumiInvoiceGenerator() {
                                             <label className="flex items-center gap-2 cursor-pointer select-none">
                                                 <input 
                                                     type="checkbox"
-                                                    checked={biz.afterSeminar.selected}
+                                                    checked={biz.afterSeminar?.selected}
                                                     onChange={() => toggleCampaign(biz.id, 'afterSeminar')}
                                                     className="rounded border-slate-700 text-indigo-600 focus:ring-0 cursor-pointer"
                                                 />
@@ -495,7 +638,7 @@ export default function LumiInvoiceGenerator() {
                                             <div className="flex items-center gap-1.5">
                                                 <input 
                                                     type="number"
-                                                    value={biz.afterSeminar.minutes}
+                                                    value={biz.afterSeminar?.minutes || 0}
                                                     onChange={(e) => handleMinutesChange(biz.id, 'afterSeminar', e.target.value)}
                                                     className="w-16 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-right text-xs font-mono font-bold text-purple-400 outline-none focus:border-indigo-500"
                                                     title="Billable Outbound Minutes"
@@ -609,44 +752,53 @@ export default function LumiInvoiceGenerator() {
                                         </td>
                                     </tr>
                                 ) : (
-                                    calculations.lineItems.map((item, index) => (
-                                        <tr key={`${item.bizId}_${item.campaignType}`} className="hover:bg-slate-50/50 transition-colors">
-                                            <td className="py-3 px-3 font-bold text-slate-400">{index + 1}</td>
-                                            <td className="py-3 px-3 font-bold text-slate-900 flex items-center gap-2">
-                                                <div className="w-6 h-6 rounded-md bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
-                                                    {item.bizLogo ? (
-                                                        <img src={`/storage/businesses/${item.bizLogo}`} alt={item.bizName} className="w-full h-full object-cover" onError={(e) => { e.target.style.display = 'none'; }} />
-                                                    ) : (
-                                                        <Building2 size={12} className="text-slate-400" />
-                                                    )}
-                                                </div>
-                                                <span>{item.bizName}</span>
-                                            </td>
-                                            <td className="py-3 px-3">
-                                                <span className={`inline-flex items-center gap-1 font-semibold text-[11px] px-2 py-0.5 rounded-full border ${item.campaignType === 'FREE_SEMINAR' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-purple-50 text-purple-800 border-purple-200'}`}>
-                                                    {item.campaignLabel}
-                                                </span>
-                                            </td>
-                                            <td className="py-3 px-3 text-right font-mono text-slate-800">
-                                                {formatLKR(item.fixedFee)}
-                                            </td>
-                                            <td className="py-3 px-3 text-right font-mono text-slate-600">
-                                                {item.calls}
-                                            </td>
-                                            <td className="py-3 px-3 text-right font-mono font-bold text-slate-800">
-                                                {item.minutes}
-                                            </td>
-                                            <td className="py-3 px-3 text-right font-mono text-slate-500">
-                                                {formatLKR(item.ratePerMin)}
-                                            </td>
-                                            <td className="py-3 px-3 text-right font-mono text-slate-800">
-                                                {formatLKR(item.usageAmount)}
-                                            </td>
-                                            <td className="py-3 px-3 text-right font-mono font-bold text-slate-950">
-                                                {formatLKR(item.total)}
-                                            </td>
-                                        </tr>
-                                    ))
+                                    calculations.lineItems.map((item, index) => {
+                                        const logoUrl = getBusinessLogoUrl(item.bizLogo, item.bizName);
+
+                                        return (
+                                            <tr key={`${item.bizId}_${item.campaignType}`} className="hover:bg-slate-50/50 transition-colors">
+                                                <td className="py-3 px-3 font-bold text-slate-400">{index + 1}</td>
+                                                <td className="py-3 px-3 font-bold text-slate-900">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <div className="w-7 h-7 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                                                            <img 
+                                                                src={logoUrl} 
+                                                                alt={item.bizName} 
+                                                                className="w-full h-full object-cover" 
+                                                                onError={(e) => { 
+                                                                    e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(item.bizName)}&background=4F46E5&color=fff&bold=true`;
+                                                                }} 
+                                                            />
+                                                        </div>
+                                                        <span>{item.bizName}</span>
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 px-3">
+                                                    <span className={`inline-flex items-center gap-1 font-semibold text-[11px] px-2.5 py-0.5 rounded-full border ${item.campaignType === 'FREE_SEMINAR' ? 'bg-emerald-50 text-emerald-800 border-emerald-200' : 'bg-purple-50 text-purple-800 border-purple-200'}`}>
+                                                        {item.campaignLabel}
+                                                    </span>
+                                                </td>
+                                                <td className="py-3 px-3 text-right font-mono text-slate-800">
+                                                    {formatLKR(item.fixedFee)}
+                                                </td>
+                                                <td className="py-3 px-3 text-right font-mono text-slate-600">
+                                                    {item.calls}
+                                                </td>
+                                                <td className="py-3 px-3 text-right font-mono font-bold text-slate-800">
+                                                    {item.minutes}
+                                                </td>
+                                                <td className="py-3 px-3 text-right font-mono text-slate-500">
+                                                    {formatLKR(item.ratePerMin)}
+                                                </td>
+                                                <td className="py-3 px-3 text-right font-mono text-slate-800">
+                                                    {formatLKR(item.usageAmount)}
+                                                </td>
+                                                <td className="py-3 px-3 text-right font-mono font-bold text-slate-950">
+                                                    {formatLKR(item.total)}
+                                                </td>
+                                            </tr>
+                                        );
+                                    })
                                 )}
                             </tbody>
                         </table>
@@ -660,7 +812,7 @@ export default function LumiInvoiceGenerator() {
                     <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-3">
                         <h4 className="text-xs font-black uppercase tracking-wider text-slate-800 flex items-center gap-2">
                             <Info size={14} className="text-indigo-600" />
-                            Cost Breakdown Formula
+                            Cost Breakdown Summary
                         </h4>
                         
                         <div className="text-xs space-y-2 text-slate-600">
@@ -673,8 +825,8 @@ export default function LumiInvoiceGenerator() {
                                 <span className="font-bold text-slate-900">{calculations.totalMinutes} Mins × LKR 5.00</span>
                             </div>
                             <div className="flex justify-between items-center py-1 text-slate-800">
-                                <span className="font-bold">Total Service Lines Configured</span>
-                                <span className="font-bold">{calculations.totalActiveNumbers} Hotlines</span>
+                                <span className="font-bold">Total Active Service Hotlines</span>
+                                <span className="font-bold">{calculations.totalActiveNumbers} Channels</span>
                             </div>
                         </div>
                     </div>
@@ -742,6 +894,96 @@ export default function LumiInvoiceGenerator() {
                 </div>
 
             </div>
+
+            {/* Add Business / Item Modal */}
+            {isAddModalOpen && (
+                <div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+                    <div className="bg-slate-900 border border-slate-700 rounded-3xl w-full max-w-lg p-6 shadow-2xl space-y-5 animate-fade-in">
+                        <div className="flex items-center justify-between pb-4 border-b border-slate-800">
+                            <h3 className="text-base font-bold text-white flex items-center gap-2">
+                                <Plus size={18} className="text-emerald-400" /> Add Business / Hotline to Invoice
+                            </h3>
+                            <button 
+                                onClick={() => setIsAddModalOpen(false)}
+                                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4 text-xs">
+                            {/* Business Selection */}
+                            <div>
+                                <label className="text-slate-400 font-bold block mb-1.5 uppercase">Select Business</label>
+                                <select 
+                                    value={newBizForm.selectedBizId}
+                                    onChange={(e) => setNewBizForm({ ...newBizForm, selectedBizId: e.target.value })}
+                                    className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-slate-200 font-bold outline-none focus:border-indigo-500"
+                                >
+                                    <option value="custom">➕ Custom Business Name</option>
+                                    {allAvailableBusinesses.map(b => (
+                                        <option key={b.id} value={b.id}>{b.name} (ID #{b.id})</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Custom Name if selected */}
+                            {newBizForm.selectedBizId === 'custom' && (
+                                <div>
+                                    <label className="text-slate-400 font-bold block mb-1.5 uppercase">Custom Business Name</label>
+                                    <input 
+                                        type="text" 
+                                        placeholder="e.g. IMA Law Academy or Custom Department"
+                                        value={newBizForm.customName}
+                                        onChange={(e) => setNewBizForm({ ...newBizForm, customName: e.target.value })}
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-slate-200 outline-none focus:border-indigo-500 font-bold"
+                                    />
+                                </div>
+                            )}
+
+                            {/* Pricing & Minutes */}
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-slate-400 font-bold block mb-1.5 uppercase">Fixed Number Rental (LKR)</label>
+                                    <input 
+                                        type="number" 
+                                        value={newBizForm.fixedFee}
+                                        onChange={(e) => setNewBizForm({ ...newBizForm, fixedFee: parseFloat(e.target.value) || 0 })}
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-slate-200 font-mono font-bold outline-none focus:border-indigo-500"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="text-slate-400 font-bold block mb-1.5 uppercase">Call Minutes</label>
+                                    <input 
+                                        type="number" 
+                                        placeholder="e.g. 150"
+                                        value={newBizForm.minutes}
+                                        onChange={(e) => setNewBizForm({ ...newBizForm, minutes: parseInt(e.target.value) || 0 })}
+                                        className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-slate-200 font-mono font-bold outline-none focus:border-indigo-500"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-3 pt-4 border-t border-slate-800">
+                            <button 
+                                onClick={() => setIsAddModalOpen(false)}
+                                className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={handleAddCustomBusiness}
+                                className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-black py-3 rounded-xl transition-all shadow-lg shadow-emerald-600/30"
+                            >
+                                Add to Invoice
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 }
