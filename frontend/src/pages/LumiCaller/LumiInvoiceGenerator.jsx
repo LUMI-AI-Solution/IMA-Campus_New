@@ -3,9 +3,9 @@ import api from '../../api/axios';
 import { toast } from 'react-hot-toast';
 import { toPng } from 'html-to-image';
 import jsPDF from 'jspdf';
-import { 
-    Printer, Download, RefreshCw, CheckSquare, Square, 
-    Calendar, DollarSign, PhoneCall, Building2, Sparkles, 
+import {
+    Printer, Download, RefreshCw, CheckSquare, Square,
+    Calendar, DollarSign, PhoneCall, Building2, Sparkles,
     FileText, CheckCircle2, ShieldCheck, CreditCard, ChevronRight,
     Edit3, Info, Copy, Plus, Trash2, X, Image as ImageIcon, Loader2
 } from 'lucide-react';
@@ -43,7 +43,7 @@ export default function LumiInvoiceGenerator() {
     // Business items list
     const [businessItems, setBusinessItems] = useState([]);
     const [allAvailableBusinesses, setAllAvailableBusinesses] = useState([]);
-    
+
     // Add Custom Business / Item Modal State
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [newBizForm, setNewBizForm] = useState({
@@ -169,7 +169,7 @@ export default function LumiInvoiceGenerator() {
                     ...b[campaignType],
                     selected: !b[campaignType].selected
                 };
-                const anySelected = campaignType === 'freeSeminar' 
+                const anySelected = campaignType === 'freeSeminar'
                     ? (updatedCampaign.selected || b.afterSeminar?.selected)
                     : (b.freeSeminar?.selected || updatedCampaign.selected);
 
@@ -462,10 +462,10 @@ export default function LumiInvoiceGenerator() {
     // 🖨️ Clean Standalone Print Window
     const handleCleanPrint = () => {
         if (!invoiceRef.current) return;
-        
+
         const invoiceContent = invoiceRef.current.innerHTML;
         const printWindow = window.open('', '_blank', 'width=1000,height=900');
-        
+
         if (!printWindow) {
             window.print();
             return;
@@ -555,9 +555,10 @@ export default function LumiInvoiceGenerator() {
 
     return (
         <div className="space-y-6 font-sans text-slate-200">
-            
+
             {/* Embedded Isolation Print Style to 100% prevent sidebar leak */}
-            <style dangerouslySetInnerHTML={{ __html: `
+            <style dangerouslySetInnerHTML={{
+                __html: `
                 @media print {
                     body * {
                         visibility: hidden !important;
@@ -584,7 +585,7 @@ export default function LumiInvoiceGenerator() {
 
             {/* Top Interactive Configuration Deck (Hidden during Print) */}
             <div className="print:hidden bg-slate-900/80 border border-slate-800 rounded-3xl p-6 shadow-xl backdrop-blur-md space-y-6">
-                
+
                 <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-6 border-b border-slate-800">
                     <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 p-0.5 shadow-lg shadow-indigo-500/20 flex items-center justify-center">
@@ -604,7 +605,7 @@ export default function LumiInvoiceGenerator() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-                        <button 
+                        <button
                             onClick={() => setIsAddModalOpen(true)}
                             className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 transition-all shadow-sm"
                         >
@@ -612,16 +613,16 @@ export default function LumiInvoiceGenerator() {
                             Add Business
                         </button>
 
-                        <button 
-                            onClick={fetchInvoiceData} 
+                        <button
+                            onClick={fetchInvoiceData}
                             disabled={loading}
                             className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 transition-all shadow-sm"
                         >
                             <RefreshCw size={14} className={loading ? "animate-spin text-indigo-400" : "text-indigo-400"} />
                             Refresh
                         </button>
-                        
-                        <button 
+
+                        <button
                             onClick={handleCopySummary}
                             className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 transition-all shadow-sm"
                         >
@@ -630,7 +631,7 @@ export default function LumiInvoiceGenerator() {
                         </button>
 
                         {/* 📄 1-CLICK DIRECT PDF DOWNLOAD BUTTON */}
-                        <button 
+                        <button
                             onClick={handleDownloadInvoicePDF}
                             disabled={downloadingPdf}
                             className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all hover:scale-105 disabled:opacity-50"
@@ -649,7 +650,7 @@ export default function LumiInvoiceGenerator() {
                         </button>
 
                         {/* 🖼️ 1-CLICK DIRECT IMAGE DOWNLOAD BUTTON */}
-                        <button 
+                        <button
                             onClick={handleDownloadInvoiceImage}
                             disabled={downloadingImg}
                             className="flex items-center gap-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all hover:scale-105 disabled:opacity-50"
@@ -668,7 +669,7 @@ export default function LumiInvoiceGenerator() {
                         </button>
 
                         {/* 🖨️ CLEAN PRINT / VIEW */}
-                        <button 
+                        <button
                             onClick={handleCleanPrint}
                             className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold px-4 py-2.5 rounded-xl border border-slate-700 transition-all shadow-sm"
                         >
@@ -680,14 +681,14 @@ export default function LumiInvoiceGenerator() {
 
                 {/* Configuration Controls Bar (Due Date Removed) */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    
+
                     {/* Month Picker */}
                     <div className="bg-slate-800/60 border border-slate-700 rounded-2xl p-3.5">
                         <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5 flex items-center gap-1.5">
                             <Calendar size={12} className="text-indigo-400" /> Billing Month
                         </label>
-                        <input 
-                            type="month" 
+                        <input
+                            type="month"
                             value={selectedMonth}
                             onChange={(e) => setSelectedMonth(e.target.value)}
                             className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-semibold text-white outline-none focus:border-indigo-500 transition-colors"
@@ -699,8 +700,8 @@ export default function LumiInvoiceGenerator() {
                         <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5 flex items-center gap-1.5">
                             <FileText size={12} className="text-purple-400" /> Invoice Number
                         </label>
-                        <input 
-                            type="text" 
+                        <input
+                            type="text"
                             value={invoiceNo}
                             onChange={(e) => setInvoiceNo(e.target.value)}
                             className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-semibold text-white outline-none focus:border-indigo-500 transition-colors"
@@ -712,8 +713,8 @@ export default function LumiInvoiceGenerator() {
                         <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5 flex items-center gap-1.5">
                             <Calendar size={12} className="text-emerald-400" /> Invoice Date
                         </label>
-                        <input 
-                            type="date" 
+                        <input
+                            type="date"
                             value={invoiceDate}
                             onChange={(e) => setInvoiceDate(e.target.value)}
                             className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm font-semibold text-white outline-none focus:border-indigo-500 transition-colors"
@@ -725,18 +726,18 @@ export default function LumiInvoiceGenerator() {
                 <div className="space-y-3 pt-2">
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                         <h3 className="text-sm font-bold text-slate-200 flex items-center gap-2">
-                            <Building2 size={16} className="text-indigo-400" /> 
+                            <Building2 size={16} className="text-indigo-400" />
                             Configured CRM Businesses & Hotlines ({businessItems.length})
                         </h3>
                         <div className="flex items-center gap-3">
-                            <button 
+                            <button
                                 onClick={() => handleSelectAll(true)}
                                 className="text-xs font-bold text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1"
                             >
                                 <CheckSquare size={13} /> Select All
                             </button>
                             <span className="text-slate-600">•</span>
-                            <button 
+                            <button
                                 onClick={() => handleSelectAll(false)}
                                 className="text-xs font-bold text-slate-400 hover:text-slate-300 transition-colors flex items-center gap-1"
                             >
@@ -752,13 +753,13 @@ export default function LumiInvoiceGenerator() {
                             const logoUrl = getBusinessLogoUrl(biz.logo, biz.name);
 
                             return (
-                                <div 
+                                <div
                                     key={biz.id}
                                     className={`p-4 rounded-2xl border transition-all duration-200 flex flex-col justify-between gap-3 relative ${isBizActive ? 'bg-slate-800/90 border-slate-700 shadow-md' : 'bg-slate-900/40 border-slate-800/80 opacity-60'}`}
                                 >
                                     <div className="flex items-center justify-between gap-3">
                                         <div className="flex items-center gap-3">
-                                            <button 
+                                            <button
                                                 onClick={() => toggleBusiness(biz.id)}
                                                 className={`w-6 h-6 rounded-lg flex items-center justify-center transition-all ${isBizActive ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-500 border border-slate-700'}`}
                                             >
@@ -766,13 +767,13 @@ export default function LumiInvoiceGenerator() {
                                             </button>
 
                                             <div className="w-9 h-9 rounded-xl bg-slate-900 border border-slate-700 overflow-hidden flex items-center justify-center shrink-0">
-                                                <img 
-                                                    src={logoUrl} 
-                                                    alt={biz.name} 
-                                                    className="w-full h-full object-cover" 
-                                                    onError={(e) => { 
+                                                <img
+                                                    src={logoUrl}
+                                                    alt={biz.name}
+                                                    className="w-full h-full object-cover"
+                                                    onError={(e) => {
                                                         e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(biz.name)}&background=4F46E5&color=fff&bold=true`;
-                                                    }} 
+                                                    }}
                                                 />
                                             </div>
 
@@ -786,7 +787,7 @@ export default function LumiInvoiceGenerator() {
                                             </div>
                                         </div>
 
-                                        <button 
+                                        <button
                                             onClick={() => handleRemoveBusiness(biz.id)}
                                             title="Remove from invoice"
                                             className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-rose-500/10 transition-colors"
@@ -797,11 +798,11 @@ export default function LumiInvoiceGenerator() {
 
                                     {/* Campaign lines for this business */}
                                     <div className="space-y-2 pt-2 border-t border-slate-700/60 text-xs">
-                                        
+
                                         {/* Free Seminar Line */}
                                         <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
                                             <label className="flex items-center gap-2 cursor-pointer select-none">
-                                                <input 
+                                                <input
                                                     type="checkbox"
                                                     checked={biz.freeSeminar?.selected}
                                                     onChange={() => toggleCampaign(biz.id, 'freeSeminar')}
@@ -813,7 +814,7 @@ export default function LumiInvoiceGenerator() {
                                             </label>
 
                                             <div className="flex items-center gap-1.5">
-                                                <input 
+                                                <input
                                                     type="number"
                                                     value={biz.freeSeminar?.minutes || 0}
                                                     onChange={(e) => handleMinutesChange(biz.id, 'freeSeminar', e.target.value)}
@@ -827,7 +828,7 @@ export default function LumiInvoiceGenerator() {
                                         {/* After Seminar Line */}
                                         <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
                                             <label className="flex items-center gap-2 cursor-pointer select-none">
-                                                <input 
+                                                <input
                                                     type="checkbox"
                                                     checked={biz.afterSeminar?.selected}
                                                     onChange={() => toggleCampaign(biz.id, 'afterSeminar')}
@@ -839,7 +840,7 @@ export default function LumiInvoiceGenerator() {
                                             </label>
 
                                             <div className="flex items-center gap-1.5">
-                                                <input 
+                                                <input
                                                     type="number"
                                                     value={biz.afterSeminar?.minutes || 0}
                                                     onChange={(e) => handleMinutesChange(biz.id, 'afterSeminar', e.target.value)}
@@ -858,21 +859,21 @@ export default function LumiInvoiceGenerator() {
             </div>
 
             {/* 🧾 ACTUAL INVOICE DOCUMENT (SMART REPLY BRANDING - SINGLE-PAGE A4 FORMAT) */}
-            <div 
+            <div
                 id="smart-reply-invoice-sheet"
                 ref={invoiceRef}
                 className="bg-white text-slate-800 p-6 sm:p-8 rounded-3xl shadow-2xl border border-slate-200 max-w-5xl mx-auto print:max-w-none print:m-0 print:p-4 print:shadow-none print:border-none print:rounded-none font-sans"
             >
                 {/* Invoice Top Header - With SMART REPLY Branding & IMA Details */}
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b-2 border-slate-200">
-                    
+
                     {/* Left: SMART REPLY Logo & Branding */}
                     <div className="flex flex-col gap-1.5">
                         <div className="flex items-center gap-3">
-                            <img 
-                                src="/smart_reply_logo.png" 
-                                alt="Smart Reply" 
-                                className="h-16 sm:h-20 max-w-[260px] w-auto object-contain drop-shadow-xs"
+                            <img
+                                src="/smart_reply_logo.png"
+                                alt="Smart Reply"
+                                className="h-20 sm:h-24 max-w-[320px] w-auto object-contain drop-shadow-xs"
                             />
                         </div>
                         <div className="text-[11px] text-slate-600 space-y-0.5 font-medium leading-tight pt-1">
@@ -885,9 +886,9 @@ export default function LumiInvoiceGenerator() {
                     {/* Right: IMA Campus Logo & Invoice Details (Due Date Removed) */}
                     <div className="flex flex-col items-start sm:items-end gap-1.5">
                         <div className="flex items-center gap-3">
-                            <img 
-                                src="/logo.png" 
-                                alt="IMA Campus" 
+                            <img
+                                src="/logo.png"
+                                alt="IMA Campus"
                                 className="h-12 sm:h-14 w-auto object-contain"
                             />
                             <div className="text-right">
@@ -952,18 +953,18 @@ export default function LumiInvoiceGenerator() {
                                                 <td className="py-2 px-2.5 text-center font-bold text-slate-400">
                                                     {index + 1}
                                                 </td>
-                                                
+
                                                 {/* Business Name & Logo */}
                                                 <td className="py-2 px-3 font-bold text-slate-900">
                                                     <div className="flex items-center gap-2">
                                                         <div className="w-6 h-6 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0 shadow-xs">
-                                                            <img 
-                                                                src={logoUrl} 
-                                                                alt={row.bizName} 
-                                                                className="w-full h-full object-cover" 
-                                                                onError={(e) => { 
+                                                            <img
+                                                                src={logoUrl}
+                                                                alt={row.bizName}
+                                                                className="w-full h-full object-cover"
+                                                                onError={(e) => {
                                                                     e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(row.bizName)}&background=4F46E5&color=fff&bold=true`;
-                                                                }} 
+                                                                }}
                                                             />
                                                         </div>
                                                         <span className="text-[11px] font-bold text-slate-900 tracking-tight">
@@ -1051,14 +1052,14 @@ export default function LumiInvoiceGenerator() {
 
                 {/* Totals & Summary Calculation Deck */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1 pb-4">
-                    
+
                     {/* Left: Summary Formula Breakdown */}
                     <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2">
                         <h4 className="text-[11px] font-bold uppercase tracking-wider text-slate-900 flex items-center gap-1.5">
                             <Info size={13} className="text-indigo-600" />
                             Cost Breakdown Summary
                         </h4>
-                        
+
                         <div className="text-[11px] space-y-1.5 text-slate-600 font-medium leading-tight">
                             <div className="flex justify-between items-center py-1 border-b border-slate-200">
                                 <span>1. Fixed Dedicated Number Rentals:</span>
@@ -1146,7 +1147,7 @@ export default function LumiInvoiceGenerator() {
                             <h3 className="text-base font-bold text-white flex items-center gap-2">
                                 <Plus size={18} className="text-emerald-400" /> Add Business / Hotline to Invoice
                             </h3>
-                            <button 
+                            <button
                                 onClick={() => setIsAddModalOpen(false)}
                                 className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"
                             >
@@ -1158,7 +1159,7 @@ export default function LumiInvoiceGenerator() {
                             {/* Business Selection */}
                             <div>
                                 <label className="text-slate-400 font-bold block mb-1.5 uppercase">Select Business</label>
-                                <select 
+                                <select
                                     value={newBizForm.selectedBizId}
                                     onChange={(e) => setNewBizForm({ ...newBizForm, selectedBizId: e.target.value })}
                                     className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-slate-200 font-bold outline-none focus:border-indigo-500"
@@ -1174,8 +1175,8 @@ export default function LumiInvoiceGenerator() {
                             {newBizForm.selectedBizId === 'custom' && (
                                 <div>
                                     <label className="text-slate-400 font-bold block mb-1.5 uppercase">Custom Business Name</label>
-                                    <input 
-                                        type="text" 
+                                    <input
+                                        type="text"
                                         placeholder="e.g. IMA Law Academy or Custom Department"
                                         value={newBizForm.customName}
                                         onChange={(e) => setNewBizForm({ ...newBizForm, customName: e.target.value })}
@@ -1188,8 +1189,8 @@ export default function LumiInvoiceGenerator() {
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
                                     <label className="text-slate-400 font-bold block mb-1.5 uppercase">Free Sem Call Minutes</label>
-                                    <input 
-                                        type="number" 
+                                    <input
+                                        type="number"
                                         placeholder="e.g. 50"
                                         value={newBizForm.freeMins}
                                         onChange={(e) => setNewBizForm({ ...newBizForm, freeMins: parseInt(e.target.value) || 0 })}
@@ -1199,8 +1200,8 @@ export default function LumiInvoiceGenerator() {
 
                                 <div>
                                     <label className="text-slate-400 font-bold block mb-1.5 uppercase">After Sem Call Minutes</label>
-                                    <input 
-                                        type="number" 
+                                    <input
+                                        type="number"
                                         placeholder="e.g. 80"
                                         value={newBizForm.afterMins}
                                         onChange={(e) => setNewBizForm({ ...newBizForm, afterMins: parseInt(e.target.value) || 0 })}
@@ -1211,13 +1212,13 @@ export default function LumiInvoiceGenerator() {
                         </div>
 
                         <div className="flex gap-3 pt-4 border-t border-slate-800">
-                            <button 
+                            <button
                                 onClick={() => setIsAddModalOpen(false)}
                                 className="flex-1 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl transition-colors"
                             >
                                 Cancel
                             </button>
-                            <button 
+                            <button
                                 onClick={handleAddCustomBusiness}
                                 className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg shadow-emerald-600/30"
                             >
