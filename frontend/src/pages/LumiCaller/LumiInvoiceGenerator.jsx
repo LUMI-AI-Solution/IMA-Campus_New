@@ -872,10 +872,10 @@ export default function LumiInvoiceGenerator() {
                             <img 
                                 src="/smart_reply_logo.png" 
                                 alt="Smart Reply" 
-                                className="h-14 w-auto object-contain"
+                                className="h-16 sm:h-20 max-w-[260px] w-auto object-contain drop-shadow-xs"
                             />
                         </div>
-                        <div className="text-[11px] text-slate-600 space-y-0.5 font-medium leading-tight">
+                        <div className="text-[11px] text-slate-600 space-y-0.5 font-medium leading-tight pt-1">
                             <p className="font-bold text-slate-900 text-xs tracking-tight">SMART REPLY (PVT) LTD</p>
                             <p className="text-slate-500">Automate | Innovate | Elevate • AI WhatsApp Calling & Voice Cloud</p>
                             <p>Web: <span className="font-semibold text-indigo-700">www.smartreply.ai</span> • Email: <span className="font-semibold text-indigo-700">billing@smartreply.ai</span></p>
@@ -888,7 +888,7 @@ export default function LumiInvoiceGenerator() {
                             <img 
                                 src="/logo.png" 
                                 alt="IMA Campus" 
-                                className="h-10 w-auto object-contain"
+                                className="h-12 sm:h-14 w-auto object-contain"
                             />
                             <div className="text-right">
                                 <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight uppercase leading-none">
