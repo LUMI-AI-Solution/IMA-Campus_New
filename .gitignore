@@ -20,3 +20,4 @@ backend/backups/*.sql
 backend/gsheet-service-account.json
 backend/server.log
 *.log
+backend/uploads/

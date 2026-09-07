@@ -75,11 +75,10 @@ router.get('/manager/dashboard-stats', managerDashboardController.getManagerDash
 // 🔥 STUDENT DATA CENTER ROUTES 🔥
 // ==========================================
 router.get('/students-data-center', studentController.getStudentsDataCenter);
+router.get('/student-inspect/:query', studentController.inspectStudentRecords);
 router.put('/students/update', studentController.updateStudentByAdmin);
 router.post('/students/reset-password', studentController.resetStudentPassword);
 router.post('/ghost-login', studentController.ghostLogin);
-
-// 🔥🔥🔥 මෙන්න මේ ලයින් එක අනිවාර්යයෙන්ම එකතු කරන්න 🔥🔥🔥
 router.post('/admin-delete', studentController.deleteStudentAccount);
 
 // Backup

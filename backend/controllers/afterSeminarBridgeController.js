@@ -218,33 +218,18 @@ exports.revertPendingBridgeLeads = async (req, res) => {
 };
 
 // ============================================================================
-// 4. GET CALL CENTER HANDOVERS
+// 4. GET CALL CENTER HANDOVERS (Both Pending Approval & Assigned Workload)
 // ============================================================================
 exports.getCallCenterHandovers = async (req, res) => {
     try {
-        const handovers = await prisma.lead.groupBy({
-            by: ['batchId'],
-            where: {
-                campaignType: 'AFTER_SEMINAR',
-                source: 'bridge_transfer',
-                isCallCenter: true,
-                callCenterStatus: 'pending_approval',
-                enrollmentStatus: 'NON_ENROLLED'
-            },
-            _count: { id: true }
-        });
-
-        // We need to resolve business IDs from batch IDs or extract from phone
-        // Since we group by batchId, we can just fetch all leads and group them by business manually for better accuracy
         const rawLeads = await prisma.lead.findMany({
             where: {
                 campaignType: 'AFTER_SEMINAR',
                 source: 'bridge_transfer',
                 isCallCenter: true,
-                callCenterStatus: 'pending_approval',
                 enrollmentStatus: 'NON_ENROLLED'
             },
-            select: { id: true, phone: true }
+            select: { id: true, phone: true, callCenterStatus: true }
         });
 
         const bizGroups = {};
@@ -253,7 +238,9 @@ exports.getCallCenterHandovers = async (req, res) => {
             if (match) {
                 const bizId = parseInt(match[1]);
                 if (!bizGroups[bizId]) bizGroups[bizId] = { businessId: bizId, pendingCount: 0, leadIds: [], leads: [] };
-                bizGroups[bizId].pendingCount++;
+                if (l.callCenterStatus === 'pending_approval') {
+                    bizGroups[bizId].pendingCount++;
+                }
                 bizGroups[bizId].leadIds.push(l.id);
             }
         });
@@ -265,7 +252,7 @@ exports.getCallCenterHandovers = async (req, res) => {
 
             const fullLeads = await prisma.lead.findMany({
                 where: { id: { in: allLeadIds } },
-                include: { assignedUser: true }
+                include: { assignedUser: true, batch: true }
             });
 
             // Put leads into bizGroups

@@ -99,6 +99,20 @@ exports.createStudent = async (req, res) => {
   try {
     const { studentName, firstName, lastName, grade, nic, phone, whatsapp, address, gender, dob, schoolId, classId, classIds, guardianName, guardianPhone, guardianWhatsapp, rfid, registrationFeeAmount, registrationFeeStatus, cardType, enrollmentCardTypes, classEnrollments } = req.body;
     
+    const trimmedRfid = rfid && typeof rfid === 'string' && rfid.trim().length > 0 ? rfid.trim() : null;
+
+    // Check for duplicate RFID/QR card
+    if (trimmedRfid) {
+      const existingWithCard = await prisma.physicalStudent.findFirst({
+        where: { rfid: trimmedRfid }
+      });
+      if (existingWithCard) {
+        return res.status(400).json({
+          error: `Card/QR Code "${trimmedRfid}" is already allocated to "${existingWithCard.studentName || existingWithCard.firstName || existingWithCard.studentId}" (${existingWithCard.studentId})!`
+        });
+      }
+    }
+
     // Generate unique studentId
     const count = await prisma.physicalStudent.count();
     const studentId = `PHY-STU-${1000 + count + 1}`;
@@ -135,7 +149,7 @@ exports.createStudent = async (req, res) => {
         guardianName,
         guardianPhone,
         guardianWhatsapp,
-        rfid: rfid || null,
+        rfid: trimmedRfid,
         cardType: globalCardType,
         registrationFeeAmount: registrationFeeAmount ? parseFloat(registrationFeeAmount) : null,
         registrationFeeStatus: registrationFeeStatus || 'PENDING'
@@ -197,6 +211,9 @@ exports.createStudent = async (req, res) => {
 
     res.status(201).json(fullStudent);
   } catch (error) {
+    if (error.code === 'P2002' && error.meta?.target?.includes('rfid')) {
+      return res.status(400).json({ error: 'This Card/RFID is already allocated to another student.' });
+    }
     res.status(500).json({ error: error.message });
   }
 };
@@ -207,6 +224,26 @@ exports.updateStudent = async (req, res) => {
     const { studentName, firstName, lastName, grade, nic, phone, whatsapp, address, gender, dob, schoolId, classId, classIds, guardianName, guardianPhone, guardianWhatsapp, rfid, registrationFeeAmount, registrationFeeStatus, cardType, enrollmentCardTypes, classEnrollments } = req.body;
     
     const oldStudent = await prisma.physicalStudent.findUnique({ where: { id: parseInt(id) }});
+    if (!oldStudent) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    const trimmedRfid = rfid !== undefined ? (rfid && typeof rfid === 'string' && rfid.trim().length > 0 ? rfid.trim() : null) : oldStudent.rfid;
+
+    // Check for duplicate RFID/QR card on other students
+    if (trimmedRfid) {
+      const existingWithCard = await prisma.physicalStudent.findFirst({
+        where: {
+          rfid: trimmedRfid,
+          NOT: { id: parseInt(id) }
+        }
+      });
+      if (existingWithCard) {
+        return res.status(400).json({
+          error: `Card/QR Code "${trimmedRfid}" is already allocated to "${existingWithCard.studentName || existingWithCard.firstName || existingWithCard.studentId}" (${existingWithCard.studentId})!`
+        });
+      }
+    }
 
     const derivedStudentName = studentName || (firstName || lastName ? `${firstName || ''} ${lastName || ''}`.trim() : '');
     const nameParts = derivedStudentName ? derivedStudentName.split(/\s+/) : ['Student'];
@@ -240,7 +277,7 @@ exports.updateStudent = async (req, res) => {
         guardianName,
         guardianPhone,
         guardianWhatsapp,
-        rfid: rfid || null,
+        rfid: trimmedRfid,
         cardType: globalCardType,
         registrationFeeAmount: registrationFeeAmount ? parseFloat(registrationFeeAmount) : null,
         registrationFeeStatus: registrationFeeStatus || 'PENDING'
@@ -310,7 +347,64 @@ exports.updateStudent = async (req, res) => {
 
     res.json(fullStudent);
   } catch (error) {
+    if (error.code === 'P2002' && error.meta?.target?.includes('rfid')) {
+      return res.status(400).json({ error: 'This Card/RFID is already allocated to another student.' });
+    }
     res.status(500).json({ error: error.message });
+  }
+};
+
+// Allocate / Bind Card directly to a student
+exports.allocateCard = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rfid } = req.body;
+    const studentId = parseInt(id);
+
+    if (!studentId) {
+      return res.status(400).json({ error: 'Valid student ID is required' });
+    }
+
+    const trimmedRfid = rfid && typeof rfid === 'string' && rfid.trim().length > 0 ? rfid.trim() : null;
+
+    if (trimmedRfid) {
+      const existingWithCard = await prisma.physicalStudent.findFirst({
+        where: {
+          rfid: trimmedRfid,
+          NOT: { id: studentId }
+        }
+      });
+      if (existingWithCard) {
+        return res.status(400).json({
+          error: `Card/QR Code "${trimmedRfid}" is already allocated to "${existingWithCard.studentName || existingWithCard.firstName || existingWithCard.studentId}" (${existingWithCard.studentId})!`
+        });
+      }
+    }
+
+    const updatedStudent = await prisma.physicalStudent.update({
+      where: { id: studentId },
+      data: {
+        rfid: trimmedRfid
+      },
+      include: {
+        school: true,
+        class: { include: { teachers: true } },
+        enrollments: { include: { class: { include: { teachers: true } } } },
+        feePayments: { orderBy: { month: 'desc' } }
+      }
+    });
+
+    res.json({
+      success: true,
+      message: trimmedRfid ? `Card "${trimmedRfid}" successfully allocated!` : 'Card removed successfully!',
+      student: updatedStudent
+    });
+  } catch (error) {
+    console.error('Error allocating card:', error);
+    if (error.code === 'P2002' && error.meta?.target?.includes('rfid')) {
+      return res.status(400).json({ error: 'This Card/RFID is already allocated to another student.' });
+    }
+    res.status(500).json({ error: 'Failed to allocate card: ' + error.message });
   }
 };
 
@@ -817,7 +911,12 @@ exports.deleteStudent = async (req, res) => {
 exports.getClasses = async (req, res) => {
   try {
     const classes = await prisma.physicalClass.findMany({
-      include: { teachers: true, timetables: true },
+      include: { 
+        teachers: true, 
+        timetables: { 
+          include: { hall: true } 
+        } 
+      },
       orderBy: { id: 'desc' }
     });
     res.json(classes);
@@ -852,12 +951,14 @@ exports.createClass = async (req, res) => {
             create: timetables.map(t => ({
               dayOfWeek: t.dayOfWeek,
               startTime: t.startTime,
-              endTime: t.endTime
+              endTime: t.endTime,
+              hallId: t.hallId ? parseInt(t.hallId) : null,
+              hallName: t.hallName || (t.hall ? t.hall.name : null) || null
             }))
           }
         })
       },
-      include: { teachers: true, timetables: true }
+      include: { teachers: true, timetables: { include: { hall: true } } }
     });
     res.status(201).json(phyClass);
   } catch (error) {
@@ -899,14 +1000,41 @@ exports.updateClass = async (req, res) => {
             create: timetables.map(t => ({
               dayOfWeek: t.dayOfWeek,
               startTime: t.startTime,
-              endTime: t.endTime
+              endTime: t.endTime,
+              hallId: t.hallId ? parseInt(t.hallId) : null,
+              hallName: t.hallName || (t.hall ? t.hall.name : null) || null
             }))
           }
         })
       },
-      include: { teachers: true, timetables: true }
+      include: { teachers: true, timetables: { include: { hall: true } } }
     });
     res.json(phyClass);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// HALLS
+exports.getHalls = async (req, res) => {
+  try {
+    const halls = await prisma.hall.findMany({
+      orderBy: { id: 'asc' }
+    });
+    res.json(halls);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+exports.createHall = async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Hall name is required' });
+    const hall = await prisma.hall.create({
+      data: { name: name.trim() }
+    });
+    res.status(201).json(hall);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -930,9 +1058,9 @@ exports.getTeachers = async (req, res) => {
     const teachers = await prisma.physicalTeacher.findMany({
       include: {
         classes: {
-          include: { timetables: true }
+          include: { timetables: { include: { hall: true } } }
         },
-        timetables: true
+        timetables: { include: { hall: true } }
       },
       orderBy: { id: 'desc' }
     });
@@ -1204,7 +1332,7 @@ exports.getClassFeeMatrix = async (req, res) => {
 
 exports.toggleStudentFeePayment = async (req, res) => {
   try {
-    const { studentId, classId, month, status, amount, paymentMethod, remark } = req.body;
+    const { studentId, classId, month, status, amount, isIncremental, paymentMethod, remark } = req.body;
 
     if (!studentId || !classId || !month) {
       return res.status(400).json({ error: 'studentId, classId, and month are required' });
@@ -1238,24 +1366,14 @@ exports.toggleStudentFeePayment = async (req, res) => {
 
     const effectiveCardType = enrollment?.cardType || targetStudent.cardType || 'FULL';
 
-    let feeAmount;
-    if (amount !== undefined && amount !== null && amount !== '') {
-      feeAmount = parseFloat(amount);
+    // Calculate full expected fee based on card type
+    let expectedFee = 0;
+    if (effectiveCardType === 'FREE') {
+      expectedFee = 0;
+    } else if (effectiveCardType === 'HALF') {
+      expectedFee = (targetClass.monthlyFee || 0) / 2;
     } else {
-      if (effectiveCardType === 'FREE') {
-        feeAmount = 0;
-      } else if (effectiveCardType === 'HALF') {
-        feeAmount = (targetClass.monthlyFee || 0) / 2;
-      } else {
-        feeAmount = targetClass.monthlyFee || 0;
-      }
-    }
-
-    let finalStatus = targetStatus;
-    if (effectiveCardType === 'FREE' && targetStatus === 'PAID') {
-      finalStatus = 'FREE_CARD';
-    } else if (effectiveCardType === 'HALF' && targetStatus === 'PAID' && feeAmount < (targetClass.monthlyFee || 0)) {
-      finalStatus = 'HALF_PAYMENT';
+      expectedFee = targetClass.monthlyFee || 0;
     }
 
     if (targetStatus === 'PENDING' || targetStatus === 'UNPAID') {
@@ -1268,12 +1386,76 @@ exports.toggleStudentFeePayment = async (req, res) => {
         }
       });
 
+      // Soft-delete corresponding Cash Flow transaction so cash balance stays 100% accurate
+      await prisma.physicalTransaction.updateMany({
+        where: {
+          studentId: sId,
+          category: 'Class Fee',
+          description: { contains: month },
+          isDeleted: false
+        },
+        data: {
+          isDeleted: true,
+          deletedReason: `Payment for ${month} marked Pending / Cancelled`,
+          deletedAt: new Date(),
+          deletedBy: 'Staff / Attendance Portal'
+        }
+      });
+
       return res.json({
         success: true,
         status: 'PENDING',
+        paidAmount: 0,
+        dueAmount: expectedFee,
+        expectedFee,
         message: `Payment for ${month} marked as PENDING`
       });
     }
+
+    // Find existing payment record to compute incremental amount if any
+    const existingPayment = await prisma.physicalClassFeePayment.findUnique({
+      where: {
+        studentId_classId_month: {
+          studentId: sId,
+          classId: cId,
+          month
+        }
+      }
+    });
+
+    let paidAmount = 0;
+    if (amount !== undefined && amount !== null && amount !== '') {
+      const inputAmount = parseFloat(amount);
+      if (isIncremental && existingPayment) {
+        paidAmount = (existingPayment.amount || 0) + inputAmount;
+      } else {
+        paidAmount = inputAmount;
+      }
+    } else {
+      paidAmount = expectedFee;
+    }
+
+    let finalStatus = 'PAID';
+    if (effectiveCardType === 'FREE') {
+      finalStatus = 'FREE_CARD';
+      paidAmount = 0;
+    } else if (effectiveCardType === 'HALF') {
+      if (paidAmount >= expectedFee) {
+        finalStatus = 'HALF_PAYMENT';
+      } else if (paidAmount > 0) {
+        finalStatus = 'PARTIAL';
+      } else {
+        finalStatus = 'PENDING';
+      }
+    } else if (paidAmount >= expectedFee) {
+      finalStatus = 'PAID';
+    } else if (paidAmount > 0 && paidAmount < expectedFee) {
+      finalStatus = 'PARTIAL';
+    } else {
+      finalStatus = 'PENDING';
+    }
+
+    const dueAmount = Math.max(0, expectedFee - paidAmount);
 
     // Upsert payment record
     const payment = await prisma.physicalClassFeePayment.upsert({
@@ -1286,7 +1468,7 @@ exports.toggleStudentFeePayment = async (req, res) => {
       },
       update: {
         status: finalStatus,
-        amount: feeAmount,
+        amount: paidAmount,
         paidDate: new Date(),
         paymentMethod: paymentMethod || 'CASH',
         remark: remark || null
@@ -1296,23 +1478,33 @@ exports.toggleStudentFeePayment = async (req, res) => {
         classId: cId,
         month,
         status: finalStatus,
-        amount: feeAmount,
+        amount: paidAmount,
         paidDate: new Date(),
         paymentMethod: paymentMethod || 'CASH',
         remark: remark || null
       }
     });
 
-    // Optionally record income transaction in PhysicalTransaction
-    if ((finalStatus === 'PAID' || finalStatus === 'HALF_PAYMENT') && feeAmount > 0) {
-      const sName = targetStudent.studentName || `${targetStudent.firstName || ''} ${targetStudent.lastName || ''}`.trim() || 'Student';
-      await prisma.physicalTransaction.create({
+    // Compute delta amount for PhysicalTransaction cash flow
+    const previousAmount = existingPayment ? (existingPayment.amount || 0) : 0;
+    const deltaAmount = Math.max(0, paidAmount - previousAmount);
+
+    let transaction = null;
+    const sName = targetStudent.studentName || `${targetStudent.firstName || ''} ${targetStudent.lastName || ''}`.trim() || 'Student';
+
+    if (deltaAmount > 0) {
+      const transDesc = finalStatus === 'PARTIAL'
+        ? `Class Fee Partial (${month}) - ${targetClass.name} - ${targetStudent.studentId} (${sName}) [Paid: Rs. ${paidAmount.toLocaleString()} / Total: Rs. ${expectedFee.toLocaleString()} (Due: Rs. ${dueAmount.toLocaleString()})]`
+        : `Class Fee (${month}) - ${targetClass.name} - ${targetStudent.studentId} (${sName}) [${effectiveCardType} CARD]`;
+
+      transaction = await prisma.physicalTransaction.create({
         data: {
           type: 'INCOME',
           category: 'Class Fee',
-          amount: feeAmount,
-          description: `Class Fee (${month}) - ${targetClass.name} - ${targetStudent.studentId} (${sName}) [${effectiveCardType} CARD]`,
-          studentId: sId
+          amount: deltaAmount,
+          description: transDesc,
+          studentId: sId,
+          isDeleted: false
         }
       });
     }
@@ -1320,11 +1512,299 @@ exports.toggleStudentFeePayment = async (req, res) => {
     res.json({
       success: true,
       payment,
+      transaction,
+      expectedFee,
+      paidAmount,
+      dueAmount,
+      status: finalStatus,
+      receiptData: {
+        receiptNo: transaction ? `REC-${transaction.id}` : `CF-${payment.id}`,
+        studentId: targetStudent.studentId,
+        studentName: sName,
+        guardianPhone: targetStudent.guardianPhone || targetStudent.phone || '',
+        className: targetClass.name,
+        month,
+        cardType: effectiveCardType,
+        amount: paidAmount,
+        deltaAmount: deltaAmount > 0 ? deltaAmount : paidAmount,
+        expectedFee,
+        dueAmount,
+        paymentMethod: paymentMethod || 'CASH',
+        paidDate: payment.paidDate || new Date(),
+        status: finalStatus,
+        items: [
+          {
+            description: `Class Fee - ${targetClass.name}`,
+            month,
+            cardType: `${effectiveCardType} CARD`,
+            amount: paidAmount,
+            expectedFee,
+            dueAmount
+          }
+        ],
+        totalAmount: paidAmount
+      },
       message: `Payment for ${month} saved successfully as ${finalStatus}!`
     });
 
   } catch (error) {
     console.error('Error toggling fee payment:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// --- BULK MULTI-CLASS FEE PAYMENT & CONSOLIDATED RECEIPT ---
+exports.bulkStudentFeePayment = async (req, res) => {
+  try {
+    const { studentId, month, paymentMethod = 'CASH', remark, payments } = req.body;
+
+    if (!studentId || !month) {
+      return res.status(400).json({ error: 'studentId and month are required' });
+    }
+
+    const sId = parseInt(studentId);
+    const targetStudent = await prisma.physicalStudent.findUnique({
+      where: { id: sId },
+      include: {
+        enrollments: {
+          include: { class: true }
+        },
+        class: true
+      }
+    });
+
+    if (!targetStudent) {
+      return res.status(404).json({ error: 'Student not found' });
+    }
+
+    const sName = targetStudent.studentName || `${targetStudent.firstName || ''} ${targetStudent.lastName || ''}`.trim() || 'Student';
+
+    // If payments array is provided, use it; otherwise, collect all enrolled classes
+    let itemsToProcess = [];
+    if (Array.isArray(payments) && payments.length > 0) {
+      itemsToProcess = payments;
+    } else {
+      const classMap = new Map();
+      if (targetStudent.class) {
+        classMap.set(targetStudent.class.id, {
+          classId: targetStudent.class.id,
+          cardType: targetStudent.cardType || 'FULL',
+          monthlyFee: targetStudent.class.monthlyFee || 0,
+          class: targetStudent.class
+        });
+      }
+      if (targetStudent.enrollments) {
+        targetStudent.enrollments.forEach(e => {
+          if (e.class) {
+            classMap.set(e.class.id, {
+              classId: e.class.id,
+              cardType: e.cardType || targetStudent.cardType || 'FULL',
+              monthlyFee: e.class.monthlyFee || 0,
+              class: e.class
+            });
+          }
+        });
+      }
+      itemsToProcess = Array.from(classMap.values());
+    }
+
+    if (itemsToProcess.length === 0) {
+      return res.status(400).json({ error: 'No classes to process payment for' });
+    }
+
+    const processedPayments = [];
+    const receiptItems = [];
+    let totalPaidAmount = 0;
+    let totalExpectedFee = 0;
+    let totalDueAmount = 0;
+    let totalDeltaAmount = 0;
+    const classNames = [];
+
+    for (const item of itemsToProcess) {
+      const cId = parseInt(item.classId);
+      if (!cId) continue;
+
+      const targetClass = await prisma.physicalClass.findUnique({
+        where: { id: cId }
+      });
+
+      if (!targetClass) continue;
+
+      // Check enrollment specific cardType or student default cardType
+      const enrollment = await prisma.physicalStudentClassEnrollment.findUnique({
+        where: {
+          studentId_classId: {
+            studentId: sId,
+            classId: cId
+          }
+        }
+      });
+
+      const effectiveCardType = enrollment?.cardType || item.cardType || targetStudent.cardType || 'FULL';
+
+      let expectedFee = 0;
+      if (effectiveCardType === 'FREE') {
+        expectedFee = 0;
+      } else if (effectiveCardType === 'HALF') {
+        expectedFee = (targetClass.monthlyFee || 0) / 2;
+      } else {
+        expectedFee = targetClass.monthlyFee || 0;
+      }
+
+      // Existing payment
+      const existingPayment = await prisma.physicalClassFeePayment.findUnique({
+        where: {
+          studentId_classId_month: {
+            studentId: sId,
+            classId: cId,
+            month
+          }
+        }
+      });
+
+      let paidAmount = 0;
+      if (item.amount !== undefined && item.amount !== null && item.amount !== '') {
+        const inputAmount = parseFloat(item.amount);
+        if (item.isIncremental && existingPayment) {
+          paidAmount = (existingPayment.amount || 0) + inputAmount;
+        } else {
+          paidAmount = inputAmount;
+        }
+      } else {
+        paidAmount = expectedFee;
+      }
+
+      let finalStatus = 'PAID';
+      if (effectiveCardType === 'FREE') {
+        finalStatus = 'FREE_CARD';
+        paidAmount = 0;
+      } else if (effectiveCardType === 'HALF') {
+        if (paidAmount >= expectedFee) {
+          finalStatus = 'HALF_PAYMENT';
+        } else if (paidAmount > 0) {
+          finalStatus = 'PARTIAL';
+        } else {
+          finalStatus = 'PENDING';
+        }
+      } else if (paidAmount >= expectedFee) {
+        finalStatus = 'PAID';
+      } else if (paidAmount > 0 && paidAmount < expectedFee) {
+        finalStatus = 'PARTIAL';
+      } else {
+        finalStatus = 'PENDING';
+      }
+
+      const dueAmount = Math.max(0, expectedFee - paidAmount);
+
+      // Upsert payment record
+      const payment = await prisma.physicalClassFeePayment.upsert({
+        where: {
+          studentId_classId_month: {
+            studentId: sId,
+            classId: cId,
+            month
+          }
+        },
+        update: {
+          status: finalStatus,
+          amount: paidAmount,
+          paidDate: new Date(),
+          paymentMethod: paymentMethod || 'CASH',
+          remark: remark || item.remark || null
+        },
+        create: {
+          studentId: sId,
+          classId: cId,
+          month,
+          status: finalStatus,
+          amount: paidAmount,
+          paidDate: new Date(),
+          paymentMethod: paymentMethod || 'CASH',
+          remark: remark || item.remark || null
+        }
+      });
+
+      const previousAmount = existingPayment ? (existingPayment.amount || 0) : 0;
+      const deltaAmount = Math.max(0, paidAmount - previousAmount);
+
+      totalPaidAmount += paidAmount;
+      totalExpectedFee += expectedFee;
+      totalDueAmount += dueAmount;
+      totalDeltaAmount += deltaAmount;
+      classNames.push(targetClass.name);
+
+      processedPayments.push(payment);
+      receiptItems.push({
+        classId: targetClass.id,
+        className: targetClass.name,
+        description: `Class Fee - ${targetClass.name}`,
+        month,
+        cardType: `${effectiveCardType} CARD`,
+        amount: paidAmount,
+        expectedFee,
+        dueAmount,
+        status: finalStatus
+      });
+    }
+
+    // Single consolidated PhysicalTransaction for cash flow
+    let transaction = null;
+    if (totalDeltaAmount > 0) {
+      const classSummaryStr = classNames.length <= 3 
+        ? classNames.join(', ') 
+        : `${classNames.length} Classes (${classNames.slice(0, 2).join(', ')} +${classNames.length - 2} more)`;
+
+      const transDesc = `Multi-Class Fee (${month}) - ${classSummaryStr} - ${targetStudent.studentId} (${sName})`;
+
+      transaction = await prisma.physicalTransaction.create({
+        data: {
+          type: 'INCOME',
+          category: 'Class Fee',
+          amount: totalDeltaAmount,
+          description: transDesc,
+          studentId: sId,
+          isDeleted: false
+        }
+      });
+    }
+
+    const overallStatus = totalDueAmount === 0 ? 'PAID' : (totalPaidAmount > 0 ? 'PARTIAL' : 'PENDING');
+
+    const receiptData = {
+      receiptNo: transaction ? `REC-${transaction.id}` : `CF-${Date.now().toString().slice(-6)}`,
+      studentId: targetStudent.studentId,
+      studentName: sName,
+      guardianPhone: targetStudent.guardianPhone || targetStudent.phone || '',
+      className: classNames.length > 1 ? `Multi-Class Payment (${classNames.length} Classes)` : (classNames[0] || 'Class Fee'),
+      month,
+      cardType: 'MULTIPLE',
+      amount: totalPaidAmount,
+      totalAmount: totalPaidAmount,
+      deltaAmount: totalDeltaAmount > 0 ? totalDeltaAmount : totalPaidAmount,
+      expectedFee: totalExpectedFee,
+      dueAmount: totalDueAmount,
+      paymentMethod: paymentMethod || 'CASH',
+      paidDate: new Date(),
+      status: overallStatus,
+      items: receiptItems,
+      notes: `Keep this receipt for entrance & card verification (${receiptItems.length} classes).`
+    };
+
+    res.json({
+      success: true,
+      processedCount: processedPayments.length,
+      payments: processedPayments,
+      transaction,
+      expectedFee: totalExpectedFee,
+      paidAmount: totalPaidAmount,
+      dueAmount: totalDueAmount,
+      status: overallStatus,
+      receiptData,
+      message: `Multi-class payment recorded successfully for ${processedPayments.length} classes!`
+    });
+
+  } catch (error) {
+    console.error('Error in bulk student fee payment:', error);
     res.status(500).json({ error: error.message });
   }
 };

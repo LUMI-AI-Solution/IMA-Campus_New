@@ -577,7 +577,7 @@ exports.addContentGroup = async (req, res) => {
 
 exports.updateContentGroup = async (req, res) => {
     try {
-        const { contentGroupId, title, type, order, course_code, parentId, parent_id } = req.body;
+        const { contentGroupId, title, type, order, course_code, parentId, parent_id, selectedBatches } = req.body;
         const updateData = { 
             title, 
             type: parseInt(type), 
@@ -588,6 +588,22 @@ exports.updateContentGroup = async (req, res) => {
         if (parentId !== undefined || parent_id !== undefined) {
             const rawPId = parentId !== undefined ? parentId : parent_id;
             updateData.parentId = (rawPId !== null && rawPId !== '' && rawPId !== 'null' && rawPId !== '0') ? parseInt(rawPId) : null;
+        }
+
+        if (selectedBatches !== undefined) {
+            try {
+                const bArray = Array.isArray(selectedBatches) ? selectedBatches : JSON.parse(selectedBatches);
+                if (bArray && bArray.length > 0) {
+                    const currentFolder = await prisma.contentGroup.findUnique({ where: { id: parseInt(contentGroupId) } });
+                    const primaryBatchId = currentFolder?.batchId;
+                    const others = bArray.filter(id => parseInt(id) !== parseInt(primaryBatchId));
+                    updateData.additionalBatchIds = others.length > 0 ? `,${others.join(',')},` : null;
+                } else {
+                    updateData.additionalBatchIds = null;
+                }
+            } catch (err) {
+                console.error("Error parsing selectedBatches in updateContentGroup:", err);
+            }
         }
 
         const updatedFolder = await prisma.contentGroup.update({
@@ -632,14 +648,14 @@ exports.addContentMassAssign = async (req, res) => {
         console.log("MASS ASSIGN REQ BODY:", req.body);
         const { type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, autoDeleteHours, paperTime, questionCount, isFree, selectedCourses, batch_id, itemOrder, youtubeLink, vimeoLink, selectedBatches } = req.body;
         
-        let fileName = null;
+        let uploadedFiles = [];
         let thumbnail = null;
 
         if (req.files && !Array.isArray(req.files)) {
-            if (req.files['file'] && req.files['file'].length > 0) fileName = req.files['file'][0].filename;
+            if (req.files['file'] && req.files['file'].length > 0) uploadedFiles = req.files['file'];
             if (req.files['thumbnail'] && req.files['thumbnail'].length > 0) thumbnail = req.files['thumbnail'][0].filename;
         } else if (req.file) {
-            fileName = req.file.filename;
+            uploadedFiles = [req.file];
         }
 
         const sanitizedMeetingId = zoomMeetingId ? zoomMeetingId.replace(/\s+/g, '') : null;
@@ -669,40 +685,133 @@ exports.addContentMassAssign = async (req, res) => {
             ? parseFloat(autoDeleteHours) 
             : null;
 
-        const data = {
-            title, 
-            contentType: type, 
-            link: link, 
-            youtubeLink,
-            vimeoLink,
-            meetingId: sanitizedMeetingId, 
-            fileName, 
-            thumbnail, 
-            date: date ? new Date(date) : null, 
-            startTime, 
-            endTime,
-            autoDeleteHours: parsedAutoDeleteHours,
-            paperTime: paperTime ? parseInt(paperTime) : null, 
-            questionCount: questionCount ? parseInt(questionCount) : null,
-            isFree: isFree === '1', 
-            batchId: primaryBatchId,
-            additionalBatchIds: additionalBatchStr,
-            courseId: 0,
-            itemOrder: parseInt(itemOrder || 1)
-        };
+        const filesToProcess = uploadedFiles.length > 0 ? uploadedFiles : [null];
+        const createdContents = [];
 
-        if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined' && contentGroupId !== '' && contentGroupId !== '0') {
-            data.contentGroupId = parseInt(contentGroupId);
+        for (let i = 0; i < filesToProcess.length; i++) {
+            const currentFile = filesToProcess[i];
+            const fileName = currentFile ? currentFile.filename : null;
+            
+            // If multiple files uploaded, give each file a sensible title
+            let itemTitle = title;
+            if (filesToProcess.length > 1 && currentFile) {
+                const rawBaseName = currentFile.originalname ? currentFile.originalname.replace(/\.[^/.]+$/, "") : `Part ${i + 1}`;
+                itemTitle = title ? `${title} (${rawBaseName})` : rawBaseName;
+            }
+
+            const data = {
+                title: itemTitle, 
+                contentType: type, 
+                link: link, 
+                youtubeLink,
+                vimeoLink,
+                meetingId: sanitizedMeetingId, 
+                fileName, 
+                thumbnail, 
+                date: date ? new Date(date) : null, 
+                startTime, 
+                endTime,
+                autoDeleteHours: parsedAutoDeleteHours,
+                paperTime: paperTime ? parseInt(paperTime) : null, 
+                questionCount: questionCount ? parseInt(questionCount) : null,
+                isFree: isFree === '1', 
+                batchId: primaryBatchId,
+                additionalBatchIds: additionalBatchStr,
+                courseId: 0,
+                itemOrder: parseInt(itemOrder || 1) + i
+            };
+
+            if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined' && contentGroupId !== '' && contentGroupId !== '0') {
+                data.contentGroupId = parseInt(contentGroupId);
+            } else if (date || title) {
+                try {
+                    const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+                    const sinhalaMonths = ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"];
+                    let targetMonthIdx = -1;
+                    if (date) {
+                        const d = new Date(date);
+                        if (!isNaN(d.getTime())) targetMonthIdx = d.getMonth();
+                    }
+                    if (targetMonthIdx === -1 && title) {
+                        const titleLower = title.toLowerCase();
+                        targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
+                        if (targetMonthIdx === -1) targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
+                    }
+                    if (targetMonthIdx !== -1) {
+                        const engMonth = monthNames[targetMonthIdx];
+                        const sinMonth = sinhalaMonths[targetMonthIdx];
+                        const typeInt = (type === 'live' || type === '1') ? 1
+                            : (type === 'recording' || type === '2') ? 2
+                            : (type === 'document' || type === '3') ? 3
+                            : (type === 'sPaper' || type === '4') ? 4
+                            : (type === 'paper' || type === '5') ? 5 : 1;
+                        
+                        const matchedGroup = await prisma.contentGroup.findFirst({
+                            where: {
+                                OR: [
+                                    { batchId: primaryBatchId },
+                                    { additionalBatchIds: { contains: `,${primaryBatchId},` } }
+                                ],
+                                type: typeInt,
+                                OR: [
+                                    { title: { contains: engMonth } },
+                                    { title: { contains: sinMonth } }
+                                ]
+                            }
+                        });
+                        if (matchedGroup) {
+                            data.contentGroupId = matchedGroup.id;
+                        }
+                    }
+                } catch (err) {}
+            }
+
+            const newContent = await prisma.content.create({ data });
+
+            if (type === 'paper' || type === 'sPaper') {
+                const { timerMode, scheduledStartTime, passMarks, instructions } = req.body;
+                let finalScheduledTime = null;
+                if (timerMode === 'SCHEDULED' && scheduledStartTime) {
+                    const schedStr = String(scheduledStartTime).trim();
+                    if (schedStr.includes('T') || schedStr.includes('-') || schedStr.includes('/')) {
+                        finalScheduledTime = new Date(schedStr);
+                    } else {
+                        let dStr = date ? String(date).split('T')[0] : new Date().toISOString().split('T')[0];
+                        finalScheduledTime = new Date(`${dStr}T${schedStr}:00`);
+                    }
+                }
+
+                await prisma.paper.upsert({
+                    where: { contentId: newContent.id },
+                    create: {
+                        contentId: newContent.id,
+                        paperType: type === 'paper' ? 'MCQ' : 'STRUCTURED',
+                        durationMinutes: paperTime ? parseInt(paperTime) : 60,
+                        timerMode: timerMode || 'FLEXIBLE',
+                        scheduledStartTime: finalScheduledTime,
+                        passMarks: passMarks ? parseInt(passMarks) : 40,
+                        instructions: instructions || ''
+                    },
+                    update: {
+                        durationMinutes: paperTime ? parseInt(paperTime) : 60,
+                        timerMode: timerMode || 'FLEXIBLE',
+                        scheduledStartTime: finalScheduledTime,
+                        passMarks: passMarks ? parseInt(passMarks) : 40,
+                        instructions: instructions || ''
+                    }
+                });
+            }
+
+            if (selectedCourses) {
+                const coursesArray = JSON.parse(selectedCourses);
+                const contentCourseData = coursesArray.map(cId => ({ content_id: newContent.id, course_id: BigInt(cId), type: getTypeInt(type) }));
+                if (contentCourseData.length > 0) await prisma.contentCourse.createMany({ data: contentCourseData });
+            }
+
+            createdContents.push(newContent);
         }
 
-        const newContent = await prisma.content.create({ data });
-
-        if (selectedCourses) {
-            const coursesArray = JSON.parse(selectedCourses);
-            const contentCourseData = coursesArray.map(cId => ({ content_id: newContent.id, course_id: BigInt(cId), type: getTypeInt(type) }));
-            if (contentCourseData.length > 0) await prisma.contentCourse.createMany({ data: contentCourseData });
-        }
-        res.status(201).json({ message: "Assigned Successfully", data: newContent });
+        res.status(201).json({ message: "Assigned Successfully", data: createdContents[0], all: createdContents });
     } catch (e) { 
         console.error("addContentMassAssign Error:", e); 
         res.status(500).json({ error: "Failed to add content" }); 
@@ -711,7 +820,7 @@ exports.addContentMassAssign = async (req, res) => {
 
 exports.updateContentMassAssign = async (req, res) => {
     try {
-        const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, autoDeleteHours, paperTime, questionCount, isFree, itemOrder, selectedCourses, youtubeLink, vimeoLink } = req.body;
+        const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, autoDeleteHours, paperTime, questionCount, isFree, itemOrder, selectedCourses, youtubeLink, vimeoLink, timerMode, scheduledStartTime, passMarks, instructions } = req.body;
         
         const sanitizedMeetingId = zoomMeetingId ? zoomMeetingId.replace(/\s+/g, '') : null;
 
@@ -755,6 +864,39 @@ exports.updateContentMassAssign = async (req, res) => {
 
         const updated = await prisma.content.update({ where: { id: parseInt(content_id) }, data: updateData });
 
+        if (type === 'paper' || type === 'sPaper') {
+            let finalScheduledTime = null;
+            if (timerMode === 'SCHEDULED' && scheduledStartTime) {
+                const schedStr = String(scheduledStartTime).trim();
+                if (schedStr.includes('T') || schedStr.includes('-') || schedStr.includes('/')) {
+                    finalScheduledTime = new Date(schedStr);
+                } else {
+                    let dStr = date ? String(date).split('T')[0] : new Date().toISOString().split('T')[0];
+                    finalScheduledTime = new Date(`${dStr}T${schedStr}:00`);
+                }
+            }
+
+            await prisma.paper.upsert({
+                where: { contentId: updated.id },
+                create: {
+                    contentId: updated.id,
+                    paperType: type === 'paper' ? 'MCQ' : 'STRUCTURED',
+                    durationMinutes: paperTime ? parseInt(paperTime) : 60,
+                    timerMode: timerMode || 'FLEXIBLE',
+                    scheduledStartTime: finalScheduledTime,
+                    passMarks: passMarks ? parseInt(passMarks) : 40,
+                    instructions: instructions || ''
+                },
+                update: {
+                    durationMinutes: paperTime ? parseInt(paperTime) : 60,
+                    timerMode: timerMode || 'FLEXIBLE',
+                    scheduledStartTime: finalScheduledTime,
+                    passMarks: passMarks ? parseInt(passMarks) : 40,
+                    instructions: instructions || ''
+                }
+            });
+        }
+
         if (selectedCourses) {
             const coursesArray = JSON.parse(selectedCourses);
             await prisma.contentCourse.deleteMany({ where: { content_id: parseInt(content_id) } });
@@ -792,14 +934,65 @@ exports.getContents = async (req, res) => {
     try {
         const { batchId, courseCode, courseIds } = req.query;
         
+        const rawIds = courseIds ? courseIds.split(',') : [req.query.courseId];
+        const courseIdArray = rawIds
+            .filter(id => id && id !== 'undefined' && id !== 'null' && id.trim() !== '')
+            .map(id => BigInt(id));
+
+        // Get all related courses to find all variations of courseCode (e.g. "22" and "SUB_315")
+        let allSubjectCourseCodes = [];
+        if (courseCode && courseCode !== 'null' && courseCode !== 'undefined') {
+            allSubjectCourseCodes.push(courseCode);
+            if (courseCode.startsWith('SUB_')) allSubjectCourseCodes.push(courseCode.replace('SUB_', ''));
+            else allSubjectCourseCodes.push(`SUB_${courseCode}`);
+        }
+        if (courseIdArray.length > 0) {
+            try {
+                const subjectCourses = await prisma.course.findMany({
+                    where: { id: { in: courseIdArray.map(id => Number(id)) } },
+                    select: { id: true, code: true }
+                });
+                subjectCourses.forEach(sc => {
+                    if (sc.code) {
+                        allSubjectCourseCodes.push(sc.code);
+                        allSubjectCourseCodes.push(`SUB_${sc.code}`);
+                    }
+                    allSubjectCourseCodes.push(`SUB_${sc.id}`);
+                    allSubjectCourseCodes.push(String(sc.id));
+                });
+            } catch (err) {}
+        }
+        allSubjectCourseCodes = [...new Set(allSubjectCourseCodes.filter(Boolean))];
+
+        const groupWhere = {
+            OR: [
+                { batchId: parseInt(batchId) },
+                { additionalBatchIds: { contains: `,${batchId},` } }
+            ]
+        };
+        if (allSubjectCourseCodes.length > 0) {
+            groupWhere.OR = [
+                {
+                    batchId: parseInt(batchId),
+                    OR: [
+                        { courseCode: { in: allSubjectCourseCodes } },
+                        { courseCode: null },
+                        { courseCode: '' }
+                    ]
+                },
+                {
+                    additionalBatchIds: { contains: `,${batchId},` },
+                    OR: [
+                        { courseCode: { in: allSubjectCourseCodes } },
+                        { courseCode: null },
+                        { courseCode: '' }
+                    ]
+                }
+            ];
+        }
+
         const lessonGroups = await prisma.contentGroup.findMany({
-            where: {
-                OR: [
-                    { batchId: parseInt(batchId) },
-                    { additionalBatchIds: { contains: `,${batchId},` } }
-                ],
-                courseCode: courseCode === 'null' ? null : courseCode
-            },
+            where: groupWhere,
             orderBy: { itemOrder: 'asc' },
             include: {
                 subFolders: {
@@ -808,35 +1001,128 @@ exports.getContents = async (req, res) => {
             }
         });
 
-        const rawIds = courseIds ? courseIds.split(',') : [req.query.courseId];
-        const courseIdArray = rawIds
-            .filter(id => id && id !== 'undefined' && id !== 'null' && id.trim() !== '')
-            .map(id => BigInt(id));
-
         const linkedCourses = await prisma.contentCourse.findMany({ where: { course_id: { in: courseIdArray } } });
         const contentIds = linkedCourses.map(lc => lc.content_id);
 
         const contents = await prisma.content.findMany({
             where: { id: { in: contentIds } },
             orderBy: { createdAt: 'desc' },
-            include: { group: true }
+            include: { 
+                group: {
+                    include: {
+                        parent: true
+                    }
+                }
+            }
         });
 
-        // 🔥 FIX: Content walata assign wela thiyena courses serama pre-populate wenna yawana eka
+        // Content walata assign wela thiyena courses serama pre-populate wenna yawana eka
         const allContentCourses = await prisma.contentCourse.findMany({
             where: { content_id: { in: contentIds } }
+        });
+
+        const normalizeFolderTitle = (title) => {
+            if (!title) return '';
+            return title
+                .toLowerCase()
+                .replace(/[\s_-]+/g, ' ')
+                .replace(/\b(month|batch|මාසය|මාස|පාඩම|පාඩම්)\b/gi, '')
+                .trim();
+        };
+
+        const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+        const sinhalaMonths = ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"];
+
+        // Flatten all groups in current batch (root + subfolders)
+        const allBatchGroups = [];
+        lessonGroups.forEach(g => {
+            allBatchGroups.push(g);
+            if (g.subFolders && g.subFolders.length > 0) {
+                g.subFolders.forEach(sf => allBatchGroups.push(sf));
+            }
         });
 
         const contentsWithCourses = contents.map(c => {
             const cleanContent = { ...c };
             let finalGroupId = c.contentGroupId;
             let groupTitle = c.group?.title || null;
+            let parentGroupTitle = c.group?.parent?.title || null;
+            let parentGroupId = c.group?.parentId || null;
             delete cleanContent.group;
+
+            const typeInt = (c.contentType === 'live' || c.contentType === '1') ? 1
+                : (c.contentType === 'recording' || c.contentType === '2') ? 2
+                : (c.contentType === 'document' || c.contentType === '3') ? 3
+                : (c.contentType === 'sPaper' || c.contentType === '4') ? 4
+                : (c.contentType === 'paper' || c.contentType === '5') ? 5 : null;
+
+            // 1. If finalGroupId doesn't belong to current batch's groups,
+            // resolve the corresponding folder in current batch by title & type
+            if (finalGroupId && !allBatchGroups.some(g => g.id === finalGroupId)) {
+                if (groupTitle) {
+                    const normItem = normalizeFolderTitle(groupTitle);
+                    const rawItem = groupTitle.trim().toLowerCase();
+
+                    const matchedGroup = allBatchGroups.find(bg => {
+                        if (typeInt && bg.type !== typeInt) return false;
+                        const bgRaw = (bg.title || '').trim().toLowerCase();
+                        const bgNorm = normalizeFolderTitle(bg.title);
+                        return bgRaw === rawItem || (normItem && bgNorm && normItem === bgNorm);
+                    });
+
+                    if (matchedGroup) {
+                        finalGroupId = matchedGroup.id;
+                        groupTitle = matchedGroup.title;
+                    }
+                }
+            }
+
+            // 2. 🔥 SMART FALLBACK: If contentGroupId is null or still not in allBatchGroups,
+            // auto-match to a folder in the current batch matching the item's date month or title month!
+            if (!finalGroupId || !allBatchGroups.some(g => g.id === finalGroupId)) {
+                let targetMonthIdx = -1;
+                if (c.date) {
+                    try {
+                        const d = new Date(c.date);
+                        if (!isNaN(d.getTime())) {
+                            targetMonthIdx = d.getMonth();
+                        }
+                    } catch (err) {}
+                }
+                if (targetMonthIdx === -1 && c.title) {
+                    const titleLower = c.title.toLowerCase();
+                    targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
+                    if (targetMonthIdx === -1) {
+                        targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
+                    }
+                }
+
+                if (targetMonthIdx !== -1) {
+                    const engMonth = monthNames[targetMonthIdx];
+                    const sinMonth = sinhalaMonths[targetMonthIdx];
+
+                    const matchedGroup = allBatchGroups.find(bg => {
+                        if (typeInt && bg.type !== typeInt) return false;
+                        const bgTitleLower = (bg.title || '').toLowerCase();
+                        const bgNorm = normalizeFolderTitle(bg.title);
+                        return bgTitleLower.includes(engMonth) || bgTitleLower.includes(sinMonth) ||
+                               bgNorm.includes(engMonth) || bgNorm.includes(sinMonth);
+                    });
+
+                    if (matchedGroup) {
+                        finalGroupId = matchedGroup.id;
+                        groupTitle = matchedGroup.title;
+                    }
+                }
+            }
 
             return {
                 ...cleanContent,
                 contentGroupId: finalGroupId,
+                originalContentGroupId: c.contentGroupId,
                 groupTitle: groupTitle,
+                parentGroupTitle: parentGroupTitle,
+                parentGroupId: parentGroupId,
                 assignedCourses: allContentCourses.filter(cc => cc.content_id === c.id).map(cc => Number(cc.course_id))
             };
         });
@@ -902,9 +1188,9 @@ exports.createAdminPost = async (req, res) => {
     try {
         let { title, description, businessId, batchId } = req.body;
         
-        const scopedBizId = await getScopedBusinessId(req.user);
+        const scopedBizId = await getScopedBusinessId(req.user, businessId);
         if (scopedBizId) {
-            businessId = scopedBizId; // Force their assigned business
+            businessId = scopedBizId; // Use authorized target business
         }
 
         const finalBizId = (businessId === 'all' || !businessId || businessId === 'null') ? null : BigInt(businessId);
@@ -996,10 +1282,15 @@ exports.getPosts = async (req, res) => {
         const { businessId } = req.query;
         
         let whereClause = {};
-        const scopedBizId = await getScopedBusinessId(req.user);
+        const scopedBizId = await getScopedBusinessId(req.user, businessId);
         
         if (scopedBizId) {
-            whereClause = { business_id: BigInt(scopedBizId) };
+            whereClause = { 
+                OR: [
+                    { business_id: BigInt(scopedBizId) },
+                    { business_id: null }
+                ]
+            };
         } else if (businessId && businessId !== 'all' && businessId !== 'null') {
             whereClause = {
                 OR: [
@@ -1027,19 +1318,24 @@ exports.getPosts = async (req, res) => {
         const safeData = JSON.parse(JSON.stringify(mappedPosts, (key, value) => typeof value === 'bigint' ? value.toString() : value));
         res.status(200).json(safeData);
     } catch (e) { 
-        console.error(e);
+        console.error(e); 
         res.status(500).json({ error: "Failed to get posts" }); 
     }
 };
 
 exports.deletePost = async (req, res) => {
     try {
-        const scopedBizId = await getScopedBusinessId(req.user);
         const post = await prisma.post.findUnique({ where: { id: parseInt(req.body.post_id) } });
-        
         if (!post) return res.status(404).json({ error: "Post not found" });
-        if (scopedBizId && post.business_id && post.business_id.toString() !== scopedBizId.toString()) {
-            return res.status(403).json({ error: "Unauthorized to delete this post" });
+
+        const role = (req.user?.role || '').toUpperCase().replace(/ /g, '_');
+        const isTopLevel = role === 'SYSTEM_ADMIN' || role === 'DIRECTOR';
+
+        if (!isTopLevel && post.business_id) {
+            const scopedBizId = await getScopedBusinessId(req.user, post.business_id.toString());
+            if (!scopedBizId) {
+                return res.status(403).json({ error: "Unauthorized to delete this post" });
+            }
         }
 
         await prisma.post.delete({ where: { id: parseInt(req.body.post_id) } });

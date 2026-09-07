@@ -14,7 +14,8 @@ export default function AnnouncementsManager({ loggedInUser }) {
     const [postsList, setPostsList] = useState([]);
     const [businesses, setBusinesses] = useState([]);
     const [postBatches, setPostBatches] = useState([]);
-    const [postBizId, setPostBizId] = useState('all');
+    const [postBizId, setPostBizId] = useState('');
+    const [postBatchId, setPostBatchId] = useState('all');
     
     // Event Animation States (System Admin Only)
     const [activeAppEvent, setActiveAppEvent] = useState('none'); 
@@ -31,30 +32,31 @@ export default function AnnouncementsManager({ loggedInUser }) {
 
     useEffect(() => {
         fetchPosts();
+        api.get('/admin/businesses').then(res => {
+            const list = res.data?.businesses || res.data?.data || res.data || [];
+            const validList = Array.isArray(list) ? list : [];
+            setBusinesses(validList);
+            if (validList.length > 0 && !postBizId) {
+                setPostBizId(String(validList[0].id));
+            }
+        }).catch(console.error);
+
         if (isSystemAdmin) {
-            api.get('/admin/businesses').then(res => setBusinesses(res.data?.businesses || res.data || [])).catch(console.error);
-            
-            // 🔥 මේක දාන්න - Currently Active Animation එක ගන්නවා 🔥
             api.get('/admin/settings/app-event').then(res => setActiveAppEvent(res.data.activeEvent)).catch(console.error);
-            // 🔥 System Maintenance Mode එක ගන්නවා 🔥
             api.get('/admin/settings/maintenance-mode').then(res => setMaintenanceMode(res.data.active)).catch(console.error);
-        } else {
-            api.get('/admin/businesses').then(res => { 
-                const list = res.data?.businesses || res.data?.data || res.data || []; 
-                if (list.length === 1) { 
-                    setPostBizId(String(list[0].id)); 
-                } else { 
-                    setBusinesses(list); 
-                } 
-            });
         }
     }, [isSystemAdmin, loggedInUser]);
 
     useEffect(() => {
-        if (postBizId === 'all' || !postBizId) { setPostBatches([]); return; }
+        if (postBizId === 'all' || !postBizId) { 
+            setPostBatches([]); 
+            setPostBatchId('all');
+            return; 
+        }
         api.get(`/admin/batches/${postBizId}`).then(res => {
-            const fetched = res.data.batches || res.data || [];
+            const fetched = res.data?.batches || res.data || [];
             setPostBatches(Array.isArray(fetched) ? fetched : []);
+            setPostBatchId('all');
         }).catch(console.error);
     }, [postBizId]);
 
@@ -175,31 +177,14 @@ export default function AnnouncementsManager({ loggedInUser }) {
                                 <div>
                                     <label className="text-[10px] font-bold text-gray-400 mb-1.5 block">Select Business</label>
                                     <select name="businessId" value={postBizId} onChange={(e) => setPostBizId(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-lg p-2.5 text-xs text-white outline-none focus:border-purple-500 cursor-pointer">
-                                        {isSystemAdmin ? (
-                                            <>
-                                                <option value="all">All Businesses (Global)</option>
-                                                {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                                            </>
-                                        ) : (
-                                            businesses.length > 1 ? (
-                                                <>
-                                                    <option value="all">All My Businesses</option>
-                                                    {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                                                </>
-                                            ) : (
-                                                businesses.length === 1 ? (
-                                                    <option value={businesses[0].id}>{businesses[0].name}</option>
-                                                ) : (
-                                                    <option value="all">My Business Only</option>
-                                                )
-                                            )
-                                        )}
+                                        {isSystemAdmin && <option value="all">All Businesses (Global)</option>}
+                                        {businesses.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                                     </select>
                                 </div>
                                 {postBizId !== 'all' && (
                                     <div>
                                         <label className="text-[10px] font-bold text-gray-400 mb-1.5 block">Select Batch</label>
-                                        <select name="batchId" className="w-full bg-black/40 border border-white/10 rounded-lg p-2.5 text-xs text-white outline-none focus:border-purple-500 cursor-pointer">
+                                        <select name="batchId" value={postBatchId} onChange={(e) => setPostBatchId(e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-lg p-2.5 text-xs text-white outline-none focus:border-purple-500 cursor-pointer">
                                             <option value="all">All Batches</option>
                                             {postBatches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                                         </select>

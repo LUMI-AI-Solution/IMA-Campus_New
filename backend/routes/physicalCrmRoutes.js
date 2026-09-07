@@ -17,12 +17,16 @@ router.get('/students', physicalCrmController.getStudents);
 router.post('/students', physicalCrmController.createStudent);
 router.post('/students/import-excel', upload.any(), physicalCrmController.bulkImportStudents);
 router.post('/students/allocate-excel', upload.any(), physicalCrmController.allocateExcelToClass);
+router.put('/students/:id/allocate-card', physicalCrmController.allocateCard);
+router.put('/students/:id/allocate-class', physicalAttendanceController.allocateClass);
+router.delete('/students/:id/classes/:classId', physicalAttendanceController.unallocateClass);
 router.put('/students/:id', physicalCrmController.updateStudent);
 router.delete('/students/:id', physicalCrmController.deleteStudent);
 
 // Student Reports & Matrix
 router.get('/student-reports', physicalStudentReportController.getStudentReports);
 router.get('/student-reports/:id', physicalStudentReportController.getStudentFullDetails);
+router.get('/attendance-sessions-report', physicalStudentReportController.getAttendanceSessionsReport);
 
 // SMS Gateway & Broadcast
 router.get('/sms/settings', physicalStudentReportController.getSmsSettings);
@@ -38,6 +42,10 @@ router.post('/classes', physicalCrmController.createClass);
 router.put('/classes/:id', physicalCrmController.updateClass);
 router.delete('/classes/:id', physicalCrmController.deleteClass);
 
+// Halls
+router.get('/halls', physicalCrmController.getHalls);
+router.post('/halls', physicalCrmController.createHall);
+
 // Teachers
 router.get('/teachers', physicalCrmController.getTeachers);
 router.post('/teachers', physicalCrmController.createTeacher);
@@ -47,6 +55,7 @@ router.delete('/teachers/:id', physicalCrmController.deleteTeacher);
 // Class Fee Matrix & Payment
 router.get('/classes/:classId/fee-matrix', physicalCrmController.getClassFeeMatrix);
 router.post('/classes/toggle-fee', physicalCrmController.toggleStudentFeePayment);
+router.post('/classes/bulk-fee-payment', physicalCrmController.bulkStudentFeePayment);
 
 // Teacher Reports & Invoices
 router.get('/teachers/:teacherId/reports', physicalCrmController.getTeacherReport);
@@ -54,7 +63,6 @@ router.get('/teachers/:teacherId/reports', physicalCrmController.getTeacherRepor
 // Attendance Portal
 router.get('/students-search', physicalAttendanceController.searchStudents);
 router.get('/student-scan/:studentId', physicalAttendanceController.scanStudent);
-router.put('/students/:id/allocate-class', physicalAttendanceController.allocateClass);
 router.post('/attendance', physicalAttendanceController.markAttendance);
 router.post('/attendance/unmark', physicalAttendanceController.unmarkAttendance);
 

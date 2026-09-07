@@ -1102,7 +1102,10 @@ exports.getCourseModules = async (req, res) => {
              where: { 
                  OR: [
                      batchIdForGroups ? { batchId: batchIdForGroups, courseCode: courseCodeForGroups } : undefined,
-                     batchIdForGroups ? { additionalBatchIds: { contains: `,${batchIdForGroups},` }, courseCode: courseCodeForGroups } : undefined,
+                     batchIdForGroups && requestedCourse?.code ? { batchId: batchIdForGroups, courseCode: requestedCourse.code } : undefined,
+                     batchIdForGroups ? { batchId: batchIdForGroups, courseCode: null } : undefined,
+                     batchIdForGroups ? { batchId: batchIdForGroups, courseCode: '' } : undefined,
+                     batchIdForGroups ? { additionalBatchIds: { contains: `,${batchIdForGroups},` } } : undefined,
                      batchIdForGroups && groupTitles.length > 0 ? { batchId: batchIdForGroups, title: { in: groupTitles } } : undefined,
                      { id: { in: groupIds } }
                  ].filter(Boolean)
@@ -1133,10 +1136,66 @@ exports.getCourseModules = async (req, res) => {
 
         const lessonGroups = Array.from(allGroupsMap.values()).sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1));
 
-        const contentsProcessed = contents.map(c => ({
-            ...c,
-            groupTitle: c.group?.title || null
-        }));
+        const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+        const sinhalaMonths = ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"];
+
+        const contentsProcessed = contents.map(c => {
+            let finalGroupId = c.contentGroupId;
+            let groupTitle = c.group?.title || null;
+
+            const typeInt = (c.contentType === 'live' || c.contentType === '1') ? 1
+                : (c.contentType === 'recording' || c.contentType === '2') ? 2
+                : (c.contentType === 'document' || c.contentType === '3') ? 3
+                : (c.contentType === 'sPaper' || c.contentType === '4') ? 4
+                : (c.contentType === 'paper' || c.contentType === '5') ? 5 : 1;
+
+            if (finalGroupId && !lessonGroups.some(g => g.id === finalGroupId)) {
+                if (groupTitle) {
+                    const rawItem = groupTitle.trim().toLowerCase();
+                    const matched = lessonGroups.find(g => (g.type === typeInt || !g.type) && (g.title || '').trim().toLowerCase() === rawItem);
+                    if (matched) {
+                        finalGroupId = matched.id;
+                        groupTitle = matched.title;
+                    }
+                }
+            }
+
+            // Smart month matching fallback
+            if (!finalGroupId || !lessonGroups.some(g => g.id === finalGroupId)) {
+                let targetMonthIdx = -1;
+                if (c.date) {
+                    try {
+                        const d = new Date(c.date);
+                        if (!isNaN(d.getTime())) targetMonthIdx = d.getMonth();
+                    } catch (err) {}
+                }
+                if (targetMonthIdx === -1 && c.title) {
+                    const titleLower = c.title.toLowerCase();
+                    targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
+                    if (targetMonthIdx === -1) targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
+                }
+                if (targetMonthIdx !== -1) {
+                    const engMonth = monthNames[targetMonthIdx];
+                    const sinMonth = sinhalaMonths[targetMonthIdx];
+                    const matched = lessonGroups.find(g => {
+                        if (g.type && g.type !== typeInt) return false;
+                        const gTitleLower = (g.title || '').toLowerCase();
+                        return gTitleLower.includes(engMonth) || gTitleLower.includes(sinMonth);
+                    });
+                    if (matched) {
+                        finalGroupId = matched.id;
+                        groupTitle = matched.title;
+                    }
+                }
+            }
+
+            return {
+                ...c,
+                contentGroupId: finalGroupId,
+                content_group_id: finalGroupId,
+                groupTitle: groupTitle
+            };
+        });
 
         const liveClasses = contentsProcessed.filter(c => c.contentType === 'live' || c.contentType === '1');
         const recordings = contentsProcessed.filter(c => c.contentType === 'recording' || c.contentType === '2');
@@ -2023,5 +2082,168 @@ exports.deleteStudentAccount = async (req, res) => {
     } catch (error) {
         console.error("❌ [BACKEND] Delete Student Error in Catch Block:", error);
         res.status(500).json({ error: "Failed to delete student account. Please check relations." });
+    }
+};
+
+exports.inspectStudentRecords = async (req, res) => {
+    try {
+        const query = (req.params.query || '').trim();
+        if (!query) {
+            return res.status(400).json({ error: "Query parameter required" });
+        }
+
+        const cleanNoZero = query.replace(/^0+/, '');
+        const noPlus = query.replace(/^\+94|^94|^\+/, '');
+        const cleanNoPrefix = query.replace(/^STU-|^PHY-STU-/i, '');
+        const intId = parseInt(query, 10);
+        const intClean = parseInt(cleanNoPrefix, 10);
+
+        const idConditions = [];
+        if (!isNaN(intId)) idConditions.push({ id: intId });
+        if (!isNaN(intClean)) idConditions.push({ id: intClean });
+
+        // 1. Search Users
+        const users = await prisma.user.findMany({
+            where: {
+                OR: [
+                    { phone: { contains: query } },
+                    { phone: { contains: cleanNoZero } },
+                    { phone: { contains: noPlus } },
+                    { whatsapp: { contains: query } },
+                    { whatsapp: { contains: cleanNoZero } },
+                    { optionalPhone: { contains: query } },
+                    { nic: { contains: query } },
+                    { firstName: { contains: query } },
+                    { lastName: { contains: query } },
+                    ...idConditions
+                ]
+            },
+            include: {
+                payments: {
+                    include: {
+                        business: true,
+                        batch: true,
+                        group: true,
+                        delivery: {
+                            include: {
+                                items: true
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        const userIds = users.map(u => u.id);
+        const userPhones = users.map(u => u.phone).filter(Boolean);
+
+        // 2. Search Payments (any status)
+        const payments = await prisma.payment.findMany({
+            where: {
+                OR: [
+                    { studentId: { in: userIds } },
+                    ...userIds.map(uid => ({ studentId: uid }))
+                ]
+            },
+            include: {
+                business: true,
+                batch: true,
+                group: true,
+                delivery: {
+                    include: {
+                        items: true
+                    }
+                },
+                bankTransactions: true,
+                auditLogs: true
+            }
+        });
+
+        // 3. Search Deliveries (Tute Packs)
+        const deliveries = await prisma.delivery.findMany({
+            where: {
+                OR: [
+                    { studentId: { in: userIds.map(String) } },
+                    { studentId: { in: userIds.map(id => `STU-${id}`) } },
+                    { labelPhone: { contains: query } },
+                    { labelPhone: { contains: cleanNoZero } },
+                    { labelName: { contains: query } },
+                    { trackingNumber: { contains: query } }
+                ]
+            },
+            include: {
+                items: true,
+                payment: {
+                    include: {
+                        business: true,
+                        batch: true,
+                        group: true
+                    }
+                }
+            }
+        });
+
+        // 4. Search Leads
+        const leads = await prisma.lead.findMany({
+            where: {
+                OR: [
+                    { phone: { contains: query } },
+                    { phone: { contains: cleanNoZero } },
+                    { name: { contains: query } }
+                ]
+            },
+            include: {
+                batch: {
+                    include: {
+                        business: true
+                    }
+                },
+                assignedUser: true
+            }
+        });
+
+        // 5. Search Bank Transactions
+        const bankTransactions = await prisma.bankTransaction.findMany({
+            where: {
+                OR: [
+                    { description: { contains: query } },
+                    { description: { contains: cleanNoZero } }
+                ]
+            }
+        });
+
+        // 6. Search Physical Students (in Physical CRM)
+        const physicalStudents = await prisma.physicalStudent.findMany({
+            where: {
+                OR: [
+                    { phone: { contains: query } },
+                    { phone: { contains: cleanNoZero } },
+                    { rfid: { contains: query } },
+                    { studentName: { contains: query } },
+                    { nic: { contains: query } }
+                ]
+            },
+            include: {
+                feePayments: true,
+                enrollments: {
+                    include: {
+                        class: true
+                    }
+                }
+            }
+        });
+
+        res.json({
+            query,
+            users,
+            payments,
+            deliveries,
+            leads,
+            bankTransactions,
+            physicalStudents
+        });
+    } catch (error) {
+        console.error("Inspect Student Error:", error);
+        res.status(500).json({ error: error.message });
     }
 };

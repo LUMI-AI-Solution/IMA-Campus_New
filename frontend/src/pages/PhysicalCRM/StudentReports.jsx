@@ -4,17 +4,20 @@ import { physicalCrmService } from '../../api/physicalCrm';
 import SmsSettingsModal from '../../components/PhysicalCRM/SmsSettingsModal';
 import BulkSmsModal from '../../components/PhysicalCRM/BulkSmsModal';
 import StudentDetailModal from '../../components/PhysicalCRM/StudentDetailModal';
+import AttendanceSessionsReportView from '../../components/PhysicalCRM/AttendanceSessionsReportView';
+import AutomatedSmsAuditView from '../../components/PhysicalCRM/AutomatedSmsAuditView';
 import { 
   Users, Search, Filter, FileSpreadsheet, Send, Settings, Eye, 
   RefreshCw, GraduationCap, Building, Phone, Calendar, 
   ChevronLeft, ChevronRight, Check, X, Clock, ShieldCheck,
-  ExternalLink
+  ExternalLink, Camera, Sparkles, MessageSquare
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function StudentReports() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [activeMainView, setActiveMainView] = useState('matrix'); // 'matrix' | 'attendance-sessions' | 'sms-audit'
   const [activeSegment, setActiveSegment] = useState('ENROLLED'); // 'ENROLLED' | 'ALL'
 
   const [data, setData] = useState({
@@ -237,34 +240,103 @@ export default function StudentReports() {
 
       </div>
 
-      {/* 2. STATS CARDS */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        
-        <div className="bg-black/40 backdrop-blur-xl border border-white/15 p-5 rounded-2xl shadow-lg">
-          <span className="text-xs font-semibold text-white/50 uppercase tracking-wider block">Enrolled Students</span>
-          <h3 className="text-2xl font-bold text-white mt-1">{data.stats.enrolledStudentsCount || 419}</h3>
-          <span className="text-xs text-white/40 mt-0.5 block">Allocated in classes</span>
-        </div>
+      {/* VIEW SWITCHER TABS */}
+      <div className="flex items-center gap-3 bg-black/40 backdrop-blur-xl border border-white/15 p-2 rounded-2xl shadow-lg flex-wrap">
+        <button
+          onClick={() => setActiveMainView('matrix')}
+          className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+            activeMainView === 'matrix'
+              ? 'bg-gradient-to-r from-red-600 to-[#7d0202] text-white shadow-lg border border-red-500/40'
+              : 'text-white/60 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <FileSpreadsheet size={15} />
+          <span>Comprehensive Student Matrix</span>
+        </button>
 
-        <div className="bg-black/40 backdrop-blur-xl border border-white/15 p-5 rounded-2xl shadow-lg">
-          <span className="text-xs font-semibold text-white/50 uppercase tracking-wider block">Class Enrollments</span>
-          <h3 className="text-2xl font-bold text-white mt-1">{data.stats.totalEnrollments}</h3>
-          <span className="text-xs text-white/40 mt-0.5 block">Active seats</span>
-        </div>
+        <button
+          onClick={() => setActiveMainView('attendance-sessions')}
+          className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+            activeMainView === 'attendance-sessions'
+              ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg border border-emerald-400/40'
+              : 'text-white/60 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <Calendar size={15} className="text-emerald-400" />
+          <span>Attendance Sessions & Daily Reports</span>
+          <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hidden sm:inline-block">
+            📸 Image & Excel Export
+          </span>
+        </button>
 
-        <div className="bg-black/40 backdrop-blur-xl border border-white/15 p-5 rounded-2xl shadow-lg">
-          <span className="text-xs font-semibold text-white/50 uppercase tracking-wider block">Reg Fee Paid</span>
-          <h3 className="text-2xl font-bold text-emerald-400 mt-1">{data.stats.regFeePaidCount}</h3>
-          <span className="text-xs text-white/40 mt-0.5 block">Admission paid</span>
-        </div>
-
-        <div className="bg-black/40 backdrop-blur-xl border border-white/15 p-5 rounded-2xl shadow-lg">
-          <span className="text-xs font-semibold text-white/50 uppercase tracking-wider block">Attendance Sessions</span>
-          <h3 className="text-2xl font-bold text-white mt-1">{data.stats.totalAttendancesRecorded}</h3>
-          <span className="text-xs text-white/40 mt-0.5 block">Recorded present</span>
-        </div>
-
+        <button
+          onClick={() => setActiveMainView('sms-audit')}
+          className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+            activeMainView === 'sms-audit'
+              ? 'bg-gradient-to-r from-blue-700 via-indigo-600 to-blue-600 text-white shadow-lg border border-blue-400/40'
+              : 'text-white/60 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <MessageSquare size={15} className="text-blue-400" />
+          <span>Automated Parent SMS Audit</span>
+          <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-blue-500/20 text-blue-300 border border-blue-500/40 hidden sm:inline-block">
+            ⚡ Live Delivery Log
+          </span>
+        </button>
       </div>
+
+      {/* CONDITIONAL MAIN VIEW */}
+      {activeMainView === 'attendance-sessions' ? (
+        <AttendanceSessionsReportView onBack={() => setActiveMainView('matrix')} />
+      ) : activeMainView === 'sms-audit' ? (
+        <AutomatedSmsAuditView onBack={() => setActiveMainView('matrix')} />
+      ) : (
+        <>
+          {/* 2. STATS CARDS */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            
+            <div className="bg-black/40 backdrop-blur-xl border border-white/15 p-5 rounded-2xl shadow-lg">
+              <span className="text-xs font-semibold text-white/50 uppercase tracking-wider block">Enrolled Students</span>
+              <h3 className="text-2xl font-bold text-white mt-1">{data.stats.enrolledStudentsCount || 419}</h3>
+              <span className="text-xs text-white/40 mt-0.5 block">Allocated in classes</span>
+            </div>
+
+            <div className="bg-black/40 backdrop-blur-xl border border-white/15 p-5 rounded-2xl shadow-lg">
+              <span className="text-xs font-semibold text-white/50 uppercase tracking-wider block">Class Enrollments</span>
+              <h3 className="text-2xl font-bold text-white mt-1">{data.stats.totalEnrollments}</h3>
+              <span className="text-xs text-white/40 mt-0.5 block">Active seats</span>
+            </div>
+
+            <div className="bg-black/40 backdrop-blur-xl border border-white/15 p-5 rounded-2xl shadow-lg">
+              <span className="text-xs font-semibold text-white/50 uppercase tracking-wider block">Reg Fee Paid</span>
+              <h3 className="text-2xl font-bold text-emerald-400 mt-1">{data.stats.regFeePaidCount}</h3>
+              <span className="text-xs text-white/40 mt-0.5 block">Admission paid</span>
+            </div>
+
+            {/* Clickable Attendance Sessions Card */}
+            <div 
+              onClick={() => setActiveMainView('attendance-sessions')}
+              className="bg-black/40 hover:bg-white/[0.04] backdrop-blur-xl border border-white/15 hover:border-emerald-500/50 p-5 rounded-2xl shadow-lg transition-all cursor-pointer group relative overflow-hidden"
+              title="Click to view Date-wise Class Attendance Sessions & Export Image"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-white/50 uppercase tracking-wider block group-hover:text-emerald-300 transition-colors">
+                  Attendance Sessions
+                </span>
+                <span className="p-1 rounded-lg bg-emerald-500/20 text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Camera size={13} />
+                </span>
+              </div>
+              <h3 className="text-2xl font-bold text-white mt-1 group-hover:text-emerald-400 transition-colors">
+                {data.stats.totalAttendancesRecorded}
+              </h3>
+              <div className="flex items-center justify-between mt-0.5">
+                <span className="text-xs text-white/40 block">Recorded present</span>
+                <span className="text-[10px] text-emerald-400 font-bold hidden sm:inline-block group-hover:underline">View Report →</span>
+              </div>
+            </div>
+
+          </div>
 
       {/* 3. SEGMENT SWITCHER TABS & UNIFIED FILTER BAR */}
       <div className="bg-black/40 backdrop-blur-xl border border-white/15 p-5 rounded-2xl shadow-lg space-y-4">
@@ -608,7 +680,9 @@ export default function StudentReports() {
           </div>
         </div>
 
-      </div>
+        </div>
+        </>
+      )}
 
       {/* MODALS */}
       <SmsSettingsModal

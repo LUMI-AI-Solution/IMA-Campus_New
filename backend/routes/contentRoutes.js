@@ -34,12 +34,12 @@ router.post('/admin/manager/content-group/add', verifyToken, controller.addConte
 router.put('/admin/content-group/update', verifyToken, controller.updateContentGroup);
 router.delete('/admin/content-group/delete', verifyToken, controller.deleteContentGroup);
 router.post('/admin/manager/contents/mass-assign', verifyToken, uploadDoc.fields([
-    { name: 'file', maxCount: 1 }, 
+    { name: 'file', maxCount: 20 }, 
     { name: 'thumbnail', maxCount: 1 }
 ]), controller.addContentMassAssign);
 
 router.put('/admin/manager/contents/update', verifyToken, uploadDoc.fields([
-    { name: 'file', maxCount: 1 }, 
+    { name: 'file', maxCount: 20 }, 
     { name: 'thumbnail', maxCount: 1 }
 ]), controller.updateContentMassAssign);
 router.delete('/admin/content/delete', verifyToken, controller.deleteContent);

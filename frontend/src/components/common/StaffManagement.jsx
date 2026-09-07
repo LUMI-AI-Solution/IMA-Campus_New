@@ -28,10 +28,10 @@ export default function StaffManagement({ loggedInUser }) {
   const isPhysicalDept = urlDept === 'Physical' || loggedInUser?.department === 'Physical';
   const canManageStaff = isAdmin || isManager;
 
-  const allDepts = ['Class Coordination', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media'];
-  const staffDepts = ['Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media']; 
+  const allDepts = ['Class Coordination', 'Academic', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media'];
+  const staffDepts = ['Academic', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media']; 
   
-  const allRoles = ['System Admin', 'Director', 'Manager', 'Ass Manager', 'Coordinator', 'Caller', 'Call Center Agent', 'Staff', 'Social Media Manager', 'Social Media Staff'];
+  const allRoles = ['System Admin', 'Director', 'Manager', 'Ass Manager', 'Coordinator', 'Lecture', 'Paper Guider', 'Caller', 'Call Center Agent', 'Staff', 'Social Media Manager', 'Social Media Staff'];
   
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', phone: '', nic: '', password: '', 
@@ -95,6 +95,8 @@ export default function StaffManagement({ loggedInUser }) {
         newDept = ''; 
     } else if (newRole === 'Coordinator') {
         newDept = 'Class Coordination';
+    } else if (newRole === 'Lecture' || newRole === 'Paper Guider') {
+        newDept = 'Academic';
     } else if (newRole === 'Caller' || newRole === 'Call Center Agent') {
         newDept = 'Call Center';
     } else if (newRole === 'Social Media Manager' || newRole === 'Social Media Staff') {
@@ -113,6 +115,10 @@ export default function StaffManagement({ loggedInUser }) {
     if (current.includes(safeBiz)) {
         current = current.filter(b => b !== safeBiz);
     } else {
+        if (current.length >= 10) {
+            toast.error("Maximum 10 businesses can be allocated per user.");
+            return;
+        }
         current.push(safeBiz);
     }
     setFormData({ ...formData, businessType: current.join(', ') });
@@ -141,7 +147,7 @@ export default function StaffManagement({ loggedInUser }) {
     setSaving(true);
     try {
       const payload = { ...formData };
-      if (payload.department !== 'Class Coordination') {
+      if (payload.department !== 'Class Coordination' && payload.role !== 'Lecture' && payload.role !== 'Paper Guider' && payload.department !== 'Academic') {
           payload.businessType = '';
       }
       

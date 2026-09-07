@@ -1,8 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { physicalFinanceService } from '../../api/physicalFinance';
-import { Wallet, TrendingUp, TrendingDown, Plus, Trash2, Calendar, Settings, Edit2, Check, X, Tag } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Plus, Trash2, Calendar, Settings, Edit2, Check, X, Tag, Printer, RotateCcw, AlertTriangle, Archive, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
+import ThermalReceiptModal from '../../components/PhysicalCRM/ThermalReceiptModal';
+import { printThermalReceipt } from '../../utils/thermalReceiptPrinter';
+
+const PRESET_DELETE_REASONS = [
+    "Duplicate Entry",
+    "Wrong Student / Class Selected",
+    "Amount Error / Correction",
+    "Payment Cancelled / Refunded",
+    "Entered in Mistake"
+];
 
 export default function CashFlowPortal() {
     const [transactions, setTransactions] = useState([]);
@@ -12,6 +22,22 @@ export default function CashFlowPortal() {
     const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+
+    // Delete Reason Modal State
+    const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+    const [txToDelete, setTxToDelete] = useState(null);
+    const [deleteReason, setDeleteReason] = useState('');
+    const [deleteLoading, setDeleteLoading] = useState(false);
+
+    // Trash Modal State
+    const [isTrashModalOpen, setIsTrashModalOpen] = useState(false);
+    const [trashList, setTrashList] = useState([]);
+    const [trashLoading, setTrashLoading] = useState(false);
+    const [trashCount, setTrashCount] = useState(0);
+
+    // Receipt Modal State
+    const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+    const [selectedReceiptData, setSelectedReceiptData] = useState(null);
     
     // Categories State
     const [categories, setCategories] = useState([]);
@@ -31,6 +57,7 @@ export default function CashFlowPortal() {
     useEffect(() => {
         fetchData();
         fetchCategories();
+        fetchTrashData();
     }, [selectedDate]);
 
     const fetchData = async () => {
@@ -43,6 +70,19 @@ export default function CashFlowPortal() {
             toast.error('Failed to load cash flow data');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const fetchTrashData = async () => {
+        setTrashLoading(true);
+        try {
+            const data = await physicalFinanceService.getTrash();
+            setTrashList(data.trash || []);
+            setTrashCount(data.count || (data.trash ? data.trash.length : 0));
+        } catch (err) {
+            console.error('Failed to fetch trash', err);
+        } finally {
+            setTrashLoading(false);
         }
     };
 
@@ -98,15 +138,75 @@ export default function CashFlowPortal() {
         }
     };
 
-    const handleDelete = async (id) => {
-        if (!window.confirm('Are you sure you want to delete this transaction?')) return;
-        try {
-            await physicalFinanceService.deleteTransaction(id);
-            toast.success('Transaction deleted');
-            fetchData();
-        } catch (err) {
-            toast.error('Failed to delete transaction');
+    // Open Delete Reason Modal
+    const handleInitiateDelete = (tx) => {
+        setTxToDelete(tx);
+        setDeleteReason('');
+        setIsDeleteModalOpen(true);
+    };
+
+    // Confirm Delete with Reason
+    const handleConfirmDelete = async (e) => {
+        e.preventDefault();
+        if (!txToDelete) return;
+        if (!deleteReason.trim()) {
+            toast.error('Please provide a reason for deleting this entry.');
+            return;
         }
+
+        setDeleteLoading(true);
+        try {
+            await physicalFinanceService.deleteTransaction(txToDelete.id, deleteReason.trim(), 'Staff / Manager');
+            toast.success('Transaction moved to Trash with deletion reason.');
+            setIsDeleteModalOpen(false);
+            setTxToDelete(null);
+            setDeleteReason('');
+            fetchData();
+            fetchTrashData();
+        } catch (err) {
+            toast.error('Failed to delete transaction: ' + (err.response?.data?.error || err.message));
+        } finally {
+            setDeleteLoading(false);
+        }
+    };
+
+    // Restore from Trash
+    const handleRestore = async (id) => {
+        try {
+            await physicalFinanceService.restoreTransaction(id);
+            toast.success('Transaction restored back to active cash flow!');
+            fetchData();
+            fetchTrashData();
+        } catch (err) {
+            toast.error('Failed to restore transaction');
+        }
+    };
+
+    // Print Receipt for an Income Transaction
+    const handlePrintReceipt = (tx) => {
+        const receiptObj = {
+            receiptNo: `REC-${tx.id}`,
+            date: new Date(tx.date || tx.createdAt),
+            studentId: tx.student?.studentId || '-',
+            studentName: tx.student?.studentName || `${tx.student?.firstName || ''} ${tx.student?.lastName || ''}`.trim() || 'Student',
+            studentPhone: tx.student?.phone || '',
+            className: tx.description || `${tx.category} Payment`,
+            month: '',
+            cardType: 'FULL',
+            amount: tx.amount,
+            paymentMethod: 'CASH',
+            cashierName: 'Cashier / Manager',
+            items: [
+                {
+                    description: tx.description || `${tx.category} Payment`,
+                    amount: tx.amount
+                }
+            ],
+            totalAmount: tx.amount
+        };
+
+        setSelectedReceiptData(receiptObj);
+        setReceiptModalOpen(true);
     };
 
     // --- Category Management Handlers ---
@@ -167,6 +267,22 @@ export default function CashFlowPortal() {
                 
                 <div className="flex flex-wrap items-center gap-3">
                     <button 
+                        onClick={() => {
+                            fetchTrashData();
+                            setIsTrashModalOpen(true);
+                        }}
+                        className="bg-red-500/10 hover:bg-red-500/20 text-red-300 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 border border-red-500/30 shadow-md transition-all text-xs relative"
+                        title="View soft-deleted transactions & reasons"
+                    >
+                        <Archive size={15} className="text-red-400" /> Deleted History (Trash)
+                        {trashCount > 0 && (
+                            <span className="bg-red-500 text-white text-[10px] font-extrabold px-2 py-0.5 rounded-full shadow">
+                                {trashCount}
+                            </span>
+                        )}
+                    </button>
+
+                    <button 
                         onClick={() => setIsCategoryModalOpen(true)}
                         className="bg-white/10 hover:bg-white/20 text-white/90 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 border border-white/15 shadow-md transition-all text-xs"
                     >
@@ -225,7 +341,7 @@ export default function CashFlowPortal() {
                 <div className="p-6 border-b border-white/10 flex justify-between items-center">
                     <h3 className="text-xl font-bold">Transaction History</h3>
                     <span className="text-xs text-white/50 bg-white/5 px-3 py-1 rounded-full border border-white/10 font-bold">
-                        {transactions.length} entries on {selectedDate}
+                        {transactions.length} active entries on {selectedDate}
                     </span>
                 </div>
                 
@@ -235,7 +351,7 @@ export default function CashFlowPortal() {
                     ) : transactions.length === 0 ? (
                         <div className="text-center py-16 text-white/40 font-semibold flex flex-col items-center gap-2">
                             <Wallet size={40} className="opacity-30 mb-2" />
-                            <span>No transactions found for this date.</span>
+                            <span>No active transactions found for this date.</span>
                             <span className="text-xs text-white/30">Click "Add Entry" to record daily income or expenses.</span>
                         </div>
                     ) : (
@@ -266,6 +382,13 @@ export default function CashFlowPortal() {
                                         </td>
                                         <td className="py-4">
                                             <div className="font-medium text-white/90">{t.description || '-'}</div>
+                                            {t.description?.includes('[HALF CARD]') && (
+                                                <div className="mt-1">
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400/20 text-amber-300 border border-amber-400/40 shadow-sm">
+                                                        🏷️ HALF CARD (50% Concession)
+                                                    </span>
+                                                </div>
+                                            )}
                                             {t.student && (
                                                 <div className="text-xs text-blue-400 font-semibold mt-0.5">
                                                     🎓 {t.student.studentName || `${t.student.firstName || ''} ${t.student.lastName || ''}`.trim()} ({t.student.studentId})
@@ -276,13 +399,24 @@ export default function CashFlowPortal() {
                                             {t.type === 'INCOME' ? '+' : '-'}{t.amount.toLocaleString()}
                                         </td>
                                         <td className="py-4 text-center">
-                                            <button 
-                                                onClick={() => handleDelete(t.id)} 
-                                                className="text-white/30 hover:text-red-400 transition-colors p-2 bg-white/5 rounded-lg hover:bg-white/10"
-                                                title="Delete transaction"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
+                                            <div className="flex items-center justify-center gap-1.5">
+                                                {t.type === 'INCOME' && (
+                                                    <button 
+                                                        onClick={() => handlePrintReceipt(t)} 
+                                                        className="text-blue-400 hover:text-blue-300 p-2 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 rounded-lg transition-all"
+                                                        title="Print 80mm Thermal Receipt (Xprinter)"
+                                                    >
+                                                        <Printer size={15} />
+                                                    </button>
+                                                )}
+                                                <button 
+                                                    onClick={() => handleInitiateDelete(t)} 
+                                                    className="text-white/30 hover:text-red-400 transition-colors p-2 bg-white/5 rounded-lg hover:bg-white/10"
+                                                    title="Delete transaction (Require reason & move to Trash)"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </div>
                                         </td>
                                     </tr>
                                 ))}
@@ -371,6 +505,222 @@ export default function CashFlowPortal() {
                                 Save Transaction Entry
                             </button>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* DELETE TRANSACTION REASON MODAL */}
+            {isDeleteModalOpen && txToDelete && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex justify-center items-center p-4">
+                    <div className="bg-[#171827] border border-red-500/30 p-6 rounded-3xl w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200 text-white">
+                        <button 
+                            onClick={() => { setIsDeleteModalOpen(false); setTxToDelete(null); }} 
+                            className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors bg-white/5 p-2 rounded-xl"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div className="flex items-center gap-3 mb-4">
+                            <div className="w-10 h-10 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center border border-red-500/30">
+                                <Trash2 size={20} />
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-bold">Delete Transaction</h3>
+                                <p className="text-xs text-white/50">Provide a mandatory reason before moving to Trash.</p>
+                            </div>
+                        </div>
+
+                        {/* Transaction Summary Card */}
+                        <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 mb-4 text-xs space-y-1">
+                            <div className="flex justify-between">
+                                <span className="text-white/50">Category & Type:</span>
+                                <span className="font-bold text-white">{txToDelete.category} ({txToDelete.type})</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-white/50">Amount:</span>
+                                <span className="font-black text-emerald-400">Rs. {txToDelete.amount.toLocaleString()}</span>
+                            </div>
+                            {txToDelete.description && (
+                                <div className="flex justify-between">
+                                    <span className="text-white/50">Description:</span>
+                                    <span className="text-white/80 font-medium truncate max-w-[200px]">{txToDelete.description}</span>
+                                </div>
+                            )}
+                            {txToDelete.student && (
+                                <div className="flex justify-between">
+                                    <span className="text-white/50">Student:</span>
+                                    <span className="text-blue-400 font-bold">
+                                        {txToDelete.student.studentName || txToDelete.student.firstName} ({txToDelete.student.studentId})
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Preset Reasons */}
+                        <div className="mb-3">
+                            <label className="block text-[10px] font-bold text-white/60 uppercase tracking-wider mb-1.5">Quick Reason Select</label>
+                            <div className="flex flex-wrap gap-1.5">
+                                {PRESET_DELETE_REASONS.map((preset, idx) => (
+                                    <button
+                                        key={idx}
+                                        type="button"
+                                        onClick={() => setDeleteReason(preset)}
+                                        className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all ${
+                                            deleteReason === preset 
+                                                ? 'bg-red-500/20 text-red-300 border-red-500/50 font-bold' 
+                                                : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'
+                                        }`}
+                                    >
+                                        {preset}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Reason Form */}
+                        <form onSubmit={handleConfirmDelete} className="space-y-4">
+                            <div>
+                                <label className="block text-[10px] font-bold text-white/60 uppercase tracking-wider mb-1">
+                                    Reason for Deletion *
+                                </label>
+                                <textarea
+                                    required
+                                    rows={3}
+                                    value={deleteReason}
+                                    onChange={(e) => setDeleteReason(e.target.value)}
+                                    placeholder="Explain why this entry is being deleted (e.g. Duplicate entry, amount entered incorrectly)..."
+                                    className="w-full bg-black/50 border border-white/15 rounded-xl p-3 text-xs text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-red-500/50"
+                                />
+                            </div>
+
+                            <div className="flex items-center gap-3 pt-2">
+                                <button
+                                    type="button"
+                                    onClick={() => { setIsDeleteModalOpen(false); setTxToDelete(null); }}
+                                    className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={deleteLoading || !deleteReason.trim()}
+                                    className="flex-1 py-3 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all shadow-lg shadow-red-600/30 flex items-center justify-center gap-2"
+                                >
+                                    {deleteLoading ? (
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                                    ) : (
+                                        <>
+                                            <Trash2 size={14} /> Move to Trash
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* TRASH / DELETED HISTORY MODAL */}
+            {isTrashModalOpen && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex justify-center items-center p-4">
+                    <div className="bg-[#151624] border border-white/20 p-6 rounded-3xl w-full max-w-4xl max-h-[85vh] shadow-2xl relative animate-in fade-in zoom-in duration-200 text-white flex flex-col">
+                        <button 
+                            onClick={() => setIsTrashModalOpen(false)} 
+                            className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors bg-white/5 p-2 rounded-xl"
+                        >
+                            <X size={18} />
+                        </button>
+
+                        <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/10">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center border border-red-500/30">
+                                    <Archive size={20} />
+                                </div>
+                                <div>
+                                    <h3 className="text-xl font-bold">Deleted Transactions (Trash)</h3>
+                                    <p className="text-xs text-white/50">Audit log of deleted transactions with deletion reasons and restore capability.</p>
+                                </div>
+                            </div>
+                            <span className="bg-red-500/20 text-red-300 border border-red-500/30 px-3 py-1 rounded-full text-xs font-bold mr-8">
+                                {trashList.length} deleted records
+                            </span>
+                        </div>
+
+                        {/* Trash List Table */}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar">
+                            {trashLoading ? (
+                                <div className="flex justify-center py-12"><div className="w-8 h-8 border-4 border-red-500/30 border-t-red-500 rounded-full animate-spin"></div></div>
+                            ) : trashList.length === 0 ? (
+                                <div className="text-center py-16 text-white/40 flex flex-col items-center gap-2">
+                                    <Archive size={40} className="opacity-30 mb-2" />
+                                    <span>Trash is empty. No deleted transactions found.</span>
+                                </div>
+                            ) : (
+                                <table className="w-full text-left border-collapse text-xs">
+                                    <thead>
+                                        <tr className="border-b border-white/10 text-white/50 uppercase tracking-wider">
+                                            <th className="pb-3 font-semibold">Type</th>
+                                            <th className="pb-3 font-semibold">Category</th>
+                                            <th className="pb-3 font-semibold">Details / Student</th>
+                                            <th className="pb-3 font-semibold text-right">Amount</th>
+                                            <th className="pb-3 font-semibold pl-4">Reason for Deletion</th>
+                                            <th className="pb-3 font-semibold">Deleted At</th>
+                                            <th className="pb-3 font-semibold text-center">Restore</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-white/5">
+                                        {trashList.map((item) => (
+                                            <tr key={item.id} className="hover:bg-white/5 transition-colors">
+                                                <td className="py-3">
+                                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${item.type === 'INCOME' ? 'text-emerald-400 bg-emerald-500/10' : 'text-red-400 bg-red-500/10'}`}>
+                                                        {item.type}
+                                                    </span>
+                                                </td>
+                                                <td className="py-3 font-bold text-white/90">{item.category}</td>
+                                                <td className="py-3">
+                                                    <div className="text-white/80 font-medium">{item.description || '-'}</div>
+                                                    {item.student && (
+                                                        <div className="text-[11px] text-blue-400 font-semibold">
+                                                            🎓 {item.student.studentName || item.student.firstName} ({item.student.studentId})
+                                                        </div>
+                                                    )}
+                                                </td>
+                                                <td className={`py-3 text-right font-black ${item.type === 'INCOME' ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                    Rs. {item.amount.toLocaleString()}
+                                                </td>
+                                                <td className="py-3 pl-4">
+                                                    <div className="bg-red-500/15 border border-red-500/30 text-red-200 px-2.5 py-1 rounded-lg text-[11px] inline-block font-medium">
+                                                        ⚠️ {item.deletedReason || 'No reason specified'}
+                                                    </div>
+                                                </td>
+                                                <td className="py-3 text-white/50 text-[11px]">
+                                                    <div>{item.deletedAt ? new Date(item.deletedAt).toLocaleDateString() : '-'}</div>
+                                                    <div className="text-[10px] text-white/40">{item.deletedAt ? new Date(item.deletedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}</div>
+                                                </td>
+                                                <td className="py-3 text-center">
+                                                    <button
+                                                        onClick={() => handleRestore(item.id)}
+                                                        className="px-3 py-1.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 rounded-xl font-bold transition-all flex items-center gap-1 mx-auto text-xs shadow"
+                                                        title="Restore to active Cash Flow"
+                                                    >
+                                                        <RotateCcw size={12} /> Restore
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+
+                        <div className="mt-4 pt-3 border-t border-white/10 flex justify-end">
+                            <button 
+                                onClick={() => setIsTrashModalOpen(false)}
+                                className="px-5 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition-all"
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -526,6 +876,14 @@ export default function CashFlowPortal() {
                     </div>
                 </div>
             )}
+
+            {/* Thermal Receipt Preview Modal */}
+            <ThermalReceiptModal
+                isOpen={receiptModalOpen}
+                onClose={() => setReceiptModalOpen(false)}
+                receiptData={selectedReceiptData}
+                autoPrint={false}
+            />
 
         </div>
     );

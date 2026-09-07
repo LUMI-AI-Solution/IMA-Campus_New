@@ -2,84 +2,271 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const esmsService = require('../services/esmsService');
 
-// 0. Search Students Autocomplete
+// Helper to sanitize & extract identifier from raw USB/Camera scanned QR codes
+const extractIdentifier = (rawInput) => {
+    if (!rawInput) return '';
+    let str = String(rawInput).trim();
+    try {
+        str = decodeURIComponent(str).trim();
+    } catch (e) {}
+
+    // 1. If scanned input is a URL (e.g., https://imacampus.lk/student/STU001 or ?studentId=STU001)
+    if (str.startsWith('http://') || str.startsWith('https://')) {
+        try {
+            const url = new URL(str);
+            const paramId = url.searchParams.get('studentId') || 
+                            url.searchParams.get('search') || 
+                            url.searchParams.get('id') || 
+                            url.searchParams.get('rfid') ||
+                            url.searchParams.get('code');
+            if (paramId) return paramId.trim();
+
+            const pathSegments = url.pathname.split('/').filter(Boolean);
+            if (pathSegments.length > 0) {
+                return decodeURIComponent(pathSegments[pathSegments.length - 1]).trim();
+            }
+        } catch (e) {
+            // fallback to raw
+        }
+    }
+
+    // 2. If scanned input is a JSON string (e.g., {"studentId":"STU001"} or {"id":"STU001"})
+    if (str.startsWith('{') && str.endsWith('}')) {
+        try {
+            const parsed = JSON.parse(str);
+            const val = parsed.studentId || parsed.id || parsed.rfid || parsed.card || parsed.code;
+            if (val) return String(val).trim();
+        } catch (e) {
+            // fallback
+        }
+    }
+
+    return str;
+};
+
+// 0. Search Students Autocomplete (Intelligent Scoring & Prioritization)
 exports.searchStudents = async (req, res) => {
     try {
         const { query } = req.query;
         if (!query || !query.trim()) {
             return res.json({ students: [] });
         }
-        const term = query.trim();
-        const students = await prisma.physicalStudent.findMany({
+        const term = extractIdentifier(query);
+        const cleanNoPlus = term.replace(/^\+/, '').trim();
+        const noPrefixPhy = term.replace(/^PHY-STU-|^PHY-|^STU-/i, '').trim();
+        const withPlus = term.startsWith('+') ? term : `+${cleanNoPlus}`;
+        const phyPrefixed = term.startsWith('PHY-STU-') ? term : `PHY-STU-${cleanNoPlus}`;
+        const intId = parseInt(cleanNoPlus || noPrefixPhy, 10);
+        const isValidInt = !isNaN(intId) && (String(intId) === cleanNoPlus || String(intId) === noPrefixPhy);
+
+        const searchCandidates = Array.from(new Set([
+            term,
+            cleanNoPlus,
+            withPlus,
+            noPrefixPhy,
+            phyPrefixed
+        ])).filter(Boolean);
+
+        const orConditions = [];
+        searchCandidates.forEach(cand => {
+            orConditions.push(
+                { studentName: { contains: cand } },
+                { firstName: { contains: cand } },
+                { lastName: { contains: cand } },
+                { studentId: { contains: cand } },
+                { phone: { contains: cand } },
+                { guardianPhone: { contains: cand } },
+                { rfid: { contains: cand } },
+                { nic: { contains: cand } }
+            );
+        });
+
+        if (isValidInt) {
+            orConditions.push({ id: intId });
+        }
+
+        const rawStudents = await prisma.physicalStudent.findMany({
             where: {
-                OR: [
-                    { studentName: { contains: term } },
-                    { firstName: { contains: term } },
-                    { lastName: { contains: term } },
-                    { studentId: { contains: term } },
-                    { phone: { contains: term } },
-                    { guardianPhone: { contains: term } },
-                    { rfid: { contains: term } },
-                    { nic: { contains: term } }
-                ]
+                OR: orConditions
             },
             include: {
                 class: true,
                 school: true,
                 enrollments: { include: { class: true } }
             },
-            take: 20
+            take: 40
         });
-        res.json({ students });
+
+        // Scoring function to prioritize EXACT RFID and EXACT Student ID matches at the top
+        const getMatchScore = (s) => {
+            const rfid = (s.rfid || '').trim();
+            const stuId = (s.studentId || '').trim();
+            const phone = (s.phone || '').trim();
+            const gPhone = (s.guardianPhone || '').trim();
+            const sName = (s.studentName || `${s.firstName || ''} ${s.lastName || ''}`).toLowerCase();
+            const qLower = term.toLowerCase();
+            const qClean = cleanNoPlus.toLowerCase();
+
+            // 1. Exact RFID Match (Highest Priority)
+            if (rfid && (rfid === term || rfid === cleanNoPlus || rfid === withPlus)) {
+                return 10000;
+            }
+
+            // 2. Exact Student ID Match
+            if (stuId && (stuId === term || stuId === phyPrefixed || stuId === cleanNoPlus)) {
+                return 8000;
+            }
+
+            // 3. Exact ID integer
+            if (isValidInt && s.id === intId) {
+                return 7000;
+            }
+
+            // 4. Exact Phone Match
+            if (phone === term || phone === cleanNoPlus || gPhone === term || gPhone === cleanNoPlus) {
+                return 6000;
+            }
+
+            // 5. RFID starts with query
+            if (rfid && (rfid.startsWith(term) || rfid.replace(/^\+/, '').startsWith(qClean))) {
+                return 5000;
+            }
+
+            // 6. Student ID starts with query
+            if (stuId && (stuId.toLowerCase().startsWith(qLower) || stuId.toLowerCase().includes(qClean))) {
+                return 4000;
+            }
+
+            // 7. Student Name exact or starts with
+            if (sName === qLower || sName.startsWith(qLower)) {
+                return 3000;
+            }
+
+            // 8. Name contains query
+            if (sName.includes(qLower)) {
+                return 2000;
+            }
+
+            return 500;
+        };
+
+        const sortedStudents = rawStudents.sort((a, b) => getMatchScore(b) - getMatchScore(a)).slice(0, 20);
+
+        res.json({ students: sortedStudents });
     } catch (error) {
         console.error('Error in searchStudents:', error);
         res.status(500).json({ error: error.message });
     }
 };
 
-// 1. Scan Student and Load Data
+// 1. Scan Student and Load Data (Strict Priority Order: RFID -> StudentID -> Phone -> Fuzzy)
 exports.scanStudent = async (req, res) => {
     try {
-        const { studentId } = req.params;
+        const rawStudentId = req.params.studentId;
+        const studentId = extractIdentifier(rawStudentId);
 
-        // Fetch student data with class details (try exact studentId/rfid first, then name/phone/nic)
+        if (!studentId) {
+            return res.status(400).json({ error: 'Valid Student ID / QR code is required' });
+        }
+
+        const cleanNoPlus = studentId.replace(/^\+/, '').trim();
+        const withPlus = studentId.startsWith('+') ? studentId : `+${cleanNoPlus}`;
+        const noPrefixPhy = studentId.replace(/^PHY-STU-|^PHY-|^STU-/i, '').trim();
+        const phyStuPrefixed = studentId.startsWith('PHY-STU-') ? studentId : `PHY-STU-${cleanNoPlus || noPrefixPhy}`;
+        const intId = parseInt(cleanNoPlus || noPrefixPhy, 10);
+        const isValidIntId = !isNaN(intId) && (String(intId) === cleanNoPlus || String(intId) === noPrefixPhy);
+
+        const includeRelations = {
+            class: { include: { teachers: true } },
+            school: true,
+            enrollments: { include: { class: { include: { teachers: true } } } },
+            feePayments: { orderBy: { month: 'desc' } }
+        };
+
+        // STEP 1: Check for EXACT RFID / Card match first!
         let student = await prisma.physicalStudent.findFirst({
             where: {
                 OR: [
-                    { studentId: studentId },
-                    { rfid: studentId }
+                    { rfid: studentId },
+                    { rfid: cleanNoPlus },
+                    { rfid: withPlus }
                 ]
             },
-            include: {
-                class: true,
-                school: true,
-                enrollments: { include: { class: true } },
-                feePayments: { orderBy: { month: 'desc' } }
-            }
+            include: includeRelations
         });
 
+        // STEP 2: If not matched by RFID, check for EXACT studentId or primary database id
+        if (!student) {
+            const exactIdMatches = [
+                { studentId: studentId },
+                { studentId: cleanNoPlus },
+                { studentId: withPlus },
+                { studentId: phyStuPrefixed },
+                { studentId: `PHY-STU-${noPrefixPhy}` }
+            ];
+            if (isValidIntId) {
+                exactIdMatches.push({ id: intId });
+            }
+
+            student = await prisma.physicalStudent.findFirst({
+                where: {
+                    OR: exactIdMatches
+                },
+                include: includeRelations
+            });
+        }
+
+        // STEP 3: Check for EXACT Phone / Guardian Phone
         if (!student) {
             student = await prisma.physicalStudent.findFirst({
                 where: {
                     OR: [
-                        { studentName: { contains: studentId } },
-                        { firstName: { contains: studentId } },
-                        { lastName: { contains: studentId } },
-                        { phone: { contains: studentId } },
-                        { nic: { contains: studentId } }
+                        { phone: studentId },
+                        { phone: cleanNoPlus },
+                        { guardianPhone: studentId },
+                        { guardianPhone: cleanNoPlus },
+                        { nic: studentId },
+                        { nic: cleanNoPlus }
                     ]
                 },
-                include: {
-                    class: true,
-                    school: true,
-                    enrollments: { include: { class: true } },
-                    feePayments: { orderBy: { month: 'desc' } }
-                }
+                include: includeRelations
+            });
+        }
+
+        // STEP 4: Fallback to fuzzy substring search if nothing exact matched
+        if (!student) {
+            const candidateTerms = Array.from(new Set([
+                studentId,
+                cleanNoPlus,
+                withPlus,
+                noPrefixPhy,
+                phyStuPrefixed
+            ])).filter(Boolean);
+
+            const fuzzyMatches = [];
+            candidateTerms.forEach(cand => {
+                fuzzyMatches.push(
+                    { studentName: { contains: cand } },
+                    { firstName: { contains: cand } },
+                    { lastName: { contains: cand } },
+                    { studentId: { contains: cand } },
+                    { rfid: { contains: cand } },
+                    { phone: { contains: cand } },
+                    { guardianPhone: { contains: cand } },
+                    { nic: { contains: cand } }
+                );
+            });
+
+            student = await prisma.physicalStudent.findFirst({
+                where: {
+                    OR: fuzzyMatches
+                },
+                include: includeRelations
             });
         }
 
         if (!student) {
-            return res.status(404).json({ error: 'Student not found for the given Search / Card ID' });
+            return res.status(404).json({ error: 'Student not found for the given Search / Card ID: ' + studentId });
         }
 
         // Fetch attendance (last 90 days) and available classes concurrently
@@ -94,7 +281,10 @@ exports.scanStudent = async (req, res) => {
                 },
                 orderBy: { date: 'asc' }
             }),
-            prisma.physicalClass.findMany({ orderBy: { name: 'asc' } })
+            prisma.physicalClass.findMany({ 
+                include: { teachers: true },
+                orderBy: { name: 'asc' } 
+            })
         ]);
 
         res.json({
@@ -110,29 +300,115 @@ exports.scanStudent = async (req, res) => {
     }
 };
 
-// 2. Allocate Class
+// 2. Allocate Class (Multi-class enrollment)
 exports.allocateClass = async (req, res) => {
     try {
         const { id } = req.params;
-        const { classId } = req.body;
+        const { classId, cardType } = req.body;
+        const sId = parseInt(id);
+        const cId = parseInt(classId);
 
-        const updatedStudent = await prisma.physicalStudent.update({
-            where: { id: parseInt(id) },
-            data: { classId: parseInt(classId) },
-            include: { class: true, enrollments: { include: { class: true } } }
+        if (!sId || !cId) {
+            return res.status(400).json({ error: 'Valid student ID and class ID are required' });
+        }
+
+        // Upsert into PhysicalStudentClassEnrollment so student can have multiple classes
+        await prisma.physicalStudentClassEnrollment.upsert({
+            where: {
+                studentId_classId: {
+                    studentId: sId,
+                    classId: cId
+                }
+            },
+            update: {
+                cardType: cardType || 'FULL'
+            },
+            create: {
+                studentId: sId,
+                classId: cId,
+                cardType: cardType || 'FULL'
+            }
         });
 
-        res.json({ success: true, student: updatedStudent });
+        // Also ensure primary classId is set if null
+        const currentStudent = await prisma.physicalStudent.findUnique({ where: { id: sId } });
+        if (currentStudent && !currentStudent.classId) {
+            await prisma.physicalStudent.update({
+                where: { id: sId },
+                data: { classId: cId }
+            });
+        }
+
+        const updatedStudent = await prisma.physicalStudent.findUnique({
+            where: { id: sId },
+            include: {
+                class: { include: { teachers: true } },
+                school: true,
+                enrollments: { include: { class: { include: { teachers: true } } } },
+                feePayments: { orderBy: { month: 'desc' } }
+            }
+        });
+
+        res.json({ success: true, student: updatedStudent, message: 'Class allocated successfully' });
     } catch (error) {
         console.error('Error allocating class:', error);
-        res.status(500).json({ error: 'Failed to allocate class' });
+        res.status(500).json({ error: 'Failed to allocate class: ' + error.message });
+    }
+};
+
+// 2.1 Unallocate / Remove Class Enrollment
+exports.unallocateClass = async (req, res) => {
+    try {
+        const { id, classId } = req.params;
+        const sId = parseInt(id);
+        const cId = parseInt(classId);
+
+        if (!sId || !cId) {
+            return res.status(400).json({ error: 'Valid student ID and class ID are required' });
+        }
+
+        // Delete enrollment record
+        await prisma.physicalStudentClassEnrollment.deleteMany({
+            where: {
+                studentId: sId,
+                classId: cId
+            }
+        });
+
+        // If primary class was this class, reassign or set null
+        const remainingEnrollment = await prisma.physicalStudentClassEnrollment.findFirst({
+            where: { studentId: sId }
+        });
+
+        const currentStudent = await prisma.physicalStudent.findUnique({ where: { id: sId } });
+        if (currentStudent && currentStudent.classId === cId) {
+            await prisma.physicalStudent.update({
+                where: { id: sId },
+                data: { classId: remainingEnrollment ? remainingEnrollment.classId : null }
+            });
+        }
+
+        const updatedStudent = await prisma.physicalStudent.findUnique({
+            where: { id: sId },
+            include: {
+                class: { include: { teachers: true } },
+                school: true,
+                enrollments: { include: { class: { include: { teachers: true } } } },
+                feePayments: { orderBy: { month: 'desc' } }
+            }
+        });
+
+        res.json({ success: true, student: updatedStudent, message: 'Class enrollment removed successfully' });
+    } catch (error) {
+        console.error('Error removing class enrollment:', error);
+        res.status(500).json({ error: 'Failed to remove class: ' + error.message });
     }
 };
 
 // 3. Mark Attendance
 exports.markAttendance = async (req, res) => {
     try {
-        const { studentId, date } = req.body; 
+        const { studentId, date, classId } = req.body; 
         
         let normalizedDate;
         if (date && String(date).includes('T')) {
@@ -145,50 +421,90 @@ exports.markAttendance = async (req, res) => {
 
         const student = await prisma.physicalStudent.findUnique({
             where: { id: parseInt(studentId) },
-            include: { class: true }
+            include: { 
+                class: true,
+                school: true,
+                enrollments: {
+                    include: { class: true }
+                }
+            }
         });
 
         if (!student) {
             return res.status(404).json({ error: 'Student not found' });
         }
 
-        // Check if attendance already exists for this exact day (UTC date match)
+        // Determine specific target class for SMS & attendance session
+        let targetClass = null;
+        if (classId) {
+            targetClass = await prisma.physicalClass.findUnique({
+                where: { id: parseInt(classId) }
+            });
+        }
+        
+        if (!targetClass) {
+            if (student.enrollments && student.enrollments.length > 0) {
+                targetClass = student.enrollments[0].class;
+            } else if (student.class) {
+                targetClass = student.class;
+            }
+        }
+
+        const targetClassId = targetClass?.id || (classId ? parseInt(classId) : (student.classId || null));
+
+        // Check if attendance already exists for this exact class session today
         const startOfDay = new Date(normalizedDate);
         startOfDay.setUTCHours(0, 0, 0, 0);
 
         const endOfDay = new Date(normalizedDate);
         endOfDay.setUTCHours(23, 59, 59, 999);
 
-        let attendance = await prisma.physicalAttendance.findFirst({
-            where: {
-                studentId: parseInt(studentId),
-                date: {
-                    gte: startOfDay,
-                    lte: endOfDay
-                }
+        const attendanceWhere = {
+            studentId: parseInt(studentId),
+            date: {
+                gte: startOfDay,
+                lte: endOfDay
             }
+        };
+
+        if (targetClassId) {
+            attendanceWhere.classId = targetClassId;
+        }
+
+        let attendance = await prisma.physicalAttendance.findFirst({
+            where: attendanceWhere
         });
 
+        let isNewAttendance = false;
         if (!attendance) {
             attendance = await prisma.physicalAttendance.create({
                 data: {
                     studentId: parseInt(studentId),
+                    classId: targetClassId,
                     date: normalizedDate,
                     status: 'PRESENT'
                 }
             });
+            isNewAttendance = true;
 
-            // Trigger automated attendance SMS alert via Dialog eSMS Gateway
+            // Trigger automated attendance SMS alert with exact attended class
             esmsService.triggerAttendanceSms({
                 student,
                 attendanceRecord: attendance,
-                classObj: student.class
+                classId: targetClassId,
+                classObj: targetClass || student.class
             }).catch(smsErr => {
                 console.error('[Automated Attendance SMS Notification Error]:', smsErr.message);
             });
         }
 
-        res.json({ success: true, attendance });
+        res.json({ 
+            success: true, 
+            attendance,
+            isNewAttendance,
+            className: targetClass?.name || student.class?.name || 'Class',
+            studentName: student.studentName || student.firstName || 'Student'
+        });
 
     } catch (error) {
         console.error('Error marking attendance:', error);
@@ -199,7 +515,7 @@ exports.markAttendance = async (req, res) => {
 // 4. Unmark Attendance
 exports.unmarkAttendance = async (req, res) => {
     try {
-        const { studentId, date } = req.body;
+        const { studentId, date, classId } = req.body;
 
         let normalizedDate;
         if (date && String(date).includes('T')) {
@@ -216,14 +532,20 @@ exports.unmarkAttendance = async (req, res) => {
         const endOfDay = new Date(normalizedDate);
         endOfDay.setUTCHours(23, 59, 59, 999);
 
-        await prisma.physicalAttendance.deleteMany({
-            where: {
-                studentId: parseInt(studentId),
-                date: {
-                    gte: startOfDay,
-                    lte: endOfDay
-                }
+        const deleteWhere = {
+            studentId: parseInt(studentId),
+            date: {
+                gte: startOfDay,
+                lte: endOfDay
             }
+        };
+
+        if (classId) {
+            deleteWhere.classId = parseInt(classId);
+        }
+
+        await prisma.physicalAttendance.deleteMany({
+            where: deleteWhere
         });
 
         res.json({ success: true, message: 'Attendance unmarked' });

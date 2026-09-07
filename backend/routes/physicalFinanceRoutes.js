@@ -13,6 +13,10 @@ router.get('/transactions', physicalFinanceController.getTransactions);
 router.post('/transactions', physicalFinanceController.addTransaction);
 router.delete('/transactions/:id', physicalFinanceController.deleteTransaction);
 
+// Trash & Deleted Audit
+router.get('/trash', physicalFinanceController.getTrashTransactions);
+router.post('/trash/:id/restore', physicalFinanceController.restoreTransaction);
+
 // Financial Reports & Analytics
 router.get('/reports', physicalFinanceController.getReports);
 

@@ -20,6 +20,9 @@ exports.getOverview = async (req, res) => {
             }
         });
 
+        const allBusinesses = await prisma.business.findMany();
+        const bizMap = new Map(allBusinesses.map(b => [b.id, b]));
+
         // Group by Campaign Type (AFTER_SEMINAR / FREE_SEMINAR) and Business
         const overview = {
             AFTER_SEMINAR: {},
@@ -28,7 +31,14 @@ exports.getOverview = async (req, res) => {
         };
 
         leads.forEach(lead => {
-            if (!lead.batch || !lead.batch.business) return;
+            let biz = lead.batch?.business;
+            if (!biz) {
+                const match = lead.phone?.match(/_BIZ_(\d+)/);
+                if (match) {
+                    biz = bizMap.get(parseInt(match[1]));
+                }
+            }
+            if (!biz) return;
             
             let cType = lead.campaignType;
             if (cType === 'AFTER_SEMINAR' && lead.source === 'bridge_transfer') {
@@ -37,7 +47,6 @@ exports.getOverview = async (req, res) => {
                 cType = 'AFTER_SEMINAR';
             }
 
-            const biz = lead.batch.business;
             if (!overview[cType]) return;
 
             if (!overview[cType][biz.id]) {
@@ -92,9 +101,13 @@ exports.getBusinessLeads = async (req, res) => {
 
         if (!agentId) return res.status(401).json({ error: "Unauthorized" });
 
+        const bizIdInt = parseInt(businessId);
         const whereClause = {
             assignedTo: parseInt(agentId),
-            batch: { businessId: parseInt(businessId) }
+            OR: [
+                { batch: { businessId: bizIdInt } },
+                { phone: { contains: `_BIZ_${bizIdInt}` } }
+            ]
         };
 
         if (campaignType === 'BRIDGE') {
@@ -120,7 +133,22 @@ exports.getBusinessLeads = async (req, res) => {
             orderBy: { updatedAt: 'desc' }
         });
 
-        res.status(200).json(safeJson(leads));
+        const biz = await prisma.business.findUnique({ where: { id: bizIdInt } });
+        const enrichedLeads = leads.map(l => {
+            if (!l.batch && biz) {
+                return {
+                    ...l,
+                    batch: {
+                        id: 0,
+                        name: 'General Bridge Pool',
+                        business: biz
+                    }
+                };
+            }
+            return l;
+        });
+
+        res.status(200).json(safeJson(enrichedLeads));
     } catch (error) {
         console.error("Agent getBusinessLeads error:", error);
         res.status(500).json({ error: "Failed to fetch leads" });

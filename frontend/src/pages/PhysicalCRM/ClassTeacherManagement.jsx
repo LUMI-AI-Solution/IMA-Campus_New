@@ -112,6 +112,12 @@ export default function ClassTeacherManagement() {
   const [slotEndHour, setSlotEndHour] = useState('10');
   const [slotEndMin, setSlotEndMin] = useState('30');
   const [slotEndPeriod, setSlotEndPeriod] = useState('AM');
+
+  // Halls State
+  const [halls, setHalls] = useState([]);
+  const [slotHallId, setSlotHallId] = useState('');
+  const [showAddHallInput, setShowAddHallInput] = useState(false);
+  const [newHallInputName, setNewHallInputName] = useState('');
   
   // Search States
   const [activeClassSearch, setActiveClassSearch] = useState('');
@@ -133,16 +139,35 @@ export default function ClassTeacherManagement() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [clsRes, tchRes] = await Promise.all([
+      const [clsRes, tchRes, hallsRes] = await Promise.all([
         physicalCrmService.getClasses(),
-        physicalCrmService.getTeachers()
+        physicalCrmService.getTeachers(),
+        physicalCrmService.getHalls().catch(() => [])
       ]);
       setClasses(clsRes || []);
       setTeachers(tchRes || []);
+      setHalls(hallsRes || []);
     } catch (err) {
       toast.error('Failed to load data');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleQuickCreateHall = async () => {
+    if (!newHallInputName || !newHallInputName.trim()) {
+      toast.error('Please enter a hall name');
+      return;
+    }
+    try {
+      const created = await physicalCrmService.createHall({ name: newHallInputName.trim() });
+      setHalls(prev => [...prev, created]);
+      setSlotHallId(String(created.id));
+      setNewHallInputName('');
+      setShowAddHallInput(false);
+      toast.success(`Created hall: ${created.name}`);
+    } catch (err) {
+      toast.error('Failed to create hall');
     }
   };
 
@@ -217,10 +242,14 @@ export default function ClassTeacherManagement() {
       return;
     }
 
+    const selectedHallObj = halls.find(h => String(h.id) === String(slotHallId));
+
     const newSlot = {
       dayOfWeek: slotDay,
       startTime: startTimeFormatted,
-      endTime: endTimeFormatted
+      endTime: endTimeFormatted,
+      hallId: slotHallId ? parseInt(slotHallId) : null,
+      hallName: selectedHallObj ? selectedHallObj.name : null
     };
 
     setClassForm(prev => ({
@@ -228,7 +257,7 @@ export default function ClassTeacherManagement() {
       timetables: [...prev.timetables, newSlot]
     }));
 
-    toast.success(`Added slot: ${slotDay} ${startTimeFormatted} - ${endTimeFormatted}`);
+    toast.success(`Added slot: ${slotDay} ${startTimeFormatted} - ${endTimeFormatted}${selectedHallObj ? ` (${selectedHallObj.name})` : ''}`);
   };
 
   const handleRemoveSlotFromClass = (index) => {
@@ -264,7 +293,9 @@ export default function ClassTeacherManagement() {
       timetables: c.timetables ? c.timetables.map(t => ({
         dayOfWeek: t.dayOfWeek,
         startTime: t.startTime,
-        endTime: t.endTime
+        endTime: t.endTime,
+        hallId: t.hallId || (t.hall ? t.hall.id : null) || null,
+        hallName: t.hallName || (t.hall ? t.hall.name : null) || null
       })) : []
     });
     
@@ -643,18 +674,65 @@ export default function ClassTeacherManagement() {
                   <span className="text-[11px] text-white/50">Day & Time (AM/PM)</span>
                 </div>
 
-                {/* Day selector */}
-                <div>
-                  <label className="block text-[10px] font-bold text-white/60 uppercase tracking-wider mb-1">Day of Week</label>
-                  <select 
-                    value={slotDay} 
-                    onChange={e => setSlotDay(e.target.value)}
-                    className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500/40 outline-none text-white text-xs font-semibold appearance-none shadow-inner"
-                  >
-                    {DAYS.map(day => (
-                      <option key={day} value={day} className="text-black">{day}</option>
-                    ))}
-                  </select>
+                {/* Day of Week & Hall Selector */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold text-white/60 uppercase tracking-wider mb-1">Day of Week</label>
+                    <select 
+                      value={slotDay} 
+                      onChange={e => setSlotDay(e.target.value)}
+                      className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500/40 outline-none text-white text-xs font-semibold appearance-none shadow-inner"
+                    >
+                      {DAYS.map(day => (
+                        <option key={day} value={day} className="text-black">{day}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-bold text-white/60 uppercase tracking-wider flex items-center gap-1">
+                        🏢 Hall / Location
+                      </label>
+                      <button 
+                        type="button" 
+                        onClick={() => setShowAddHallInput(!showAddHallInput)}
+                        className="text-[10px] font-bold text-blue-400 hover:text-blue-300 transition-colors"
+                      >
+                        {showAddHallInput ? 'Cancel' : '+ New Hall'}
+                      </button>
+                    </div>
+
+                    {showAddHallInput ? (
+                      <div className="flex items-center gap-1.5">
+                        <input 
+                          type="text" 
+                          placeholder="Hall name (e.g. Hall 01)"
+                          value={newHallInputName}
+                          onChange={e => setNewHallInputName(e.target.value)}
+                          className="flex-1 px-2.5 py-1.5 bg-black/40 border border-blue-500/40 rounded-lg text-xs text-white outline-none"
+                        />
+                        <button 
+                          type="button"
+                          onClick={handleQuickCreateHall}
+                          className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-xs font-bold"
+                        >
+                          Save
+                        </button>
+                      </div>
+                    ) : (
+                      <select 
+                        value={slotHallId} 
+                        onChange={e => setSlotHallId(e.target.value)}
+                        className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl focus:ring-2 focus:ring-blue-500/40 outline-none text-white text-xs font-semibold appearance-none shadow-inner"
+                      >
+                        <option value="" className="text-black">-- Select Hall (Optional) --</option>
+                        {halls.map(h => (
+                          <option key={h.id} value={h.id} className="text-black">{h.name}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
                 </div>
 
                 {/* Start Time & End Time with AM/PM */}
@@ -736,7 +814,7 @@ export default function ClassTeacherManagement() {
                 <button
                   type="button"
                   onClick={handleAddSlotToClass}
-                  className="w-full py-2 bg-white/10 hover:bg-white/15 text-blue-300 hover:text-white border border-blue-500/30 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm"
+                  className="w-full py-2 bg-white/10 hover:bg-white/15 text-blue-300 hover:text-white border border-blue-500/30 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm cursor-pointer"
                 >
                   <Plus size={14} /> Add Schedule Slot ({slotDay} {slotStartHour}:{slotStartMin} {slotStartPeriod} - {slotEndHour}:{slotEndMin} {slotEndPeriod})
                 </button>
@@ -750,6 +828,11 @@ export default function ClassTeacherManagement() {
                         <div key={sIdx} className="flex items-center gap-1.5 bg-gradient-to-r from-blue-500/20 to-purple-500/20 border border-blue-500/30 text-white px-2.5 py-1 rounded-lg text-xs font-bold shadow-sm">
                           <span className="text-blue-300 font-extrabold">{slot.dayOfWeek.slice(0, 3)}</span>
                           <span className="text-white/90">{formatTime12Hour(slot.startTime)} - {formatTime12Hour(slot.endTime)}</span>
+                          {slot.hallName && (
+                            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-1.5 py-0.2 rounded font-bold">
+                              🏢 {slot.hallName}
+                            </span>
+                          )}
                           <button 
                             type="button" 
                             onClick={() => handleRemoveSlotFromClass(sIdx)}

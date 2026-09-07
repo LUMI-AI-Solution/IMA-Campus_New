@@ -10,6 +10,7 @@ import {
 import toast from 'react-hot-toast';
 import OverviewTab from '../../components/CallCenter/OverviewTab';
 import BridgeHandOversTab from '../../components/CallCenter/BridgeHandOversTab';
+import BridgeProgressTab from '../../components/CallCenter/BridgeProgressTab';
 
 import DelegateSocialMediaTaskModal from '../../components/common/DelegateSocialMediaTaskModal';
 
@@ -394,6 +395,7 @@ export default function CallCenterManagerDashboard() {
 
           {activeTab === 'overview' && <OverviewTab />}
           {activeTab === 'bridge-handovers' && <BridgeHandOversTab staff={staff} />}
+          {activeTab === 'bridge-progress' && <BridgeProgressTab businesses={businesses} />}
 
           {(activeTab === 'free-sem' || activeTab === 'after-sem') && (
             <div className="animate-fade-in flex flex-col h-full">

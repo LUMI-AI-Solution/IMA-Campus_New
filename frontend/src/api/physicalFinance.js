@@ -20,12 +20,34 @@ export const physicalFinanceService = {
       throw error;
     }
   },
-  deleteTransaction: async (id) => {
+  deleteTransaction: async (id, reason, deletedBy) => {
     try {
-      const response = await api.delete(`/physical-finance/transactions/${id}`);
+      const response = await api.delete(`/physical-finance/transactions/${id}`, {
+        data: { reason, deletedBy }
+      });
       return response.data;
     } catch (error) {
       console.error("Error deleting transaction:", error);
+      throw error;
+    }
+  },
+
+  // Trash & Deleted Audit
+  getTrash: async () => {
+    try {
+      const response = await api.get('/physical-finance/trash');
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching trash transactions:", error);
+      throw error;
+    }
+  },
+  restoreTransaction: async (id) => {
+    try {
+      const response = await api.post(`/physical-finance/trash/${id}/restore`);
+      return response.data;
+    } catch (error) {
+      console.error("Error restoring transaction:", error);
       throw error;
     }
   },

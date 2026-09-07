@@ -130,7 +130,9 @@ exports.deleteCategory = async (req, res) => {
 exports.getTransactions = async (req, res) => {
     try {
         const dateStr = req.query.date; // expecting YYYY-MM-DD
-        let whereClause = {};
+        let whereClause = {
+            isDeleted: false
+        };
         
         if (dateStr) {
             const startDate = new Date(`${dateStr}T00:00:00.000Z`);
@@ -155,7 +157,7 @@ exports.getTransactions = async (req, res) => {
             where: whereClause,
             include: {
                 student: {
-                    select: { firstName: true, lastName: true, studentName: true, studentId: true }
+                    select: { id: true, firstName: true, lastName: true, studentName: true, studentId: true, phone: true }
                 }
             },
             orderBy: { date: 'desc' }
@@ -199,11 +201,12 @@ exports.addTransaction = async (req, res) => {
                 amount: parseFloat(amount),
                 description,
                 studentId: studentId ? parseInt(studentId) : null,
-                date: date ? new Date(date) : new Date()
+                date: date ? new Date(date) : new Date(),
+                isDeleted: false
             },
             include: {
                 student: {
-                    select: { firstName: true, lastName: true, studentName: true, studentId: true }
+                    select: { id: true, firstName: true, lastName: true, studentName: true, studentId: true }
                 }
             }
         });
@@ -217,10 +220,90 @@ exports.addTransaction = async (req, res) => {
 exports.deleteTransaction = async (req, res) => {
     try {
         const { id } = req.params;
-        await prisma.physicalTransaction.delete({
+        const { reason, deletedBy } = req.body;
+
+        if (!reason || !reason.trim()) {
+            return res.status(400).json({ error: 'A valid deletion reason is required.' });
+        }
+
+        const existing = await prisma.physicalTransaction.findUnique({
             where: { id: parseInt(id) }
         });
-        res.json({ success: true, message: 'Transaction deleted' });
+
+        if (!existing) {
+            return res.status(404).json({ error: 'Transaction not found.' });
+        }
+
+        const updated = await prisma.physicalTransaction.update({
+            where: { id: parseInt(id) },
+            data: {
+                isDeleted: true,
+                deletedReason: reason.trim(),
+                deletedAt: new Date(),
+                deletedBy: deletedBy ? String(deletedBy).trim() : 'Staff'
+            }
+        });
+
+        res.json({ 
+            success: true, 
+            message: 'Transaction moved to Trash successfully.',
+            transaction: updated
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// --- TRASH & RESTORE MANAGEMENT ---
+exports.getTrashTransactions = async (req, res) => {
+    try {
+        const trash = await prisma.physicalTransaction.findMany({
+            where: { isDeleted: true },
+            include: {
+                student: {
+                    select: { id: true, firstName: true, lastName: true, studentName: true, studentId: true, phone: true }
+                }
+            },
+            orderBy: { deletedAt: 'desc' }
+        });
+
+        res.json({
+            success: true,
+            count: trash.length,
+            trash
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+exports.restoreTransaction = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const existing = await prisma.physicalTransaction.findUnique({
+            where: { id: parseInt(id) }
+        });
+
+        if (!existing) {
+            return res.status(404).json({ error: 'Transaction not found.' });
+        }
+
+        const restored = await prisma.physicalTransaction.update({
+            where: { id: parseInt(id) },
+            data: {
+                isDeleted: false,
+                deletedReason: null,
+                deletedAt: null,
+                deletedBy: null
+            }
+        });
+
+        res.json({
+            success: true,
+            message: 'Transaction restored successfully.',
+            transaction: restored
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -231,7 +314,9 @@ exports.getReports = async (req, res) => {
     try {
         const { startDate, endDate, type, category } = req.query;
 
-        let whereClause = {};
+        let whereClause = {
+            isDeleted: false
+        };
 
         if (startDate || endDate) {
             whereClause.date = {};

@@ -789,13 +789,17 @@ exports.getExecutiveAnalytics = async (req, res) => {
         const targetGroupGoal = activeBusiness.batches[0]?.targetGroupGoal ?? 50;
 
         const openSemStaffList = Object.values(openSemStaffMap).map(c => {
-            const conversionRate = c.assigned > 0 ? Math.round((c.enrolled / c.assigned) * 100) : 0;
-            const targetNeed = Math.max(0, Math.ceil((c.assigned * (targetIndividualGoal / 100)) - c.enrolled));
+            const reqCount = Math.floor(c.assigned * (targetIndividualGoal / 100));
+            const targetNeed = Math.max(0, reqCount - c.enrolled);
+            let conversionRate = c.assigned > 0 ? Math.round((c.enrolled / c.assigned) * 100) : 0;
+            if (targetNeed === 0 && c.enrolled > 0 && targetIndividualGoal > conversionRate) {
+                conversionRate = targetIndividualGoal;
+            }
             return {
                 ...c,
                 conversionRate,
                 targetNeed,
-                goalAchievedPct: Math.min(100, Math.round((conversionRate / targetIndividualGoal) * 100))
+                goalAchievedPct: targetNeed === 0 ? 100 : Math.min(100, Math.round((c.enrolled / (reqCount || 1)) * 100))
             };
         }).sort((a, b) => b.enrolled - a.enrolled);
 
@@ -948,13 +952,17 @@ exports.getExecutiveAnalytics = async (req, res) => {
         });
 
         const newInqStaffList = Object.values(newInqStaffMap).map(c => {
-            const conversionRate = c.assigned > 0 ? Math.round((c.enrolled / c.assigned) * 100) : 0;
-            const targetNeed = Math.max(0, Math.ceil((c.assigned * (targetIndividualGoal / 100)) - c.enrolled));
+            const reqCount = Math.floor(c.assigned * (targetIndividualGoal / 100));
+            const targetNeed = Math.max(0, reqCount - c.enrolled);
+            let conversionRate = c.assigned > 0 ? Math.round((c.enrolled / c.assigned) * 100) : 0;
+            if (targetNeed === 0 && c.enrolled > 0 && targetIndividualGoal > conversionRate) {
+                conversionRate = targetIndividualGoal;
+            }
             return {
                 ...c,
                 conversionRate,
                 targetNeed,
-                goalAchievedPct: Math.min(100, Math.round((conversionRate / targetIndividualGoal) * 100))
+                goalAchievedPct: targetNeed === 0 ? 100 : Math.min(100, Math.round((c.enrolled / (reqCount || 1)) * 100))
             };
         }).sort((a, b) => b.enrolled - a.enrolled);
 

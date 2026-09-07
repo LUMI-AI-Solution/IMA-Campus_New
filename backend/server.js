@@ -117,6 +117,10 @@ app.use('/api/storage/users', express.static(path.join(__dirname, '../storage/us
 app.use('/storage/recordings', express.static(path.join(__dirname, '../storage/recordings')));
 app.use('/api/storage/recordings', express.static(path.join(__dirname, '../storage/recordings')));
 
+// 🔥 IMA Pusthakalaya (Library) Static Uploads
+app.use('/uploads/library', express.static(path.join(__dirname, 'uploads/library')));
+app.use('/api/uploads/library', express.static(path.join(__dirname, 'uploads/library')));
+
 // Public Audio Route for WhatsApp Call recordings (bypass auth)
 app.get('/api/public/whatsapp-recording/:filename', require('./controllers/whatsappCallController').getRecording);
 
@@ -126,9 +130,11 @@ const auditMiddleware = require('./middlewares/auditMiddleware');
 app.use(auditMiddleware);
 
 // ================= ROUTES =================
+app.use('/api/library', require('./routes/libraryRoutes'));
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/student', require('./routes/studentRoutes'));
 app.use('/api/web-inquiry', require('./routes/webInquiryRoutes'));
+app.use('/api/papers', require('./routes/paperRoutes'));
 app.use('/api', require('./routes/contentRoutes'));
 // DEBUG: Moved up here
 app.use('/api/admin/data-export', require('./routes/dataExportRoutes'));
@@ -174,6 +180,7 @@ app.use('/api/ai-verification', require('./routes/aiVerificationRoutes'));
 
 // AI Database Agent
 app.use('/api/admin/ai-agent', require('./routes/aiAgentRoutes'));
+app.use('/api/claude', require('./routes/claudeRoutes'));
 app.use('/api/admin/test-injector', require('./routes/testRoutes'));
 app.use('/api/social-media', require('./routes/socialMediaRoutes'));
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));

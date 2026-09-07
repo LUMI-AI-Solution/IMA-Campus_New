@@ -9,7 +9,7 @@ import {
   Archive, HardDrive, CalendarDays, CalendarCheck, CheckSquare, History,
   Music, Palette, ChevronLeft, ChevronRight, Megaphone, X, BarChart, PieChart, Calendar, Menu,
   PhoneCall, UserPlus, Repeat, GraduationCap, TrendingUp, Box, Activity, ShieldCheck, RefreshCw, Layers, Mic, Upload, Video, Sun, Moon, Sparkles, Wand2, Send,
-  BrainCircuit, MessageSquareText
+  BrainCircuit, MessageSquareText, BookOpen
 } from 'lucide-react';
 
 export default function Sidebar({ userRole, loggedInUser, handleLogout, isSidebarOpen, setIsSidebarOpen, currentBg, setBgImage, isSpotifyOpen, setIsSpotifyOpen, isSocialMedia, isDarkMode, toggleThemeMode }) {
@@ -175,25 +175,28 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
       : "w-full flex items-center space-x-3 px-3 py-2 rounded-lg bg-white/5 border border-white/5 text-gray-300 hover:bg-white/10 hover:border-white/10 transition-all font-medium mb-1";
   };
 
+  const roleUpper = (roleName || '').toUpperCase().replace(/[\s_-]+/g, '_');
+  const isLectureOrGuider = roleUpper === 'LECTURE' || roleUpper === 'LECTURER' || roleUpper === 'PAPER_GUIDER' || roleName === 'Lecture' || roleName === 'Paper Guider';
+
   const isSystemAdmin = roleName === 'SYSTEM_ADMIN' || roleName === 'System Admin' || roleName === 'Director' || roleName === 'SUPER' || roleName === 'ADMIN';
   const isDeliveryDept = loggedInUser?.department === 'Delivery';
   const isFinanceDept = loggedInUser?.department === 'Finance';
   const isPhysicalDept = loggedInUser?.department === 'Physical';
-  const isManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'ASS_MANAGER') && !isDeliveryDept && !isFinanceDept && !isPhysicalDept;
+  const isManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'ASS_MANAGER') && !isDeliveryDept && !isFinanceDept && !isPhysicalDept && !isLectureOrGuider;
   const isCallCenterDept = loggedInUser?.department === 'Call Center';
   const isCallCenterManager = isManager && isCallCenterDept;
 
   const isSocialMediaManager = roleName === 'SOCIAL_MEDIA_MANAGER' || roleName === 'SOCIAL MEDIA MANAGER' || roleName === 'Social Media Manager' || (isManager && loggedInUser?.department === 'Social Media');
   const isSocialMediaStaff = roleName === 'SOCIAL_MEDIA_STAFF' || roleName === 'SOCIAL MEDIA STAFF' || roleName === 'Social Media Staff' || (roleName === 'STAFF' && loggedInUser?.department === 'Social Media');
 
-  const isGeneralManager = isManager && !isCallCenterDept && !isSocialMediaManager;
+  const isGeneralManager = isManager && !isCallCenterDept && !isSocialMediaManager && !isLectureOrGuider;
   const isClassCoordinatorManager = isManager && loggedInUser?.department === 'Class Coordination';
   const isPhysicalManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'Ass Manager' || roleName === 'ASS_MANAGER') && isPhysicalDept;
-  const isAnyManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'Ass Manager' || roleName === 'ASS_MANAGER') && !isCallCenterManager && !isSocialMediaManager;
-  const isHeadManager = (roleName === 'MANAGER' || roleName === 'Manager') && !isCallCenterManager && !isSocialMediaManager && !isPhysicalManager;
+  const isAnyManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'Ass Manager' || roleName === 'ASS_MANAGER') && !isCallCenterManager && !isSocialMediaManager && !isLectureOrGuider;
+  const isHeadManager = (roleName === 'MANAGER' || roleName === 'Manager') && !isCallCenterManager && !isSocialMediaManager && !isPhysicalManager && !isLectureOrGuider;
   const isCaller = roleName === 'CALLER' || roleName === 'Caller';
   const isCallCenterAgent = roleName === 'CALL_CENTER_AGENT' || roleName === 'Call Center Agent';
-  const isStaff = !isSystemAdmin && !isManager && !isPhysicalManager && !isDeliveryDept && !isFinanceDept && !isCaller && !isCallCenterAgent && !isSocialMediaManager && !isSocialMediaStaff && roleName !== 'STUDENT' && roleName !== 'user';
+  const isStaff = !isSystemAdmin && !isManager && !isPhysicalManager && !isDeliveryDept && !isFinanceDept && !isCaller && !isCallCenterAgent && !isSocialMediaManager && !isSocialMediaStaff && !isLectureOrGuider && roleName !== 'STUDENT' && roleName !== 'user';
   const isStudent = roleName === 'STUDENT' || roleName === 'user';
 
   return (
@@ -246,15 +249,26 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
         </div>
 
         <nav onClick={() => { if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className="flex-1 px-3 py-2 space-y-1 overflow-y-auto custom-scrollbar">
+        {/* LECTURE / PAPER GUIDER RESTRICTED MENU (Overview & Content Hub only) */}
+        {isLectureOrGuider && (
+          <>
+            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-brand-accent uppercase tracking-wider mb-2 mt-2">Academic Portal</p>}
+            <NavLink to="/manager/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
+            <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
+          </>
+        )}
+
         {isSystemAdmin && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Administration</p>}
             <NavLink to="/admin/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
             <NavLink to="/admin/stats-hub" className={getNavLinkClass}><BrainCircuit size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-cyan-300">LUMI AI Analyser</span>}</NavLink>
+            <NavLink to="/admin/claude-opus" className={getNavLinkClass}><Sparkles size={18} className="text-amber-400 animate-pulse" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">Claude Opus 5 Studio 🔥</span>}</NavLink>
             <NavLink to="/admin/ai-image-generator" className={getNavLinkClass}><Palette size={18} className="text-rose-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-rose-300">LUMI Image Generator</span>}</NavLink>
             <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
             <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} className="text-yellow-400" /> {isSidebarOpen && <span className="truncate text-sm">Announcements & Events</span>}</NavLink>
             <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
+            <NavLink to="/admin/pusthakalaya" className={getNavLinkClass}><BookOpen size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">IMA පුස්තකාලය</span>}</NavLink>
             <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
 
             <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
@@ -282,7 +296,9 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Team Management</p>}
             <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
             <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
-            <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
+            {!isDeliveryDept && (
+              <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
+            )}
           </>
         )}
 
@@ -319,6 +335,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/admin/stats-hub" className={getNavLinkClass}><Sparkles size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-cyan-300">LUMI AI Analyser</span>}</NavLink>
             <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} className="text-yellow-400" /> {isSidebarOpen && <span className="truncate text-sm">Announcements</span>}</NavLink>
             <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
+            <NavLink to="/manager/pusthakalaya" className={getNavLinkClass}><BookOpen size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">IMA පුස්තකාලය</span>}</NavLink>
             {isClassCoordinatorManager && (
               <NavLink to="/admin/crm-setup" className={getNavLinkClass}><HeadphonesIcon size={18} className="text-pink-400" /> {isSidebarOpen && <span className="truncate text-sm">CRM Setup</span>}</NavLink>
             )}
@@ -345,6 +362,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/call-center/dashboard/free-sem" className={getNavLinkClass}><PhoneCall size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Free Sem Stats</span>}</NavLink>
             <NavLink to="/call-center/dashboard/after-sem" className={getNavLinkClass}><BarChart size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">After Sem Stats</span>}</NavLink>
             <NavLink to="/call-center/dashboard/bridge-handovers" className={getNavLinkClass}><Repeat size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Bridge Hand Overs</span>}</NavLink>
+            <NavLink to="/call-center/dashboard/bridge-progress" className={getNavLinkClass}><TrendingUp size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Bridge Call Progress</span>}</NavLink>
 
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Team & Performance</p>}
             <NavLink to="/call-center/dashboard/staff" className={getNavLinkClass}><Users size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Manage</span>}</NavLink>

@@ -37,6 +37,7 @@ export default function ClassTimetable() {
     const [newClassLecturer, setNewClassLecturer] = useState('');
 
     // Edit Form State
+    const [selectedBatchesForEdit, setSelectedBatchesForEdit] = useState([]);
     const [editSubject, setEditSubject] = useState('');
     const [editTitle, setEditTitle] = useState('');
     const [editStartTime, setEditStartTime] = useState('');
@@ -223,11 +224,27 @@ export default function ClassTimetable() {
         setEditEndTime(evt.endTime || '');
         setEditLecturer(evt.lecturerName || '');
         setEditDate(evt.date ? getLocalDateStr(evt.date) : '');
+        
+        let eventBatches = [];
+        if (evt.batchId) eventBatches.push(evt.batchId);
+        if (evt.additionalBatchIds) {
+            try {
+                const parsed = typeof evt.additionalBatchIds === 'string' ? JSON.parse(evt.additionalBatchIds) : evt.additionalBatchIds;
+                if (Array.isArray(parsed)) {
+                    eventBatches.push(...parsed);
+                }
+            } catch(e) {}
+        }
+        setSelectedBatchesForEdit([...new Set(eventBatches)]);
         setIsEditing(true);
     };
 
     const handleEditSubmit = async (e) => {
         e.preventDefault();
+        if (selectedBatchesForEdit.length === 0) {
+            toast.error("Please select at least one batch!");
+            return;
+        }
         try {
             await api.put(`/admin/timetable/${selectedEvent.id}`, {
                 subjectName: editSubject,
@@ -235,7 +252,8 @@ export default function ClassTimetable() {
                 startTime: editStartTime,
                 endTime: editEndTime,
                 lecturerName: editLecturer,
-                date: editDate
+                date: editDate,
+                batchIds: selectedBatchesForEdit
             });
             toast.success("Class timetable updated successfully!");
             setShowViewModal(false);
@@ -537,7 +555,7 @@ export default function ClassTimetable() {
             {/* VIEW / CANCEL MODAL */}
             {showViewModal && selectedEvent && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-gray-900/60 dark:bg-[#0a0f1c]/95 p-4 backdrop-blur-sm animate-in fade-in duration-200 transition-colors">
-                    <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-3xl p-8 w-full max-w-sm shadow-2xl relative transition-colors">
+                    <div className={`bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder rounded-3xl p-8 w-full ${isEditing ? 'max-w-lg' : 'max-w-sm'} shadow-2xl relative transition-all max-h-[90vh] overflow-y-auto custom-scrollbar`}>
                         <div className="flex justify-between items-start mb-6 border-b border-gray-200 dark:border-brand-darkBorder pb-6 transition-colors">
                             <div>
                                 <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-2 leading-tight transition-colors">{selectedEvent.subjectName}</h3>
@@ -550,6 +568,27 @@ export default function ClassTimetable() {
 
                         {isEditing ? (
                             <form onSubmit={handleEditSubmit} className="space-y-4">
+                                {/* MULTI-BATCH SELECTION IN EDIT */}
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-1.5 block">Allocate to Batches *</label>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto custom-scrollbar p-1.5 bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl">
+                                        {batches.map(b => (
+                                            <label key={b.id} className={`flex items-center gap-2.5 p-2 rounded-lg border cursor-pointer transition-all ${selectedBatchesForEdit.includes(b.id) ? 'bg-brand-accentLight border-brand-accent/40 shadow-sm' : 'bg-white dark:bg-brand-darkCard border-gray-200 dark:border-brand-darkBorder hover:border-gray-300'}`}>
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="w-4 h-4 accent-brand-accent"
+                                                    checked={selectedBatchesForEdit.includes(b.id)}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) setSelectedBatchesForEdit([...selectedBatchesForEdit, b.id]);
+                                                        else setSelectedBatchesForEdit(selectedBatchesForEdit.filter(id => id !== b.id));
+                                                    }}
+                                                />
+                                                <span className="text-xs font-bold text-gray-700 dark:text-white truncate" title={b.name}>{b.name}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+
                                 <div>
                                     <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-1 block">Subject Name</label>
                                     <input 

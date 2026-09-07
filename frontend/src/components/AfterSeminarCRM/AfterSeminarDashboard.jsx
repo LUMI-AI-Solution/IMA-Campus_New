@@ -59,6 +59,38 @@ export default function AfterSeminarDashboard() {
   const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER'].includes(userRole);
   const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN'].includes(userRole);
 
+  const displayBusinesses = React.useMemo(() => {
+    if (isAdmin) return businesses;
+    const userBizList = user?.businessType 
+      ? String(user.businessType).split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+      : [];
+    const userBizId = user?.businessId ? String(user.businessId) : null;
+
+    const matched = businesses.filter(biz => {
+      const isManagerOf = (biz.head_manager_id && String(biz.head_manager_id) === String(user?.id)) ||
+                          (biz.ass_manager_id && String(biz.ass_manager_id) === String(user?.id));
+      const matchesId = userBizId && String(biz.id) === userBizId;
+      const matchesType = userBizList.some(b => 
+        b === String(biz.id) ||
+        b === biz.name.toLowerCase().trim() ||
+        biz.name.toLowerCase().trim().includes(b) ||
+        b.includes(biz.name.toLowerCase().trim())
+      );
+      return isManagerOf || matchesId || matchesType;
+    });
+
+    return matched.length > 0 ? matched : businesses;
+  }, [businesses, isAdmin, user]);
+
+  useEffect(() => {
+    if (!isAdmin && displayBusinesses.length > 0) {
+      const isValid = displayBusinesses.some(b => String(b.id) === String(selectedBusiness));
+      if (!selectedBusiness || !isValid) {
+        setSelectedBusiness(String(displayBusinesses[0].id));
+      }
+    }
+  }, [displayBusinesses, isAdmin, selectedBusiness, setSelectedBusiness]);
+
   const displayBatches = batches.filter(b => {
       if (selectedBusiness) return String(b.businessId) === String(selectedBusiness);
       return true;
@@ -162,8 +194,8 @@ export default function AfterSeminarDashboard() {
           <div className="flex items-center gap-3">
             <FaFilter className="text-slate-500 shrink-0" />
             <select value={selectedBusiness} onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }} className="bg-black/40 border border-white/10 text-slate-300 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-brand-accent transition-all cursor-pointer">
-              <option value="">Select Business (All)</option>
-              {businesses.map(biz => <option key={biz.id} value={biz.id} className="bg-slate-900">{biz.name}</option>)}
+              {displayBusinesses.length > 1 && <option value="">Select Business (All)</option>}
+              {displayBusinesses.map(biz => <option key={biz.id} value={biz.id} className="bg-slate-900">{biz.name}</option>)}
             </select>
 
             <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)} className="bg-black/40 border border-white/10 text-slate-300 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-brand-accent transition-all cursor-pointer">

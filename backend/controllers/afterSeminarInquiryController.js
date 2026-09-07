@@ -791,10 +791,29 @@ exports.bulkActions = async (req, res) => {
                 status: 'OPEN', 
                 phase: 1, 
                 callStatus: 'pending',
+                coordinationRound: 1,
+                openSemRound: 1,
+                newInqRound: 1,
+                openSemPhase: 1,
+                newInqPhase: 1,
+                openSemCallStatus: 'pending',
+                newInqCallStatus: 'pending',
+                callAttempt: 1,
+                openSemCallAttempt: 1,
+                newInqCallAttempt: 1,
+                isLocked: false,
                 assignedAt: new Date() 
             };
             if (batchId && !isNaN(parseInt(batchId))) {
                 updateData.batchId = parseInt(batchId);
+            }
+            if (assignType === 'OPEN_SEMINAR' || assignType === 'OPEN_SEM') {
+                updateData.inquiryType = 'OPEN_SEMINAR';
+            } else if (assignType === 'NEW_INQ') {
+                updateData.inquiryType = 'NEW_INQ';
+                updateData.newInqTimestamp = new Date();
+            } else if (assignType === 'NORMAL') {
+                updateData.inquiryType = 'NORMAL';
             }
             await prisma.lead.updateMany({ 
                 where: { id: { in: leadIds } }, 
@@ -804,11 +823,28 @@ exports.bulkActions = async (req, res) => {
         else if (action === 'UNASSIGN') {
             await prisma.lead.updateMany({ where: { id: { in: leadIds } }, data: { assignedTo: null, status: 'NEW', phase: 1, callStatus: 'pending', assignedAt: null } });
         }
-        else if (action === 'RETURN_FROM_CALL_CENTER') {
-            await prisma.lead.updateMany({
-                where: { id: { in: leadIds } },
-                data: { callCenterRequestStatus: null, isCallCenter: false, assignedTo: null, callCenterStatus: null }
-            });
+        else if (action === 'CONVERT_TO_NEW_INQ' || action === 'SET_NEW_INQ') {
+            const parsedLeadIds = (leadIds || []).map(id => parseInt(id)).filter(id => !isNaN(id));
+            if (parsedLeadIds.length > 0) {
+                await prisma.lead.updateMany({
+                    where: { id: { in: parsedLeadIds } },
+                    data: {
+                        inquiryType: 'NEW_INQ',
+                        newInqTimestamp: new Date()
+                    }
+                });
+            }
+        }
+        else if (action === 'CONVERT_TO_OPEN_SEM' || action === 'SET_OPEN_SEM') {
+            const parsedLeadIds = (leadIds || []).map(id => parseInt(id)).filter(id => !isNaN(id));
+            if (parsedLeadIds.length > 0) {
+                await prisma.lead.updateMany({
+                    where: { id: { in: parsedLeadIds } },
+                    data: {
+                        inquiryType: 'OPEN_SEMINAR'
+                    }
+                });
+            }
         }
         else if (action === 'CHANGE_ROUND') {
             for (const leadId of leadIds) {
@@ -911,69 +947,58 @@ exports.getAutoAssignQuotas = async (req, res) => {
 
 exports.assignLeads = async (req, res) => {
     try {
-        const { type, staffId, count, sort, autoAssignConfig, batchId, businessId, assignType } = req.body;
+        const { type, staffId, count, sort, autoAssignConfig, batchId, businessId, assignType, sourceTab, sourceInquiryType } = req.body;
         
         if (type === 'bulk') {
             let whereClause = { assignedTo: null, campaignType: 'AFTER_SEMINAR', source: { not: 'system' } };
             
             if (batchId && batchId !== '' && batchId !== 'ALL' && batchId !== 'UNASSIGNED') {
                 whereClause.batchId = parseInt(batchId);
-                if (businessId && businessId !== '' && businessId !== 'ALL') {
-                    whereClause.OR = [
-                        { phone: { endsWith: `BIZ_${businessId}` } },
-                        { phone: { endsWith: `BIZ_${businessId}_AS` } },
-                        { phone: { contains: `BIZ_${businessId}_BATCH_` } },
-                        { phone: { contains: `BIZ_${businessId}_ROUND_` } },
-                        { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
-                    ];
-                }
             } else if (batchId === 'UNASSIGNED') {
                 whereClause.batchId = null;
-                if (businessId && businessId !== '' && businessId !== 'ALL') {
-                    whereClause.OR = [
-                        { phone: { endsWith: `BIZ_${businessId}` } },
-                        { phone: { endsWith: `BIZ_${businessId}_AS` } },
-                        { phone: { contains: `BIZ_${businessId}_BATCH_` } },
-                        { phone: { contains: `BIZ_${businessId}_ROUND_` } },
-                        { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
-                    ];
-                }
-            } else if (businessId && businessId !== '' && businessId !== 'ALL') {
+            }
+
+            if (businessId && businessId !== '' && businessId !== 'ALL') {
+                const bId = parseInt(businessId);
                 whereClause.OR = [
-                    { phone: { endsWith: `BIZ_${businessId}` } },
-                    { phone: { endsWith: `BIZ_${businessId}_AS` } },
-                    { phone: { contains: `BIZ_${businessId}_BATCH_` } },
-                    { phone: { contains: `BIZ_${businessId}_ROUND_` } },
-                    { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
+                    { phone: { contains: `BIZ_${bId}_` } },
+                    { phone: { endsWith: `BIZ_${bId}` } }
                 ];
-            } else {
-                // Prevent assigning from ALL businesses by accident if filters are not applied properly
-                // If a manager really wants ALL, they will face issues, but coordinators should not mix leads.
-                // We will force businessId to be required, or if it's missing, return an error.
+            } else if (!batchId || batchId === 'ALL') {
                 return res.status(400).json({ error: "Please select a specific Business or Batch before assigning." });
             }
 
-            const { sourceTab } = req.body;
-            if (sourceTab === 'NEW_INQ') whereClause.inquiryType = 'NEW_INQ';
-            else if (sourceTab === 'OPEN_SEM') whereClause.inquiryType = 'OPEN_SEMINAR';
-            else if (sourceTab === 'IMPORTED') whereClause.inquiryType = 'NORMAL';
-            else if (sourceTab === 'ALL') {
-                // If they are on ALL tab, let's not filter by inquiry type so they can assign anything
-            } else {
-                // Fallback to original logic if sourceTab is not provided
-                if (assignType === 'NEW_INQ') whereClause.inquiryType = 'NEW_INQ';
-                else if (assignType === 'OPEN_SEMINAR') whereClause.inquiryType = 'OPEN_SEMINAR';
-                else if (assignType === 'NORMAL') whereClause.inquiryType = 'NORMAL';
+            // Determine source pool to search FROM:
+            const sourcePool = sourceInquiryType || sourceTab;
+            if (sourcePool === 'NEW_INQ') {
+                whereClause.inquiryType = 'NEW_INQ';
+            } else if (sourcePool === 'OPEN_SEMINAR' || sourcePool === 'OPEN_SEM') {
+                whereClause.inquiryType = { in: ['OPEN_SEMINAR', 'NORMAL'] };
+            } else if (sourcePool === 'NORMAL' || sourcePool === 'IMPORTED') {
+                whereClause.inquiryType = 'NORMAL';
+            } else if (sourcePool === 'PAID_CAMP') {
+                whereClause.inquiryType = 'PAID_CAMP';
             }
+            // If sourcePool is 'ALL' or empty, do not restrict inquiryType in search
 
-            const leadsToAssign = await prisma.lead.findMany({ 
+            let leadsToAssign = await prisma.lead.findMany({ 
                 where: whereClause, 
                 orderBy: { id: sort === 'oldest' ? 'asc' : 'desc' }, 
-                take: parseInt(count) 
+                take: parseInt(count) || 50
             });
 
+            // Fallback: If no leads found with strict batchId filter, and source was NEW_INQ, search for unassigned NEW_INQ leads for this business with batchId=null
+            if (leadsToAssign.length === 0 && whereClause.batchId && (sourcePool === 'NEW_INQ' || !sourcePool)) {
+                const fallbackWhere = { ...whereClause, batchId: null };
+                leadsToAssign = await prisma.lead.findMany({
+                    where: fallbackWhere,
+                    orderBy: { id: sort === 'oldest' ? 'asc' : 'desc' },
+                    take: parseInt(count) || 50
+                });
+            }
+
             if (leadsToAssign.length === 0) {
-                return res.status(404).json({ error: "No unassigned leads found for this category." });
+                return res.status(400).json({ error: "No unassigned leads found for this category." });
             }
 
             if (!staffId || isNaN(parseInt(staffId))) {
@@ -986,10 +1011,32 @@ exports.assignLeads = async (req, res) => {
                 status: 'OPEN', 
                 phase: 1, 
                 callStatus: 'pending',
+                coordinationRound: 1,
+                openSemRound: 1,
+                newInqRound: 1,
+                openSemPhase: 1,
+                newInqPhase: 1,
+                openSemCallStatus: 'pending',
+                newInqCallStatus: 'pending',
+                callAttempt: 1,
+                openSemCallAttempt: 1,
+                newInqCallAttempt: 1,
+                isLocked: false,
                 assignedAt: new Date() 
             };
             if (batchId && batchId !== 'ALL' && batchId !== 'UNASSIGNED' && !isNaN(parseInt(batchId))) {
                 updateData.batchId = parseInt(batchId);
+            }
+
+            // Target inquiry type conversion when assigned:
+            const targetType = assignType || sourcePool;
+            if (targetType === 'OPEN_SEMINAR' || targetType === 'OPEN_SEM') {
+                updateData.inquiryType = 'OPEN_SEMINAR';
+            } else if (targetType === 'NEW_INQ') {
+                updateData.inquiryType = 'NEW_INQ';
+                updateData.newInqTimestamp = new Date();
+            } else if (targetType === 'NORMAL') {
+                updateData.inquiryType = 'NORMAL';
             }
 
             await prisma.lead.updateMany({ 
@@ -1010,6 +1057,7 @@ exports.assignLeads = async (req, res) => {
             return res.status(200).json({ message: "Auto Assign configuration saved!" });
         }
     } catch (error) { 
+        console.error("Assign leads error:", error);
         res.status(500).json({ error: "Failed to process assignment" }); 
     }
 };

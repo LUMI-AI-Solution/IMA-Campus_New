@@ -407,6 +407,31 @@ exports.bulkActions = async (req, res) => {
                 data: { callCenterRequestStatus: null, isCallCenter: false, assignedTo: null, callCenterStatus: null }
             });
         }
+        else if (action === 'CONVERT_TO_NEW_INQ' || action === 'SET_NEW_INQ') {
+            const parsedLeadIds = (leadIds || []).map(id => parseInt(id)).filter(id => !isNaN(id));
+            if (parsedLeadIds.length > 0) {
+                await prisma.lead.updateMany({
+                    where: { id: { in: parsedLeadIds } },
+                    data: {
+                        inquiryType: 'NEW_INQ',
+                        newInqTimestamp: new Date(),
+                        campaignType: 'New Inquiry'
+                    }
+                });
+            }
+        }
+        else if (action === 'CONVERT_TO_OPEN_SEM' || action === 'SET_OPEN_SEM') {
+            const parsedLeadIds = (leadIds || []).map(id => parseInt(id)).filter(id => !isNaN(id));
+            if (parsedLeadIds.length > 0) {
+                await prisma.lead.updateMany({
+                    where: { id: { in: parsedLeadIds } },
+                    data: {
+                        inquiryType: 'OPEN_SEMINAR',
+                        campaignType: 'Open Seminar'
+                    }
+                });
+            }
+        }
         res.status(200).json({ message: "Action successful" });
     } catch (error) { res.status(500).json({ error: "Bulk action failed" }); }
 };

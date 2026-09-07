@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { physicalCrmService } from '../../api/physicalCrm';
 import { physicalFinanceService } from '../../api/physicalFinance';
 import SchoolManagerModal from '../../components/PhysicalCRM/SchoolManagerModal';
-import { User, Search, GraduationCap, Users, Filter, Edit2, Trash2, X, FileSpreadsheet, Upload, Loader2, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
+import { User, Search, GraduationCap, Users, Filter, Edit2, Trash2, X, FileSpreadsheet, Upload, Loader2, CheckCircle2, AlertCircle, Sparkles, CreditCard, BookOpen, ChevronDown, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
+
+import { printThermalReceipt } from '../../utils/thermalReceiptPrinter';
 
 const initialFormData = {
   studentName: '',
@@ -45,17 +47,35 @@ export default function StudentRegistration() {
   const [activeResultTab, setActiveResultTab] = useState('allocated'); // 'allocated' | 'already' | 'unmatched'
   const fileInputRef = useRef(null);
 
+  // Quick Card Scan / Allocate Modal State
+  const [cardModalStudent, setCardModalStudent] = useState(null);
+  const [cardModalInput, setCardModalInput] = useState('');
+  const [savingCardModal, setSavingCardModal] = useState(false);
+
   // Search & Filter
   const [searchTerm, setSearchTerm] = useState('');
   const [filterClass, setFilterClass] = useState('');
   const [filterCardType, setFilterCardType] = useState('ALL');
   const [allocatorClassSearch, setAllocatorClassSearch] = useState('');
   const [formClassSearch, setFormClassSearch] = useState('');
+  const [isFormClassDropdownOpen, setIsFormClassDropdownOpen] = useState(false);
+  const formClassDropdownRef = useRef(null);
   const [importBatchClassSearch, setImportBatchClassSearch] = useState('');
 
   // Form State
   const [editingStudentId, setEditingStudentId] = useState(null);
   const [formData, setFormData] = useState(initialFormData);
+
+  // Close form class dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (formClassDropdownRef.current && !formClassDropdownRef.current.contains(e.target)) {
+        setIsFormClassDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     fetchData();
@@ -125,6 +145,37 @@ export default function StudentRegistration() {
     setFormData(initialFormData);
   };
 
+  const handleQuickAllocateCard = async (targetStudent, rfidCode) => {
+    if (!targetStudent) return;
+    setSavingCardModal(true);
+    try {
+      const cleanRfid = rfidCode ? String(rfidCode).trim() : '';
+      const res = await physicalCrmService.allocateCard(targetStudent.id, cleanRfid);
+      toast.success(res.message || 'Card updated successfully!');
+      setCardModalStudent(null);
+      setCardModalInput('');
+      fetchData();
+    } catch (err) {
+      console.error('Error allocating card:', err);
+      toast.error(err.response?.data?.error || 'Failed to allocate card');
+    } finally {
+      setSavingCardModal(false);
+    }
+  };
+
+  const handleDirectBindRfid = async (studentId, rfidValue) => {
+    if (!studentId) return;
+    try {
+      const cleanRfid = rfidValue ? String(rfidValue).trim() : '';
+      const res = await physicalCrmService.allocateCard(studentId, cleanRfid);
+      toast.success(res.message || 'Card allocated & saved successfully!');
+      fetchData();
+    } catch (err) {
+      console.error('Error allocating card:', err);
+      toast.error(err.response?.data?.error || 'Failed to save card');
+    }
+  };
+
   const handleDeleteClick = async (student) => {
     const sName = student.studentName || `${student.firstName || ''} ${student.lastName || ''}`.trim();
     if (window.confirm(`Are you sure you want to delete "${sName}" (${student.studentId})?`)) {
@@ -142,18 +193,47 @@ export default function StudentRegistration() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      let resultStudent = null;
       if (editingStudentId) {
-        await physicalCrmService.updateStudent(editingStudentId, formData);
+        resultStudent = await physicalCrmService.updateStudent(editingStudentId, formData);
         toast.success('Student updated successfully!');
       } else {
-        await physicalCrmService.createStudent(formData);
+        resultStudent = await physicalCrmService.createStudent(formData);
         toast.success('Student registered successfully!');
       }
+
+      // If registration fee was marked as PAID, trigger thermal receipt
+      if (formData.registrationFeeStatus === 'PAID' && resultStudent) {
+        const regFeeVal = Number(formData.registrationFeeAmount || 1000);
+        printThermalReceipt({
+          receiptNo: `REG-${resultStudent.studentId || Date.now().toString().slice(-6)}`,
+          studentId: resultStudent.studentId || formData.nic || '-',
+          studentName: resultStudent.studentName || formData.studentName || 'Student',
+          studentPhone: resultStudent.phone || formData.phone || '',
+          className: 'Admission & Registration',
+          month: new Date().toISOString().slice(0, 7),
+          cardType: 'STUDENT REGISTRATION',
+          amount: regFeeVal,
+          paymentMethod: 'CASH',
+          paidDate: new Date(),
+          items: [
+            {
+              description: 'Campus Admission & Registration Fee',
+              month: new Date().toISOString().slice(0, 7),
+              cardType: 'REGISTRATION',
+              amount: regFeeVal
+            }
+          ],
+          totalAmount: regFeeVal
+        });
+      }
+
       setFormData(initialFormData);
       setEditingStudentId(null);
       fetchData();
     } catch (err) {
-      toast.error(editingStudentId ? 'Update failed' : 'Registration failed');
+      console.error('Error saving student:', err);
+      toast.error(err.response?.data?.error || (editingStudentId ? 'Update failed' : 'Registration failed'));
     }
   };
 
@@ -387,96 +467,183 @@ export default function StudentRegistration() {
               {/* Class & School */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">Allocate Classes (Multi-Class Support) *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider">
+                      Allocate Classes (Multi-Class Support) *
+                    </label>
+                    <span className="text-[10px] text-white/40">
+                      {(formData.classIds || []).length} Allocated
+                    </span>
+                  </div>
                   
                   {/* Selected Class Badges */}
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {(formData.classIds || []).map(cId => {
-                      const cls = classes.find(c => c.id === parseInt(cId));
-                      if (!cls) return null;
-                      const teacherNames = cls.teachers && cls.teachers.length > 0
-                        ? cls.teachers.map(t => t.name).join(', ')
-                        : '';
-                      return (
-                        <span key={cId} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-brand-accent/20 border border-brand-accent/40 text-brand-accent rounded-lg text-xs font-bold shadow-sm">
-                          <span>{cls.name}</span>
-                          {teacherNames && (
-                            <span className="text-[10px] text-white/70 font-normal">
-                              ({teacherNames})
+                  {(formData.classIds || []).length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 mb-2.5">
+                      {(formData.classIds || []).map(cId => {
+                        const cls = classes.find(c => c.id === parseInt(cId));
+                        if (!cls) return null;
+                        const teacherNames = cls.teachers && cls.teachers.length > 0
+                          ? cls.teachers.map(t => t.name).join(', ')
+                          : '';
+                        return (
+                          <span key={cId} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-red-600/30 to-red-900/40 border border-red-500/40 text-white rounded-xl text-xs font-bold shadow-md animate-in fade-in">
+                            <BookOpen size={13} className="text-amber-400 shrink-0" />
+                            <span className="truncate max-w-[180px]">{cls.name}</span>
+                            <span className="text-[10px] px-1.5 py-0.2 bg-white/10 rounded text-amber-200">
+                              {cls.grade}
                             </span>
-                          )}
-                          {cls.monthlyFee > 0 && (
-                            <span className="text-[10px] text-emerald-400 font-extrabold bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20">
-                              Rs. {Number(cls.monthlyFee).toLocaleString()}
-                            </span>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setFormData(prev => {
-                                const newIds = (prev.classIds || []).filter(id => id !== cId);
-                                return { ...prev, classIds: newIds, classId: newIds[0] || '' };
-                              });
-                            }}
-                            className="hover:text-red-400 font-extrabold ml-1 text-sm"
-                            title="Remove Class"
-                          >
-                            ×
-                          </button>
-                        </span>
-                      );
-                    })}
-                  </div>
-
-                  {classes.length > 4 && (
-                    <div className="relative mb-1.5">
-                      <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
-                      <input
-                        type="text"
-                        value={formClassSearch}
-                        onChange={(e) => setFormClassSearch(e.target.value)}
-                        placeholder="🔍 Search class by Lecturer / Subject / Grade..."
-                        className="w-full pl-8 pr-7 py-1.5 bg-black/40 border border-white/10 rounded-lg text-[11px] text-white placeholder:text-white/30 focus:border-brand-accent outline-none transition-all"
-                      />
-                      {formClassSearch && (
-                        <button
-                          type="button"
-                          onClick={() => setFormClassSearch('')}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-0.5"
-                          title="Clear"
-                        >
-                          <X size={12} />
-                        </button>
-                      )}
+                            {cls.monthlyFee > 0 && (
+                              <span className="text-[10px] text-emerald-300 font-extrabold bg-emerald-500/20 px-1.5 py-0.2 rounded border border-emerald-500/30">
+                                Rs. {Number(cls.monthlyFee).toLocaleString()}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFormData(prev => {
+                                  const newIds = (prev.classIds || []).filter(id => id !== cId);
+                                  return { ...prev, classIds: newIds, classId: newIds[0] || '' };
+                                });
+                              }}
+                              className="hover:text-red-400 hover:bg-white/10 rounded-full w-4 h-4 flex items-center justify-center ml-0.5 text-xs cursor-pointer transition-colors"
+                              title="Remove Class"
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="mb-2 p-2 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex items-center gap-1.5">
+                      <AlertCircle size={13} className="shrink-0" />
+                      <span>Select at least one class to enroll student.</span>
                     </div>
                   )}
 
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      const val = parseInt(e.target.value);
-                      if (val && (!formData.classIds || !formData.classIds.includes(val))) {
-                        setFormData(prev => {
-                          const newIds = [...(prev.classIds || []), val];
-                          return { ...prev, classIds: newIds, classId: newIds[0] };
-                        });
-                        setFormClassSearch('');
-                      }
-                    }}
-                    className={inputBaseClass + " appearance-none font-medium text-xs"}
-                  >
-                    <option value="" className="text-black">+ Add a Class to Student {formClassSearch ? `(${filteredFormClasses.length} matches)` : ''}...</option>
-                    {filteredFormClasses.map(c => {
-                      const teacherNames = c.teachers && c.teachers.length > 0
-                        ? c.teachers.map(t => t.name).join(', ')
-                        : '';
-                      return (
-                        <option key={c.id} value={c.id} className="text-black" disabled={formData.classIds?.includes(c.id)}>
-                          {c.name} ({c.grade}){c.stream ? ` - ${c.stream}` : ''}{teacherNames ? ` • ${teacherNames}` : ''}{c.monthlyFee > 0 ? ` - Rs. ${Number(c.monthlyFee).toLocaleString()}` : ''} {formData.classIds?.includes(c.id) ? '✓ Enrolled' : ''}
-                        </option>
-                      );
-                    })}
-                  </select>
+                  {/* Interactive Class Combobox Dropdown */}
+                  <div className="relative" ref={formClassDropdownRef}>
+                    <button
+                      type="button"
+                      onClick={() => setIsFormClassDropdownOpen(prev => !prev)}
+                      className="w-full flex items-center justify-between px-3.5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/15 rounded-xl text-xs font-medium text-white transition-all shadow-inner focus:outline-none focus:ring-2 focus:ring-red-500/50 cursor-pointer"
+                    >
+                      <div className="flex items-center gap-2 truncate pr-2">
+                        <Search size={14} className="text-white/40 shrink-0" />
+                        <span className="text-white/80 truncate">
+                          {(formData.classIds || []).length > 0 
+                            ? `+ Add more classes (${(formData.classIds || []).length} selected)...` 
+                            : `🔍 Click to search & allocate classes (${classes.length} available)...`}
+                        </span>
+                      </div>
+                      <ChevronDown size={15} className={`text-white/50 transition-transform ${isFormClassDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {/* Popover Dropdown */}
+                    {isFormClassDropdownOpen && (
+                      <div className="absolute left-0 right-0 top-full mt-1.5 bg-[#140808] border border-white/20 rounded-2xl shadow-2xl z-50 p-2 space-y-2 max-h-80 flex flex-col">
+                        <div className="relative shrink-0">
+                          <Search size={14} className="absolute left-3 top-2.5 text-white/40" />
+                          <input
+                            type="text"
+                            value={formClassSearch}
+                            onChange={(e) => setFormClassSearch(e.target.value)}
+                            placeholder="Type to filter classes (e.g. Commerce, BS, English)..."
+                            className="w-full pl-9 pr-8 py-2 bg-white/10 border border-white/20 rounded-xl text-white text-xs font-medium focus:outline-none focus:ring-2 focus:ring-red-500 shadow-inner placeholder:text-white/40"
+                            autoFocus
+                          />
+                          {formClassSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setFormClassSearch('')}
+                              className="absolute right-2.5 top-2.5 text-white/40 hover:text-white cursor-pointer"
+                            >
+                              <X size={13} />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* List of classes */}
+                        <div className="overflow-y-auto max-h-56 space-y-1 custom-scrollbar pr-1">
+                          {filteredFormClasses.length === 0 ? (
+                            <div className="p-3 text-center text-xs text-white/40">
+                              No classes found matching "{formClassSearch}"
+                            </div>
+                          ) : (
+                            filteredFormClasses.map(c => {
+                              const isSelected = formData.classIds?.includes(c.id);
+                              const teacherNames = c.teachers?.map(t => t.name).join(', ') || '';
+
+                              return (
+                                <button
+                                  key={c.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setFormData(prev => {
+                                      const currentIds = prev.classIds || [];
+                                      const newIds = isSelected 
+                                        ? currentIds.filter(id => id !== c.id)
+                                        : [...currentIds, c.id];
+                                      return { ...prev, classIds: newIds, classId: newIds[0] || '' };
+                                    });
+                                  }}
+                                  className={`w-full text-left p-2.5 rounded-xl text-xs font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                                    isSelected 
+                                      ? 'bg-red-600/30 border border-red-500/50 text-white shadow-sm' 
+                                      : 'text-white/85 hover:bg-white/10 hover:text-white border border-transparent'
+                                  }`}
+                                >
+                                  <div className="min-w-0 flex-1 pr-2">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-bold text-white truncate">{c.name}</span>
+                                      <span className="text-[10px] px-1.5 py-0.2 bg-white/10 rounded text-amber-200 font-normal">
+                                        {c.grade}
+                                      </span>
+                                      {c.stream && (
+                                        <span className="text-[10px] px-1.5 py-0.2 bg-blue-500/20 text-blue-300 rounded font-normal">
+                                          {c.stream}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[10px] text-white/50 font-normal mt-0.5 flex items-center gap-2">
+                                      {teacherNames && <span>👨‍🏫 {teacherNames}</span>}
+                                      {c.monthlyFee > 0 && <span className="text-emerald-400 font-semibold">Rs. {Number(c.monthlyFee).toLocaleString()}</span>}
+                                    </div>
+                                  </div>
+
+                                  <div className="shrink-0">
+                                    {isSelected ? (
+                                      <span className="px-2 py-0.5 rounded-lg text-[10px] font-black bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
+                                        <Check size={11} /> Enrolled
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px] text-white/40 hover:text-white">
+                                        + Select
+                                      </span>
+                                    )}
+                                  </div>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
+
+                        {/* Popover Footer */}
+                        <div className="pt-1.5 border-t border-white/10 flex items-center justify-between">
+                          <span className="text-[10px] text-white/50 font-medium">
+                            {(formData.classIds || []).length} classes selected
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setIsFormClassDropdownOpen(false)}
+                            className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold cursor-pointer"
+                          >
+                            Done
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div>
@@ -540,7 +707,7 @@ export default function StudentRegistration() {
               <div className="bg-white/5 p-4 rounded-2xl border border-white/10 mt-4 shadow-inner">
                 <div className="flex justify-between items-center mb-2">
                   <h3 className="text-[10px] font-bold text-white/50 uppercase tracking-wider">
-                    💳 Student Card Concession (ගෙවීම් ක්‍රමය)
+                    💳 Student Card Concession (Payment Plan)
                   </h3>
                   {formData.cardType !== 'FULL' && (
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${
@@ -575,9 +742,67 @@ export default function StudentRegistration() {
               </div>
 
               {/* RFID Card Scanner */}
-              <div className="mt-4">
-                <label className="block text-[10px] font-bold text-emerald-400 uppercase tracking-wider mb-1">💳 Card Scanner (Tap Here & Scan)</label>
-                <input type="text" name="rfid" placeholder="Scan ID Card here..." value={formData.rfid} onChange={handleInputChange} className={`${inputBaseClass} border-emerald-500/30 focus:ring-emerald-500/50 bg-emerald-500/5 text-emerald-100 placeholder:text-emerald-500/50`} />
+              <div className="mt-4 bg-emerald-500/10 p-3.5 rounded-2xl border border-emerald-500/20">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[10px] font-bold text-emerald-400 uppercase tracking-wider">
+                    💳 Card / QR Scanner (Scan Student ID Card)
+                  </label>
+                  {formData.rfid && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFormData(prev => ({ ...prev, rfid: '' }));
+                        if (editingStudentId) {
+                          handleDirectBindRfid(editingStudentId, '');
+                        }
+                      }}
+                      className="text-[10px] text-red-400 hover:text-red-300 font-bold underline cursor-pointer"
+                    >
+                      Clear Card
+                    </button>
+                  )}
+                </div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      name="rfid"
+                      placeholder="Click here and scan Student ID Card / QR..."
+                      value={formData.rfid}
+                      onChange={(e) => {
+                        const val = e.target.value.trim();
+                        setFormData(prev => ({ ...prev, rfid: val }));
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          const val = e.target.value.trim();
+                          if (editingStudentId) {
+                            handleDirectBindRfid(editingStudentId, val);
+                          } else if (val) {
+                            toast.success(`Card Code Captured: ${val}`);
+                          }
+                        }
+                      }}
+                      className={`${inputBaseClass} border-emerald-500/40 focus:ring-emerald-500/60 bg-emerald-950/40 text-emerald-100 placeholder:text-emerald-500/40 font-mono font-bold tracking-wider`}
+                    />
+                  </div>
+
+                  {editingStudentId && (
+                    <button
+                      type="button"
+                      onClick={() => handleDirectBindRfid(editingStudentId, formData.rfid)}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow-md transition-all cursor-pointer shrink-0 flex items-center gap-1 active:scale-95"
+                    >
+                      <span>⚡ Save Card</span>
+                    </button>
+                  )}
+                </div>
+                <p className="text-[10px] text-emerald-400/70 mt-1.5">
+                  {editingStudentId 
+                    ? "💡 Scan card barcode & press Enter (or click 'Save Card') to bind immediately to this student."
+                    : "💡 Scanned card code will be captured and saved when you submit registration below."}
+                </p>
               </div>
 
               {/* Registration Fee */}
@@ -754,6 +979,33 @@ export default function StudentRegistration() {
                         <div className="pt-2.5 border-t border-white/10 flex justify-between items-center text-[10px] text-white/50 uppercase tracking-wider font-bold">
                           <span>School: <span className="font-semibold text-white/80">{student.school?.name || 'N/A'}</span></span>
                           <span>Parent: <span className="font-semibold text-white/80">{student.guardianName || 'N/A'}</span></span>
+                        </div>
+
+                        {/* ID Card / RFID Badge & 1-Click Quick Allocate */}
+                        <div className="mt-2.5 pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            {student.rfid ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 font-mono text-[11px] font-bold border border-emerald-500/30">
+                                💳 {student.rfid}
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/5 text-white/50 text-[10px] font-bold border border-white/10">
+                                ⚠️ No Card
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCardModalStudent(student);
+                              setCardModalInput(student.rfid || '');
+                            }}
+                            className="px-2.5 py-1 bg-emerald-600/80 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-black tracking-wide transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                            title="Scan or change ID Card code for this student"
+                          >
+                            <CreditCard size={11} />
+                            <span>{student.rfid ? 'Change Card' : '+ Allocate Card'}</span>
+                          </button>
                         </div>
                       </div>
                     ))}
@@ -1290,6 +1542,105 @@ export default function StudentRegistration() {
               )}
 
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* QUICK CARD SCAN & ALLOCATE MODAL */}
+      {cardModalStudent && (
+        <div className="fixed inset-0 z-[999999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-in fade-in duration-200">
+          <div className="bg-[#0f111a] border border-white/15 rounded-3xl p-6 sm:p-7 max-w-md w-full text-white shadow-[0_20px_60px_rgba(0,0,0,0.6)] relative overflow-hidden font-sans space-y-4">
+            
+            {/* Ambient Background Glow */}
+            <div className="absolute -top-12 left-1/2 -translate-x-1/2 w-48 h-24 bg-blue-500/20 rounded-full blur-3xl pointer-events-none"></div>
+
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 relative z-10">
+              <div className="flex items-center gap-3.5">
+                <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 to-indigo-500 shadow-lg shadow-blue-500/25 flex items-center justify-center text-white shrink-0 border border-white/20">
+                  <CreditCard size={22} />
+                </div>
+                <div className="min-w-0">
+                  <h3 className="text-base font-black text-white tracking-tight">Allocate Physical ID Card</h3>
+                  <p className="text-xs text-white/60 truncate mt-0.5">
+                    Student: <span className="text-blue-300 font-bold">{cardModalStudent.studentName || `${cardModalStudent.firstName || ''} ${cardModalStudent.lastName || ''}`.trim()}</span>
+                  </p>
+                  <p className="text-[11px] text-white/40 font-mono font-semibold">{cardModalStudent.studentId}</p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => {
+                  setCardModalStudent(null);
+                  setCardModalInput('');
+                }}
+                className="text-white/40 hover:text-white p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all cursor-pointer shrink-0"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Card Input Field */}
+            <div className="space-y-2 relative z-10 pt-1">
+              <div className="flex items-center justify-between">
+                <label className="block text-[11px] font-bold text-white/70 uppercase tracking-wider">
+                  Physical ID Card / Barcode
+                </label>
+                {cardModalInput && (
+                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">
+                    Ready to Bind
+                  </span>
+                )}
+              </div>
+
+              <div className="relative">
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Scan barcode (e.g. +1488) or enter code..."
+                  value={cardModalInput}
+                  onChange={(e) => setCardModalInput(e.target.value.trim())}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleQuickAllocateCard(cardModalStudent, cardModalInput);
+                    }
+                  }}
+                  className="w-full bg-white/[0.04] border border-white/15 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/20 rounded-2xl px-4 py-3.5 text-white font-sans text-sm font-bold tracking-wide placeholder:text-white/30 outline-none transition-all"
+                />
+              </div>
+
+              <div className="bg-white/[0.03] border border-white/10 rounded-xl p-3 flex items-start gap-2 text-xs text-white/60 leading-relaxed">
+                <span className="text-blue-400 text-sm leading-none">⚡</span>
+                <span>
+                  Scan with hardware barcode scanner and press <strong>Enter</strong> to auto-bind, or type code and click <strong>Save & Bind Card</strong>.
+                </span>
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-2.5 pt-2 relative z-10">
+              {cardModalStudent.rfid && (
+                <button
+                  type="button"
+                  onClick={() => handleQuickAllocateCard(cardModalStudent, '')}
+                  disabled={savingCardModal}
+                  className="px-4 py-3 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 rounded-2xl text-xs font-bold transition-all cursor-pointer active:scale-95 disabled:opacity-50 shrink-0"
+                >
+                  Unlink Card
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => handleQuickAllocateCard(cardModalStudent, cardModalInput)}
+                disabled={savingCardModal || !cardModalInput}
+                className="flex-1 py-3.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 hover:from-blue-500 hover:via-indigo-500 hover:to-purple-500 text-white rounded-2xl text-xs font-black shadow-lg shadow-blue-500/25 transition-all cursor-pointer flex items-center justify-center gap-2 active:scale-98 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <CheckCircle2 size={16} />
+                <span>{savingCardModal ? 'Saving Card...' : 'Save & Bind Card ⚡'}</span>
+              </button>
+            </div>
+
           </div>
         </div>
       )}

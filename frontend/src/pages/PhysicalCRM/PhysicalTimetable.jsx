@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Calendar, Clock, Download, Printer, Filter, Search, User, 
   BookOpen, Sparkles, ChevronLeft, ChevronRight, Layers, Award,
-  CheckCircle2, AlertCircle
+  CheckCircle2, AlertCircle, Building2, MapPin
 } from 'lucide-react';
 import { physicalCrmService } from '../../api/physicalCrm';
 import toast from 'react-hot-toast';
@@ -52,16 +52,65 @@ const calculateDuration = (startTime, endTime) => {
   return `${minutes} min`;
 };
 
+// Color theme helper by stream for visual clarity and eye comfort
+const getStreamTheme = (stream) => {
+  const s = (stream || '').toLowerCase();
+  if (s.includes('science') || s.includes('maths') || s.includes('bio')) {
+    return {
+      cardBg: 'bg-gradient-to-b from-cyan-950/40 via-slate-900/90 to-slate-950/90',
+      cardBorder: 'border-cyan-500/25 hover:border-cyan-400/50 hover:shadow-cyan-950/30',
+      badge: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30',
+      timeBg: 'bg-cyan-950/60 border-cyan-500/30 text-cyan-300',
+      accentColor: 'text-cyan-400'
+    };
+  }
+  if (s.includes('commerce') || s.includes('acc') || s.includes('bs') || s.includes('econ')) {
+    return {
+      cardBg: 'bg-gradient-to-b from-amber-950/40 via-slate-900/90 to-slate-950/90',
+      cardBorder: 'border-amber-500/25 hover:border-amber-400/50 hover:shadow-amber-950/30',
+      badge: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+      timeBg: 'bg-amber-950/60 border-amber-500/30 text-amber-300',
+      accentColor: 'text-amber-400'
+    };
+  }
+  if (s.includes('art') || s.includes('logic') || s.includes('media') || s.includes('sinhala')) {
+    return {
+      cardBg: 'bg-gradient-to-b from-purple-950/40 via-slate-900/90 to-slate-950/90',
+      cardBorder: 'border-purple-500/25 hover:border-purple-400/50 hover:shadow-purple-950/30',
+      badge: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+      timeBg: 'bg-purple-950/60 border-purple-500/30 text-purple-300',
+      accentColor: 'text-purple-400'
+    };
+  }
+  if (s.includes('tech') || s.includes('ict') || s.includes('sft') || s.includes('et') || s.includes('bst')) {
+    return {
+      cardBg: 'bg-gradient-to-b from-emerald-950/40 via-slate-900/90 to-slate-950/90',
+      cardBorder: 'border-emerald-500/25 hover:border-emerald-400/50 hover:shadow-emerald-950/30',
+      badge: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+      timeBg: 'bg-emerald-950/60 border-emerald-500/30 text-emerald-300',
+      accentColor: 'text-emerald-400'
+    };
+  }
+  return {
+    cardBg: 'bg-gradient-to-b from-indigo-950/40 via-slate-900/90 to-slate-950/90',
+    cardBorder: 'border-indigo-500/25 hover:border-indigo-400/50 hover:shadow-indigo-950/30',
+    badge: 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30',
+    timeBg: 'bg-indigo-950/60 border-indigo-500/30 text-indigo-300',
+    accentColor: 'text-indigo-400'
+  };
+};
+
 export default function PhysicalTimetable() {
   const [schedule, setSchedule] = useState({});
   const [classesList, setClassesList] = useState([]);
   const [teachersList, setTeachersList] = useState([]);
+  const [hallsList, setHallsList] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // View state: 'daywise' | 'weekly'
-  const [viewMode, setViewMode] = useState('daywise');
+  const [viewMode, setViewMode] = useState('weekly');
   
-  // Current active day for daywise view (defaults to today's day of week or Monday)
+  // Current active day for daywise view
   const [activeDay, setActiveDay] = useState(() => {
     const todayIndex = new Date().getDay(); // 0 is Sunday, 1 is Monday...
     const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -71,6 +120,7 @@ export default function PhysicalTimetable() {
   // Filters
   const [selectedTeacherFilter, setSelectedTeacherFilter] = useState('ALL');
   const [selectedGradeFilter, setSelectedGradeFilter] = useState('ALL');
+  const [selectedHallFilter, setSelectedHallFilter] = useState('ALL');
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
@@ -80,15 +130,19 @@ export default function PhysicalTimetable() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [classesRes, teachersRes] = await Promise.all([
+      const [classesRes, teachersRes, hallsRes] = await Promise.all([
         physicalCrmService.getClasses(),
-        physicalCrmService.getTeachers()
+        physicalCrmService.getTeachers(),
+        physicalCrmService.getHalls().catch(() => [])
       ]);
 
       const classes = classesRes || [];
       const teachers = teachersRes || [];
+      const halls = hallsRes || [];
+      
       setClassesList(classes);
       setTeachersList(teachers);
+      setHallsList(halls);
 
       // Build schedule map
       const dayMap = {};
@@ -103,6 +157,7 @@ export default function PhysicalTimetable() {
 
           cls.timetables.forEach(slot => {
             if (dayMap[slot.dayOfWeek]) {
+              const hallName = slot.hall?.name || slot.hallName || '';
               dayMap[slot.dayOfWeek].push({
                 id: slot.id,
                 classId: cls.id,
@@ -118,6 +173,8 @@ export default function PhysicalTimetable() {
                 classStream: cls.stream || '',
                 classSubject: cls.subject || '',
                 monthlyFee: cls.monthlyFee || 0,
+                hallId: slot.hallId || (slot.hall ? slot.hall.id : null),
+                hallName: hallName,
                 dayOfWeek: slot.dayOfWeek
               });
             }
@@ -125,11 +182,12 @@ export default function PhysicalTimetable() {
         }
       });
 
-      // 2. Direct teacher slots (if any legacy slots)
+      // 2. Direct teacher slots (if any)
       teachers.forEach(teacher => {
         if (teacher.timetables) {
           teacher.timetables.forEach(slot => {
             if (slot.dayOfWeek && dayMap[slot.dayOfWeek] && !slot.classId) {
+              const hallName = slot.hall?.name || slot.hallName || '';
               dayMap[slot.dayOfWeek].push({
                 id: slot.id,
                 classId: null,
@@ -145,6 +203,8 @@ export default function PhysicalTimetable() {
                 classStream: '',
                 classSubject: '',
                 monthlyFee: 0,
+                hallId: slot.hallId || (slot.hall ? slot.hall.id : null),
+                hallName: hallName,
                 dayOfWeek: slot.dayOfWeek
               });
             }
@@ -174,6 +234,15 @@ export default function PhysicalTimetable() {
     return Array.from(grades).sort();
   }, [classesList]);
 
+  // Unique Halls for filter dropdown
+  const availableHalls = useMemo(() => {
+    const hallNames = new Set(hallsList.map(h => h.name));
+    Object.values(schedule).flat().forEach(s => {
+      if (s.hallName) hallNames.add(s.hallName);
+    });
+    return Array.from(hallNames).sort();
+  }, [hallsList, schedule]);
+
   // Filtered Schedule based on selected filters
   const filteredSchedule = useMemo(() => {
     const res = {};
@@ -188,6 +257,10 @@ export default function PhysicalTimetable() {
         const matchGrade = selectedGradeFilter === 'ALL' || 
           slot.classGrade === selectedGradeFilter;
 
+        // Hall filter
+        const matchHall = selectedHallFilter === 'ALL' || 
+          (slot.hallName && slot.hallName.toLowerCase() === selectedHallFilter.toLowerCase());
+
         // Search term
         const term = searchTerm.trim().toLowerCase();
         const matchSearch = !term ||
@@ -195,13 +268,14 @@ export default function PhysicalTimetable() {
           slot.teacherName.toLowerCase().includes(term) ||
           slot.classGrade.toLowerCase().includes(term) ||
           slot.classSubject.toLowerCase().includes(term) ||
-          slot.classStream.toLowerCase().includes(term);
+          slot.classStream.toLowerCase().includes(term) ||
+          (slot.hallName && slot.hallName.toLowerCase().includes(term));
 
-        return matchTeacher && matchGrade && matchSearch;
+        return matchTeacher && matchGrade && matchHall && matchSearch;
       });
     });
     return res;
-  }, [schedule, selectedTeacherFilter, selectedGradeFilter, searchTerm]);
+  }, [schedule, selectedTeacherFilter, selectedGradeFilter, selectedHallFilter, searchTerm]);
 
   // Total class slots count across all days
   const totalSlotsCount = useMemo(() => {
@@ -210,7 +284,7 @@ export default function PhysicalTimetable() {
 
   // Export Timetable to CSV
   const handleExportCSV = () => {
-    const headers = ['Day', 'Start Time', 'End Time', 'Duration', 'Class Name', 'Grade', 'Stream', 'Subject', 'Lecturer', 'Monthly Fee'];
+    const headers = ['Day', 'Start Time', 'End Time', 'Duration', 'Class Name', 'Grade', 'Stream', 'Subject', 'Lecturer', 'Hall', 'Monthly Fee'];
     const rows = [];
 
     DAYS.forEach(day => {
@@ -226,6 +300,7 @@ export default function PhysicalTimetable() {
           `"${s.classStream || ''}"`,
           `"${s.classSubject || ''}"`,
           `"${(s.teacherName || '').replace(/"/g, '""')}"`,
+          `"${s.hallName || 'Unassigned'}"`,
           s.monthlyFee || 0
         ]);
       });
@@ -253,20 +328,20 @@ export default function PhysicalTimetable() {
   };
 
   return (
-    <div className="space-y-6 w-full min-h-full pb-16 max-w-[1700px] mx-auto animate-in fade-in duration-500">
+    <div className="space-y-6 w-full min-h-full pb-16 max-w-[1800px] mx-auto animate-in fade-in duration-500">
       
       {/* 1. Header & Controls */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-white/10 pb-5">
         <div className="flex items-center gap-3">
-          <div className="bg-gradient-to-tr from-pink-600 to-rose-600 p-2.5 rounded-2xl shadow-lg shadow-pink-600/30 text-white">
+          <div className="bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 p-3 rounded-2xl shadow-lg shadow-indigo-600/30 text-white">
             <Calendar size={26} />
           </div>
           <div>
-            <h1 className="text-3xl font-extrabold text-white tracking-tight flex items-center gap-2">
-              Physical Class Timetable
+            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2">
+              Physical Campus Timetable
             </h1>
             <p className="text-white/60 text-xs sm:text-sm mt-0.5">
-              Chronologically ordered class schedule • Day-wise & Weekly interactive timetable views.
+              Comprehensive timetable schedule with hall allocations & chronologically ordered time slots.
             </p>
           </div>
         </div>
@@ -274,26 +349,26 @@ export default function PhysicalTimetable() {
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2.5">
           {/* View Mode Switcher */}
-          <div className="flex bg-black/40 p-1 rounded-2xl border border-white/15">
-            <button
-              onClick={() => setViewMode('daywise')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                viewMode === 'daywise'
-                  ? 'bg-brand-accent text-white shadow-md'
-                  : 'text-white/60 hover:text-white'
-              }`}
-            >
-              📅 Day-by-Day View
-            </button>
+          <div className="flex bg-black/50 p-1 rounded-2xl border border-white/15 shadow-inner">
             <button
               onClick={() => setViewMode('weekly')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
                 viewMode === 'weekly'
-                  ? 'bg-brand-accent text-white shadow-md'
+                  ? 'bg-blue-600 text-white shadow-md'
                   : 'text-white/60 hover:text-white'
               }`}
             >
               🗓️ Weekly 7-Day Grid
+            </button>
+            <button
+              onClick={() => setViewMode('daywise')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                viewMode === 'daywise'
+                  ? 'bg-blue-600 text-white shadow-md'
+                  : 'text-white/60 hover:text-white'
+              }`}
+            >
+              📅 Day-by-Day View
             </button>
           </div>
 
@@ -306,36 +381,50 @@ export default function PhysicalTimetable() {
           
           <button
             onClick={handlePrintSoftcopy}
-            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-brand-accent to-rose-600 hover:from-rose-600 hover:to-brand-accent text-white rounded-xl text-xs font-extrabold shadow-lg shadow-brand-accent/30 transition-all active:scale-95 cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-indigo-600 hover:to-blue-600 text-white rounded-xl text-xs font-black shadow-lg shadow-blue-600/30 transition-all active:scale-95 cursor-pointer"
           >
-            <Printer size={14} /> Print / Softcopy 🖨️
+            <Printer size={14} /> Print Timetable 🖨️
           </button>
         </div>
       </div>
 
       {/* 2. Filters & Search Bar */}
-      <div className="bg-black/40 backdrop-blur-xl border border-white/15 rounded-3xl p-4 shadow-xl flex flex-col md:flex-row justify-between items-stretch md:items-center gap-3">
+      <div className="bg-slate-900/80 backdrop-blur-2xl border border-white/15 rounded-3xl p-4 shadow-xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-center">
         
         {/* Search */}
-        <div className="relative flex-1">
+        <div className="relative lg:col-span-4">
           <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-white/40" size={14} />
           <input
             type="text"
-            placeholder="Search class, lecturer, subject..."
+            placeholder="Search class, lecturer, hall, stream..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-white placeholder:text-white/30 focus:border-brand-accent outline-none"
+            className="w-full pl-9 pr-3 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-white placeholder:text-white/30 focus:border-blue-500 outline-none"
           />
         </div>
 
+        {/* Hall Filter */}
+        <div className="lg:col-span-3">
+          <select
+            value={selectedHallFilter}
+            onChange={(e) => setSelectedHallFilter(e.target.value)}
+            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none cursor-pointer focus:border-blue-500"
+          >
+            <option value="ALL" className="text-black">🏢 All Halls (Hall A, B, C...)</option>
+            {availableHalls.map(h => (
+              <option key={h} value={h} className="text-black">🏢 {h}</option>
+            ))}
+          </select>
+        </div>
+
         {/* Teacher Filter */}
-        <div className="w-full md:w-56">
+        <div className="lg:col-span-3">
           <select
             value={selectedTeacherFilter}
             onChange={(e) => setSelectedTeacherFilter(e.target.value)}
-            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none cursor-pointer"
+            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none cursor-pointer focus:border-blue-500"
           >
-            <option value="ALL" className="text-black">All Lecturers / Teachers</option>
+            <option value="ALL" className="text-black">👨‍🏫 All Lecturers / Teachers</option>
             {teachersList.map(t => (
               <option key={t.id} value={t.name} className="text-black">{t.name}</option>
             ))}
@@ -343,38 +432,168 @@ export default function PhysicalTimetable() {
         </div>
 
         {/* Grade Filter */}
-        <div className="w-full md:w-44">
+        <div className="lg:col-span-2">
           <select
             value={selectedGradeFilter}
             onChange={(e) => setSelectedGradeFilter(e.target.value)}
-            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none cursor-pointer"
+            className="w-full px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-xs text-white outline-none cursor-pointer focus:border-blue-500"
           >
-            <option value="ALL" className="text-black">All Grades / Years</option>
+            <option value="ALL" className="text-black">🎓 All Grades</option>
             {uniqueGrades.map(g => (
               <option key={g} value={g} className="text-black">{g}</option>
             ))}
           </select>
         </div>
 
-        {/* Total Sessions Count Pill */}
-        <div className="flex items-center gap-2 px-3 py-2 bg-white/5 rounded-xl border border-white/10 shrink-0">
-          <Clock size={14} className="text-brand-accent" />
-          <span className="text-xs font-bold text-white">
-            {totalSlotsCount} <span className="text-white/50 font-normal">Active Slots</span>
-          </span>
-        </div>
-
       </div>
 
-      {/* 3. Main Content: Daywise Focus View or Weekly Grid View */}
+      {/* Stream Quick Indicator Badges */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-white/60">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-bold text-white/40 text-[11px] uppercase tracking-wider">Stream Color Codes:</span>
+          <span className="px-2 py-0.5 rounded-md bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 text-[10px] font-bold">🧪 Science / Maths</span>
+          <span className="px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[10px] font-bold">📊 Commerce</span>
+          <span className="px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 border border-purple-500/30 text-[10px] font-bold">🎭 Arts / Logic</span>
+          <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-[10px] font-bold">💻 Technology / ICT</span>
+        </div>
+        <div className="flex items-center gap-2 font-bold text-white/80">
+          <Clock size={13} className="text-blue-400" />
+          <span>{totalSlotsCount} Total Sessions</span>
+        </div>
+      </div>
+
+      {/* 3. Main Content: Weekly Grid View or Daywise Focus View */}
       {loading ? (
         <div className="flex justify-center items-center py-36">
-          <div className="w-10 h-10 border-4 border-brand-accent border-t-transparent rounded-full animate-spin"></div>
+          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
         </div>
-      ) : viewMode === 'daywise' ? (
+      ) : viewMode === 'weekly' ? (
         
         /* ------------------------------------------------------------- */
-        /* DAY-BY-DAY TIMELINE VIEW                                      */
+        /* WEEKLY 7-DAY GRID VIEW (EYE-FRIENDLY & SPACIOUS)              */
+        /* ------------------------------------------------------------- */
+        <div className="bg-slate-900/90 backdrop-blur-2xl border border-white/15 rounded-3xl p-5 shadow-2xl overflow-hidden">
+          <div className="overflow-x-auto pb-4 custom-scrollbar">
+            <div className="grid grid-cols-7 gap-3 min-w-[1450px] items-start">
+              {DAYS.map(day => {
+                const slots = filteredSchedule[day] || [];
+                const isToday = DAYS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1] === day;
+                return (
+                  <div 
+                    key={day} 
+                    className={`flex flex-col rounded-2xl border overflow-hidden min-h-[480px] transition-all ${
+                      isToday 
+                        ? 'bg-slate-950/90 border-blue-500/40 shadow-lg shadow-blue-500/10' 
+                        : 'bg-slate-950/60 border-white/10'
+                    }`}
+                  >
+                    {/* Column Day Header */}
+                    <div className={`px-3 py-3 border-b text-center relative ${
+                      isToday 
+                        ? 'bg-gradient-to-r from-blue-900/60 via-indigo-900/60 to-purple-900/60 border-blue-500/30' 
+                        : 'bg-white/[0.04] border-white/10'
+                    }`}>
+                      <h4 className="text-white font-black tracking-wider uppercase text-xs flex items-center justify-center gap-1.5">
+                        <span>{day}</span>
+                        {isToday && (
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        )}
+                      </h4>
+                      <span className="text-[10px] text-white/60 font-bold mt-0.5 block">
+                        {slots.length} {slots.length === 1 ? 'Class' : 'Classes'}
+                      </span>
+                    </div>
+
+                    {/* Slots List */}
+                    <div className="p-2.5 flex-1 flex flex-col gap-2.5">
+                      {slots.length === 0 ? (
+                        <div className="flex-1 flex flex-col items-center justify-center text-white/30 py-16">
+                          <Clock size={24} className="mb-1.5 opacity-20" />
+                          <span className="text-[10px] font-bold uppercase tracking-wider">No Classes</span>
+                        </div>
+                      ) : (
+                        slots.map((slot, idx) => {
+                          const theme = getStreamTheme(slot.classStream);
+                          return (
+                            <div
+                              key={slot.id || idx}
+                              className={`p-3 rounded-xl border transition-all duration-200 hover:-translate-y-0.5 hover:shadow-xl space-y-2 relative group ${theme.cardBg} ${theme.cardBorder}`}
+                            >
+                              {/* Time Header with Duration */}
+                              <div className={`p-1.5 rounded-lg border text-center ${theme.timeBg}`}>
+                                <div className="text-[11px] font-black tracking-tight text-white flex items-center justify-center gap-1">
+                                  <span>{slot.formattedStartTime || slot.startTime}</span>
+                                  <span className="text-white/40 font-normal text-[9px]">→</span>
+                                  <span>{slot.formattedEndTime || slot.endTime}</span>
+                                </div>
+                                {slot.duration && (
+                                  <span className="text-[9px] font-extrabold text-white/70 block mt-0.5">
+                                    ⏱️ {slot.duration}
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Class Title & Badges */}
+                              <div className="space-y-1">
+                                <div className="flex flex-wrap items-center gap-1">
+                                  {slot.classGrade && (
+                                    <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-white/10 text-white/90 border border-white/10">
+                                      {slot.classGrade}
+                                    </span>
+                                  )}
+                                  {slot.classStream && (
+                                    <span className={`text-[9px] font-black px-1.5 py-0.2 rounded border ${theme.badge}`}>
+                                      {slot.classStream}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <h5 className="font-black text-white text-xs leading-snug drop-shadow-sm group-hover:text-blue-300 transition-colors">
+                                  {slot.className}
+                                </h5>
+                              </div>
+
+                              {/* Teacher & Hall Footer */}
+                              <div className="pt-1.5 border-t border-white/10 space-y-1 text-[10px]">
+                                <div className="flex items-center gap-1 text-white/80 font-bold truncate">
+                                  <span>👨‍🏫</span>
+                                  <span className="truncate">{slot.teacherName}</span>
+                                </div>
+
+                                {/* Hall Badge */}
+                                <div className="flex items-center justify-between">
+                                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-black ${
+                                    slot.hallName 
+                                      ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' 
+                                      : 'bg-white/5 text-white/40 border border-white/10'
+                                  }`}>
+                                    <Building2 size={10} />
+                                    <span>{slot.hallName || 'Hall Pending'}</span>
+                                  </span>
+
+                                  {slot.monthlyFee > 0 && (
+                                    <span className="text-[9px] font-mono font-bold text-emerald-400">
+                                      Rs. {Number(slot.monthlyFee).toLocaleString()}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+      ) : (
+
+        /* ------------------------------------------------------------- */
+        /* DAY-BY-DAY TIMELINE VIEW (SPACIOUS & ELEGANT)                 */
         /* ------------------------------------------------------------- */
         <div className="space-y-4">
           
@@ -389,11 +608,11 @@ export default function PhysicalTimetable() {
                   onClick={() => setActiveDay(day)}
                   className={`p-3 rounded-2xl border text-center transition-all cursor-pointer ${
                     isSelected
-                      ? 'bg-gradient-to-b from-brand-accent to-rose-600 border-rose-400/50 shadow-lg shadow-rose-600/30 text-white transform -translate-y-0.5'
-                      : 'bg-black/30 hover:bg-white/10 border-white/10 text-white/70 hover:text-white'
+                      ? 'bg-gradient-to-b from-blue-600 to-indigo-700 border-blue-400/50 shadow-lg shadow-blue-600/30 text-white transform -translate-y-0.5'
+                      : 'bg-slate-900/60 hover:bg-white/10 border-white/10 text-white/70 hover:text-white'
                   }`}
                 >
-                  <h4 className="text-xs font-extrabold uppercase tracking-wider">{day}</h4>
+                  <h4 className="text-xs font-black uppercase tracking-wider">{day}</h4>
                   <span className={`text-[10px] font-bold mt-1 inline-block px-2 py-0.5 rounded-full ${
                     isSelected ? 'bg-black/30 text-white' : 'bg-white/5 text-white/50'
                   }`}>
@@ -405,11 +624,11 @@ export default function PhysicalTimetable() {
           </div>
 
           {/* Active Day Class Schedule List */}
-          <div className="bg-black/40 backdrop-blur-xl border border-white/15 rounded-3xl p-6 shadow-2xl space-y-4">
+          <div className="bg-slate-900/90 backdrop-blur-2xl border border-white/15 rounded-3xl p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2">
-                <Calendar size={18} className="text-brand-accent" />
-                <h3 className="text-base font-extrabold text-white">
+                <Calendar size={18} className="text-blue-400" />
+                <h3 className="text-base font-black text-white">
                   {activeDay} Schedule ({filteredSchedule[activeDay]?.length || 0} Classes Scheduled)
                 </h3>
               </div>
@@ -424,140 +643,89 @@ export default function PhysicalTimetable() {
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredSchedule[activeDay].map((slot, idx) => (
-                  <div
-                    key={slot.id || idx}
-                    className="p-5 bg-gradient-to-b from-white/10 to-white/5 rounded-2xl border border-white/15 hover:border-brand-accent/50 transition-all hover:-translate-y-1 hover:shadow-xl hover:shadow-brand-accent/10 space-y-3 group"
-                  >
-                    {/* Time Header with Duration */}
-                    <div className="flex items-center justify-between bg-black/40 p-2.5 rounded-xl border border-white/10">
-                      <div className="flex items-center gap-2">
-                        <Clock size={15} className="text-brand-accent" />
-                        <span className="text-xs font-black text-white tracking-wide">
-                          {slot.formattedStartTime || slot.startTime} - {slot.formattedEndTime || slot.endTime}
-                        </span>
-                      </div>
-                      {slot.duration && (
-                        <span className="text-[10px] font-extrabold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
-                          {slot.duration}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Class Details */}
-                    <div>
-                      <div className="flex items-center gap-1.5 mb-1">
-                        {slot.classGrade && (
-                          <span className="text-[9px] font-extrabold text-brand-accent bg-brand-accent/20 px-2 py-0.5 rounded-full border border-brand-accent/30 uppercase">
-                            {slot.classGrade}
+                {filteredSchedule[activeDay].map((slot, idx) => {
+                  const theme = getStreamTheme(slot.classStream);
+                  return (
+                    <div
+                      key={slot.id || idx}
+                      className={`p-5 rounded-2xl border transition-all duration-200 hover:-translate-y-1 hover:shadow-2xl space-y-3 group ${theme.cardBg} ${theme.cardBorder}`}
+                    >
+                      {/* Time Header with Duration */}
+                      <div className={`flex items-center justify-between p-2.5 rounded-xl border ${theme.timeBg}`}>
+                        <div className="flex items-center gap-2">
+                          <Clock size={15} className={theme.accentColor} />
+                          <span className="text-xs font-black text-white tracking-wide">
+                            {slot.formattedStartTime || slot.startTime} - {slot.formattedEndTime || slot.endTime}
                           </span>
-                        )}
-                        {slot.classStream && (
-                          <span className="text-[9px] font-bold text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded-full border border-purple-500/30">
-                            {slot.classStream}
-                          </span>
-                        )}
-                        {slot.classSubject && (
-                          <span className="text-[9px] font-bold text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded-full border border-blue-500/30">
-                            {slot.classSubject}
-                          </span>
-                        )}
-                      </div>
-                      <h4 className="text-base font-extrabold text-white group-hover:text-brand-accent transition-colors">
-                        {slot.className}
-                      </h4>
-                    </div>
-
-                    {/* Teacher & Fee Footer */}
-                    <div className="pt-3 border-t border-white/10 flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2 min-w-0 pr-2">
-                        <div className="w-6 h-6 rounded-full bg-brand-accent/20 border border-brand-accent/40 flex items-center justify-center text-brand-accent shrink-0">
-                          <User size={12} />
                         </div>
-                        <span className="font-bold text-white/80 truncate">
-                          {slot.teacherName}
-                        </span>
+                        {slot.duration && (
+                          <span className="text-[10px] font-extrabold text-amber-300 bg-amber-500/15 px-2 py-0.5 rounded-md border border-amber-500/30">
+                            ⏱️ {slot.duration}
+                          </span>
+                        )}
                       </div>
 
-                      {slot.monthlyFee > 0 && (
-                        <span className="text-xs font-black text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20 shrink-0">
-                          Rs. {Number(slot.monthlyFee).toLocaleString()}
-                        </span>
-                      )}
-                    </div>
+                      {/* Class Details */}
+                      <div>
+                        <div className="flex flex-wrap items-center gap-1.5 mb-1.5">
+                          {slot.classGrade && (
+                            <span className="text-[9px] font-black text-white/90 bg-white/10 px-2 py-0.5 rounded-full border border-white/10 uppercase">
+                              {slot.classGrade}
+                            </span>
+                          )}
+                          {slot.classStream && (
+                            <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${theme.badge}`}>
+                              {slot.classStream}
+                            </span>
+                          )}
+                          {slot.classSubject && (
+                            <span className="text-[9px] font-bold text-blue-300 bg-blue-500/20 px-2 py-0.5 rounded-full border border-blue-500/30">
+                              {slot.classSubject}
+                            </span>
+                          )}
+                        </div>
+                        <h4 className="text-base font-black text-white group-hover:text-blue-300 transition-colors drop-shadow-sm">
+                          {slot.className}
+                        </h4>
+                      </div>
 
-                  </div>
-                ))}
+                      {/* Teacher & Hall Footer */}
+                      <div className="pt-3 border-t border-white/10 flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2 min-w-0 pr-2">
+                          <div className="w-7 h-7 rounded-full bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-300 shrink-0">
+                            <User size={13} />
+                          </div>
+                          <span className="font-bold text-white/90 truncate">
+                            {slot.teacherName}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-black ${
+                            slot.hallName 
+                              ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30' 
+                              : 'bg-white/5 text-white/40 border border-white/10'
+                          }`}>
+                            <Building2 size={12} />
+                            <span>{slot.hallName || 'Hall Pending'}</span>
+                          </span>
+
+                          {slot.monthlyFee > 0 && (
+                            <span className="text-xs font-mono font-black text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/20">
+                              Rs. {Number(slot.monthlyFee).toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                    </div>
+                  );
+                })}
               </div>
             )}
 
           </div>
 
-        </div>
-
-      ) : (
-
-        /* ------------------------------------------------------------- */
-        /* WEEKLY 7-DAY GRID VIEW                                        */
-        /* ------------------------------------------------------------- */
-        <div className="bg-black/40 backdrop-blur-xl border border-white/15 rounded-3xl p-6 shadow-2xl">
-          <div className="overflow-x-auto pb-4 custom-scrollbar">
-            <div className="grid grid-cols-7 gap-3.5 min-w-[1300px] items-start">
-              {DAYS.map(day => {
-                const slots = filteredSchedule[day] || [];
-                return (
-                  <div key={day} className="flex flex-col bg-black/30 rounded-2xl border border-white/10 overflow-hidden min-h-[360px]">
-                    {/* Column Day Header */}
-                    <div className="bg-gradient-to-r from-brand-accent/30 to-purple-600/20 px-3 py-3 border-b border-white/10 text-center">
-                      <h4 className="text-white font-extrabold tracking-wider uppercase text-xs">{day}</h4>
-                      <span className="text-[10px] text-white/60 font-medium mt-0.5 block">{slots.length} Classes</span>
-                    </div>
-
-                    {/* Slots List */}
-                    <div className="p-2.5 flex-1 flex flex-col gap-2.5">
-                      {slots.length === 0 ? (
-                        <div className="flex-1 flex flex-col items-center justify-center text-white/30 py-12">
-                          <Clock size={28} className="mb-2 opacity-20" />
-                          <span className="text-[10px] font-bold uppercase tracking-wider">No Classes</span>
-                        </div>
-                      ) : (
-                        slots.map((slot, idx) => (
-                          <div
-                            key={slot.id || idx}
-                            className="bg-white/5 hover:bg-white/10 p-3 rounded-xl border border-white/10 hover:border-brand-accent/40 transition-all hover:-translate-y-0.5 hover:shadow-lg space-y-2"
-                          >
-                            <div className="text-center bg-black/40 p-1.5 rounded-lg border border-white/10">
-                              <span className="text-xs font-black text-brand-accent block">
-                                {slot.formattedStartTime || slot.startTime}
-                              </span>
-                              <span className="text-[9px] text-white/40 uppercase font-bold block">to</span>
-                              <span className="text-xs font-black text-brand-accent block">
-                                {slot.formattedEndTime || slot.endTime}
-                              </span>
-                            </div>
-
-                            <div className="text-center pt-1">
-                              <h5 className="font-bold text-white text-xs leading-tight line-clamp-2">
-                                {slot.className}
-                              </h5>
-                              {slot.classGrade && (
-                                <span className="text-[9px] font-extrabold text-white/70 bg-white/10 px-1.5 py-0.2 rounded-md mt-1 inline-block">
-                                  {slot.classGrade}
-                                </span>
-                              )}
-                              <p className="text-[10px] text-white/60 font-medium truncate mt-1">
-                                {slot.teacherName}
-                              </p>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
         </div>
 
       )}
@@ -571,7 +739,7 @@ export default function PhysicalTimetable() {
           <h1 className="text-2xl font-black uppercase tracking-wider">IMA PHYSICAL CAMPUS</h1>
           <h2 className="text-base font-bold text-gray-700 mt-0.5">Physical Campus Master Class Timetable</h2>
           <p className="text-xs text-gray-500 mt-1">
-            Generated on: {new Date().toLocaleString()} | Filter: {selectedTeacherFilter !== 'ALL' ? `Teacher: ${selectedTeacherFilter} | ` : ''}{selectedGradeFilter !== 'ALL' ? `Grade: ${selectedGradeFilter}` : 'All Grades'}
+            Generated on: {new Date().toLocaleString()} | Filter: {selectedTeacherFilter !== 'ALL' ? `Teacher: ${selectedTeacherFilter} | ` : ''}{selectedGradeFilter !== 'ALL' ? `Grade: ${selectedGradeFilter} | ` : ''}{selectedHallFilter !== 'ALL' ? `Hall: ${selectedHallFilter}` : 'All Halls'}
           </p>
         </div>
 
@@ -592,8 +760,9 @@ export default function PhysicalTimetable() {
                       <th className="p-1.5 border border-gray-300 w-16">Duration</th>
                       <th className="p-1.5 border border-gray-300">Class Name</th>
                       <th className="p-1.5 border border-gray-300 w-20">Grade / Year</th>
-                      <th className="p-1.5 border border-gray-300 w-28">Subject</th>
+                      <th className="p-1.5 border border-gray-300 w-24">Stream</th>
                       <th className="p-1.5 border border-gray-300">Lecturer / Teacher</th>
+                      <th className="p-1.5 border border-gray-300 w-20">Hall</th>
                       <th className="p-1.5 border border-gray-300 w-20 text-right">Fee (LKR)</th>
                     </tr>
                   </thead>
@@ -604,8 +773,9 @@ export default function PhysicalTimetable() {
                         <td className="p-1.5 border border-gray-300">{s.duration || '-'}</td>
                         <td className="p-1.5 border border-gray-300 font-bold">{s.className}</td>
                         <td className="p-1.5 border border-gray-300">{s.classGrade || '-'}</td>
-                        <td className="p-1.5 border border-gray-300">{s.classSubject || s.classStream || '-'}</td>
+                        <td className="p-1.5 border border-gray-300">{s.classStream || '-'}</td>
                         <td className="p-1.5 border border-gray-300 font-semibold">{s.teacherName}</td>
+                        <td className="p-1.5 border border-gray-300 font-bold">{s.hallName || 'Pending'}</td>
                         <td className="p-1.5 border border-gray-300 text-right font-mono">{s.monthlyFee ? `Rs. ${s.monthlyFee}` : '-'}</td>
                       </tr>
                     ))}

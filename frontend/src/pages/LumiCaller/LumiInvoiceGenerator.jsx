@@ -29,6 +29,7 @@ export default function LumiInvoiceGenerator() {
     const [loading, setLoading] = useState(true);
     const [downloadingPdf, setDownloadingPdf] = useState(false);
     const [downloadingImg, setDownloadingImg] = useState(false);
+    const [pdfOrientation, setPdfOrientation] = useState('portrait'); // 'portrait' | 'landscape'
     const [rateConfig, setRateConfig] = useState({
         fixedRentalPerNumber: 2500,
         costPerMinute: 5.0
@@ -352,11 +353,12 @@ export default function LumiInvoiceGenerator() {
         };
     }, [businessItems, rateConfig]);
 
-    // 📄 1-CLICK DIRECT A4 PDF DOWNLOAD (FIT TO 1 CLEAN A4 PAGE)
-    const handleDownloadInvoicePDF = async () => {
+    // 📄 1-CLICK DIRECT A4 PDF DOWNLOAD (SUPPORTS PORTRAIT & LANDSCAPE FIT)
+    const handleDownloadInvoicePDF = async (orientation = pdfOrientation) => {
         if (!invoiceRef.current) return;
         setDownloadingPdf(true);
-        const toastId = toast.loading("Generating Official Single-Page A4 PDF...");
+        const isLandscape = orientation === 'landscape';
+        const toastId = toast.loading(`Generating Official A4 PDF (${isLandscape ? 'Landscape' : 'Portrait'})...`);
         try {
             await new Promise(r => setTimeout(r, 120));
 
@@ -374,14 +376,14 @@ export default function LumiInvoiceGenerator() {
             });
 
             const pdf = new jsPDF({
-                orientation: 'portrait',
+                orientation: isLandscape ? 'landscape' : 'portrait',
                 unit: 'mm',
                 format: 'a4',
                 compress: true
             });
 
-            const pageWidth = 210;
-            const pageHeight = 297;
+            const pageWidth = isLandscape ? 297 : 210;
+            const pageHeight = isLandscape ? 210 : 297;
             const margin = 6;
             const printableWidth = pageWidth - (margin * 2);
             const printableHeight = pageHeight - (margin * 2);
@@ -390,34 +392,37 @@ export default function LumiInvoiceGenerator() {
             img.src = imgData;
             await new Promise((resolve) => { img.onload = resolve; });
 
-            const imgWidth = printableWidth;
-            let imgHeight = (img.height * printableWidth) / img.width;
+            const imgRatio = img.height / img.width;
+            let renderWidth = printableWidth;
+            let renderHeight = printableWidth * imgRatio;
 
-            if (imgHeight <= printableHeight) {
-                pdf.addImage(imgData, 'PNG', margin, margin, imgWidth, imgHeight, undefined, 'FAST');
-            } else if (imgHeight <= printableHeight * 1.25) {
-                const scale = printableHeight / imgHeight;
-                const scaledWidth = imgWidth * scale;
+            if (renderHeight <= printableHeight) {
+                const offsetY = margin + Math.max(0, (printableHeight - renderHeight) / 4);
+                pdf.addImage(imgData, 'PNG', margin, offsetY, renderWidth, renderHeight, undefined, 'FAST');
+            } else if (renderHeight <= printableHeight * 1.35) {
+                const scale = printableHeight / renderHeight;
+                const scaledWidth = renderWidth * scale;
                 const scaledHeight = printableHeight;
                 const offsetX = margin + (printableWidth - scaledWidth) / 2;
                 pdf.addImage(imgData, 'PNG', offsetX, margin, scaledWidth, scaledHeight, undefined, 'FAST');
             } else {
-                let heightLeft = imgHeight;
+                let heightLeft = renderHeight;
                 let position = margin;
 
-                pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight, undefined, 'FAST');
+                pdf.addImage(imgData, 'PNG', margin, position, renderWidth, renderHeight, undefined, 'FAST');
                 heightLeft -= printableHeight;
 
                 while (heightLeft > 0) {
-                    position = heightLeft - imgHeight + margin;
+                    position = heightLeft - renderHeight + margin;
                     pdf.addPage();
-                    pdf.addImage(imgData, 'PNG', margin, position, imgWidth, imgHeight, undefined, 'FAST');
+                    pdf.addImage(imgData, 'PNG', margin, position, renderWidth, renderHeight, undefined, 'FAST');
                     heightLeft -= printableHeight;
                 }
             }
 
-            pdf.save(`${invoiceNo || 'SMART_REPLY_INVOICE'}.pdf`);
-            toast.success("Invoice PDF Downloaded Successfully!", { id: toastId });
+            const orientSuffix = isLandscape ? 'LANDSCAPE' : 'PORTRAIT';
+            pdf.save(`${invoiceNo || 'SMART_REPLY_INVOICE'}_${orientSuffix}.pdf`);
+            toast.success(`Invoice PDF (${isLandscape ? 'Landscape' : 'Portrait'}) Downloaded Successfully!`, { id: toastId });
         } catch (error) {
             console.error("PDF generation failed:", error);
             toast.error("Failed to generate PDF download. Please try again.", { id: toastId });
@@ -464,7 +469,7 @@ export default function LumiInvoiceGenerator() {
         if (!invoiceRef.current) return;
 
         const invoiceContent = invoiceRef.current.innerHTML;
-        const printWindow = window.open('', '_blank', 'width=1000,height=900');
+        const printWindow = window.open('', '_blank', `width=${pdfOrientation === 'landscape' ? '1100' : '1000'},height=900`);
 
         if (!printWindow) {
             window.print();
@@ -491,13 +496,13 @@ export default function LumiInvoiceGenerator() {
                             print-color-adjust: exact;
                         }
                         @page {
-                            size: A4 portrait;
+                            size: A4 ${pdfOrientation};
                             margin: 8mm;
                         }
                     </style>
                 </head>
                 <body>
-                    <div style="max-width: 900px; margin: 0 auto;">
+                    <div style="max-width: ${pdfOrientation === 'landscape' ? '1100px' : '900px'}; margin: 0 auto;">
                         ${invoiceContent}
                     </div>
                     <script>
@@ -630,21 +635,52 @@ export default function LumiInvoiceGenerator() {
                             Copy Text
                         </button>
 
+                        {/* PDF Orientation Mode Selector (Portrait vs Landscape) */}
+                        <div className="flex items-center bg-slate-800/90 border border-slate-700 rounded-xl p-1 shadow-sm">
+                            <button
+                                type="button"
+                                onClick={() => setPdfOrientation('portrait')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                    pdfOrientation === 'portrait'
+                                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-700/40'
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                                title="A4 Portrait Orientation (Standard Vertical)"
+                            >
+                                <FileText size={13} />
+                                Portrait
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setPdfOrientation('landscape')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                                    pdfOrientation === 'landscape'
+                                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-700/40'
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                                title="A4 Landscape Orientation (Wide Horizontal)"
+                            >
+                                <FileText size={13} className="rotate-90" />
+                                Landscape
+                            </button>
+                        </div>
+
                         {/* 📄 1-CLICK DIRECT PDF DOWNLOAD BUTTON */}
                         <button
-                            onClick={handleDownloadInvoicePDF}
+                            onClick={() => handleDownloadInvoicePDF(pdfOrientation)}
                             disabled={downloadingPdf}
-                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold px-5 py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all hover:scale-105 disabled:opacity-50"
+                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl shadow-lg shadow-emerald-600/30 transition-all hover:scale-105 disabled:opacity-50"
+                            title={`Download A4 PDF in ${pdfOrientation.toUpperCase()} orientation`}
                         >
                             {downloadingPdf ? (
                                 <>
                                     <Loader2 size={15} className="animate-spin" />
-                                    Generating PDF...
+                                    Generating {pdfOrientation === 'landscape' ? 'Landscape' : 'Portrait'} PDF...
                                 </>
                             ) : (
                                 <>
                                     <Download size={15} />
-                                    Download PDF
+                                    Download PDF ({pdfOrientation === 'landscape' ? 'Landscape' : 'Portrait'})
                                 </>
                             )}
                         </button>
@@ -873,10 +909,10 @@ export default function LumiInvoiceGenerator() {
                             <img
                                 src="/smart_reply_logo.png"
                                 alt="Smart Reply"
-                                className="h-20 sm:h-24 max-w-[320px] w-auto object-contain drop-shadow-xs"
+                                className="h-16 sm:h-20 max-w-[280px] w-auto object-contain drop-shadow-xs"
                             />
                         </div>
-                        <div className="text-[11px] text-slate-600 space-y-0.5 font-medium leading-tight pt-1">
+                        <div className="text-[11px] text-slate-600 space-y-0.5 font-medium leading-tight pt-0.5">
                             <p className="font-bold text-slate-900 text-xs tracking-tight">SMART REPLY (PVT) LTD</p>
                             <p className="text-slate-500">Automate | Innovate | Elevate • AI WhatsApp Calling & Voice Cloud</p>
                             <p>Web: <span className="font-semibold text-indigo-700">www.smartreply.ai</span> • Email: <span className="font-semibold text-indigo-700">billing@smartreply.ai</span></p>
@@ -889,7 +925,7 @@ export default function LumiInvoiceGenerator() {
                             <img
                                 src="/logo.png"
                                 alt="IMA Campus"
-                                className="h-12 sm:h-14 w-auto object-contain"
+                                className="h-14 sm:h-16 w-auto object-contain"
                             />
                             <div className="text-right">
                                 <h1 className="text-xl sm:text-2xl font-extrabold text-slate-900 tracking-tight uppercase leading-none">
@@ -955,13 +991,13 @@ export default function LumiInvoiceGenerator() {
                                                 </td>
 
                                                 {/* Business Name & Logo */}
-                                                <td className="py-2 px-3 font-bold text-slate-900">
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="w-6 h-6 rounded-lg bg-slate-100 border border-slate-200 overflow-hidden flex items-center justify-center shrink-0 shadow-xs">
+                                                <td className="py-2.5 px-3 font-bold text-slate-900">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <div className="w-8 h-8 rounded-lg bg-slate-50 border border-slate-200 p-0.5 overflow-hidden flex items-center justify-center shrink-0 shadow-xs">
                                                             <img
                                                                 src={logoUrl}
                                                                 alt={row.bizName}
-                                                                className="w-full h-full object-cover"
+                                                                className="w-full h-full object-contain"
                                                                 onError={(e) => {
                                                                     e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(row.bizName)}&background=4F46E5&color=fff&bold=true`;
                                                                 }}

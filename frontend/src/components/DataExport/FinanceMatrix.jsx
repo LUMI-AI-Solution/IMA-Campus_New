@@ -2,8 +2,19 @@ import React, { useState, useEffect } from 'react';
 import axios from '../../api/axios';
 import { 
   Loader2, AlertCircle, ChevronDown, TrendingUp, ChevronLeft, ChevronRight, 
-  Search, Download, Building2, GraduationCap, Users, DollarSign, Sparkles, Layers, RefreshCw
+  Search, Download, Building2, GraduationCap, Users, DollarSign, Sparkles, Layers, RefreshCw, FileSpreadsheet
 } from 'lucide-react';
+import toast from 'react-hot-toast';
+
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 export default function FinanceMatrix({ loggedInUser }) {
     const roleUpper = loggedInUser?.role ? String(loggedInUser.role).toUpperCase().replace(/[\s_-]+/g, '_') : '';
@@ -206,7 +217,10 @@ export default function FinanceMatrix({ loggedInUser }) {
     })();
 
     const exportToExcel = () => {
-        if (processedData.length === 0) return;
+        if (processedData.length === 0) {
+            toast.error("No data available to export.");
+            return;
+        }
 
         const typeTotals = {};
         const colTypeTotals = {};
@@ -240,78 +254,196 @@ export default function FinanceMatrix({ loggedInUser }) {
             });
         });
 
-        const escapeCSV = (str) => `"${String(str).replace(/"/g, '""')}"`;
-        let csvContent = "";
+        const bizName = businesses.find(b => String(b.id) === String(selectedBiz))?.name || 'IMA Campus';
+        const batchName = batches.find(b => String(b.id) === String(selectedBatch))?.name || `Batch ${selectedBatch}`;
+        const totalCols = 6 + (months.length * subjects.length) + 1;
 
-        const headers = ['Student ID', 'Name', 'Birth Year', 'Phone', 'WhatsApp', 'Enrollment Type'];
-        months.forEach(m => {
-            subjects.forEach(sub => {
-                headers.push(`${m.name} - ${sub}`);
-            });
-        });
-        headers.push('Net Total Paid');
-        csvContent += headers.map(escapeCSV).join(',') + '\n';
+        let tableHtml = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+          <meta http-equiv="content-type" content="text/plain; charset=UTF-8"/>
+          <!--[if gte mso 9]>
+          <xml>
+            <x:ExcelWorkbook>
+              <x:ExcelWorksheets>
+                <x:ExcelWorksheet>
+                  <x:Name>Finance_Matrix</x:Name>
+                  <x:WorksheetOptions>
+                    <x:DisplayGridlines/>
+                    <x:FreezePanes/>
+                    <x:FrozenNoSplit/>
+                    <x:SplitHeaderRowCount>5</x:SplitHeaderRowCount>
+                    <x:SplitColumnNumber>2</x:SplitColumnNumber>
+                  </x:WorksheetOptions>
+                </x:ExcelWorksheet>
+              </x:ExcelWorksheets>
+            </x:ExcelWorkbook>
+          </xml>
+          <![endif]-->
+          <style>
+            table { border-collapse: collapse; font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; width: 100%; }
+            th, td { border: 1px solid #CBD5E1; padding: 6px 10px; vertical-align: middle; }
+            
+            /* Top Banner */
+            .banner-title { background-color: #0F172A; color: #FFFFFF; font-size: 15pt; font-weight: 900; text-align: center; padding: 12px; }
+            .banner-meta { background-color: #1E293B; color: #94A3B8; font-size: 10pt; font-weight: bold; text-align: center; padding: 6px; }
+            
+            /* Header Rows */
+            .th-meta { background-color: #1E293B; color: #FFFFFF; font-weight: bold; text-align: center; font-size: 11pt; border: 1px solid #475569; }
+            .th-month { background-color: #1E3A8A; color: #FFFFFF; font-weight: bold; text-align: center; font-size: 11pt; letter-spacing: 0.5px; border: 1px solid #3B82F6; }
+            .th-sub { background-color: #334155; color: #F8FAFC; font-weight: bold; text-align: center; font-size: 10pt; border: 1px solid #64748B; }
+            .th-total { background-color: #065F46; color: #FFFFFF; font-weight: bold; text-align: right; font-size: 11pt; border: 1px solid #059669; }
+            
+            /* Data Cells */
+            .td-text { text-align: left; mso-number-format:"\\@"; }
+            .td-center { text-align: center; mso-number-format:"\\@"; }
+            .td-num { text-align: right; mso-number-format:"#,##0.00"; }
+            .td-num-zero { text-align: right; color: #94A3B8; mso-number-format:"#,##0.00"; }
+            .td-num-paid { text-align: right; font-weight: 600; background-color: #F0FDF4; color: #166534; mso-number-format:"#,##0.00"; }
+            
+            /* Zebra rows */
+            .row-even { background-color: #F8FAFC; }
+            .row-odd { background-color: #FFFFFF; }
+            
+            /* Student Type Badges */
+            .badge-full { background-color: #DCFCE7; color: #166534; font-weight: bold; text-align: center; }
+            .badge-monthly { background-color: #DBEAFE; color: #1E40AF; font-weight: bold; text-align: center; }
+            .badge-installment { background-color: #FEF3C7; color: #92400E; font-weight: bold; text-align: center; }
+            .badge-hybrid { background-color: #F3E8FF; color: #6B21A8; font-weight: bold; text-align: center; }
+            .badge-upgrade { background-color: #FFE4E6; color: #9F1239; font-weight: bold; text-align: center; }
+            
+            /* Net Total Column */
+            .td-net-total { text-align: right; font-weight: bold; color: #065F46; background-color: #ECFDF5; mso-number-format:"#,##0.00"; }
+            
+            /* Bottom Aggregates */
+            .row-total-revenue { background-color: #065F46; color: #FFFFFF; font-weight: 900; font-size: 12pt; }
+            .row-total-revenue td { border: 2px solid #047857; color: #FFFFFF; font-weight: 900; background-color: #065F46; }
+            .row-subtotal { background-color: #F1F5F9; font-weight: bold; color: #1E293B; }
+            .row-subtotal td { border: 1px solid #CBD5E1; }
+          </style>
+        </head>
+        <body>
+          <table>
+            <!-- Row 1: Banner Title -->
+            <tr>
+              <th colspan="${totalCols}" class="banner-title">
+                WEIGHTED REVENUE MATRIX - ${escapeHtml(bizName.toUpperCase())} - ${escapeHtml(batchName.toUpperCase())}
+              </th>
+            </tr>
+            
+            <!-- Row 2: Banner Meta -->
+            <tr>
+              <th colspan="${totalCols}" class="banner-meta">
+                Generated: ${new Date().toLocaleString()} | Total Enrolled: ${processedData.length} Students | Total Batch Revenue: Rs. ${overallGrandTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+              </th>
+            </tr>
+            
+            <!-- Row 3: Blank Spacer -->
+            <tr style="height: 8px;">
+              <td colspan="${totalCols}" style="border: none; background: #FFFFFF;"></td>
+            </tr>
 
-        processedData.forEach(stu => {
-            const isHybrid = stu.type === 'Hybrid';
-            const row = [
-                stu.studentNo || '-',
-                stu.studentName || '-',
-                stu.birthYear || '-',
-                stu.phone ? `'${stu.phone}` : '-',
-                stu.whatsapp ? `'${stu.whatsapp}` : '-',
-                isHybrid ? 'Hybrid (Mixed)' : (stu.type || '-')
-            ];
+            <!-- Row 4: 2-Tier Header 1 (Meta + Months) -->
+            <tr>
+              <th rowspan="2" class="th-meta" style="min-width: 110px;">Student ID</th>
+              <th rowspan="2" class="th-meta" style="min-width: 220px;">Student Name</th>
+              <th rowspan="2" class="th-meta" style="min-width: 90px;">Birth Year</th>
+              <th rowspan="2" class="th-meta" style="min-width: 130px;">Phone</th>
+              <th rowspan="2" class="th-meta" style="min-width: 130px;">WhatsApp</th>
+              <th rowspan="2" class="th-meta" style="min-width: 130px;">Enrollment Type</th>
+              ${months.map(m => `
+                <th colspan="${subjects.length}" class="th-month">${escapeHtml(m.name)}</th>
+              `).join('')}
+              <th rowspan="2" class="th-total" style="min-width: 140px;">Net Total Paid</th>
+            </tr>
 
-            months.forEach(m => {
-                subjects.forEach(sub => {
-                    const cellData = stu.matrixValues?.[m.id]?.[sub];
-                    if (!cellData || cellData.total === 0) {
-                        row.push('0.00');
-                    } else if (isHybrid) {
-                        let parts = [];
-                        if (cellData.Full > 0) parts.push(`Full: ${cellData.Full.toFixed(2)}`);
-                        if (cellData.Monthly > 0) parts.push(`Mon: ${cellData.Monthly.toFixed(2)}`);
-                        if (cellData.Installment > 0) parts.push(`Inst: ${cellData.Installment.toFixed(2)}`);
-                        row.push(parts.join(' | '));
-                    } else {
-                        row.push(cellData.total.toFixed(2));
-                    }
-                });
-            });
-            row.push(Number(stu.totalPaid || 0).toFixed(2));
-            csvContent += row.map(escapeCSV).join(',') + '\n';
-        });
+            <!-- Row 5: 2-Tier Header 2 (Subjects) -->
+            <tr>
+              ${months.map(() => subjects.map(sub => `
+                <th class="th-sub" style="min-width: 100px;">${escapeHtml(sub)}</th>
+              `).join('')).join('')}
+            </tr>
 
-        const totalRow = ['', '', '', '', '', 'Total Revenue'];
-        months.forEach(m => {
-            subjects.forEach(sub => {
-                totalRow.push(colTypeTotals[`${m.id}_${sub}`].total.toFixed(2));
-            });
-        });
-        totalRow.push(overallGrandTotal.toFixed(2));
-        csvContent += totalRow.map(escapeCSV).join(',') + '\n';
+            <!-- Data Rows -->
+            ${processedData.map((stu, idx) => {
+                const isEven = idx % 2 === 0;
+                const rowClass = isEven ? 'row-even' : 'row-odd';
+                const isHybrid = stu.type === 'Hybrid';
+                const typeBadgeClass = 
+                    stu.type === 'Full' ? 'badge-full' :
+                    stu.type === 'Monthly' ? 'badge-monthly' :
+                    stu.type === 'Installment' ? 'badge-installment' :
+                    stu.type === 'Hybrid' ? 'badge-hybrid' :
+                    stu.type === 'Upgrade' ? 'badge-upgrade' : '';
 
-        Object.keys(typeTotals).sort().forEach(type => {
-            const tRow = ['', '', '', '', '', `${type === 'Hybrid' ? 'Hybrid (Mixed)' : type} Total`];
-            months.forEach(m => {
-                subjects.forEach(sub => {
-                    tRow.push((colTypeTotals[`${m.id}_${sub}`][type] || 0).toFixed(2));
-                });
-            });
-            tRow.push(typeTotals[type].toFixed(2));
-            csvContent += tRow.map(escapeCSV).join(',') + '\n';
-        });
+                return `
+                <tr class="${rowClass}">
+                  <td class="td-center" style="font-weight: bold;">${escapeHtml(stu.studentNo || '-')}</td>
+                  <td class="td-text" style="font-weight: bold;">${escapeHtml(stu.studentName || '-')}</td>
+                  <td class="td-center">${escapeHtml(stu.birthYear || '-')}</td>
+                  <td class="td-center">${escapeHtml(stu.phone || '-')}</td>
+                  <td class="td-center">${escapeHtml(stu.whatsapp || '-')}</td>
+                  <td class="${typeBadgeClass}">${escapeHtml(isHybrid ? 'Hybrid (Mixed)' : (stu.type || '-'))}</td>
+                  ${months.map(m => subjects.map(sub => {
+                      const cellData = stu.matrixValues?.[m.id]?.[sub];
+                      if (!cellData || cellData.total === 0) {
+                          return `<td class="td-num-zero">0.00</td>`;
+                      } else if (isHybrid) {
+                          let parts = [];
+                          if (cellData.Full > 0) parts.push(`Full:${cellData.Full.toFixed(0)}`);
+                          if (cellData.Monthly > 0) parts.push(`Mon:${cellData.Monthly.toFixed(0)}`);
+                          if (cellData.Installment > 0) parts.push(`Inst:${cellData.Installment.toFixed(0)}`);
+                          return `<td class="td-num-paid" style="font-size: 9.5pt;">${parts.join(' | ')}</td>`;
+                      } else {
+                          return `<td class="td-num-paid">${Number(cellData.total).toFixed(2)}</td>`;
+                      }
+                  }).join('')).join('')}
+                  <td class="td-net-total">${Number(stu.totalPaid || 0).toFixed(2)}</td>
+                </tr>
+                `;
+            }).join('')}
 
-        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+            <!-- Summary Row 1: Total Revenue -->
+            <tr class="row-total-revenue">
+              <td colspan="6" style="text-align: right; padding-right: 15px; font-weight: 900;">TOTAL REVENUE:</td>
+              ${months.map(m => subjects.map(sub => {
+                  const val = colTypeTotals[`${m.id}_${sub}`]?.total || 0;
+                  return `<td class="td-num" style="color: #FFFFFF; font-weight: 900;">${Number(val).toFixed(2)}</td>`;
+              }).join('')).join('')}
+              <td class="td-num" style="background-color: #047857; color: #FFFFFF; font-weight: 900; font-size: 12pt;">${Number(overallGrandTotal).toFixed(2)}</td>
+            </tr>
+
+            <!-- Summary Rows: Breakdown by Enrollment Type -->
+            ${Object.keys(typeTotals).sort().map(type => {
+                const label = type === 'Hybrid' ? 'Hybrid (Mixed) Total' : `${type} Plan Total`;
+                return `
+                <tr class="row-subtotal">
+                  <td colspan="6" style="text-align: right; padding-right: 15px;">${escapeHtml(label)}:</td>
+                  ${months.map(m => subjects.map(sub => {
+                      const val = colTypeTotals[`${m.id}_${sub}`]?.[type] || 0;
+                      return `<td class="td-num">${Number(val).toFixed(2)}</td>`;
+                  }).join('')).join('')}
+                  <td class="td-num" style="font-weight: bold; color: #065F46;">${Number(typeTotals[type] || 0).toFixed(2)}</td>
+                </tr>
+                `;
+            }).join('')}
+
+          </table>
+        </body>
+        </html>
+        `;
+
+        const blob = new Blob([tableHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
         link.href = url;
-        link.download = `Weighted_Finance_Matrix_Batch_${selectedBatch}.csv`;
+        const cleanBatch = batchName.replace(/[^a-zA-Z0-9_-]/g, '_');
+        link.download = `Weighted_Finance_Matrix_${cleanBatch}_${new Date().toISOString().split('T')[0]}.xls`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
         URL.revokeObjectURL(url);
+        toast.success("Styled Finance Matrix Excel exported successfully!");
     };
 
     const selectedBizName = businesses.find(b => String(b.id) === String(selectedBiz))?.name || 'Selected Business';

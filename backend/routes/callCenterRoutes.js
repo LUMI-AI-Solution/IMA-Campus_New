@@ -23,5 +23,6 @@ router.post('/agent/update-lead', callCenterController.updateLeadCallingStatus);
 
 // 4. Integrated performance metrics
 router.get('/stats', callCenterController.getCallCenterStats);
+router.get('/bridge-progress', callCenterController.getBridgeCallProgress);
 
 module.exports = router;

@@ -432,36 +432,291 @@ exports.sendBulkSms = async (req, res) => {
 };
 
 // ============================================================================
-// 5. GET SMS LOGS
+// ============================================================================
+// 5. GET SMS LOGS & PARENT SMS AUDIT REPORT
 // ============================================================================
 exports.getSmsLogs = async (req, res) => {
   try {
-    const { page = 1, limit = 50, type, status } = req.query;
+    const { page = 1, limit = 100, type, status, classId, date, startDate, endDate, search } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
     const where = {};
     if (type && type !== 'ALL') where.type = type;
     if (status && status !== 'ALL') where.status = status;
+    if (classId && classId !== 'ALL') where.classId = parseInt(classId);
 
-    const [logs, total] = await Promise.all([
+    // Date range filter
+    if (startDate && endDate) {
+      const s = new Date(startDate);
+      s.setUTCHours(0, 0, 0, 0);
+      const e = new Date(endDate);
+      e.setUTCHours(23, 59, 59, 999);
+      where.createdAt = { gte: s, lte: e };
+    } else if (date) {
+      const s = new Date(date);
+      s.setUTCHours(0, 0, 0, 0);
+      const e = new Date(date);
+      e.setUTCHours(23, 59, 59, 999);
+      where.createdAt = { gte: s, lte: e };
+    }
+
+    // Search query
+    if (search && search.trim()) {
+      const term = search.trim();
+      where.OR = [
+        { phone: { contains: term } },
+        { studentName: { contains: term } },
+        { guardianName: { contains: term } },
+        { message: { contains: term } }
+      ];
+    }
+
+    // Fetch logs, total count, and summary stats
+    const [rawLogs, total, allStatusCounts, attendanceCount, bulkCount] = await Promise.all([
       prisma.physicalSmsLog.findMany({
         where,
         orderBy: { createdAt: 'desc' },
         skip,
         take: parseInt(limit)
       }),
-      prisma.physicalSmsLog.count({ where })
+      prisma.physicalSmsLog.count({ where }),
+      prisma.physicalSmsLog.groupBy({
+        by: ['status'],
+        where,
+        _count: { status: true }
+      }),
+      prisma.physicalSmsLog.count({ where: { ...where, type: 'ATTENDANCE' } }),
+      prisma.physicalSmsLog.count({ where: { ...where, type: 'BULK' } })
     ]);
+
+    // Gather student IDs and class IDs to enrich logs
+    const studentIds = Array.from(new Set(rawLogs.map(l => l.studentId).filter(Boolean)));
+    const classIds = Array.from(new Set(rawLogs.map(l => l.classId).filter(Boolean)));
+
+    const [students, classes] = await Promise.all([
+      studentIds.length > 0 
+        ? prisma.physicalStudent.findMany({
+            where: { id: { in: studentIds } },
+            select: { id: true, studentId: true, studentName: true, firstName: true, lastName: true, phone: true, guardianPhone: true }
+          })
+        : [],
+      classIds.length > 0
+        ? prisma.physicalClass.findMany({
+            where: { id: { in: classIds } },
+            select: { id: true, name: true, grade: true, stream: true, monthlyFee: true }
+          })
+        : []
+    ]);
+
+    const studentMap = new Map(students.map(s => [s.id, s]));
+    const classMap = new Map(classes.map(c => [c.id, c]));
+
+    const logs = rawLogs.map(log => {
+      const stu = log.studentId ? studentMap.get(log.studentId) : null;
+      const cls = log.classId ? classMap.get(log.classId) : null;
+
+      return {
+        ...log,
+        studentCustomId: stu?.studentId || null,
+        studentDisplayName: log.studentName || stu?.studentName || (stu ? `${stu.firstName || ''} ${stu.lastName || ''}`.trim() : 'Student'),
+        className: cls?.name || 'General Class',
+        classGrade: cls?.grade || '',
+        classStream: cls?.stream || ''
+      };
+    });
+
+    let sentCount = 0;
+    let failedCount = 0;
+    allStatusCounts.forEach(item => {
+      if (item.status === 'SENT') sentCount = item._count.status;
+      if (item.status === 'FAILED') failedCount = item._count.status;
+    });
+
+    const successRate = total > 0 ? Math.round((sentCount / total) * 100) : 100;
 
     return res.json({
       success: true,
       logs,
       total,
+      summary: {
+        total,
+        sentCount,
+        failedCount,
+        successRate,
+        attendanceCount,
+        bulkCount
+      },
       page: parseInt(page),
       totalPages: Math.ceil(total / parseInt(limit))
     });
   } catch (error) {
+    console.error('Error fetching SMS logs:', error);
     return res.status(500).json({ error: 'Failed to fetch SMS logs: ' + error.message });
+  }
+};
+
+// ============================================================================
+// 6. GET DATE-WISE & CLASS-WISE ATTENDANCE SESSIONS REPORT
+// ============================================================================
+exports.getAttendanceSessionsReport = async (req, res) => {
+  try {
+    const { date, classId } = req.query;
+    
+    // Normalize target date
+    const targetDateStr = date || new Date().toISOString().slice(0, 10);
+    const startDate = new Date(`${targetDateStr}T00:00:00.000Z`);
+    const endDate = new Date(`${targetDateStr}T23:59:59.999Z`);
+    const targetMonth = targetDateStr.slice(0, 7);
+
+    // Class filter
+    const classWhere = {};
+    if (classId && classId !== 'ALL') {
+      classWhere.id = parseInt(classId);
+    }
+
+    const classes = await prisma.physicalClass.findMany({
+      where: classWhere,
+      include: {
+        teachers: true,
+        timetables: true
+      },
+      orderBy: { name: 'asc' }
+    });
+
+    const sessions = [];
+    let totalEnrolledAcrossSessions = 0;
+    let totalPresentAcrossSessions = 0;
+    let totalAbsentAcrossSessions = 0;
+
+    for (const cls of classes) {
+      // Find all students enrolled in this class
+      const enrolledStudents = await prisma.physicalStudent.findMany({
+        where: {
+          NOT: [
+            { studentName: 'id_number' },
+            { studentName: 'student_name' },
+            { studentName: 'Name' }
+          ],
+          OR: [
+            { classId: cls.id },
+            { enrollments: { some: { classId: cls.id } } }
+          ]
+        },
+        include: {
+          school: true,
+          enrollments: {
+            where: { classId: cls.id }
+          },
+          attendances: {
+            where: {
+              date: {
+                gte: startDate,
+                lte: endDate
+              },
+              OR: [
+                { classId: cls.id },
+                { classId: null }
+              ]
+            },
+            orderBy: { createdAt: 'desc' }
+          },
+          feePayments: {
+            where: {
+              classId: cls.id,
+              month: targetMonth
+            }
+          }
+        },
+        orderBy: [{ studentName: 'asc' }, { firstName: 'asc' }]
+      });
+
+      const enrolledCount = enrolledStudents.length;
+      if (enrolledCount === 0 && (!classId || classId === 'ALL')) {
+        // Skip classes with 0 enrolled students if looking at all classes
+        continue;
+      }
+
+      const presentStudents = [];
+      const absentStudents = [];
+
+      enrolledStudents.forEach(student => {
+        const studentDisplayName = student.studentName || `${student.firstName || ''} ${student.lastName || ''}`.trim() || 'Student';
+        const enrollment = student.enrollments?.[0];
+        const cardType = enrollment?.cardType || student.cardType || 'FULL';
+        const isAttended = student.attendances && student.attendances.length > 0;
+        const attRecord = isAttended ? student.attendances[0] : null;
+        const feePayment = student.feePayments?.[0];
+        
+        const studentInfo = {
+          id: student.id,
+          studentId: student.studentId,
+          studentName: studentDisplayName,
+          phone: student.phone || '',
+          guardianPhone: student.guardianPhone || student.guardianWhatsapp || '',
+          schoolName: student.school?.name || '-',
+          rfid: student.rfid || '',
+          cardType,
+          isPresent: isAttended,
+          attendanceTime: attRecord?.createdAt ? new Date(attRecord.createdAt).toLocaleTimeString('en-US', { timeZone: 'Asia/Colombo', hour: '2-digit', minute: '2-digit', hour12: true }) : null,
+          feeStatus: feePayment ? feePayment.status : (cardType === 'FREE' ? 'FREE_CARD' : 'PENDING'),
+          feeAmountPaid: feePayment?.amount || 0,
+          monthlyFee: cls.monthlyFee || 0
+        };
+
+        if (isAttended) {
+          presentStudents.push(studentInfo);
+        } else {
+          absentStudents.push(studentInfo);
+        }
+      });
+
+      const presentCount = presentStudents.length;
+      const absentCount = absentStudents.length;
+      const attendanceRate = enrolledCount > 0 ? Math.round((presentCount / enrolledCount) * 100) : 0;
+
+      totalEnrolledAcrossSessions += enrolledCount;
+      totalPresentAcrossSessions += presentCount;
+      totalAbsentAcrossSessions += absentCount;
+
+      sessions.push({
+        classId: cls.id,
+        className: cls.name,
+        grade: cls.grade,
+        stream: cls.stream || 'General',
+        subject: cls.subject || 'General',
+        monthlyFee: cls.monthlyFee || 0,
+        teachers: cls.teachers.map(t => ({ id: t.id, name: t.name })),
+        timetables: cls.timetables.map(tt => ({ dayOfWeek: tt.dayOfWeek, startTime: tt.startTime, endTime: tt.endTime, hall: tt.hall })),
+        enrolledCount,
+        presentCount,
+        absentCount,
+        attendanceRate,
+        presentStudents,
+        absentStudents
+      });
+    }
+
+    const overallAttendanceRate = totalEnrolledAcrossSessions > 0
+      ? Math.round((totalPresentAcrossSessions / totalEnrolledAcrossSessions) * 100)
+      : 0;
+
+    return res.json({
+      success: true,
+      date: targetDateStr,
+      targetMonth,
+      summary: {
+        totalSessions: sessions.length,
+        totalEnrolledAcrossSessions,
+        totalPresentAcrossSessions,
+        totalAbsentAcrossSessions,
+        overallAttendanceRate
+      },
+      sessions
+    });
+
+  } catch (error) {
+    console.error('[Attendance Sessions Report Error]:', error);
+    return res.status(500).json({ error: 'Failed to generate attendance sessions report: ' + error.message });
   }
 };
 

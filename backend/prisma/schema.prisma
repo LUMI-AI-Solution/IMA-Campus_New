@@ -62,6 +62,7 @@ model User {
 
   systemAuditLogs        SystemAuditLog[]
   actionedCallLogs       CallCampaignAuditLog[] @relation("ActionedCallCampaignLogs")
+  paperSubmissions       PaperSubmission[]
 }
 
 model Business {
@@ -229,6 +230,7 @@ model Content {
   createdAt       DateTime      @default(now())
 
   tasks Task[]
+  paper Paper?
 }
 
 model ContentCourse {
@@ -557,7 +559,8 @@ model Hall {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  timetables Timetable[]
+  timetables         Timetable[]
+  physicalTimetables PhysicalTimetable[]
 }
 
 model Timetable {
@@ -896,15 +899,17 @@ model PhysicalStudent {
 }
 
 model PhysicalAttendance {
-  id        Int             @id @default(autoincrement())
+  id        Int              @id @default(autoincrement())
   studentId Int
-  student   PhysicalStudent @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  date      DateTime        @db.Date
-  status    String          @default("PRESENT")
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  student   PhysicalStudent  @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  classId   Int?
+  class     PhysicalClass?   @relation(fields: [classId], references: [id], onDelete: Cascade)
+  date      DateTime         @db.Date
+  status    String           @default("PRESENT")
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
-  @@unique([studentId, date])
+  @@unique([studentId, classId, date])
 }
 
 model PhysicalStudentClassEnrollment {
@@ -933,6 +938,7 @@ model PhysicalClass {
   teachers    PhysicalTeacher[]
   students    PhysicalStudent[]
   enrollments PhysicalStudentClassEnrollment[]
+  attendances PhysicalAttendance[]
   timetables  PhysicalTimetable[]
   feePayments PhysicalClassFeePayment[]
 }
@@ -980,6 +986,10 @@ model PhysicalTimetable {
   dayOfWeek String
   startTime String
   endTime   String
+
+  hallId    Int?
+  hall      Hall?  @relation(fields: [hallId], references: [id])
+  hallName  String?
 
   teacherId Int?
   teacher   PhysicalTeacher? @relation(fields: [teacherId], references: [id], onDelete: Cascade)
@@ -1220,6 +1230,11 @@ model PhysicalTransaction {
   studentId   Int?
   student     PhysicalStudent? @relation(fields: [studentId], references: [id], onDelete: SetNull)
 
+  isDeleted   Boolean          @default(false)
+  deletedReason String?        @db.Text
+  deletedAt   DateTime?
+  deletedBy   String?
+
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 }
@@ -1263,5 +1278,185 @@ model PhysicalSmsLog {
   @@index([classId])
   @@index([createdAt])
 }
+
+model Paper {
+  id                 Int               @id @default(autoincrement())
+  contentId          Int               @unique
+  content            Content           @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  paperType          String            @default("MCQ") // "MCQ" or "STRUCTURED"
+  timerMode          String            @default("FLEXIBLE") // "SCHEDULED" or "FLEXIBLE"
+  scheduledStartTime DateTime?
+  durationMinutes    Int               @default(60)
+  totalMarks         Float?            @default(100)
+  passMarks          Float?            @default(40)
+  instructions       String?           @db.Text
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  questions          PaperQuestion[]
+  submissions        PaperSubmission[]
+}
+
+model PaperQuestion {
+  id           Int                     @id @default(autoincrement())
+  paperId      Int
+  paper        Paper                   @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  questionNo   Int
+  questionText String                  @db.Text
+  image        String?
+  marks        Float                   @default(1.0)
+  createdAt    DateTime                @default(now())
+
+  options      PaperOption[]
+  answers      PaperSubmissionAnswer[]
+}
+
+model PaperOption {
+  id         Int                     @id @default(autoincrement())
+  questionId Int
+  question   PaperQuestion           @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  optionNo   Int                     // 1, 2, 3, 4, 5
+  optionText String                  @db.Text
+  isCorrect  Boolean                 @default(false)
+
+  answers    PaperSubmissionAnswer[]
+}
+
+model PaperSubmission {
+  id              Int                     @id @default(autoincrement())
+  paperId         Int
+  paper           Paper                   @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  studentId       Int
+  student         User                    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  startedAt       DateTime                @default(now())
+  submittedAt     DateTime?
+  status          String                  @default("IN_PROGRESS") // "IN_PROGRESS", "SUBMITTED", "GRADED"
+  score           Float?                  @default(0)
+  totalQuestions  Int?                    @default(0)
+  correctAnswers  Int?                    @default(0)
+  answerFile      String?                 // For structured paper (PDF upload)
+  teacherFeedback String?                 @db.Text
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  answers         PaperSubmissionAnswer[]
+
+  @@unique([paperId, studentId])
+}
+
+model PaperSubmissionAnswer {
+  id               Int             @id @default(autoincrement())
+  submissionId     Int
+  submission       PaperSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  questionId       Int
+  question         PaperQuestion   @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOptionId Int?
+  selectedOption   PaperOption?    @relation(fields: [selectedOptionId], references: [id], onDelete: SetNull)
+  isCorrect        Boolean         @default(false)
+}
+
+// ==========================================
+// 🔥 IMA PUSTHAKALAYA (E-LIBRARY & PAST PAPER VAULT) 🔥
+// ==========================================
+
+model LibraryCategory {
+  id          Int               @id @default(autoincrement())
+  name        String            // e.g. "G.C.E. A/L (උසස් පෙළ)", "G.C.E. O/L (සාමාන්‍ය පෙළ)", "Primary (ප්‍රාථමික)"
+  code        String            @unique // e.g. "AL", "OL", "PRIMARY"
+  description String?           @db.Text
+  sortOrder   Int               @default(0)
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  grades      LibraryGrade[]
+  streams     LibraryStream[]
+  subjects    LibrarySubject[]
+  resources   LibraryResource[]
+}
+
+model LibraryGrade {
+  id          Int               @id @default(autoincrement())
+  name        String            // e.g. "Grade 12", "Grade 13", "Grade 11", "Grade 5"
+  gradeNumber Int?              // 1 to 13
+  categoryId  Int?
+  category    LibraryCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  sortOrder   Int               @default(0)
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  subjects    LibrarySubject[]
+  resources   LibraryResource[]
+}
+
+model LibraryStream {
+  id          Int               @id @default(autoincrement())
+  name        String            // e.g. "Physical Science / Maths", "Biological Science", "Commerce", "Arts", "Technology"
+  code        String?           // e.g. "MATHS", "BIO", "COMMERCE", "ARTS", "TECH"
+  description String?           @db.Text
+  categoryId  Int?
+  category    LibraryCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  sortOrder   Int               @default(0)
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  subjects    LibrarySubject[]
+  resources   LibraryResource[]
+}
+
+model LibrarySubject {
+  id          Int               @id @default(autoincrement())
+  name        String            // e.g. "Combined Mathematics", "Physics", "Chemistry", "Biology", "Accounting", "Media"
+  code        String?           // e.g. "CMATHS", "PHYSICS"
+  categoryId  Int?
+  category    LibraryCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  streamId    Int?
+  stream      LibraryStream?    @relation(fields: [streamId], references: [id], onDelete: SetNull)
+  gradeId     Int?
+  grade       LibraryGrade?     @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  sortOrder   Int               @default(0)
+  isActive    Boolean           @default(true)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  resources   LibraryResource[]
+}
+
+model LibraryResource {
+  id                Int               @id @default(autoincrement())
+  title             String            // e.g. "2027 A/L Combined Maths Model Paper 01 + Scheme"
+  description       String?           @db.Text
+  fileUrl           String            // Path or URL to PDF file (e.g. "/uploads/library/1788...pdf")
+  fileName          String?
+  fileSize          String?           // e.g. "2.4 MB"
+  fileType          String            @default("PDF") // PDF, DOCX, etc.
+  resourceType      String            @default("PAST_PAPER") // PAST_PAPER, MODEL_PAPER, TEACHERS_GUIDE, SHORT_NOTE, TERM_TEST
+  year              String?           // e.g. "2027", "2026", "2025"
+  term              String?           // e.g. "1st Term", "2nd Term", "3rd Term", "Final"
+  medium            String            @default("SINHALA") // SINHALA, ENGLISH, TAMIL
+  hasMarkingScheme  Boolean           @default(false)
+  markingSchemeUrl  String?
+  tags              String?           // comma-separated keywords
+  downloadCount     Int               @default(0)
+  viewCount         Int               @default(0)
+  isFeatured        Boolean           @default(false)
+  isPublished       Boolean           @default(true)
+
+  categoryId        Int?
+  category          LibraryCategory?  @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  gradeId           Int?
+  grade             LibraryGrade?     @relation(fields: [gradeId], references: [id], onDelete: SetNull)
+  streamId          Int?
+  stream            LibraryStream?    @relation(fields: [streamId], references: [id], onDelete: SetNull)
+  subjectId         Int?
+  subject           LibrarySubject?   @relation(fields: [subjectId], references: [id], onDelete: SetNull)
+
+  createdById       Int?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+}
+
 
 

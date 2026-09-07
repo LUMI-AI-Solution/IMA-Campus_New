@@ -626,8 +626,15 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
 
                 {/* 🔥 CONVERSION GOALS & LEVEL PROGRESS TRACKER WIDGET 🔥 */}
                 {(() => {
-                    const myAssignedCount = openSemLeads.length;
-                    const myEnrolledCount = openSemLeads.filter(l => l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'))).length;
+                    const currentUser = JSON.parse(localStorage.getItem('user')) || {};
+                    const myStaffStat = campaignStats?.staffBreakdown?.find(s => 
+                        (s.staffId && currentUser?.id && String(s.staffId) === String(currentUser.id)) ||
+                        (s.id && currentUser?.id && String(s.id) === String(currentUser.id)) ||
+                        (s.name && currentUser?.firstName && s.name.toLowerCase().includes(currentUser.firstName.toLowerCase()))
+                    );
+
+                    const myAssignedCount = myStaffStat?.overall?.assigned ?? openSemLeads.length;
+                    const myEnrolledCount = myStaffStat?.overall?.enrolled ?? openSemLeads.filter(l => l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'))).length;
                     
                     const totalGroupAssigned = campaignStats?.totalAssigned || myAssignedCount;
                     const totalGroupEnrolled = campaignStats?.totalEnrolled || myEnrolledCount;

@@ -11,16 +11,22 @@ export default function CoordinatorGoalTrackerWidget({
     staffBreakdown = []
 }) {
     // Single Goal Calculations
-    const myRate = myAssigned > 0 ? Math.round((myEnrolled / myAssigned) * 100) : 0;
-    const requiredSingleCount = Math.ceil((targetIndividualGoal / 100) * myAssigned);
+    const requiredSingleCount = Math.floor((targetIndividualGoal / 100) * myAssigned);
     const neededSingle = Math.max(0, requiredSingleCount - myEnrolled);
-    const singleProgress = Math.min(100, Math.round((myRate / targetIndividualGoal) * 100));
+    const singleProgress = neededSingle === 0 ? 100 : Math.min(100, Math.round((myEnrolled / (requiredSingleCount || 1)) * 100));
+    let myRate = myAssigned > 0 ? Math.round((myEnrolled / myAssigned) * 100) : 0;
+    if (neededSingle === 0 && myEnrolled > 0 && targetIndividualGoal > myRate) {
+        myRate = targetIndividualGoal;
+    }
 
     // Group Goal Calculations
-    const groupRate = totalGroupAssigned > 0 ? Math.round((totalGroupEnrolled / totalGroupAssigned) * 100) : 0;
-    const requiredGroupCount = Math.ceil((targetGroupGoal / 100) * totalGroupAssigned);
+    const requiredGroupCount = Math.floor((targetGroupGoal / 100) * totalGroupAssigned);
     const neededGroup = Math.max(0, requiredGroupCount - totalGroupEnrolled);
-    const groupProgress = Math.min(100, Math.round((groupRate / targetGroupGoal) * 100));
+    const groupProgress = neededGroup === 0 ? 100 : Math.min(100, Math.round((totalGroupEnrolled / (requiredGroupCount || 1)) * 100));
+    let groupRate = totalGroupAssigned > 0 ? Math.round((totalGroupEnrolled / totalGroupAssigned) * 100) : 0;
+    if (neededGroup === 0 && totalGroupEnrolled > 0 && targetGroupGoal > groupRate) {
+        groupRate = targetGroupGoal;
+    }
 
     // Sort coordinators by enrolled count for top team drivers
     const topTeamDrivers = [...staffBreakdown].sort((a, b) => {

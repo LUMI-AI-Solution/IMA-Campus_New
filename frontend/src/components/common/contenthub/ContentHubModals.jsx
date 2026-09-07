@@ -1,16 +1,26 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Send, UploadCloud, Users, UserPlus, CheckCircle, Plus, Edit3, Trash2, CreditCard, MessageSquare, MonitorPlay, ExternalLink, Ban, BookOpen, Building2, User, Layers, Save, FolderOpen } from 'lucide-react';
+import { X, Send, UploadCloud, Users, UserPlus, CheckCircle, Plus, Edit3, Trash2, CreditCard, MessageSquare, MonitorPlay, ExternalLink, Ban, BookOpen, Building2, User, Layers, Save, FolderOpen, Clock } from 'lucide-react';
 import api from '../../../api/axios'; 
 
 export default function ContentHubModals({ state, actions }) {
+    const [modalTimerMode, setModalTimerMode] = useState('FLEXIBLE');
+
     const {
         isSystemAdmin, businesses, managersList, batches, lessonGroups, postsList, showBusinessModal, showAssignModal, showBatchModal, showGroupModal,
         showCourseModal, showLessonGroupModal, showContentModal, showPostModal, showManagePostsModal, previewData, editMode, editData, selectedLogoName,
         selectedGroupPrices, discountRules, contentType, prefilledFolder, selectedBatchesForContent, massAssignSubjects, postBizId, postBatches, showInstallmentModal,
-        existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, activeBusiness, activeBatch, loading, showLecturerModal, masterTutes,
+        existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, activeBusiness, activeBatch, activeSubject, loading, showLecturerModal, masterTutes,
         hubBatchConfigs, hubActiveBatchTab, parentFolderForSub, selectedFolderParentId
     } = state;
+
+    useEffect(() => {
+        if (editData?.paper?.timerMode) {
+            setModalTimerMode(editData.paper.timerMode);
+        } else {
+            setModalTimerMode('FLEXIBLE');
+        }
+    }, [editData, showContentModal]);
 
     const {
         setShowBusinessModal, setShowAssignModal, setShowBatchModal, setShowGroupModal, setShowCourseModal, setShowLessonGroupModal, setShowContentModal,
@@ -31,17 +41,57 @@ export default function ContentHubModals({ state, actions }) {
         return 'https://imacampus.online/api';
     };
 
+    const normalizeFolderTitle = (title) => {
+        if (!title) return '';
+        return title
+            .toLowerCase()
+            .replace(/[\s_-]+/g, ' ')
+            .replace(/\b(month|batch|මාසය|මාස|පාඩම|පාඩම්)\b/gi, '')
+            .trim();
+    };
+
+    const getSelectedFolderValue = () => {
+        if (!editMode) return prefilledFolder ? String(prefilledFolder) : '';
+
+        const currentTypeGroups = (lessonGroups || []).filter(g => parseInt(g.type) === getTypeInt(contentType));
+        const targetId = editData?.contentGroupId ?? editData?.content_group_id;
+
+        if (targetId && currentTypeGroups.some(g => String(g.id) === String(targetId))) {
+            return String(targetId);
+        }
+
+        const targetTitle = editData?.groupTitle || editData?.group?.title;
+        if (targetTitle) {
+            const rawTarget = targetTitle.trim().toLowerCase();
+            const normTarget = normalizeFolderTitle(targetTitle);
+            const matched = currentTypeGroups.find(g => {
+                const rawG = (g.title || g.name || '').trim().toLowerCase();
+                const normG = normalizeFolderTitle(g.title || g.name);
+                return rawG === rawTarget || (normTarget && normG && normG === normTarget);
+            });
+            if (matched) return String(matched.id);
+        }
+
+        return targetId ? String(targetId) : '';
+    };
+
     const activeHubBatch = hubActiveBatchTab || (batches.length > 0 ? batches[0].id : null);
     
     const handleHubSubjectToggle = (batchId, subjectId, courseCode) => {
         setHubBatchConfigs(prev => {
             const batchConfig = prev[batchId] || {};
-            const subjectConfig = batchConfig[subjectId] || { isChecked: false, folderId: '', courseCode };
+            const initialFolder = prefilledFolder ? String(prefilledFolder) : '';
+            const subjectConfig = batchConfig[subjectId] || { isChecked: false, folderId: initialFolder, courseCode };
             return {
                 ...prev,
                 [batchId]: {
                     ...batchConfig,
-                    [subjectId]: { ...subjectConfig, isChecked: !subjectConfig.isChecked, courseCode }
+                    [subjectId]: { 
+                        ...subjectConfig, 
+                        isChecked: !subjectConfig.isChecked, 
+                        folderId: subjectConfig.folderId || initialFolder,
+                        courseCode 
+                    }
                 }
             };
         });
@@ -55,7 +105,7 @@ export default function ContentHubModals({ state, actions }) {
                 ...prev,
                 [batchId]: {
                     ...batchConfig,
-                    [subjectId]: { ...subjectConfig, folderId, courseCode }
+                    [subjectId]: { ...subjectConfig, isChecked: true, folderId, courseCode }
                 }
             };
         });
@@ -89,13 +139,25 @@ export default function ContentHubModals({ state, actions }) {
                                             <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Target Folder (Current Batch)</label>
                                             <select 
                                                 name="contentGroupId" 
-                                                value={editMode ? (editData?.contentGroupId !== undefined && editData?.contentGroupId !== null ? String(editData.contentGroupId) : (editData?.content_group_id !== undefined && editData?.content_group_id !== null ? String(editData.content_group_id) : '')) : (prefilledFolder ? String(prefilledFolder) : '')} 
+                                                value={getSelectedFolderValue()} 
                                                 onChange={(e) => { 
                                                     const val = e.target.value;
                                                     if (editMode) { 
-                                                        setEditData(prev => ({...prev, contentGroupId: val, content_group_id: val}));
+                                                        setEditData(prev => ({...prev, contentGroupId: val, content_group_id: val, groupTitle: null }));
                                                     } else { 
                                                         setPrefilledFolder(val); 
+                                                        // Sync to all checked subjects in hubBatchConfigs
+                                                        setHubBatchConfigs(prev => {
+                                                            const updated = { ...prev };
+                                                            Object.keys(updated).forEach(bId => {
+                                                                Object.keys(updated[bId] || {}).forEach(cId => {
+                                                                    if (updated[bId][cId]?.isChecked) {
+                                                                        updated[bId][cId] = { ...updated[bId][cId], folderId: val };
+                                                                    }
+                                                                });
+                                                            });
+                                                            return updated;
+                                                        });
                                                     } 
                                                 }} 
                                                 className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-white outline-none focus:border-green-500 shadow-inner cursor-pointer"
@@ -166,7 +228,7 @@ export default function ContentHubModals({ state, actions }) {
                                                 </div>
                                             )}
 
-                                            {(contentType === 'document' || contentType === 'sPaper' || contentType === 'paper') && (
+                                            {(contentType === 'document' || contentType === 'sPaper') && (
                                                 <div className="md:col-span-4">
                                                     <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">File Upload {editMode && <span className="text-green-400 font-normal ml-2 normal-case">(Leave empty to keep existing)</span>}</label>
                                                     <input type="file" name="file" required={!editMode} className="w-full bg-black/60 border border-white/10 rounded-xl p-2.5 text-gray-400 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:bg-white/10 file:text-white shadow-inner cursor-pointer" />
@@ -175,7 +237,7 @@ export default function ContentHubModals({ state, actions }) {
 
                                             <div className="md:col-span-4">
                                                 <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Date</label>
-                                                <input type={(contentType==='document'||contentType==='sPaper'||contentType==='paper') ? "month":"date"} name="date" defaultValue={editData?.date ? ((contentType==='document'||contentType==='sPaper'||contentType==='paper') ? editData.date.substring(0, 7) : editData.date.split('T')[0]) : ''} required className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner cursor-pointer transition-all appearance-none" />
+                                                <input type={(contentType==='document'||contentType==='sPaper') ? "month":"date"} name="date" defaultValue={editData?.date ? ((contentType==='document'||contentType==='sPaper') ? editData.date.substring(0, 7) : editData.date.split('T')[0]) : ''} required className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner cursor-pointer transition-all appearance-none" />
                                             </div>
 
                                             {contentType === 'live' && (
@@ -199,10 +261,123 @@ export default function ContentHubModals({ state, actions }) {
                                             )}
 
                                             {contentType === 'paper' && (
-                                                <>
-                                                    <div className="md:col-span-2"><label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Time (Min) *</label><input type="number" name="paperTime" defaultValue={editData?.paperTime} required className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner transition-all" /></div>
-                                                    <div className="md:col-span-2"><label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Questions *</label><input type="number" name="questionCount" defaultValue={editData?.questionCount} required className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner transition-all" /></div>
-                                                </>
+                                                <div className="md:col-span-4 bg-white/[0.03] border border-white/10 rounded-2xl p-4 sm:p-5 space-y-4 shadow-inner">
+                                                    <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                                                        <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
+                                                            <Clock size={16} /> Exam Timer & Execution Rules
+                                                        </span>
+                                                        <span className="text-[11px] text-slate-400 font-semibold">How students take this paper</span>
+                                                    </div>
+
+                                                    {/* Timer Mode Selection */}
+                                                    <div className="space-y-2">
+                                                        <label className="text-xs font-bold text-gray-400 block uppercase tracking-wider">Timer Mode *</label>
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                            
+                                                            {/* Flexible Start Option */}
+                                                            <label 
+                                                                onClick={() => setModalTimerMode('FLEXIBLE')}
+                                                                className={`cursor-pointer border rounded-xl p-3.5 flex items-start gap-3 transition-all ${
+                                                                    modalTimerMode === 'FLEXIBLE' 
+                                                                        ? 'bg-brand-accent/20 border-brand-accent ring-1 ring-brand-accent text-white' 
+                                                                        : 'bg-black/40 border-white/10 text-slate-400 hover:border-white/20'
+                                                                }`}
+                                                            >
+                                                                <input 
+                                                                    type="radio" 
+                                                                    name="timerMode" 
+                                                                    value="FLEXIBLE" 
+                                                                    checked={modalTimerMode === 'FLEXIBLE'} 
+                                                                    onChange={() => setModalTimerMode('FLEXIBLE')} 
+                                                                    className="mt-1 accent-rose-600" 
+                                                                />
+                                                                <div>
+                                                                    <p className="text-xs font-extrabold text-white">Flexible Start (Individual Countdown)</p>
+                                                                    <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                                                                        Countdown begins as soon as the student clicks 'Start Exam'.
+                                                                    </p>
+                                                                </div>
+                                                            </label>
+
+                                                            {/* Scheduled Start Option */}
+                                                            <label 
+                                                                onClick={() => setModalTimerMode('SCHEDULED')}
+                                                                className={`cursor-pointer border rounded-xl p-3.5 flex items-start gap-3 transition-all ${
+                                                                    modalTimerMode === 'SCHEDULED' 
+                                                                        ? 'bg-amber-500/20 border-amber-500 ring-1 ring-amber-500 text-white' 
+                                                                        : 'bg-black/40 border-white/10 text-slate-400 hover:border-white/20'
+                                                                }`}
+                                                            >
+                                                                <input 
+                                                                    type="radio" 
+                                                                    name="timerMode" 
+                                                                    value="SCHEDULED" 
+                                                                    checked={modalTimerMode === 'SCHEDULED'} 
+                                                                    onChange={() => setModalTimerMode('SCHEDULED')} 
+                                                                    className="mt-1 accent-amber-500" 
+                                                                />
+                                                                <div>
+                                                                    <p className="text-xs font-extrabold text-white">Scheduled Start (Synchronized Time)</p>
+                                                                    <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                                                                        Synchronized countdown to an exact scheduled date and time.
+                                                                    </p>
+                                                                </div>
+                                                            </label>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* If Scheduled Mode: Show Scheduled Start Time picker */}
+                                                    {modalTimerMode === 'SCHEDULED' && (
+                                                        <div className="animate-in fade-in space-y-1.5 pt-1">
+                                                            <label className="text-xs font-bold text-amber-400 block uppercase tracking-wider">Scheduled Start Time *</label>
+                                                            <input 
+                                                                type="time" 
+                                                                name="scheduledStartTime" 
+                                                                defaultValue={editData?.paper?.scheduledStartTime ? new Date(editData.paper.scheduledStartTime).toTimeString().slice(0, 5) : ''} 
+                                                                required={modalTimerMode === 'SCHEDULED'}
+                                                                className="w-full bg-black/60 border border-amber-500/40 focus:border-amber-400 focus:bg-black/80 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold cursor-pointer" 
+                                                            />
+                                                            <p className="text-[11px] text-slate-400 italic">Starts on the Date selected above.</p>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Duration & Pass Marks Inputs */}
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                                                        <div>
+                                                            <label className="text-xs font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Exam Duration (Minutes) *</label>
+                                                            <input 
+                                                                type="number" 
+                                                                name="paperTime" 
+                                                                defaultValue={editData?.paperTime || editData?.paper?.durationMinutes || 60} 
+                                                                placeholder="e.g. 60" 
+                                                                required 
+                                                                className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-3.5 text-white outline-none shadow-inner transition-all text-sm font-bold" 
+                                                            />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-xs font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Pass Marks (%)</label>
+                                                            <input 
+                                                                type="number" 
+                                                                name="passMarks" 
+                                                                defaultValue={editData?.paper?.passMarks || 40} 
+                                                                placeholder="e.g. 40" 
+                                                                className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-3.5 text-white outline-none shadow-inner transition-all text-sm font-bold" 
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Optional Student Instructions */}
+                                                    <div>
+                                                        <label className="text-xs font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Instructions for Students (Optional)</label>
+                                                        <textarea 
+                                                            name="instructions" 
+                                                            rows="2" 
+                                                            defaultValue={editData?.paper?.instructions || ''} 
+                                                            placeholder="e.g. You have 60 minutes to complete all questions. Once submitted, answers cannot be changed." 
+                                                            className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-3 text-white outline-none shadow-inner text-xs"
+                                                        />
+                                                    </div>
+                                                </div>
                                             )}
                                             
                                             <div className="md:col-span-4 mt-4">
@@ -312,10 +487,10 @@ export default function ContentHubModals({ state, actions }) {
                                                                             {group.courses?.map(course => {
                                                                                 const subjectConfig = bConfig[course.id] || { isChecked: false, folderId: '' };
                                                                                 const courseCode = course.code || `SUB_${course.id}`;
-                                                                                // Filter folders that have matching courseCode
+                                                                                // Filter folders that have matching courseCode or matching type
                                                                                 const availableFolders = lessonGroups.filter(lg => 
-                                                                                    lg.courseCode === courseCode && 
-                                                                                    parseInt(lg.type) === getTypeInt(contentType)
+                                                                                    parseInt(lg.type) === getTypeInt(contentType) &&
+                                                                                    (!lg.courseCode || lg.courseCode === courseCode || lg.courseCode === course.code || (activeSubject && lg.courseCode === (activeSubject.code || `SUB_${activeSubject.id}`)))
                                                                                 );
 
                                                                                 return (

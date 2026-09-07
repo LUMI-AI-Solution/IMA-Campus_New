@@ -33,6 +33,25 @@ exports.downloadDatabaseBackup = async (req, res) => {
 const os = require('os');
 const { exec } = require('child_process');
 
+function readTail(filePath, maxBytes = 64 * 1024, maxLines = 35) {
+    if (!fs.existsSync(filePath)) return "";
+    try {
+        const stat = fs.statSync(filePath);
+        if (stat.size === 0) return "";
+        const bytesToRead = Math.min(stat.size, maxBytes);
+        const buffer = Buffer.alloc(bytesToRead);
+        const fd = fs.openSync(filePath, 'r');
+        fs.readSync(fd, buffer, 0, bytesToRead, stat.size - bytesToRead);
+        fs.closeSync(fd);
+        const text = buffer.toString('utf8');
+        const lines = text.split('\n');
+        return lines.slice(-maxLines).join('\n');
+    } catch (err) {
+        console.error(`Error tailing file ${filePath}:`, err);
+        return "";
+    }
+}
+
 exports.getSystemOverview = async (req, res) => {
     try {
         const { PrismaClient } = require('@prisma/client');
@@ -53,13 +72,13 @@ exports.getSystemOverview = async (req, res) => {
         const cpuCount = os.cpus().length;
         const cpuLoadPct = Math.round((loadAvg / cpuCount) * 100);
 
-        // Calculate recent errors from PM2 error log
+        // Calculate recent errors from PM2 error log safely
         let recentErrorsCount = 0;
         try {
             const errPath = path.join(os.homedir(), '.pm2/logs/ima-backend-error.log');
             if (fs.existsSync(errPath)) {
-                const errLogs = fs.readFileSync(errPath, 'utf8').split('\n');
-                recentErrorsCount = errLogs.filter(line => line.toLowerCase().includes('error')).length;
+                const tailContent = readTail(errPath, 128 * 1024, 100);
+                recentErrorsCount = tailContent.split('\n').filter(line => line.toLowerCase().includes('error')).length;
             }
         } catch(e) {
             console.error("Failed to read error logs for overview", e);
@@ -93,23 +112,24 @@ exports.getSystemOverview = async (req, res) => {
 };
 
 exports.getLiveLogs = (req, res) => {
-    // Tail the last 50 lines of PM2 backend log
+    // Tail the last 35 lines of PM2 backend logs safely without loading large files into memory
     const logPath = path.join(os.homedir(), '.pm2/logs/ima-backend-out.log');
     const errPath = path.join(os.homedir(), '.pm2/logs/ima-backend-error.log');
     
     let combinedLogs = "";
 
     try {
-        if (fs.existsSync(logPath)) {
-            const outLogs = fs.readFileSync(logPath, 'utf8').split('\n').slice(-30).join('\n');
+        const outLogs = readTail(logPath, 64 * 1024, 30);
+        if (outLogs) {
             combinedLogs += "=== STANDARD OUTPUT ===\n" + outLogs + "\n";
         }
-        if (fs.existsSync(errPath)) {
-            const errLogs = fs.readFileSync(errPath, 'utf8').split('\n').slice(-30).join('\n');
+        const errLogs = readTail(errPath, 64 * 1024, 30);
+        if (errLogs) {
             combinedLogs += "=== ERROR OUTPUT ===\n" + errLogs + "\n";
         }
         res.send(combinedLogs || "No logs available.");
     } catch (e) {
+        console.error("getLiveLogs error:", e);
         res.status(500).send("Error reading logs");
     }
 };

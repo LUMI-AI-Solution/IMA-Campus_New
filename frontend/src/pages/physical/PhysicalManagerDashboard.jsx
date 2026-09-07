@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Scan } from 'lucide-react';
+import toast from 'react-hot-toast';
 import OverviewTab from './OverviewTab';
 import StudentRegistration from '../PhysicalCRM/StudentRegistration';
 import ClassTeacherManagement from '../PhysicalCRM/ClassTeacherManagement';
@@ -16,6 +17,68 @@ export default function PhysicalManagerDashboard() {
   const { tab } = useParams();
   const navigate = useNavigate();
   const activeTab = tab || 'overview';
+
+  // Global Hardware Scanner Listener for Physical Hub
+  const scanBufferRef = useRef('');
+  const lastKeyTimeRef = useRef(Date.now());
+  const scanTimeoutRef = useRef(null);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      const target = e.target;
+      const isFormInput = 
+        ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName) || 
+        target?.isContentEditable || 
+        Boolean(target?.closest?.('input, textarea, select, [contenteditable="true"], form, [role="dialog"], [role="modal"]'));
+      
+      // If user is currently focused inside any form input/textarea/select/modal or editing forms, do not intercept!
+      if (isFormInput) {
+        scanBufferRef.current = '';
+        return;
+      }
+
+      const now = Date.now();
+      const timeDiff = now - lastKeyTimeRef.current;
+      lastKeyTimeRef.current = now;
+
+      // Enter key marks end of barcode scan (only when outside form inputs)
+      if (e.key === 'Enter') {
+        const scannedCode = scanBufferRef.current.trim();
+        if (scannedCode.length >= 2) {
+          console.log('[Physical Hub Scanner] Auto-scanned Student Card:', scannedCode);
+          toast.success(`⚡ Student Card Scanned: ${scannedCode}`, {
+            icon: '📇',
+            duration: 2500
+          });
+          scanBufferRef.current = '';
+          navigate(`/physical/dashboard/attendance?studentId=${encodeURIComponent(scannedCode)}`);
+          return;
+        }
+        scanBufferRef.current = '';
+        return;
+      }
+
+      // Buffer normal alphanumeric characters
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (timeDiff > 150) {
+          scanBufferRef.current = e.key;
+        } else {
+          scanBufferRef.current += e.key;
+        }
+
+        clearTimeout(scanTimeoutRef.current);
+        scanTimeoutRef.current = setTimeout(() => {
+          scanBufferRef.current = '';
+        }, 300);
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+      clearTimeout(scanTimeoutRef.current);
+    };
+  }, [navigate]);
 
   const tabTitles = {
     registration: 'Student Registration',

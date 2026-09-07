@@ -7,10 +7,17 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
   const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'payments' | 'attendance' | 'sms'
+  
+  // Inline Card Edit State
+  const [isEditingCard, setIsEditingCard] = useState(false);
+  const [cardInput, setCardInput] = useState('');
+  const [savingCard, setSavingCard] = useState(false);
 
   useEffect(() => {
     if (isOpen && studentId) {
       fetchStudentDetails();
+      setIsEditingCard(false);
+      setCardInput('');
     }
   }, [isOpen, studentId]);
 
@@ -25,6 +32,22 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
       toast.error('Failed to load student details');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveCard = async () => {
+    if (!studentId) return;
+    setSavingCard(true);
+    try {
+      const res = await physicalCrmService.allocateCard(studentId, cardInput);
+      toast.success(res.message || 'Card updated successfully!');
+      setIsEditingCard(false);
+      fetchStudentDetails();
+    } catch (err) {
+      console.error('Error allocating card:', err);
+      toast.error(err.response?.data?.error || 'Failed to allocate card');
+    } finally {
+      setSavingCard(false);
     }
   };
 
@@ -140,6 +163,80 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
                       }`}>
                         {student?.registrationFeeStatus === 'PAID' ? 'PAID' : 'PENDING'}
                       </span>
+                    </div>
+                  </div>
+
+                  {/* ID Card / RFID Allocation Box */}
+                  <div className="bg-emerald-950/30 border border-emerald-500/30 p-4 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-inner">
+                    <div>
+                      <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block mb-1 flex items-center gap-1.5">
+                        <CreditCard size={13} /> Physical ID Card / RFID
+                      </span>
+                      <p className="text-sm font-bold text-white font-mono">
+                        {student?.rfid ? `💳 Assigned: ${student.rfid}` : '⚠️ No Card / RFID Allocated'}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 w-full sm:w-auto">
+                      {isEditingCard ? (
+                        <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                          <input
+                            type="text"
+                            autoFocus
+                            placeholder="Scan/Type Card Code..."
+                            value={cardInput}
+                            onChange={(e) => setCardInput(e.target.value.trim())}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                handleSaveCard();
+                              }
+                            }}
+                            className="bg-black/70 border border-emerald-500/50 rounded-xl px-3 py-1.5 text-xs text-emerald-200 font-mono font-bold outline-none flex-1 sm:w-44"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleSaveCard}
+                            disabled={savingCard}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow cursor-pointer transition-all disabled:opacity-50"
+                          >
+                            {savingCard ? 'Saving...' : 'Save'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsEditingCard(false)}
+                            className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 text-slate-300 text-xs rounded-xl cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          {student?.rfid && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCardInput('');
+                                handleSaveCard();
+                              }}
+                              className="px-2.5 py-1.5 bg-red-500/10 hover:bg-red-500/20 text-red-300 border border-red-500/20 text-xs font-bold rounded-xl cursor-pointer"
+                            >
+                              Unlink
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCardInput(student?.rfid || '');
+                              setIsEditingCard(true);
+                            }}
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl shadow-lg transition-all cursor-pointer flex items-center gap-1.5"
+                          >
+                            <CreditCard size={13} />
+                            <span>{student?.rfid ? 'Change Card' : '+ Allocate Card'}</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
 

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from '../../../api/axios';
-import { Loader2, Video, MonitorPlay, FileText, FileSignature, CheckCircle, ArrowLeft, X, Lock, CalendarDays, FolderOpen, ChevronDown, Maximize, Minimize, Play, SkipForward, Pause, Info } from 'lucide-react';
+import { Loader2, Video, MonitorPlay, FileText, FileSignature, CheckCircle, ArrowLeft, X, Lock, CalendarDays, FolderOpen, ChevronDown, Maximize, Minimize, Play, SkipForward, Pause, Info, Sparkles, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import YouTube from 'react-youtube';
 import { FaYoutube, FaVimeo } from 'react-icons/fa';
 import { SiZoom } from 'react-icons/si';
 import SecureYoutubePlayer from './SecureYoutubePlayer';
+import StudentPaperPortal from './StudentPaperPortal';
 
 
 export default function CourseView({ courseId, onBack }) {
@@ -18,6 +19,10 @@ export default function CourseView({ courseId, onBack }) {
     // Video Playing State
     const [playingVideo, setPlayingVideo] = useState(null);
     const [nextVideo, setNextVideo] = useState(null);
+
+    // Exam Portal States
+    const [selectedExamContent, setSelectedExamContent] = useState(null);
+    const [showExamPortal, setShowExamPortal] = useState(false);
 
     // YouTube Secure Player States
     const [ytPlayer, setYtPlayer] = useState(null);
@@ -56,7 +61,7 @@ export default function CourseView({ courseId, onBack }) {
         return url.endsWith('/') ? url.slice(0, -1) : url;
     };
 
-    useEffect(() => {
+    const fetchCourseData = () => {
         axios.get(`/student/module/${courseId}`).then(res => {
             setData(res.data);
             if (res.data?.lessonGroups) {
@@ -68,6 +73,10 @@ export default function CourseView({ courseId, onBack }) {
             console.error(err);
             toast.error("Failed to load course contents.");
         }).finally(() => setLoading(false));
+    };
+
+    useEffect(() => {
+        fetchCourseData();
     }, [courseId]);
 
     // Fullscreen Change Listener
@@ -252,14 +261,27 @@ export default function CourseView({ courseId, onBack }) {
                     </a>
                 )}
                 {activeTab === 'sPapers' && (
-                    <a href={`${getBaseUrl()}/storage/documents/${item.fileName}`} target="_blank" rel="noreferrer" download className="w-full md:w-max bg-white/10 hover:bg-white/20 text-white font-bold px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 border border-white/10">
-                        <FileSignature size={15} className="text-yellow-400"/> Download
-                    </a>
+                    <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                        <button 
+                            onClick={() => { setSelectedExamContent(item); setShowExamPortal(true); }}
+                            className="w-full md:w-max bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition-all active:scale-95"
+                        >
+                            <FileSignature size={15} /> Start / Submit Paper
+                        </button>
+                        {item.fileName && (
+                            <a href={`${getBaseUrl()}/storage/documents/${item.fileName}`} target="_blank" rel="noreferrer" download className="w-full md:w-max bg-white/10 hover:bg-white/20 text-white font-bold px-3 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-white/10">
+                                <Download size={14} className="text-yellow-400"/> Download PDF
+                            </a>
+                        )}
+                    </div>
                 )}
                 {activeTab === 'papers' && (
-                    <a href={`${getBaseUrl()}/storage/documents/${item.fileName}`} target="_blank" rel="noreferrer" download className="w-full md:w-max bg-white/10 hover:bg-white/20 text-white font-bold px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 border border-white/10">
-                        <CheckCircle size={15} className="text-yellow-400"/> Download
-                    </a>
+                    <button 
+                        onClick={() => { setSelectedExamContent(item); setShowExamPortal(true); }}
+                        className="w-full md:w-max bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 sm:px-7 py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition-all active:scale-95"
+                    >
+                        <CheckCircle size={15} /> Take MCQ Exam
+                    </button>
                 )}
             </div>
         </div>
@@ -281,6 +303,9 @@ export default function CourseView({ courseId, onBack }) {
                 .trim();
         };
 
+        const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+        const sinhalaMonths = ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"];
+
         const isItemMatchFolder = (item, folder) => {
             const fId = getFolderId(item);
             if (fId) {
@@ -298,6 +323,33 @@ export default function CourseView({ courseId, onBack }) {
                 const normFolder = normalizeFolderTitle(folder.title);
                 if (normItem && normFolder && normItem === normFolder) return true;
             }
+
+            // Smart Month Fallback Matching
+            if (folder?.title) {
+                let targetMonthIdx = -1;
+                if (item.date) {
+                    try {
+                        const d = new Date(item.date);
+                        if (!isNaN(d.getTime())) targetMonthIdx = d.getMonth();
+                    } catch (err) {}
+                }
+                if (targetMonthIdx === -1 && item.title) {
+                    const titleLower = item.title.toLowerCase();
+                    targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
+                    if (targetMonthIdx === -1) targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
+                }
+                if (targetMonthIdx !== -1) {
+                    const engMonth = monthNames[targetMonthIdx];
+                    const sinMonth = sinhalaMonths[targetMonthIdx];
+                    const folderTitleLower = (folder.title || '').toLowerCase();
+                    const folderNorm = normalizeFolderTitle(folder.title);
+                    if (folderTitleLower.includes(engMonth) || folderTitleLower.includes(sinMonth) ||
+                        folderNorm.includes(engMonth) || folderNorm.includes(sinMonth)) {
+                        return true;
+                    }
+                }
+            }
+
             return false;
         };
 
@@ -539,6 +591,14 @@ export default function CourseView({ courseId, onBack }) {
                     </div>
                 </div>
             )}
+
+            {/* Student Paper / Exam Portal Modal */}
+            <StudentPaperPortal
+                content={selectedExamContent}
+                isOpen={showExamPortal}
+                onClose={() => setShowExamPortal(false)}
+                onCompleted={() => fetchCourseData()}
+            />
         </div>
     );
 }

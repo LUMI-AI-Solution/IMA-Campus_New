@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderOpen, Folder, FolderPlus, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp, Copy, Link, Building2 } from 'lucide-react';
+import { FolderOpen, Folder, FolderPlus, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp, Copy, Link, Building2, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../../api/axios'; 
 import UpgradePricingConfig from '../../admin/UpgradePricingConfig'; 
@@ -16,7 +16,7 @@ export default function ContentHubViews({ state, actions }) {
         setEditData, setEditMode, setSelectedLogoName, setShowBusinessModal, setShowAssignModal, setShowBatchModal, setShowGroupModal, setShowCourseModal,
         setShowLessonGroupModal, setShowContentModal, setPreviewData, setContentType, setPrefilledFolder, setSelectedBatchesForContent,
         toggleFolder, setBatchTab, setContentTab, isMatchedType, getFolderId, setDiscountRules, setSelectedGroupPrices, setMassAssignSubjects,
-        openCreateSubFolderModal, setSelectedFolderParentId
+        openCreateSubFolderModal, setSelectedFolderParentId, openPaperBuilder
     } = actions;
 
     const getBaseUrl = () => {
@@ -36,10 +36,13 @@ export default function ContentHubViews({ state, actions }) {
             .trim();
     };
 
+    const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+    const sinhalaMonths = ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"];
+
     const isItemInFolder = (c, folder) => {
         const fId = c.content_group_id ?? c.contentGroupId ?? c.folder_id;
         if (fId && String(fId) === String(folder.id)) return true;
-        if (fId && String(fId) !== String(folder.id)) return false;
+        
         const itemGroupTitle = c.groupTitle || c.group?.title;
         if (itemGroupTitle && folder?.title) {
             const rawItem = itemGroupTitle.trim().toLowerCase();
@@ -50,14 +53,39 @@ export default function ContentHubViews({ state, actions }) {
             const normFolder = normalizeFolderTitle(folder.title);
             if (normItem && normFolder && normItem === normFolder) return true;
         }
+
+        // Smart Month Fallback Matching
+        if (folder?.title) {
+            let targetMonthIdx = -1;
+            if (c.date) {
+                try {
+                    const d = new Date(c.date);
+                    if (!isNaN(d.getTime())) targetMonthIdx = d.getMonth();
+                } catch (err) {}
+            }
+            if (targetMonthIdx === -1 && c.title) {
+                const titleLower = c.title.toLowerCase();
+                targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
+                if (targetMonthIdx === -1) targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
+            }
+            if (targetMonthIdx !== -1) {
+                const engMonth = monthNames[targetMonthIdx];
+                const sinMonth = sinhalaMonths[targetMonthIdx];
+                const folderTitleLower = (folder.title || '').toLowerCase();
+                const folderNorm = normalizeFolderTitle(folder.title);
+                if (folderTitleLower.includes(engMonth) || folderTitleLower.includes(sinMonth) ||
+                    folderNorm.includes(engMonth) || folderNorm.includes(sinMonth)) {
+                    return true;
+                }
+            }
+        }
         return false;
     };
 
     const isUncategorized = (c) => {
-        const fId = c.content_group_id ?? c.contentGroupId ?? c.folder_id;
-        if (!fId) return true;
         const activeFolders = (lessonGroups || []).filter(isMatchedType);
-        const hasMatch = activeFolders.some(folder => String(folder.id) === String(fId) || isItemInFolder(c, folder));
+        if (activeFolders.length === 0) return true;
+        const hasMatch = activeFolders.some(folder => isItemInFolder(c, folder));
         return !hasMatch;
     };
 
@@ -428,7 +456,7 @@ export default function ContentHubViews({ state, actions }) {
                                 
                                 {lessonGroups.filter(g => isMatchedType(g) && !g.parentId).map((folder) => {
                                     const subFolders = lessonGroups.filter(g => isMatchedType(g) && g.parentId === folder.id);
-                                    const directContents = subjectContents.filter(c => isMatchedType(c) && (c.contentGroupId === folder.id || (isItemInFolder(c, folder) && !subFolders.some(sf => sf.id === c.contentGroupId))));
+                                    const directContents = subjectContents.filter(c => isMatchedType(c) && (c.contentGroupId === folder.id || isItemInFolder(c, folder)) && !subFolders.some(sf => sf.id === c.contentGroupId || isItemInFolder(c, sf)));
 
                                     const renderContentCard = (content) => (
                                         <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
@@ -462,7 +490,17 @@ export default function ContentHubViews({ state, actions }) {
                                                 </h4>
                                                 
                                                 {/* Action Buttons */}
-                                                <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-1.5 mt-auto">
+                                                {(contentTab === 'paper' || contentTab === 'sPaper' || content.contentType === 'paper' || content.contentType === 'sPaper' || content.contentType === '4' || content.contentType === '5') && (
+                                                    <button 
+                                                        onClick={() => openPaperBuilder(content)} 
+                                                        className="w-full bg-brand-accent/20 hover:bg-brand-accent border border-brand-accent/40 text-white font-extrabold py-2 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-1.5 mb-2 mt-auto"
+                                                    >
+                                                        <Sparkles size={13} className="text-amber-300 animate-pulse" />
+                                                        {contentTab === 'paper' || content.contentType === 'paper' || content.contentType === '5' ? 'Questions & Answers' : 'Manage Paper & Submissions'}
+                                                    </button>
+                                                )}
+
+                                                <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-1.5 mt-auto">
                                                     <button onClick={() => {
                                                         let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
                                                         setPreviewData({ ...content, link: fileUrl });
@@ -656,7 +694,17 @@ export default function ContentHubViews({ state, actions }) {
                                                 </h4>
                                                 
                                                 {/* Action Buttons */}
-                                                <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-1.5 mt-auto">
+                                                {(contentTab === 'paper' || contentTab === 'sPaper' || content.contentType === 'paper' || content.contentType === 'sPaper' || content.contentType === '4' || content.contentType === '5') && (
+                                                    <button 
+                                                        onClick={() => openPaperBuilder(content)} 
+                                                        className="w-full bg-brand-accent/20 hover:bg-brand-accent border border-brand-accent/40 text-white font-extrabold py-2 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-1.5 mb-2 mt-auto"
+                                                    >
+                                                        <Sparkles size={13} className="text-amber-300 animate-pulse" />
+                                                        {contentTab === 'paper' || content.contentType === 'paper' || content.contentType === '5' ? 'Questions & Answers' : 'Manage Paper & Submissions'}
+                                                    </button>
+                                                )}
+
+                                                <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-1.5 mt-auto">
                                                     <button onClick={() => {
                                                         let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
                                                         setPreviewData({ ...content, link: fileUrl });

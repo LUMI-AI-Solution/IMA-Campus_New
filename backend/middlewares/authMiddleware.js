@@ -37,7 +37,8 @@ const verifyToken = async (req, res, next) => {
         const isExplicitStaff = [
             'ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN', 'STAFF', 'COORDINATOR', 
             'CALLER', 'MANAGER', 'MANAGEMENT', 'TEACHER', 'INSTRUCTOR', 
-            'TELECALLER', 'FINANCE', 'ASS MANAGER', 'SOCIAL MEDIA MANAGER', 'SOCIAL MEDIA STAFF'
+            'TELECALLER', 'FINANCE', 'ASS MANAGER', 'SOCIAL MEDIA MANAGER', 'SOCIAL MEDIA STAFF',
+            'LECTURE', 'LECTURER', 'PAPER_GUIDER', 'PAPER GUIDER'
         ].includes(roleUpper) || Boolean(user.department) || Boolean(user.businessType);
 
         const isStudentAccount = !isExplicitStaff && roleUpper === 'STUDENT';

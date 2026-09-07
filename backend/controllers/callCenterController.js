@@ -414,3 +414,259 @@ exports.startRound = async (req, res) => {
     }
 };
 
+// 11. Manager Bridge Call Progress & Callers Analytics
+exports.getBridgeCallProgress = async (req, res) => {
+    try {
+        const { businessId, batchId, round, callerId } = req.query;
+
+        // Fetch valid Call Center callers strictly from Call Center department
+        const ccStaff = await prisma.user.findMany({
+            where: {
+                department: 'Call Center',
+                role: { notIn: ['Student', 'USER', 'STUDENT', 'Manager', 'MANAGER', 'SYSTEM_ADMIN', 'DIRECTOR', 'head_manager', 'ass_manager'] }
+            },
+            select: { id: true, firstName: true, lastName: true, phone: true, role: true, department: true, businessType: true },
+            orderBy: { firstName: 'asc' }
+        });
+
+        const ccStaffIds = ccStaff.map(s => s.id);
+
+        if (ccStaffIds.length === 0) {
+            return res.status(200).json(safeJson({
+                summary: { totalAssigned: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0, enrolled: 0, covered: 0, responseRate: '0.0', progressPct: 0 },
+                agentStats: [],
+                phaseStats: { 1: { total: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0 }, 2: { total: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0 }, 3: { total: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0 } },
+                businessesSummary: [],
+                leads: []
+            }));
+        }
+
+        // Base where clause for Handed Over Bridge leads assigned to Call Center callers
+        let whereClause = {
+            campaignType: 'AFTER_SEMINAR',
+            source: 'bridge_transfer',
+            assignedTo: { in: ccStaffIds }
+        };
+
+        if (callerId && callerId !== 'All' && callerId !== '') {
+            whereClause.assignedTo = parseInt(callerId);
+        }
+
+        if (businessId && businessId !== 'All' && businessId !== '') {
+            const bizIdInt = parseInt(businessId);
+            whereClause.OR = [
+                { batch: { businessId: bizIdInt } },
+                { phone: { contains: `_BIZ_${bizIdInt}` } }
+            ];
+        }
+
+        if (batchId && batchId !== 'All' && batchId !== '') {
+            whereClause.batchId = parseInt(batchId);
+        }
+
+        const leads = await prisma.lead.findMany({
+            where: whereClause,
+            include: {
+                batch: { include: { business: true } },
+                assignedUser: { select: { id: true, firstName: true, lastName: true, phone: true, role: true, businessType: true, department: true } },
+                roundProgress: true
+            },
+            orderBy: { updatedAt: 'desc' }
+        });
+
+        const allBusinesses = await prisma.business.findMany({
+            select: { id: true, name: true }
+        });
+        const bizMap = new Map(allBusinesses.map(b => [b.id, b]));
+
+        // Calculate summary and per-agent metrics
+        let totalAssigned = 0;
+        let totalPending = 0;
+        let totalAnswered = 0;
+        let totalNoAnswer = 0;
+        let totalReject = 0;
+        let totalEnrolled = 0;
+
+        const phaseStats = {
+            1: { total: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0 },
+            2: { total: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0 },
+            3: { total: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0 }
+        };
+
+        // Initialize agentMap with all Call Center staff
+        const agentMap = {};
+        ccStaff.forEach(staff => {
+            agentMap[staff.id] = {
+                id: staff.id,
+                name: `${staff.firstName || ''} ${staff.lastName || ''}`.trim() || `Caller #${staff.id}`,
+                role: staff.role || 'Call Center Agent',
+                department: staff.department || 'Call Center',
+                businessType: staff.businessType || '',
+                phone: staff.phone || '',
+                totalAssigned: 0,
+                pending: 0,
+                answered: 0,
+                noAnswer: 0,
+                reject: 0,
+                enrolled: 0,
+                covered: 0,
+                responseRate: '0.0',
+                progressPct: 0
+            };
+        });
+
+        const bizSummaryMap = new Map();
+
+        leads.forEach(l => {
+            // Find effective business
+            let biz = l.batch?.business;
+            if (!biz) {
+                const match = l.phone?.match(/_BIZ_(\d+)/);
+                if (match) biz = bizMap.get(parseInt(match[1]));
+            }
+
+            const bId = biz ? biz.id : 0;
+            const bName = biz ? biz.name : 'Unknown Handover';
+            if (!bizSummaryMap.has(bId)) {
+                bizSummaryMap.set(bId, { id: bId, name: bName, count: 0 });
+            }
+            bizSummaryMap.get(bId).count++;
+
+            // Determine active round data
+            const r2 = l.roundProgress?.find(rp => rp.roundNum === 2);
+            const targetRound = parseInt(round) === 2 ? 2 : 1;
+
+            let cStatus = 'pending';
+            let phase = l.phase || 1;
+
+            if (targetRound === 2 && r2) {
+                cStatus = r2.callStatus || 'pending';
+                phase = r2.phase || 1;
+            } else {
+                cStatus = l.callStatus || 'pending';
+            }
+
+            const statusUpper = (cStatus || 'pending').toUpperCase();
+            const isEnrolled = l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'));
+
+            if (l.assignedTo && agentMap[l.assignedTo]) {
+                totalAssigned++;
+                
+                if (isEnrolled) {
+                    totalEnrolled++;
+                }
+
+                if (['ANSWERED', 'ANSWER', 'CALL_AGAIN', 'FOLLOW_UP'].includes(statusUpper)) {
+                    totalAnswered++;
+                } else if (statusUpper === 'NO_ANSWER') {
+                    totalNoAnswer++;
+                } else if (['REJECT', 'REJECTED', 'NOT_INTERESTED'].includes(statusUpper)) {
+                    totalReject++;
+                } else {
+                    totalPending++;
+                }
+
+                // Phase stats
+                const pKey = phase >= 1 && phase <= 3 ? phase : 1;
+                phaseStats[pKey].total++;
+                if (['ANSWERED', 'ANSWER', 'CALL_AGAIN', 'FOLLOW_UP'].includes(statusUpper)) phaseStats[pKey].answered++;
+                else if (statusUpper === 'NO_ANSWER') phaseStats[pKey].noAnswer++;
+                else if (['REJECT', 'REJECTED', 'NOT_INTERESTED'].includes(statusUpper)) phaseStats[pKey].reject++;
+                else phaseStats[pKey].pending++;
+
+                // Agent stats
+                const aId = l.assignedTo;
+                agentMap[aId].totalAssigned++;
+                if (isEnrolled) agentMap[aId].enrolled++;
+                if (['ANSWERED', 'ANSWER', 'CALL_AGAIN', 'FOLLOW_UP'].includes(statusUpper)) {
+                    agentMap[aId].answered++;
+                    agentMap[aId].covered++;
+                } else if (statusUpper === 'NO_ANSWER') {
+                    agentMap[aId].noAnswer++;
+                } else if (['REJECT', 'REJECTED', 'NOT_INTERESTED'].includes(statusUpper)) {
+                    agentMap[aId].reject++;
+                    agentMap[aId].covered++;
+                } else {
+                    agentMap[aId].pending++;
+                }
+            }
+        });
+
+        // Compute response rates and percentages for agents
+        let agentsList = Object.values(agentMap).map(a => {
+            const covered = a.answered + a.reject;
+            const progress = a.totalAssigned > 0 ? Math.round(((a.totalAssigned - a.pending) / a.totalAssigned) * 100) : 0;
+            const respRate = a.totalAssigned > 0 ? ((covered / a.totalAssigned) * 100).toFixed(1) : '0.0';
+            return {
+                ...a,
+                covered,
+                progressPct: progress,
+                responseRate: respRate
+            };
+        });
+
+        // If callerId filter is applied, only return that caller or sort them
+        if (callerId && callerId !== 'All' && callerId !== '') {
+            const cid = parseInt(callerId);
+            agentsList = agentsList.filter(a => a.id === cid);
+        } else {
+            agentsList.sort((a, b) => b.totalAssigned - a.totalAssigned);
+        }
+
+        const totalCovered = totalAnswered + totalReject;
+        const totalResponseRate = totalAssigned > 0 ? ((totalCovered / totalAssigned) * 100).toFixed(1) : '0.0';
+        const totalProgressPct = totalAssigned > 0 ? Math.round(((totalAssigned - totalPending) / totalAssigned) * 100) : 0;
+
+        const summary = {
+            totalAssigned,
+            pending: totalPending,
+            answered: totalAnswered,
+            noAnswer: totalNoAnswer,
+            reject: totalReject,
+            enrolled: totalEnrolled,
+            covered: totalCovered,
+            responseRate: totalResponseRate,
+            progressPct: totalProgressPct
+        };
+
+        const businessesSummary = Array.from(bizSummaryMap.values()).sort((a, b) => b.count - a.count);
+
+        const enrichedLeads = leads.map(l => {
+            const biz = l.batch?.business || (l.phone?.match(/_BIZ_(\d+)/) ? bizMap.get(parseInt(l.phone.match(/_BIZ_(\d+)/)[1])) : null);
+            return {
+                id: l.id,
+                name: l.name || 'No Name',
+                phone: l.phone ? l.phone.split('_')[0] : '',
+                rawPhone: l.phone,
+                batchId: l.batchId,
+                batchName: l.batch?.name || 'Handed Over Batch',
+                businessId: biz?.id || null,
+                businessName: biz?.name || 'IMA Business',
+                assignedTo: l.assignedTo,
+                assignedUserName: l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName}` : 'Unassigned',
+                callStatus: l.callStatus || 'pending',
+                phase: l.phase || 1,
+                coordinationRound: l.coordinationRound || 1,
+                feedback: l.feedback || '',
+                callMethod: l.callMethod || 'direct',
+                callAttempt: l.callAttempt || 1,
+                enrollmentStatus: l.enrollmentStatus || 'NON_ENROLLED',
+                assignedAt: l.assignedAt,
+                updatedAt: l.updatedAt
+            };
+        });
+
+        res.status(200).json(safeJson({
+            summary,
+            agentStats: agentsList,
+            callCenterCallers: ccStaff,
+            phaseStats,
+            businessesSummary,
+            leads: enrichedLeads
+        }));
+    } catch (error) {
+        console.error("Call Center getBridgeCallProgress Error:", error);
+        res.status(500).json({ error: "Failed to fetch bridge progress statistics" });
+    }
+};
+

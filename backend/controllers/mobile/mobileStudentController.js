@@ -437,21 +437,52 @@ exports.getCourseModules = async (req, res) => {
             const primary = rootRedirectMap.get(directRoot.id) || directRoot;
             groupToRootMap.set(g.id, primary);
         });
+        const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+        const sinhalaMonths = ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"];
+
         // Process contents - all subfolder and duplicate folder recordings map directly to the primary root folder
         const contentsProcessed = contents.map(c => {
+            const typeStr = c.contentType;
+            let typeInt = 1;
+            if (typeStr === 'recording' || typeStr === '2') typeInt = 2;
+            else if (typeStr === 'document' || typeStr === '3') typeInt = 3;
+            else if (typeStr === 'sPaper' || typeStr === '4') typeInt = 4;
+            else if (typeStr === 'paper' || typeStr === '5') typeInt = 5;
+
             let root = c.contentGroupId ? groupToRootMap.get(c.contentGroupId) : null;
             if (!root && c.group?.title) {
                 const norm = normalizeFolderTitle(c.group.title);
-                const typeStr = c.contentType;
-                let typeInt = 1;
-                if (typeStr === 'recording' || typeStr === '2') typeInt = 2;
-                else if (typeStr === 'document' || typeStr === '3') typeInt = 3;
-                else if (typeStr === 'sPaper' || typeStr === '4') typeInt = 4;
-                else if (typeStr === 'paper' || typeStr === '5') typeInt = 5;
-
                 const typeKey = `${typeInt}_${norm || c.group.title.trim().toLowerCase()}`;
                 if (rootFoldersByTypeAndTitle.has(typeKey)) {
                     root = rootFoldersByTypeAndTitle.get(typeKey);
+                }
+            }
+
+            // Smart month matching fallback
+            if (!root) {
+                let targetMonthIdx = -1;
+                if (c.date) {
+                    try {
+                        const d = new Date(c.date);
+                        if (!isNaN(d.getTime())) targetMonthIdx = d.getMonth();
+                    } catch (err) {}
+                }
+                if (targetMonthIdx === -1 && c.title) {
+                    const titleLower = c.title.toLowerCase();
+                    targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
+                    if (targetMonthIdx === -1) targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
+                }
+                if (targetMonthIdx !== -1) {
+                    const engMonth = monthNames[targetMonthIdx];
+                    const sinMonth = sinhalaMonths[targetMonthIdx];
+                    const matchedRoot = Array.from(rootFoldersByTypeAndTitle.values()).find(rf => {
+                        if (rf.type && rf.type !== typeInt) return false;
+                        const rfTitleLower = (rf.title || '').toLowerCase();
+                        return rfTitleLower.includes(engMonth) || rfTitleLower.includes(sinMonth);
+                    });
+                    if (matchedRoot) {
+                        root = matchedRoot;
+                    }
                 }
             }
 

@@ -7,7 +7,12 @@ const getScopedBusinessId = async (user, requestedBusinessId = null) => {
     const role = (user.role || '').toUpperCase().replace(/ /g, '_');
     const isTopLevel = role === 'SYSTEM_ADMIN' || role === 'DIRECTOR';
     
-    if (isTopLevel) return null; // Top-level users can see everything
+    if (isTopLevel) {
+        if (requestedBusinessId && requestedBusinessId !== 'all' && requestedBusinessId !== 'null') {
+            return Number(requestedBusinessId);
+        }
+        return null; // Top-level users can see everything
+    }
     
     const userId = user.userId || user.id;
     const allBiz = await prisma.business.findMany();
@@ -28,9 +33,13 @@ const getScopedBusinessId = async (user, requestedBusinessId = null) => {
 
     if (allowedBusinesses.length === 0) return null;
 
-    if (requestedBusinessId) {
+    if (requestedBusinessId && requestedBusinessId !== 'all' && requestedBusinessId !== 'null') {
         const requested = allowedBusinesses.find(b => String(b.id) === String(requestedBusinessId));
         if (requested) return Number(requested.id);
+    }
+
+    if (requestedBusinessId === 'all') {
+        return null;
     }
 
     return Number(allowedBusinesses[0].id);

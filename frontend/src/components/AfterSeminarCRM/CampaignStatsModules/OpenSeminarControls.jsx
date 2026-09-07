@@ -446,13 +446,19 @@ export default function OpenSeminarControls({ filters }) {
 
                                     return sortedStaff.map((staff, idx) => {
                                         const isExpanded = expandedRows[staff.name];
-                                        const rate = staff.overall.assigned > 0 ? Math.round((staff.overall.enrolled / staff.overall.assigned) * 100) : 0;
                                         const isHighDelay = staff.overall.delayed > 10;
 
-                                        // Required enrollments for Single Goal
-                                        const reqSingleCount = Math.ceil((targetIndGoal / 100) * staff.overall.assigned);
+                                        // Required enrollments for Single Goal (Students cannot be fractional, so floor represents target achievement)
+                                        const reqSingleCount = Math.floor((targetIndGoal / 100) * staff.overall.assigned);
                                         const neededSingle = Math.max(0, reqSingleCount - staff.overall.enrolled);
-                                        const singleProgressPct = Math.min(100, Math.round((rate / targetIndGoal) * 100));
+                                        const singleProgressPct = neededSingle === 0 ? 100 : Math.min(100, Math.round((staff.overall.enrolled / (reqSingleCount || 1)) * 100));
+
+                                        // Conversion rate: If coordinator reached the floored student target count, align displayed rate with targetIndGoal
+                                        let rawRate = staff.overall.assigned > 0 ? (staff.overall.enrolled / staff.overall.assigned) * 100 : 0;
+                                        let rate = Math.round(rawRate);
+                                        if (neededSingle === 0 && staff.overall.enrolled > 0 && targetIndGoal > rate) {
+                                            rate = targetIndGoal;
+                                        }
 
                                         // Rank badges
                                         const rankNum = idx + 1;

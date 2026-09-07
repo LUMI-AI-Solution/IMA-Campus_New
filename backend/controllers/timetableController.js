@@ -314,7 +314,7 @@ exports.deleteSchedule = async (req, res) => {
 exports.updateSchedule = async (req, res) => {
     try {
         const { id } = req.params;
-        const { subjectName, title, startTime, endTime, lecturerName, date } = req.body;
+        const { subjectName, title, startTime, endTime, lecturerName, date, batchIds } = req.body;
         const userId = req.user.userId || req.user.id;
         const userRole = req.user.role;
         const roleUpper = userRole ? userRole.toUpperCase().replace(/[\s_-]+/g, '_') : '';
@@ -349,10 +349,26 @@ exports.updateSchedule = async (req, res) => {
         if (lecturerName !== undefined) updateData.lecturerName = lecturerName;
         if (date) updateData.date = parseSLTDate(date, "00:00");
 
+        if (batchIds && Array.isArray(batchIds) && batchIds.length > 0) {
+            updateData.batchId = parseInt(batchIds[0]);
+            updateData.additionalBatchIds = batchIds.length > 1 ? JSON.stringify(batchIds.slice(1).map(id => parseInt(id))) : null;
+        }
+
         const updated = await prisma.timetable.update({
             where: { id: parseInt(rawId) },
-            data: updateData
+            data: updateData,
+            include: { hall: true, batch: true }
         });
+
+        if (batchIds && Array.isArray(batchIds) && batchIds.length > 0) {
+            await prisma.task.updateMany({
+                where: { timetableId: parseInt(rawId) },
+                data: {
+                    batchId: parseInt(batchIds[0]),
+                    additionalBatchIds: batchIds.length > 1 ? JSON.stringify(batchIds.slice(1).map(id => parseInt(id))) : null
+                }
+            });
+        }
 
         res.status(200).json(updated);
     } catch (error) {

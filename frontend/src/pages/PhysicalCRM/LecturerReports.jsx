@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { format, subMonths, addMonths, parseISO } from 'date-fns';
+import { printThermalReceipt } from '../../utils/thermalReceiptPrinter';
 import { 
   Users, 
   BookOpen, 
@@ -216,17 +218,21 @@ export default function LecturerReports() {
     }
   };
 
-  // 1-Click Fee Toggle
+  // 1-Click Fee Toggle with Thermal Receipt
   const handleToggleFeeStatus = async (studentId, classId, month, currentStatus) => {
     const nextStatus = currentStatus === 'PAID' ? 'PENDING' : 'PAID';
     try {
-      await physicalCrmService.toggleFeePayment({
+      const res = await physicalCrmService.toggleFeePayment({
         studentId,
         classId,
         month,
         status: nextStatus
       });
       toast.success(`Fee updated for ${formatMonthYear(month)}: ${nextStatus}`);
+
+      if (nextStatus === 'PAID' && res?.receiptData) {
+        printThermalReceipt(res.receiptData);
+      }
       
       // Refresh current views
       if (selectedTeacher) {

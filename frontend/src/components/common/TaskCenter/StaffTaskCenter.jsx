@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
     CheckSquare, Clock, Play, Lock, CheckCircle2, 
     FileText, Video, X, BookOpen, AlertTriangle, Plus, Check, Building2, ChevronRight,
-    MonitorPlay, Loader2, ExternalLink
+    MonitorPlay, Loader2, ExternalLink, Image as ImageIcon, Trash2, UploadCloud
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../../api/axios';
@@ -276,6 +276,47 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
     const [isVerification, setIsVerification] = useState(false); 
     const [selectedExistingContent, setSelectedExistingContent] = useState(null);
 
+    // Multi-file & thumbnail states
+    const [selectedFiles, setSelectedFiles] = useState([]);
+    const [thumbnailFile, setThumbnailFile] = useState(null);
+    const [thumbnailPreview, setThumbnailPreview] = useState(null);
+    const fileInputRef = useRef(null);
+    const thumbInputRef = useRef(null);
+
+    const handleFilesChange = (e) => {
+        if (e.target.files && e.target.files.length > 0) {
+            const newFiles = Array.from(e.target.files);
+            setSelectedFiles(prev => [...prev, ...newFiles]);
+        }
+        if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    const removeFile = (index) => {
+        setSelectedFiles(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleThumbnailChange = (e) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            setThumbnailFile(file);
+            setThumbnailPreview(URL.createObjectURL(file));
+        }
+    };
+
+    const removeThumbnail = () => {
+        setThumbnailFile(null);
+        setThumbnailPreview(null);
+        if (thumbInputRef.current) thumbInputRef.current.value = '';
+    };
+
+    const formatFileSize = (bytes) => {
+        if (!bytes) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+    };
+
     // Map Task types to Content Hub types
     const typeMap = { 'LIVE_LINK': 'live', 'TECH_DELIVERABLES': 'live', 'RECORDING': 'recording', 'NOTES': 'document', 'MCQ': 'paper', 'STRUCTURED_PAPER': 'sPaper' };
     const contentType = isCustom || isTechDeliverables ? '' : typeMap[task.taskType];
@@ -350,10 +391,28 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                     const lgRes = await api.get(`/admin/manager/get-contents?batchId=${bId}`);
                     const targetTypeInt = getTypeInt(contentType);
                     const allFolders = lgRes.data?.lessonGroups || [];
+                    const batchFolders = allFolders.filter(f => parseInt(f.type) === targetTypeInt);
+
+                    // 🔥 Auto-select matching month folder for each payment group!
+                    Object.keys(paymentGroups).forEach(k => {
+                        const pg = paymentGroups[k];
+                        if (!pg.folderId) {
+                            const matchedF = batchFolders.find(f => {
+                                const fTitle = (f.title || f.name || '').toUpperCase();
+                                const isMonthMatch = fTitle.includes(classMonth);
+                                const isCodeMatch = !f.courseCode || f.courseCode === pg.courseCode || f.courseCode === pg.courseCode.replace('SUB_', '');
+                                return isMonthMatch && isCodeMatch;
+                            }) || batchFolders.find(f => (f.title || f.name || '').toUpperCase().includes(classMonth));
+                            
+                            if (matchedF) {
+                                pg.folderId = String(matchedF.id);
+                            }
+                        }
+                    });
                     
                     newConfigs[bId] = {
                         paymentGroups,
-                        folders: allFolders.filter(f => parseInt(f.type) === targetTypeInt),
+                        folders: batchFolders,
                         existingContents: lgRes.data?.contents || []
                     };
                 } catch (err) {
@@ -467,6 +526,13 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
             
             // MULTI-BATCH ASSIGNMENT
             let lastContentId = null;
+            const isFileType = contentType === 'document' || contentType === 'sPaper' || contentType === 'paper';
+
+            if (isFileType && selectedFiles.length === 0) {
+                toast.error("Please select at least one document/file to upload!");
+                setSubmitting(false);
+                return;
+            }
             
             for (const bId of allBatchIds) {
                 const config = batchConfigs[bId];
@@ -476,10 +542,19 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                 const folderGroups = {}; // { [folderId]: [courseId1, courseId2] }
                 
                 let hasCheckedGroup = false;
+                const classDate = task.timetable?.date ? new Date(task.timetable.date) : new Date();
+                const monthNames = ["JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER"];
+                const classMonth = monthNames[classDate.getMonth()];
+
                 Object.entries(config.paymentGroups).forEach(([uniqueKey, pg]) => {
                     if (pg.isChecked) {
                         hasCheckedGroup = true;
-                        const fId = pg.folderId || 'uncategorized';
+                        let fId = pg.folderId;
+                        if (!fId || fId === 'uncategorized') {
+                            const matchedF = config.folders?.find(f => (f.title || f.name || '').toUpperCase().includes(classMonth));
+                            if (matchedF) fId = String(matchedF.id);
+                            else fId = 'uncategorized';
+                        }
                         if (!folderGroups[fId]) folderGroups[fId] = [];
                         folderGroups[fId].push(...pg.courseIds);
                     }
@@ -489,7 +564,7 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                 
                 for (const [fId, courses] of Object.entries(folderGroups)) {
                     const formData = new FormData(formElement);
-                    ['file', 'thumbnail', 'proof'].forEach(field => { const f = formData.get(field); if (f && (f.size === 0 || !f.name)) formData.delete(field); });
+                    ['file', 'thumbnail', 'proof'].forEach(field => formData.delete(field));
                     ['zoomMeetingId', 'startTime', 'endTime'].forEach(field => { if (!formData.get(field)) formData.delete(field); });
 
                     formData.set('type', contentType);
@@ -501,6 +576,16 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                     
                     formData.set('selectedCourses', JSON.stringify(courses));
                     formData.set('isFree', formData.get('isFree') ? '1' : '0'); 
+                    
+                    if (thumbnailFile) {
+                        formData.append('thumbnail', thumbnailFile);
+                    }
+
+                    if (isFileType && selectedFiles.length > 0) {
+                        selectedFiles.forEach(file => {
+                            formData.append('file', file);
+                        });
+                    }
                     
                     const contentRes = await api.post('/admin/manager/contents/mass-assign', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
                     if (contentRes.data?.data?.id) lastContentId = contentRes.data.data.id;
@@ -684,18 +769,129 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                                     )}
 
                                     {(contentType === 'document' || contentType === 'sPaper' || contentType === 'paper') && (
-                                        <div>
-                                            <label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">Main File *</label>
-                                            <input type="file" name="file" required className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-2.5 text-gray-600 dark:text-slate-400 file:bg-gray-100 dark:file:bg-slate-700 file:text-gray-900 dark:file:text-white file:font-bold file:border-0 file:rounded-lg file:px-3 file:py-1.5 file:mr-3 text-sm cursor-pointer shadow-sm transition-colors" />
+                                        <div className="space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                                                    <FileText size={12} className="text-brand-accent"/> Document Files (PDF / Docs) *
+                                                </label>
+                                                {selectedFiles.length > 0 && (
+                                                    <span className="text-[10px] bg-brand-accent/10 text-brand-accent border border-brand-accent/20 px-2 py-0.5 rounded-full font-bold">
+                                                        {selectedFiles.length} {selectedFiles.length === 1 ? 'file' : 'files'} selected
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            <input 
+                                                type="file" 
+                                                ref={fileInputRef} 
+                                                multiple 
+                                                onChange={handleFilesChange} 
+                                                accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" 
+                                                className="hidden" 
+                                            />
+
+                                            <div 
+                                                onClick={() => fileInputRef.current?.click()} 
+                                                className="cursor-pointer border-2 border-dashed border-gray-300 dark:border-slate-700 hover:border-brand-accent dark:hover:border-brand-accent bg-white dark:bg-slate-800/60 p-4 rounded-2xl flex flex-col items-center justify-center gap-2 transition-all hover:bg-gray-50 dark:hover:bg-slate-800 group shadow-sm"
+                                            >
+                                                <div className="w-10 h-10 rounded-xl bg-brand-accent/10 flex items-center justify-center text-brand-accent group-hover:scale-110 transition-transform">
+                                                    <UploadCloud size={22} />
+                                                </div>
+                                                <p className="text-xs font-bold text-gray-700 dark:text-slate-300 text-center">
+                                                    Click to browse or add multiple PDFs / documents
+                                                </p>
+                                                <p className="text-[10px] text-gray-400 dark:text-slate-500">
+                                                    Select multiple files at once or add more sequentially
+                                                </p>
+                                            </div>
+
+                                            {selectedFiles.length > 0 && (
+                                                <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar pr-1">
+                                                    {selectedFiles.map((file, idx) => (
+                                                        <div key={idx} className="flex items-center justify-between p-2.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-xl shadow-sm text-xs group">
+                                                            <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                                                <div className="w-7 h-7 rounded-lg bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 flex items-center justify-center shrink-0 border border-red-200 dark:border-red-500/20 font-bold text-[10px]">
+                                                                    PDF
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <p className="font-bold text-gray-800 dark:text-slate-200 truncate">{file.name}</p>
+                                                                    <p className="text-[10px] text-gray-400 dark:text-slate-500 font-medium">{formatFileSize(file.size)}</p>
+                                                                </div>
+                                                            </div>
+                                                            <button 
+                                                                type="button" 
+                                                                onClick={() => removeFile(idx)} 
+                                                                title="Remove file" 
+                                                                className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 rounded-lg transition-colors shrink-0"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                     
-                                    {(contentType === 'live' || contentType === 'recording') && (
-                                        <div>
-                                            <label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">Custom Thumbnail (Optional)</label>
-                                            <input type="file" name="thumbnail" accept="image/*" className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-2.5 text-gray-600 dark:text-slate-400 file:bg-gray-100 dark:file:bg-slate-700 file:text-gray-900 dark:file:text-white file:font-bold file:border-0 file:rounded-lg file:px-3 file:py-1.5 file:mr-3 text-sm cursor-pointer shadow-sm transition-colors" />
+                                    {/* Universal Custom Thumbnail with Live Preview (For Live, Recording, Documents, Papers) */}
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                                                <ImageIcon size={12} className="text-brand-accent"/> Custom Thumbnail (Optional)
+                                            </label>
+                                            {thumbnailPreview && (
+                                                <button 
+                                                    type="button" 
+                                                    onClick={removeThumbnail} 
+                                                    className="text-[10px] text-red-500 hover:underline font-bold flex items-center gap-1"
+                                                >
+                                                    <Trash2 size={10}/> Remove Thumbnail
+                                                </button>
+                                            )}
                                         </div>
-                                    )}
+
+                                        <input 
+                                            type="file" 
+                                            ref={thumbInputRef} 
+                                            accept="image/*" 
+                                            onChange={handleThumbnailChange} 
+                                            className="hidden" 
+                                        />
+
+                                        {thumbnailPreview ? (
+                                            <div className="relative rounded-2xl overflow-hidden border-2 border-brand-accent/40 bg-slate-900 group shadow-md flex items-center justify-between p-3 gap-4">
+                                                <img 
+                                                    src={thumbnailPreview} 
+                                                    alt="Thumbnail Preview" 
+                                                    className="w-20 h-14 object-cover rounded-xl border border-white/20 shadow shrink-0" 
+                                                />
+                                                <div className="flex-1 min-w-0 text-xs">
+                                                    <p className="font-bold text-gray-900 dark:text-white truncate">{thumbnailFile?.name}</p>
+                                                    <p className="text-[10px] text-gray-500 dark:text-slate-400 font-medium">{formatFileSize(thumbnailFile?.size)}</p>
+                                                    <span className="inline-block mt-1 text-[9px] font-bold uppercase tracking-wider bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 rounded border border-emerald-200 dark:border-emerald-500/20">
+                                                        Preview Active
+                                                    </span>
+                                                </div>
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => thumbInputRef.current?.click()} 
+                                                    className="px-3 py-1.5 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-700 dark:text-slate-200 text-xs font-bold rounded-xl border border-gray-200 dark:border-slate-700 transition-colors shadow-sm shrink-0"
+                                                >
+                                                    Change
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div 
+                                                onClick={() => thumbInputRef.current?.click()} 
+                                                className="cursor-pointer border border-dashed border-gray-300 dark:border-slate-700 hover:border-brand-accent dark:hover:border-brand-accent bg-white dark:bg-slate-800/40 p-3.5 rounded-2xl flex items-center justify-center gap-3 transition-all hover:bg-gray-50 dark:hover:bg-slate-800 text-xs font-bold text-gray-600 dark:text-slate-400 group shadow-sm"
+                                            >
+                                                <div className="p-2 bg-gray-100 dark:bg-slate-700/60 rounded-xl group-hover:text-brand-accent transition-colors">
+                                                    <ImageIcon size={18}/>
+                                                </div>
+                                                <span>Click to upload custom thumbnail / cover image</span>
+                                            </div>
+                                        )}
+                                    </div>
 
                                     <div className="border-t border-gray-200 dark:border-slate-700 pt-4 flex flex-col sm:flex-row gap-4 transition-colors">
                                         <div className="flex-1">

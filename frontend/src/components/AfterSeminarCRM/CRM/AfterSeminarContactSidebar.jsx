@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import axios from '../../../api/axios'; 
-import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaLock, FaBullhorn, FaCommentDots, FaPaperPlane, FaUserCheck, FaHeadset, FaClock, FaHistory, FaLayerGroup, FaFilter, FaChartBar, FaWhatsapp, FaShieldAlt } from 'react-icons/fa';
-import { FiPhoneMissed, FiPhoneIncoming, FiPhoneOutgoing } from 'react-icons/fi';
 import toast from 'react-hot-toast';
+import axios from '../../../api/axios'; 
+import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaLock, FaBullhorn, FaCommentDots, FaPaperPlane, FaUserCheck, FaHeadset, FaClock, FaHistory, FaLayerGroup, FaFilter, FaChartBar, FaWhatsapp, FaShieldAlt, FaExchangeAlt } from 'react-icons/fa';
+import { FiPhoneMissed, FiPhoneIncoming, FiPhoneOutgoing } from 'react-icons/fi';
 import CustomSelect from '../../common/CustomSelect';
 import BusinessBadge from '../../common/BusinessBadge';
 import InboundMissedCallsReportModal from '../../common/InboundMissedCallsReportModal';
@@ -415,25 +415,34 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
     }
   };
 
+  const handleOpenAssignModal = () => {
+      const defaultType = (activeTab === 'NEW_INQ' || (activeTab === 'NEW' && newSubTab === 'NEW_INQ')) ? 'NEW_INQ' : 'OPEN_SEMINAR';
+      setBulkAssignType(defaultType);
+      setShowAssignModal(true);
+  };
+
   const handleAssignSubmit = async (e, type) => {
     e.preventDefault();
     if (type === 'bulk') {
         if (!manualAssignStaffId) return toast.error("Please select a staff member to assign");
         const chosenInqType = bulkAssignType || e.target.assignType?.value || 'OPEN_SEMINAR';
+        const currentSource = (activeTab === 'NEW_INQ' || activeTab === 'NEW') ? (newSubTab === 'OPEN_SEMINAR' ? 'OPEN_SEMINAR' : 'NEW_INQ') : activeTab;
+        const targetBatch = assignTargetBatchId || filters?.selectedBatch;
         const formData = {
             type: 'bulk',
             count: e.target.count.value,
             sort: e.target.sort.value,
             staffId: manualAssignStaffId,
-            batchId: assignTargetBatchId || filters?.selectedBatch,
+            batchId: targetBatch,
             businessId: filters?.selectedBusiness,
             assignType: chosenInqType,
-            sourceTab: activeTab
+            sourceTab: currentSource,
+            sourceInquiryType: chosenInqType || currentSource
         };
         setAssignConfirmation({
             type: 'bulk_form',
             formData: formData,
-            batchId: assignTargetBatchId || filters?.selectedBatch
+            batchId: targetBatch
         });
         setShowAssignModal(false);
     }
@@ -443,7 +452,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
       try {
           const token = localStorage.getItem('token');
           const batchToUse = targetBatchId || modalBatchId || assignConfirmation?.batchId || assignConfirmation?.formData?.batchId || assignTargetBatchId || filters?.selectedBatch;
-          const cleanBatch = batchToUse && batchToUse !== 'ALL' && batchToUse !== 'UNASSIGNED' ? batchToUse : undefined;
+          const cleanBatch = (batchToUse && batchToUse !== 'ALL') ? batchToUse : undefined;
 
           if (assignConfirmation.type === 'selected') {
               await axios.post('/after-seminar-crm/leads/bulk-action', {
@@ -451,14 +460,14 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                   leadIds: assignConfirmation.leadIds,
                   staffId: assignConfirmation.staffId,
                   assignType: assignType,
-                  batchId: cleanBatch
+                  batchId: cleanBatch === 'UNASSIGNED' ? null : cleanBatch
               }, { headers: { Authorization: `Bearer ${token}` } });
               setCheckedLeads([]);
           } else if (assignConfirmation.type === 'bulk_form') {
               await axios.post('/after-seminar-crm/leads/assign', {
                   ...assignConfirmation.formData,
                   batchId: cleanBatch,
-                  assignType: assignType
+                  assignType: assignType || assignConfirmation.formData?.assignType
               }, { headers: { Authorization: `Bearer ${token}` } });
           }
           toast.success("Leads Assigned Successfully!");
@@ -630,6 +639,21 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
              </button>
 
              <button 
+               onClick={() => handleBulkAction('CONVERT_TO_NEW_INQ')} 
+               title="Convert Selected to New Inquiry (Moves assigned leads to New Inquiry Call Campaign)" 
+               className="px-2 py-1.5 bg-emerald-600/80 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 shadow transition-all"
+             >
+               <FaExchangeAlt size={10} /> To New Inq
+             </button>
+             <button 
+               onClick={() => handleBulkAction('CONVERT_TO_OPEN_SEM')} 
+               title="Convert Selected to Open Seminar (Moves assigned leads to Open Seminar Call Campaign)" 
+               className="px-2 py-1.5 bg-cyan-600/80 hover:bg-cyan-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 shadow transition-all"
+             >
+               <FaExchangeAlt size={10} /> To Open Sem
+             </button>
+
+             <button 
                onClick={handleHandOverToCallCenter} 
                title="Allocate / Handover to Call Center" 
                className="px-2.5 py-1.5 bg-orange-600/80 hover:bg-orange-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 shadow transition-all"
@@ -640,7 +664,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
              {isManager && (
                 <>
                    <button 
-                     onClick={() => setShowAssignModal(true)} 
+                     onClick={handleOpenAssignModal} 
                      title="Open Bulk Assign Modal" 
                      className="px-2.5 py-1.5 bg-blue-600/80 hover:bg-blue-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1.5 shadow transition-all"
                    >
@@ -740,7 +764,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                 <button onClick={() => setShowImportModal(true)} className="p-2.5 bg-blue-600/20 text-blue-400 hover:bg-blue-600 hover:text-white rounded-lg border border-blue-500/30 transition-all"><FaFileImport size={16}/></button>
               
               {isManager && (
-                 <button onClick={() => setShowAssignModal(true)} className="p-2.5 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white rounded-lg border border-emerald-500/30 transition-all"><FaUserPlus size={16}/></button>
+                 <button onClick={handleOpenAssignModal} className="p-2.5 bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white rounded-lg border border-emerald-500/30 transition-all"><FaUserPlus size={16}/></button>
               )}
             </div>
           </div>

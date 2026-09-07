@@ -189,6 +189,9 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
         rf.allFolderIds = [...rf.ids, ...rf.subFolderIds];
     });
 
+    const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+    const sinhalaMonths = ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"];
+
     const isItemMatchFolder = (item, rf) => {
         const fId = String(item.contentGroupId ?? item.content_group_id ?? item.folder_id ?? '');
         if (fId && rf.allFolderIds.includes(fId)) {
@@ -214,6 +217,37 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
                 }
             }
         }
+
+        // Smart Month Fallback Matching
+        if (rf.titles && rf.titles.length > 0) {
+            let targetMonthIdx = -1;
+            if (item.date) {
+                try {
+                    const d = new Date(item.date);
+                    if (!isNaN(d.getTime())) targetMonthIdx = d.getMonth();
+                } catch (err) {}
+            }
+            if (targetMonthIdx === -1 && item.title) {
+                const titleLower = item.title.toLowerCase();
+                targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
+                if (targetMonthIdx === -1) targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
+            }
+            if (targetMonthIdx !== -1) {
+                const engMonth = monthNames[targetMonthIdx];
+                const sinMonth = sinhalaMonths[targetMonthIdx];
+                for (const t of rf.titles) {
+                    if (t) {
+                        const tLower = t.toLowerCase();
+                        const tNorm = normalizeFolderTitle(t);
+                        if (tLower.includes(engMonth) || tLower.includes(sinMonth) ||
+                            tNorm.includes(engMonth) || tNorm.includes(sinMonth)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
         return false;
     };
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import axios from '../../api/axios'; 
-import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaClock, FaLock, FaUserCheck, FaHeadset, FaHistory, FaCommentDots, FaLayerGroup, FaFilter, FaChartBar, FaWhatsapp } from 'react-icons/fa';
+import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaClock, FaLock, FaUserCheck, FaHeadset, FaHistory, FaCommentDots, FaLayerGroup, FaFilter, FaChartBar, FaWhatsapp, FaExchangeAlt } from 'react-icons/fa';
 import { FiPhoneIncoming, FiPhoneOutgoing, FiPhoneMissed } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import CustomSelect from '../common/CustomSelect';
@@ -559,6 +559,21 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white text-xs transition-all"
              >
                <FaEnvelope size={12} />
+             </button>
+
+             <button 
+               onClick={() => handleBulkAction('CONVERT_TO_NEW_INQ')} 
+               title="Convert Selected to New Inquiry (Moves assigned leads to New Inquiry Call Campaign)" 
+               className="px-2 py-1.5 bg-emerald-600/80 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 shadow transition-all"
+             >
+               <FaExchangeAlt size={10} /> To New Inq
+             </button>
+             <button 
+               onClick={() => handleBulkAction('CONVERT_TO_OPEN_SEM')} 
+               title="Convert Selected to Open Seminar (Moves assigned leads to Open Seminar Call Campaign)" 
+               className="px-2 py-1.5 bg-cyan-600/80 hover:bg-cyan-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 shadow transition-all"
+             >
+               <FaExchangeAlt size={10} /> To Open Sem
              </button>
 
              <button 

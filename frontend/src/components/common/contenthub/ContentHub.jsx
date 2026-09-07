@@ -4,6 +4,7 @@ import { Loader2, FolderOpen, Layers, BookOpen, Plus, ChevronRight, ArrowLeft, B
 import api from '../../../api/axios'; 
 import ContentHubViews from './ContentHubViews';
 import ContentHubModals from './ContentHubModals';
+import PaperBuilderModal from './PaperBuilderModal';
 
 export default function ContentHub() {
   const [loading, setLoading] = useState(true);
@@ -13,12 +14,21 @@ export default function ContentHub() {
 
   const isSystemAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'ADMIN', 'SUPER_ADMIN'].includes(userRole);
   const isManager = ['MANAGER', 'ASS_MANAGER', 'SUPER', 'SUPERVISOR', 'PHYSICAL_MANAGER', 'SOCIAL_MEDIA_MANAGER', 'CALL_CENTER_SUPERVISOR'].includes(userRole) || userRole.includes('MANAG');
+  const isLectureOrGuider = ['LECTURE', 'LECTURER', 'PAPER_GUIDER', 'PAPER GUIDER'].includes(userRole);
   const isStaff = userRole === 'COORDINATOR' || userRole === 'STAFF';
 
   const canManageBusiness = isSystemAdmin;
-  const canManageBatches = isSystemAdmin || isManager;
-  const canManageGroupsAndSubjects = isSystemAdmin || isManager;
-  const canManageContent = isSystemAdmin || isManager;
+  const canManageBatches = isSystemAdmin || isManager || isLectureOrGuider;
+  const canManageGroupsAndSubjects = isSystemAdmin || isManager || isLectureOrGuider;
+  const canManageContent = isSystemAdmin || isManager || isLectureOrGuider;
+
+  const [showPaperBuilderModal, setShowPaperBuilderModal] = useState(false);
+  const [selectedPaperContent, setSelectedPaperContent] = useState(null);
+
+  const openPaperBuilder = (content) => {
+    setSelectedPaperContent(content);
+    setShowPaperBuilderModal(true);
+  };
 
   const [viewLevel, setViewLevel] = useState('businesses'); 
   const [activeBusiness, setActiveBusiness] = useState(null);
@@ -636,8 +646,9 @@ export default function ContentHub() {
               formData.set('selectedCourses', JSON.stringify(massAssignSubjects));
               formData.set('selectedBatches', JSON.stringify(selectedBatchesForContent));
               if (editData?.id) formData.set('content_id', editData.id);
-              const topF = formData.get('contentGroupId') || (editData?.contentGroupId ? String(editData.contentGroupId) : '');
-              if (topF && topF !== 'null' && topF !== 'undefined' && topF !== '') {
+              const formFolder = formData.get('contentGroupId');
+              const topF = (formFolder !== null && formFolder !== undefined) ? formFolder : (editData?.contentGroupId ? String(editData.contentGroupId) : '');
+              if (topF && topF !== 'null' && topF !== 'undefined' && topF !== '' && topF !== '0') {
                   formData.set('contentGroupId', topF);
               } else {
                   formData.set('contentGroupId', '');
@@ -650,17 +661,29 @@ export default function ContentHub() {
               const defaultTopFolder = formData.get('contentGroupId') || prefilledFolder || '';
 
               Object.keys(hubBatchConfigs).forEach(bId => {
-                  Object.keys(hubBatchConfigs[bId]).forEach(cId => {
+                  Object.keys(hubBatchConfigs[bId] || {}).forEach(cId => {
                       const config = hubBatchConfigs[bId][cId];
-                      if (config.isChecked) {
+                      if (config && config.isChecked) {
                           hasSelections = true;
-                          const folderKey = config.folderId || defaultTopFolder || 'uncategorized';
+                          let folderKey = config.folderId;
+                          if (!folderKey || folderKey === 'uncategorized' || folderKey === 'null' || folderKey === 'undefined') {
+                              folderKey = defaultTopFolder || 'uncategorized';
+                          }
                           if (!folderGroups[folderKey]) folderGroups[folderKey] = { batches: new Set(), courses: new Set() };
                           folderGroups[folderKey].batches.add(bId);
                           folderGroups[folderKey].courses.add(cId);
                       }
                   });
               });
+
+              if (!hasSelections && massAssignSubjects.length > 0) {
+                  hasSelections = true;
+                  const folderKey = defaultTopFolder || 'uncategorized';
+                  folderGroups[folderKey] = {
+                      batches: new Set(selectedBatchesForContent.length > 0 ? selectedBatchesForContent : [activeBatch.id]),
+                      courses: new Set(massAssignSubjects)
+                  };
+              }
 
               if (!hasSelections) return toast.error("Please select at least one subject to assign this content!");
 
@@ -669,8 +692,9 @@ export default function ContentHub() {
                   fd.set('type', contentType);
                   fd.set('batch_id', activeBatch.id);
                   
-                  if (folderKey && folderKey !== 'uncategorized' && folderKey !== 'null' && folderKey !== 'undefined') {
-                      fd.set('contentGroupId', folderKey);
+                  let finalFolderId = (folderKey && folderKey !== 'uncategorized' && folderKey !== 'null' && folderKey !== 'undefined') ? folderKey : defaultTopFolder;
+                  if (finalFolderId && finalFolderId !== 'uncategorized' && finalFolderId !== 'null' && finalFolderId !== 'undefined') {
+                      fd.set('contentGroupId', finalFolderId);
                   } else {
                       fd.delete('contentGroupId');
                   }
@@ -714,7 +738,8 @@ export default function ContentHub() {
     fetchPosts, setPostBizId, setBatchTab, setContentTab, getTypeInt, getEmbedUrl, isMatchedType, getFolderId, setShowInstallmentModal, 
     setInstallmentSubjectCount, setInstallmentSteps, setEditInstallmentId, setEditData, setDiscountRules, setSelectedGroupPrices,
     setShowLecturerModal, handleLecturerSubmit, handleDeleteLecturer, setHubBatchConfigs, setHubActiveBatchTab,
-    setParentFolderForSub, openCreateSubFolderModal, setSelectedFolderParentId
+    setParentFolderForSub, openCreateSubFolderModal, setSelectedFolderParentId,
+    openPaperBuilder
   };
 
   if (loading) return <div className="flex h-full items-center justify-center min-h-[60vh]"><Loader2 size={50} className="animate-spin text-brand-accent" /></div>;
@@ -780,6 +805,16 @@ export default function ContentHub() {
 
       <ContentHubViews state={stateData} actions={actionsData} />
       <ContentHubModals state={stateData} actions={actionsData} />
+
+      {/* Paper Builder Modal */}
+      <PaperBuilderModal
+        content={selectedPaperContent}
+        isOpen={showPaperBuilderModal}
+        onClose={() => setShowPaperBuilderModal(false)}
+        onUpdated={() => {
+          if (activeSubject) openContentsView(activeSubject);
+        }}
+      />
     </div>
   );
 }
