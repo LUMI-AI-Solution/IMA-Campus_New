@@ -279,8 +279,16 @@ export default function ContentHubViews({ state, actions }) {
                                             <p className="text-[10px] text-gray-500 font-extrabold uppercase tracking-widest mb-3">Active Bundle Discounts</p>
                                             <div className="flex flex-wrap gap-2">
                                                 {JSON.parse(group.discount_rules).map((rule, ridx) => {
+                                                    const hasPackage = rule.packagePrice && parseFloat(rule.packagePrice) > 0;
                                                     const hasFixed = rule.fixedDiscount && parseFloat(rule.fixedDiscount) > 0;
-                                                    const displayTxt = hasFixed ? ('Get Rs ' + rule.fixedDiscount + ' Off') : ('@ Rs ' + rule.pricePerCourse + ' / ea');
+                                                    let displayTxt = '';
+                                                    if (hasPackage) {
+                                                        displayTxt = 'Total Rs ' + Number(rule.packagePrice).toLocaleString();
+                                                    } else if (hasFixed) {
+                                                        displayTxt = 'Get Rs ' + Number(rule.fixedDiscount).toLocaleString() + ' Off';
+                                                    } else {
+                                                        displayTxt = '@ Rs ' + Number(rule.pricePerCourse).toLocaleString() + ' / ea';
+                                                    }
                                                     return (
                                                         <span key={ridx} className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 px-3 py-2 rounded-xl border border-emerald-500/20 shadow-sm">
                                                             <span className="bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md">Buy {rule.courseCount}+</span> {displayTxt}

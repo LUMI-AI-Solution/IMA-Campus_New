@@ -270,8 +270,9 @@ exports.getPayments = async (req, res) => {
                                     if (eligibleSubjectsCount >= rule.courseCount) {
                                         activeGroupDiscount = { 
                                             triggerCount: rule.courseCount, 
-                                            newPricePerCourse: rule.pricePerCourse,
-                                            fixedDiscount: rule.fixedDiscount
+                                            packagePrice: (rule.packagePrice !== undefined && rule.packagePrice !== null && rule.packagePrice !== '') ? parseFloat(rule.packagePrice) : null,
+                                            newPricePerCourse: (rule.pricePerCourse !== undefined && rule.pricePerCourse !== null && rule.pricePerCourse !== '') ? parseFloat(rule.pricePerCourse) : null,
+                                            fixedDiscount: (rule.fixedDiscount !== undefined && rule.fixedDiscount !== null && rule.fixedDiscount !== '') ? parseFloat(rule.fixedDiscount) : null
                                         };
                                         break;
                                     }
@@ -280,28 +281,50 @@ exports.getPayments = async (req, res) => {
                         } catch (e) {}
                     }
 
-                    parsedSubjects = subIds.map(id => {
-                        const course = courseMap[id];
-                        let price = course ? parseFloat(course.price || 0) : 0;
-                        const strId = String(id);
-                        if (customPricesMap[strId] !== undefined) {
-                            price = parseFloat(customPricesMap[strId]);
-                        } else if (activeGroupDiscount && course && !course.isDiscountExcluded) {
-                            if (activeGroupDiscount.newPricePerCourse !== undefined) {
-                                price = parseFloat(activeGroupDiscount.newPricePerCourse);
+                    if (activeGroupDiscount && activeGroupDiscount.packagePrice !== null && activeGroupDiscount.packagePrice !== undefined) {
+                        let packagePriceAdded = false;
+                        parsedSubjects = subIds.map(id => {
+                            const course = courseMap[id];
+                            let price = course ? parseFloat(course.price || 0) : 0;
+                            const strId = String(id);
+                            if (customPricesMap[strId] !== undefined) {
+                                price = parseFloat(customPricesMap[strId]);
+                                systemTotal += price;
+                            } else if (course && course.isDiscountExcluded) {
+                                systemTotal += price;
+                            } else if (course && !course.isDiscountExcluded) {
+                                if (!packagePriceAdded) {
+                                    systemTotal += activeGroupDiscount.packagePrice;
+                                    packagePriceAdded = true;
+                                }
                             }
-                        }
-                        
-                        if (course) {
-                            systemTotal += price;
-                            return { ...course, price };
-                        }
-                        return { id, name: 'Unknown Course', price, code: 'N/A' };
-                    });
+                            if (course) return { ...course, price };
+                            return { id, name: 'Unknown Course', price, code: 'N/A' };
+                        });
+                    } else {
+                        parsedSubjects = subIds.map(id => {
+                            const course = courseMap[id];
+                            let price = course ? parseFloat(course.price || 0) : 0;
+                            const strId = String(id);
+                            if (customPricesMap[strId] !== undefined) {
+                                price = parseFloat(customPricesMap[strId]);
+                            } else if (activeGroupDiscount && course && !course.isDiscountExcluded) {
+                                if (activeGroupDiscount.newPricePerCourse !== null && activeGroupDiscount.newPricePerCourse !== undefined) {
+                                    price = parseFloat(activeGroupDiscount.newPricePerCourse);
+                                }
+                            }
+                            
+                            if (course) {
+                                systemTotal += price;
+                                return { ...course, price };
+                            }
+                            return { id, name: 'Unknown Course', price, code: 'N/A' };
+                        });
 
-                    // Apply fixed discount if present in activeGroupDiscount
-                    if (activeGroupDiscount && activeGroupDiscount.fixedDiscount !== undefined) {
-                        systemTotal -= parseFloat(activeGroupDiscount.fixedDiscount);
+                        // Apply fixed discount if present in activeGroupDiscount
+                        if (activeGroupDiscount && activeGroupDiscount.fixedDiscount !== null && activeGroupDiscount.fixedDiscount !== undefined) {
+                            systemTotal -= parseFloat(activeGroupDiscount.fixedDiscount);
+                        }
                     }
 
                     // Apply Bundle Discount if configured in AppSettings (Only for Upgrades!)

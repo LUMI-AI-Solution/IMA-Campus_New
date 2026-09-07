@@ -93,7 +93,7 @@ export default function ContentHub() {
   const [installmentSteps, setInstallmentSteps] = useState([{ step: 1, amount: '', gapDays: '0' }]);
 
   const toggleFolder = (folderId) => setOpenFolders(prev => ({ ...prev, [folderId]: !prev[folderId] }));
-  const addDiscountRule = () => setDiscountRules([...discountRules, { courseCount: '', pricePerCourse: '' }]);
+  const addDiscountRule = () => setDiscountRules([...discountRules, { courseCount: '', packagePrice: '', pricePerCourse: '', fixedDiscount: '' }]);
   const removeDiscountRule = (index) => setDiscountRules(discountRules.filter((_, i) => i !== index));
   const handleDiscountRuleChange = (index, field, value) => { const newRules = [...discountRules]; newRules[index][field] = value; setDiscountRules(newRules); };
   
@@ -501,8 +501,16 @@ export default function ContentHub() {
       e.preventDefault();
       const formData = new FormData(e.target);
       const pType = formData.get('paymentType');
-      const cleanDiscountRules = discountRules.filter(rule => rule.courseCount != null && rule.courseCount !== '' && ((rule.pricePerCourse != null && rule.pricePerCourse !== '') || (rule.fixedDiscount != null && rule.fixedDiscount !== ''))).map(rule => ({ 
+      const cleanDiscountRules = discountRules.filter(rule => 
+          rule.courseCount != null && rule.courseCount !== '' && 
+          (
+              (rule.packagePrice != null && rule.packagePrice !== '') ||
+              (rule.pricePerCourse != null && rule.pricePerCourse !== '') || 
+              (rule.fixedDiscount != null && rule.fixedDiscount !== '')
+          )
+      ).map(rule => ({ 
           courseCount: parseInt(rule.courseCount, 10), 
+          ...(rule.packagePrice != null && rule.packagePrice !== '' && { packagePrice: parseFloat(rule.packagePrice) }),
           ...(rule.pricePerCourse != null && rule.pricePerCourse !== '' && { pricePerCourse: parseFloat(rule.pricePerCourse) }),
           ...(rule.fixedDiscount != null && rule.fixedDiscount !== '' && { fixedDiscount: parseFloat(rule.fixedDiscount) })
       }));

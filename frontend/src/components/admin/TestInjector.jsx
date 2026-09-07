@@ -275,7 +275,14 @@ export default function TestInjector() {
             const eligibleSubjectsCount = getFilteredCourses().filter(c => selectedSubjects.includes(c.id) && !c.isDiscountExcluded).length;
 
             for (let rule of rules) {
-                if (eligibleSubjectsCount >= rule.courseCount) return { triggerCount: rule.courseCount, newPricePerCourse: rule.pricePerCourse };
+                if (eligibleSubjectsCount >= rule.courseCount) {
+                    return { 
+                        triggerCount: rule.courseCount, 
+                        packagePrice: (rule.packagePrice !== undefined && rule.packagePrice !== null && rule.packagePrice !== '') ? Number(rule.packagePrice) : null,
+                        newPricePerCourse: (rule.pricePerCourse !== undefined && rule.pricePerCourse !== null && rule.pricePerCourse !== '') ? Number(rule.pricePerCourse) : null,
+                        fixedDiscount: rule.fixedDiscount ? Number(rule.fixedDiscount) : 0
+                    };
+                }
             }
         } catch (e) {}
         return null;
@@ -308,13 +315,23 @@ export default function TestInjector() {
         const activeDiscount = getActiveDiscount();
         let total = 0;
 
-        courses.filter(c => selectedSubjects.includes(c.id)).forEach(course => {
-            if (activeDiscount && !course.isDiscountExcluded) {
-                total += activeDiscount.newPricePerCourse;
-            } else {
+        if (activeDiscount && activeDiscount.packagePrice !== null) {
+            total = activeDiscount.packagePrice;
+            courses.filter(c => selectedSubjects.includes(c.id) && c.isDiscountExcluded).forEach(course => {
                 total += Number(course.price || 0);
+            });
+        } else {
+            courses.filter(c => selectedSubjects.includes(c.id)).forEach(course => {
+                if (activeDiscount && activeDiscount.newPricePerCourse !== null && !course.isDiscountExcluded) {
+                    total += activeDiscount.newPricePerCourse;
+                } else {
+                    total += Number(course.price || 0);
+                }
+            });
+            if (activeDiscount && activeDiscount.fixedDiscount && activeDiscount.fixedDiscount > 0) {
+                total = Math.max(0, total - activeDiscount.fixedDiscount);
             }
-        });
+        }
         return total;
     };
 

@@ -258,6 +258,7 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
       for (const rule of sortedRules) {
           if (eligibleCount >= Number(rule.courseCount)) {
               return {
+                  packagePrice: (rule.packagePrice !== undefined && rule.packagePrice !== null && rule.packagePrice !== '') ? Number(rule.packagePrice) : null,
                   newPricePerCourse: (rule.pricePerCourse !== undefined && rule.pricePerCourse !== null && rule.pricePerCourse !== '') ? Number(rule.pricePerCourse) : null,
                   fixedDiscount: rule.fixedDiscount ? Number(rule.fixedDiscount) : 0,
                   minSubjectsRequired: Number(rule.courseCount)
@@ -274,25 +275,40 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
     const activeDiscount = getActiveDiscount();
     let total = 0;
 
-    courses.filter(c => selectedSubjects.includes(c.id)).forEach(course => {
-        let cPrice = course.price || 0;
-        if (course.groupPrices) {
-            try {
-                const gp = typeof course.groupPrices === 'string' ? JSON.parse(course.groupPrices) : course.groupPrices;
-                const cgp = gp.find(g => parseInt(g.groupId) === parseInt(selectedGroup.id));
-                if (cgp) cPrice = Number(cgp.price);
-            } catch(e) {}
-        }
-        
-        if (activeDiscount && activeDiscount.newPricePerCourse !== null && !course.isDiscountExcluded) {
-            total += activeDiscount.newPricePerCourse;
-        } else {
+    if (activeDiscount && activeDiscount.packagePrice !== null) {
+        total = activeDiscount.packagePrice;
+        courses.filter(c => selectedSubjects.includes(c.id) && c.isDiscountExcluded).forEach(course => {
+            let cPrice = course.price || 0;
+            if (course.groupPrices) {
+                try {
+                    const gp = typeof course.groupPrices === 'string' ? JSON.parse(course.groupPrices) : course.groupPrices;
+                    const cgp = gp.find(g => parseInt(g.groupId) === parseInt(selectedGroup.id));
+                    if (cgp) cPrice = Number(cgp.price);
+                } catch(e) {}
+            }
             total += Number(cPrice);
+        });
+    } else {
+        courses.filter(c => selectedSubjects.includes(c.id)).forEach(course => {
+            let cPrice = course.price || 0;
+            if (course.groupPrices) {
+                try {
+                    const gp = typeof course.groupPrices === 'string' ? JSON.parse(course.groupPrices) : course.groupPrices;
+                    const cgp = gp.find(g => parseInt(g.groupId) === parseInt(selectedGroup.id));
+                    if (cgp) cPrice = Number(cgp.price);
+                } catch(e) {}
+            }
+            
+            if (activeDiscount && activeDiscount.newPricePerCourse !== null && !course.isDiscountExcluded) {
+                total += activeDiscount.newPricePerCourse;
+            } else {
+                total += Number(cPrice);
+            }
+        });
+        
+        if (activeDiscount && activeDiscount.fixedDiscount && activeDiscount.fixedDiscount > 0) {
+            total = Math.max(0, total - activeDiscount.fixedDiscount);
         }
-    });
-    
-    if (activeDiscount && activeDiscount.fixedDiscount && activeDiscount.fixedDiscount > 0) {
-        total = Math.max(0, total - activeDiscount.fixedDiscount);
     }
     
     return total;
@@ -763,13 +779,20 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
 
                                       <div className="flex flex-col items-start md:items-end flex-1 shrink-0 w-full md:w-auto border-t md:border-none border-white/20 pt-3 md:pt-0">
                                           <span className="text-[7px] text-gray-500 font-black tracking-widest uppercase mb-1">
-                                              {isAlreadyPaid ? 'Already Paid' : (activeDiscount && !course.isDiscountExcluded ? (activeDiscount.newPricePerCourse !== null ? 'Bundle Price' : 'Eligible for Bundle') : 'Regular Price')}
+                                              {isAlreadyPaid ? 'Already Paid' : (activeDiscount && !course.isDiscountExcluded ? (activeDiscount.packagePrice !== null ? 'Package Deal' : (activeDiscount.newPricePerCourse !== null ? 'Bundle Price' : 'Eligible for Bundle')) : 'Regular Price')}
                                           </span>
                                           <div className="flex flex-col items-end">
                                               {activeDiscount && activeDiscount.newPricePerCourse !== null && selectedSubjects.includes(course.id) && !course.isDiscountExcluded && !isAlreadyPaid ? (
                                                   <>
                                                       <span className="text-white/70 font-medium line-through text-[9px] font-medium mb-0.5">LKR {Number(cPrice).toFixed(2)}</span>
                                                       <span className="text-yellow-400 font-black text-xl flex items-center gap-1 drop-shadow-md"><Tag size={14}/> LKR {Number(activeDiscount.newPricePerCourse).toFixed(2)}</span>
+                                                  </>
+                                              ) : activeDiscount && activeDiscount.packagePrice !== null && selectedSubjects.includes(course.id) && !course.isDiscountExcluded && !isAlreadyPaid ? (
+                                                  <>
+                                                      <span className="text-emerald-400 font-bold text-[9px] uppercase tracking-wider bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 mb-0.5 flex items-center gap-1">
+                                                          <Tag size={10}/> In Package
+                                                      </span>
+                                                      <span className="text-white/90 font-black text-xl drop-shadow-md">LKR {Number(cPrice).toFixed(2)}</span>
                                                   </>
                                               ) : (
                                                   <>
