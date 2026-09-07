@@ -1566,13 +1566,27 @@ exports.receiveMessage = async (req, res) => {
             // ========================================================
             if (settings.campaignType === 'AFTER_SEMINAR') {
                 const msgLower = (messageText || "").toLowerCase().trim();
-                const existingLeadCheck = await prisma.lead.findFirst({
-                    where: { 
-                        phone: { contains: phoneSuffix },
-                        campaignType: 'AFTER_SEMINAR'
-                    },
-                    orderBy: { updatedAt: 'desc' }
-                });
+                let existingLeadCheck = await prisma.lead.findUnique({ where: { phone: dbPhone } });
+                
+                if (!existingLeadCheck) {
+                    existingLeadCheck = await prisma.lead.findFirst({
+                        where: { 
+                            OR: [
+                                { phone: `${phone}_BIZ_${settings.businessId}` },
+                                { phone: { startsWith: `${phone}_BIZ_${settings.businessId}_` } },
+                                { phone: { contains: `${phoneSuffix}_BIZ_${settings.businessId}` } }
+                            ],
+                            campaignType: 'AFTER_SEMINAR',
+                            status: { not: 'ARCHIVED' }
+                        },
+                        orderBy: { updatedAt: 'desc' }
+                    });
+                    if (existingLeadCheck) {
+                        dbPhone = existingLeadCheck.phone;
+                    }
+                }
+
+                let targetPhone = existingLeadCheck ? existingLeadCheck.phone : dbPhone;
 
                 const isRestartCommand = ['hi', 'hello', 'hey', 'menu', 'start'].includes(msgLower);
                 const timeSinceLastMsg = existingLeadCheck && existingLeadCheck.updatedAt ? new Date() - new Date(existingLeadCheck.updatedAt) : 10000;
@@ -1625,7 +1639,10 @@ exports.receiveMessage = async (req, res) => {
                 let fallbackAssignedTo = existingLeadCheck?.assignedTo || null;
                 if (!fallbackAssignedTo && phoneSuffix) {
                     const crossSemLead = await prisma.lead.findFirst({
-                        where: { phone: { contains: phoneSuffix }, assignedTo: { not: null } },
+                        where: { 
+                            phone: { contains: `${phoneSuffix}_BIZ_${settings.businessId}` }, 
+                            assignedTo: { not: null } 
+                        },
                         orderBy: { updatedAt: 'desc' }
                     });
                     if (crossSemLead) fallbackAssignedTo = crossSemLead.assignedTo;
