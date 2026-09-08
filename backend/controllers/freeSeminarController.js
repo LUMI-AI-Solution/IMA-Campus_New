@@ -926,6 +926,13 @@ exports.receiveMessage = async (req, res) => {
             let receivingWaNumId = metadata ? metadata.phone_number_id : null;
             let displayPhone = metadata ? metadata.display_phone_number : null;
 
+            // 🛑 CHECK IF SENDER PHONE IS BLOCKED 🛑
+            const isSenderBlocked = await isNumberBlockedHelper(phone);
+            if (isSenderBlocked) {
+                console.log(`\n🚫 [BLOCKED] Incoming webhook message from blocked sender ${phone} ignored.\n`);
+                return res.status(200).send("EVENT_RECEIVED");
+            }
+
             let messageText = "";
             let interactiveId = null;
             let isFollowUpReply = false;
@@ -1654,6 +1661,11 @@ exports.sendMessage = async (req, res) => {
 
         const lead = await prisma.lead.findUnique({ where: { id: parseInt(leadId) } });
         if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+        if (lead.isBlocked || await isNumberBlockedHelper(lead.phone)) {
+            return res.status(400).json({ error: "This phone number is blocked. Please unblock the contact first to send messages." });
+        }
+
         if (lead.isOptedOut) {
             // Un-opt-out lead when staff manually sends a message so chat stays active
             await prisma.lead.update({ where: { id: lead.id }, data: { isOptedOut: false } }).catch(() => {});
@@ -2617,13 +2629,46 @@ exports.getLeadDetails = async (req, res) => {
         const hasPendingPayment = bestStudent.payments.some(p => p.status === 0 || p.status === 4);
         const latestPaymentStatus = bestStudent.payments[0]?.status ?? null;
 
+        // Group unique enrollments by business & batch
+        const uniqueEnrollmentsMap = new Map();
+        bestStudent.payments.forEach(p => {
+            const key = `${p.businessId}_${p.batchId || 'no_batch'}`;
+            if (!uniqueEnrollmentsMap.has(key)) {
+                uniqueEnrollmentsMap.set(key, {
+                    businessId: p.businessId,
+                    businessName: p.business?.name || 'N/A',
+                    batchId: p.batchId,
+                    batchName: p.batch?.name || 'N/A',
+                    paymentType: p.payment_type,
+                    method: p.method,
+                    status: p.status,
+                    courses: p.courses ? [...p.courses] : [],
+                    latestPaymentDate: p.created_at
+                });
+            } else {
+                const existing = uniqueEnrollmentsMap.get(key);
+                if (p.courses) {
+                    const existingIds = new Set(existing.courses.map(c => c.id));
+                    p.courses.forEach(c => {
+                        if (!existingIds.has(c.id)) {
+                            existing.courses.push(c);
+                            existingIds.add(c.id);
+                        }
+                    });
+                }
+                if (p.status === 1) existing.status = 1;
+            }
+        });
+        const uniqueEnrollments = Array.from(uniqueEnrollmentsMap.values());
+
         res.status(200).json({ 
             isEnrolled: true, 
             hasApprovedPayment,
             hasPendingPayment,
             latestPaymentStatus,
             student: bestStudent, 
-            enrolledCourses 
+            enrolledCourses,
+            uniqueEnrollments
         });
     } catch (error) { res.status(500).json({ error: "Failed to fetch lead details" }); }
 };
@@ -3386,6 +3431,186 @@ exports.resolveLeadByPhone = async (req, res) => {
     } catch (error) {
         console.error("Error resolving lead by phone:", error);
         res.status(500).json({ error: error.message });
+    }
+};
+
+// ==========================================
+// 🛑 NUMBER BLOCKING & BLACKLISTING
+// ==========================================
+
+async function isNumberBlockedHelper(phone) {
+    if (!phone) return false;
+    const rawDigits = String(phone).split('_')[0].replace(/[^0-9]/g, '');
+    if (!rawDigits) return false;
+    const phoneSuffix = rawDigits.length >= 9 ? rawDigits.slice(-9) : rawDigits;
+
+    const blocked = await prisma.blockedNumber.findFirst({
+        where: {
+            OR: [
+                { phone: rawDigits },
+                { phone: { contains: phoneSuffix } }
+            ]
+        }
+    });
+    if (blocked) return true;
+
+    const blockedLead = await prisma.lead.findFirst({
+        where: {
+            isBlocked: true,
+            phone: { contains: phoneSuffix }
+        }
+    });
+    return !!blockedLead;
+}
+
+exports.blockNumber = async (req, res) => {
+    try {
+        const { phone, leadId, reason } = req.body;
+        const currentUserId = req.user?.userId || req.user?.id || null;
+
+        if (!phone && !leadId) {
+            return res.status(400).json({ error: "Phone or leadId is required to block." });
+        }
+
+        let targetPhone = phone;
+        let targetLead = null;
+
+        if (leadId) {
+            targetLead = await prisma.lead.findUnique({ where: { id: parseInt(leadId) } });
+            if (targetLead && !targetPhone) {
+                targetPhone = targetLead.phone;
+            }
+        }
+
+        if (!targetPhone) {
+            return res.status(400).json({ error: "Could not determine phone number." });
+        }
+
+        const rawPhone = String(targetPhone).split('_')[0].replace(/[^0-9]/g, '');
+        const phoneSuffix = rawPhone.length >= 9 ? rawPhone.slice(-9) : rawPhone;
+
+        await prisma.blockedNumber.upsert({
+            where: { phone: rawPhone },
+            update: {
+                reason: reason || 'Blocked from CRM',
+                blockedBy: currentUserId,
+                updatedAt: new Date()
+            },
+            create: {
+                phone: rawPhone,
+                reason: reason || 'Blocked from CRM',
+                blockedBy: currentUserId
+            }
+        });
+
+        await prisma.lead.updateMany({
+            where: {
+                OR: [
+                    { phone: targetPhone },
+                    { phone: { contains: phoneSuffix } }
+                ]
+            },
+            data: {
+                isBlocked: true,
+                blockedReason: reason || 'Blocked from CRM',
+                blockedAt: new Date(),
+                isOptedOut: true,
+                status: 'BLOCKED'
+            }
+        });
+
+        try {
+            const { getIo } = require('./chatController');
+            const io = getIo();
+            if (io) {
+                io.emit('lead_blocked', { phone: rawPhone, leadId: targetLead?.id, reason: reason || 'Blocked from CRM' });
+                io.emit('lead_updated', { phone: rawPhone, leadId: targetLead?.id });
+            }
+        } catch (e) {}
+
+        return res.status(200).json({ success: true, message: `Phone ${rawPhone} has been blocked.` });
+    } catch (error) {
+        console.error("Block Number Error:", error);
+        return res.status(500).json({ error: "Failed to block number", details: error.message });
+    }
+};
+
+exports.unblockNumber = async (req, res) => {
+    try {
+        const { phone, leadId } = req.body;
+
+        let targetPhone = phone;
+        let targetLead = null;
+
+        if (leadId) {
+            targetLead = await prisma.lead.findUnique({ where: { id: parseInt(leadId) } });
+            if (targetLead && !targetPhone) {
+                targetPhone = targetLead.phone;
+            }
+        }
+
+        if (!targetPhone) {
+            return res.status(400).json({ error: "Could not determine phone number." });
+        }
+
+        const rawPhone = String(targetPhone).split('_')[0].replace(/[^0-9]/g, '');
+        const phoneSuffix = rawPhone.length >= 9 ? rawPhone.slice(-9) : rawPhone;
+
+        await prisma.blockedNumber.deleteMany({
+            where: {
+                OR: [
+                    { phone: rawPhone },
+                    { phone: { contains: phoneSuffix } }
+                ]
+            }
+        });
+
+        await prisma.lead.updateMany({
+            where: {
+                OR: [
+                    { phone: targetPhone },
+                    { phone: { contains: phoneSuffix } }
+                ]
+            },
+            data: {
+                isBlocked: false,
+                blockedReason: null,
+                blockedAt: null,
+                isOptedOut: false,
+                status: 'NEW'
+            }
+        });
+
+        try {
+            const { getIo } = require('./chatController');
+            const io = getIo();
+            if (io) {
+                io.emit('lead_unblocked', { phone: rawPhone, leadId: targetLead?.id });
+                io.emit('lead_updated', { phone: rawPhone, leadId: targetLead?.id });
+            }
+        } catch (e) {}
+
+        return res.status(200).json({ success: true, message: `Phone ${rawPhone} has been unblocked.` });
+    } catch (error) {
+        console.error("Unblock Number Error:", error);
+        return res.status(500).json({ error: "Failed to unblock number", details: error.message });
+    }
+};
+
+exports.getBlockedNumbers = async (req, res) => {
+    try {
+        const blocked = await prisma.blockedNumber.findMany({
+            include: {
+                blockedByUser: {
+                    select: { id: true, firstName: true, lastName: true, role: true }
+                }
+            },
+            orderBy: { createdAt: 'desc' }
+        });
+        return res.status(200).json(blocked || []);
+    } catch (error) {
+        console.error("Get Blocked Numbers Error:", error);
+        return res.status(500).json({ error: "Failed to fetch blocked numbers." });
     }
 };
 

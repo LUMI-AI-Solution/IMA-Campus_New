@@ -105,6 +105,8 @@ app.use('/storage/posts', express.static(path.join(__dirname, 'storage/posts')))
 
 // 🔥 FIX: Mobile app & Web preview ekata /api/ url eken document ganna me routes tika add kala 🔥
 app.use('/api/storage/documents', express.static(path.join(__dirname, 'storage/documents')));
+app.use('/storage/tutes', express.static(path.join(__dirname, 'storage/documents')));
+app.use('/api/storage/tutes', express.static(path.join(__dirname, 'storage/documents')));
 app.use('/api/storage/icons', express.static(path.join(__dirname, 'storage/icons')));
 app.use('/api/storage/posts', express.static(path.join(__dirname, 'storage/posts')));
 app.use('/storage/images', express.static(path.join(__dirname, 'storage/images')));

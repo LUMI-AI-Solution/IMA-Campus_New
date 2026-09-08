@@ -230,98 +230,171 @@ export default function CoordinatorGoalTrackerWidget({
                                 )}
                             </div>
                         </div>
-
                     </div>
 
                     {/* ========================================================= */}
-                    {/* RIGHT PANEL: TOP GOAL DRIVERS WITH CRISP AVATARS (4 cols) */}
+                    {/* RIGHT PANEL: TOP GOAL DRIVERS OLYMPIAN PODIUM (4 cols) */}
                     {/* ========================================================= */}
-                    <div className="lg:col-span-4 bg-slate-900/80 border border-amber-500/25 rounded-2xl p-4 backdrop-blur-md shadow-lg flex flex-col justify-between">
-                        <div>
+                    <div className="lg:col-span-4 bg-gradient-to-b from-[#0f172a]/95 via-[#131b34]/95 to-[#0b0f1d]/95 border border-amber-500/30 rounded-2xl p-4 backdrop-blur-xl shadow-2xl flex flex-col justify-between relative overflow-hidden group">
+                        
+                        {/* Ambient top light glow */}
+                        <div className="absolute -top-10 left-1/2 -translate-x-1/2 w-48 h-48 bg-amber-500/10 rounded-full blur-2xl pointer-events-none"></div>
+
+                        <div className="relative z-10">
                             {/* Header */}
-                            <div className="flex items-center justify-between mb-3 border-b border-white/10 pb-2.5">
+                            <div className="flex items-center justify-between mb-3.5 border-b border-amber-500/20 pb-2.5">
                                 <div className="flex items-center gap-2">
-                                    <FaTrophy size={15} className="text-amber-400" />
-                                    <h4 className="text-xs font-black uppercase tracking-wider text-amber-300">
+                                    <div className="w-6 h-6 rounded-lg bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shadow-[0_0_10px_rgba(251,191,36,0.3)]">
+                                        <FaTrophy size={13} className="text-amber-400 drop-shadow-[0_0_4px_rgba(251,191,36,0.6)]" />
+                                    </div>
+                                    <h4 className="text-xs font-black uppercase tracking-wider bg-gradient-to-r from-amber-200 via-yellow-300 to-amber-400 bg-clip-text text-transparent">
                                         Top Goal Drivers
                                     </h4>
                                 </div>
-                                <span className="text-[9px] font-extrabold text-slate-400 uppercase tracking-widest">Share of Goal</span>
+                                <span className="text-[9px] font-black text-amber-300/80 uppercase tracking-widest bg-amber-950/60 px-2 py-0.5 rounded-full border border-amber-500/30">
+                                    Podium
+                                </span>
                             </div>
 
-                            {/* Driver Cards Stack */}
-                            {topTeamDrivers.length > 0 ? (
-                                <div className="space-y-2.5">
-                                    {topTeamDrivers.map((driver, idx) => {
-                                        const enrolled = driver.overall?.enrolled || 0;
-                                        const sharePct = totalGroupEnrolled > 0 ? Math.round((enrolled / totalGroupEnrolled) * 100) : 0;
-                                        const avatarUrl = getAvatarSrc(driver);
-                                        const cleanName = getCleanName(driver.name);
-                                        const initials = getInitials(driver.name);
+                            {/* 3D Olympian Podium Stand */}
+                            {topTeamDrivers.length > 0 ? (() => {
+                                const leader = topTeamDrivers[0];
+                                const driver2 = topTeamDrivers[1];
+                                const driver3 = topTeamDrivers[2];
 
-                                        let rankBadge = "LEADER";
-                                        let badgeStyle = "bg-amber-500/20 text-amber-300 border-amber-400/40";
-                                        let ringStyle = "border-amber-400 shadow-[0_0_10px_rgba(251,191,36,0.4)]";
-                                        let rankIcon = <FaCrown className="text-amber-400" size={11} />;
-
-                                        if (idx === 1) {
-                                            rankBadge = "DRIVER";
-                                            badgeStyle = "bg-cyan-500/20 text-cyan-300 border-cyan-400/40";
-                                            ringStyle = "border-cyan-400 shadow-[0_0_10px_rgba(34,211,238,0.4)]";
-                                            rankIcon = <FaMedal className="text-cyan-300" size={11} />;
-                                        }
-                                        if (idx === 2) {
-                                            rankBadge = "ANCHOR";
-                                            badgeStyle = "bg-purple-500/20 text-purple-300 border-purple-400/40";
-                                            ringStyle = "border-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.4)]";
-                                            rankIcon = <FaAward className="text-purple-300" size={11} />;
-                                        }
-
+                                const renderPodiumPillar = (driver, rank) => {
+                                    if (!driver) {
                                         return (
-                                            <div key={idx} className="flex items-center justify-between gap-3 bg-slate-950/80 p-2 rounded-xl border border-white/5 hover:border-slate-700 transition-all">
-                                                <div className="flex items-center gap-2.5 min-w-0">
-                                                    {/* Ultra Crisp Staff Avatar */}
-                                                    <div className="relative shrink-0">
-                                                        <CrispStaffAvatar 
-                                                            src={avatarUrl} 
-                                                            initials={initials} 
-                                                            ringStyle={ringStyle} 
-                                                        />
-                                                        <div className="absolute -bottom-1 -right-1 bg-slate-900 rounded-full p-0.5 border border-slate-700 shadow-sm">
-                                                            {rankIcon}
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="min-w-0">
-                                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                                            <span className="font-extrabold text-white text-xs truncate max-w-[110px]">{cleanName}</span>
-                                                            <span className={`text-[8px] font-black uppercase px-1.5 py-0.2 rounded border ${badgeStyle}`}>
-                                                                {rankBadge}
-                                                            </span>
-                                                        </div>
-                                                        <span className="text-[11px] font-bold text-emerald-400 block">{enrolled} <span className="text-[10px] text-slate-400 font-normal">enrolled</span></span>
-                                                    </div>
+                                            <div key={rank} className="flex-1 flex flex-col items-center justify-end opacity-40">
+                                                <div className="w-12 h-12 rounded-full border border-dashed border-slate-700 bg-slate-800/40 flex items-center justify-center text-[10px] text-slate-500 font-bold mb-2">
+                                                    #{rank}
                                                 </div>
-
-                                                <div className="shrink-0 text-right">
-                                                    <span className="bg-emerald-500/15 text-emerald-300 text-xs font-black px-2.5 py-1 rounded-lg border border-emerald-500/30 inline-block">
-                                                        {sharePct}%
-                                                    </span>
-                                                </div>
+                                                <span className="text-[9px] text-slate-500 font-medium">Open Slot</span>
+                                                <div className="w-full h-14 bg-slate-900/40 rounded-t-xl border-t border-slate-800 mt-2"></div>
                                             </div>
                                         );
-                                    })}
-                                </div>
-                            ) : (
-                                <div className="text-center py-6 text-xs text-slate-500 font-medium">
-                                    No driver data available
+                                    }
+
+                                    const enrolled = driver.overall?.enrolled || 0;
+                                    const sharePct = totalGroupEnrolled > 0 ? Math.round((enrolled / totalGroupEnrolled) * 100) : 0;
+                                    const avatarUrl = getAvatarSrc(driver);
+                                    const cleanName = getCleanName(driver.name);
+                                    const initials = getInitials(driver.name);
+
+                                    // Rank specifics
+                                    const isFirst = rank === 1;
+                                    const isSecond = rank === 2;
+                                    const isThird = rank === 3;
+
+                                    const rankTitle = isFirst ? "LEADER" : isSecond ? "DRIVER" : "ANCHOR";
+                                    const rankBadgeColor = isFirst 
+                                        ? "bg-gradient-to-r from-amber-500/30 to-yellow-500/30 text-amber-300 border-amber-400/50" 
+                                        : isSecond 
+                                        ? "bg-gradient-to-r from-cyan-500/30 to-teal-500/30 text-cyan-300 border-cyan-400/50" 
+                                        : "bg-gradient-to-r from-purple-500/30 to-pink-500/30 text-purple-300 border-purple-400/50";
+
+                                    const ringStyle = isFirst
+                                        ? "border-amber-400 shadow-[0_0_16px_rgba(251,191,36,0.6)] ring-2 ring-amber-300/40"
+                                        : isSecond
+                                        ? "border-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.45)] ring-1 ring-cyan-300/30"
+                                        : "border-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.45)] ring-1 ring-purple-300/30";
+
+                                    const avatarSize = isFirst ? "lg" : "md";
+                                    const podiumHeight = isFirst ? "h-20" : isSecond ? "h-16" : "h-14";
+                                    const podiumBg = isFirst 
+                                        ? "bg-gradient-to-t from-amber-950/80 via-amber-900/40 to-amber-500/20 border-t-2 border-amber-400/60 shadow-[0_-5px_15px_rgba(251,191,36,0.15)]"
+                                        : isSecond
+                                        ? "bg-gradient-to-t from-slate-950 via-cyan-950/40 to-cyan-500/20 border-t-2 border-cyan-400/50 shadow-[0_-4px_12px_rgba(34,211,238,0.1)]"
+                                        : "bg-gradient-to-t from-slate-950 via-purple-950/40 to-purple-500/20 border-t-2 border-purple-400/50 shadow-[0_-4px_12px_rgba(168,85,247,0.1)]";
+
+                                    const rankNumberBadge = isFirst
+                                        ? "bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 font-black shadow-[0_0_8px_rgba(251,191,36,0.8)]"
+                                        : isSecond
+                                        ? "bg-gradient-to-r from-cyan-400 to-blue-400 text-slate-950 font-black shadow-[0_0_6px_rgba(34,211,238,0.6)]"
+                                        : "bg-gradient-to-r from-purple-400 to-pink-400 text-slate-950 font-black shadow-[0_0_6px_rgba(168,85,247,0.6)]";
+
+                                    return (
+                                        <div key={rank} className={`flex-1 flex flex-col items-center justify-end ${isFirst ? 'z-20 -mx-1' : 'z-10'}`}>
+                                            {/* Crown / Rank Icon perched on top */}
+                                            <div className="mb-1">
+                                                {isFirst ? (
+                                                    <FaCrown size={16} className="text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.8)] animate-bounce" />
+                                                ) : isSecond ? (
+                                                    <FaMedal size={14} className="text-cyan-300 drop-shadow-[0_0_5px_rgba(34,211,238,0.6)]" />
+                                                ) : (
+                                                    <FaAward size={14} className="text-purple-300 drop-shadow-[0_0_5px_rgba(168,85,247,0.6)]" />
+                                                )}
+                                            </div>
+
+                                            {/* Large Crisp Avatar Container with Floating Rank Number */}
+                                            <div className="relative mb-2 group/avatar">
+                                                <CrispStaffAvatar 
+                                                    src={avatarUrl} 
+                                                    initials={initials} 
+                                                    ringStyle={ringStyle}
+                                                    size={avatarSize}
+                                                    rank={rank}
+                                                />
+                                                <div className={`absolute -bottom-1 -right-1 w-5 h-5 rounded-full flex items-center justify-center text-[10px] border border-slate-900 ${rankNumberBadge}`}>
+                                                    {rank}
+                                                </div>
+                                            </div>
+
+                                            {/* Coordinator Name & Title */}
+                                            <div className="text-center w-full px-1 mb-1.5 min-h-[38px] flex flex-col justify-start items-center">
+                                                <span className={`font-black leading-tight text-white block truncate w-full ${isFirst ? 'text-[11px]' : 'text-[10px]'}`} title={cleanName}>
+                                                    {cleanName}
+                                                </span>
+                                                <span className={`text-[8px] font-black uppercase px-1.5 py-0.2 rounded-full border mt-0.5 inline-block ${rankBadgeColor}`}>
+                                                    {rankTitle}
+                                                </span>
+                                            </div>
+
+                                            {/* Enrolled Metric Pill */}
+                                            <div className="mb-1.5">
+                                                <span className="bg-emerald-950/80 text-emerald-300 text-[10px] font-black px-2 py-0.5 rounded-md border border-emerald-500/40 shadow-sm flex items-center gap-1">
+                                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                                    {enrolled} Enrolled
+                                                </span>
+                                            </div>
+
+                                            {/* Podium Pillar Pedestal */}
+                                            <div className={`w-full ${podiumHeight} ${podiumBg} rounded-t-xl flex flex-col items-center justify-center p-1.5 transition-all group-hover:brightness-110`}>
+                                                <span className={`font-black tracking-tight ${isFirst ? 'text-lg text-amber-300 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]' : 'text-sm text-white'}`}>
+                                                    {sharePct}%
+                                                </span>
+                                                <span className="text-[8px] font-extrabold uppercase tracking-widest text-slate-400">
+                                                    Share
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                };
+
+                                return (
+                                    <div className="flex items-end justify-center gap-2 pt-2 pb-1 min-h-[220px]">
+                                        {/* Podium Order: 2nd Place (Left), 1st Place (Center - Elevated), 3rd Place (Right) */}
+                                        {renderPodiumPillar(driver2, 2)}
+                                        {renderPodiumPillar(leader, 1)}
+                                        {renderPodiumPillar(driver3, 3)}
+                                    </div>
+                                );
+                            })() : (
+                                <div className="text-center py-10 text-xs text-slate-500 font-medium">
+                                    <FaTrophy className="mx-auto text-slate-600 mb-2" size={24} />
+                                    No driver data available yet
                                 </div>
                             )}
                         </div>
 
-                        <div className="mt-2.5 pt-2.5 border-t border-white/5 text-[10px] font-bold text-slate-400 flex items-center justify-between">
-                            <span>Top Performance Breakdown</span>
-                            <span className="text-emerald-400 font-black">{totalGroupEnrolled} Total Enrolled</span>
+                        {/* Footer Total Enrolled Pill */}
+                        <div className="mt-3 pt-2.5 border-t border-amber-500/20 text-[10px] font-bold text-slate-400 flex items-center justify-between bg-slate-950/40 p-2 rounded-xl border border-white/5">
+                            <span className="flex items-center gap-1.5 text-slate-300">
+                                <FaRocket className="text-amber-400" size={11} /> Team Goal Velocity
+                            </span>
+                            <span className="text-emerald-400 font-black bg-emerald-950/80 px-2 py-0.5 rounded-md border border-emerald-500/30">
+                                {totalGroupEnrolled} Total Enrolled
+                            </span>
                         </div>
                     </div>
 
@@ -331,17 +404,26 @@ export default function CoordinatorGoalTrackerWidget({
     );
 }
 
-// Subcomponent to render CRISP staff avatar inside fixed aspect-square container
-function CrispStaffAvatar({ src, initials, ringStyle }) {
+// Subcomponent to render CRISP staff avatar with responsive sizes & rank gradients
+function CrispStaffAvatar({ src, initials, ringStyle, size = "md", rank = 1 }) {
     const [failed, setFailed] = useState(false);
+
+    const sizeClass = size === "lg" ? "w-16 h-16" : "w-13 h-13";
+    const initialTextSize = size === "lg" ? "text-base font-black" : "text-xs font-black";
+
+    const rankInitialBg = rank === 1
+        ? "bg-gradient-to-br from-amber-400 via-amber-600 to-yellow-700 text-slate-950 font-black"
+        : rank === 2
+        ? "bg-gradient-to-br from-cyan-400 via-teal-600 to-blue-700 text-white font-black"
+        : "bg-gradient-to-br from-purple-400 via-indigo-600 to-pink-700 text-white font-black";
 
     if (src && !failed) {
         return (
-            <div className={`w-10 h-10 rounded-full border-2 ${ringStyle} overflow-hidden shrink-0 aspect-square bg-slate-800 flex items-center justify-center`}>
+            <div className={`${sizeClass} rounded-full border-2 ${ringStyle} overflow-hidden shrink-0 aspect-square bg-slate-900 flex items-center justify-center transform transition-transform group-hover/avatar:scale-105 shadow-xl`}>
                 <img 
                     src={src} 
                     alt="Coordinator Profile" 
-                    className="w-full h-full object-cover object-center aspect-square"
+                    className="w-full h-full object-cover object-top aspect-square"
                     onError={() => setFailed(true)}
                 />
             </div>
@@ -349,7 +431,7 @@ function CrispStaffAvatar({ src, initials, ringStyle }) {
     }
 
     return (
-        <div className={`w-10 h-10 rounded-full bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-600 border-2 ${ringStyle} flex items-center justify-center text-white font-black text-xs shrink-0 aspect-square shadow-sm`}>
+        <div className={`${sizeClass} rounded-full ${rankInitialBg} border-2 ${ringStyle} flex items-center justify-center ${initialTextSize} shrink-0 aspect-square shadow-xl transform transition-transform group-hover/avatar:scale-105`}>
             {initials}
         </div>
     );

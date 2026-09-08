@@ -63,6 +63,11 @@ router.post('/test-followup', verifyToken, freeSeminarController.testFollowUpMes
 
 router.get('/meta-analytics', verifyToken, freeSeminarController.getUniqueNumbersCount);
 
+// 🛑 Block Number Routes
+router.post('/leads/block', verifyToken, freeSeminarController.blockNumber);
+router.post('/leads/unblock', verifyToken, freeSeminarController.unblockNumber);
+router.get('/leads/blocked-list', verifyToken, freeSeminarController.getBlockedNumbers);
+
 const coordinatorOverviewV2Controller = require('../controllers/coordinatorOverviewV2Controller');
 const todoStatsController = require('../controllers/todoStatsController');
 const quickReplyController = require('../controllers/quickReplyController');

@@ -733,6 +733,9 @@ exports.initiateCall = async (req, res) => {
             }
 
             if (matchedLead) {
+                if (matchedLead.isBlocked) {
+                    return res.status(400).json({ error: "Cannot initiate call: This phone number is blocked in CRM." });
+                }
                 if (!resolvedBusinessId && matchedLead.batch?.businessId) {
                     resolvedBusinessId = matchedLead.batch.businessId;
                 }
@@ -742,6 +745,19 @@ exports.initiateCall = async (req, res) => {
                 if (!resolvedBusinessType && matchedLead.batch?.business?.name) {
                     resolvedBusinessType = matchedLead.batch.business.name;
                 }
+            }
+            
+            const phoneSuffix = cleanPhone.length >= 9 ? cleanPhone.slice(-9) : cleanPhone;
+            const isBlockedRec = await prisma.blockedNumber.findFirst({
+                where: {
+                    OR: [
+                        { phone: cleanPhone },
+                        { phone: { contains: phoneSuffix } }
+                    ]
+                }
+            });
+            if (isBlockedRec) {
+                return res.status(400).json({ error: "Cannot initiate call: This phone number is blocked." });
             }
         }
 

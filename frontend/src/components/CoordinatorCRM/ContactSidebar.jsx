@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import axios from '../../api/axios'; 
-import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaClock, FaLock, FaUserCheck, FaHeadset, FaHistory, FaCommentDots, FaLayerGroup, FaFilter, FaChartBar, FaWhatsapp, FaExchangeAlt } from 'react-icons/fa';
+import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaClock, FaLock, FaUserCheck, FaHeadset, FaHistory, FaCommentDots, FaLayerGroup, FaFilter, FaChartBar, FaWhatsapp, FaExchangeAlt, FaBan } from 'react-icons/fa';
 import { FiPhoneIncoming, FiPhoneOutgoing, FiPhoneMissed } from 'react-icons/fi';
 import toast from 'react-hot-toast';
 import CustomSelect from '../common/CustomSelect';
 import BusinessBadge from '../common/BusinessBadge';
 import InboundMissedCallsReportModal from '../common/InboundMissedCallsReportModal';
 import CallPermissionsWidget from '../common/CallPermissionsWidget';
+import BlockedListModal from '../common/BlockedListModal';
 import { useCall } from '../../contexts/CallContext';
 
 export default function ContactSidebar({ activeMode, selectedLead, setSelectedLead, filters, onRedirectToCampaign }) {
@@ -21,6 +22,8 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
   const [callHistoryMode, setCallHistoryMode] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+  const [showBlockedModal, setShowBlockedModal] = useState(false);
+  const [blockedCount, setBlockedCount] = useState(0);
   const [activeCallTab, setActiveCallTab] = useState('INBOUND');
   const [availableBatches, setAvailableBatches] = useState([]);
   const [callBatchFilter, setCallBatchFilter] = useState(filters?.selectedBatch || '');
@@ -294,12 +297,66 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
   useEffect(() => { fetchCoordinatorsAndQuotas(); }, [filters?.selectedBusiness, filters?.selectedBatch]);
 
 
+  const fetchBlockedCount = async () => {
+      try {
+          const token = localStorage.getItem('token');
+          const res = await axios.get('/coordinator-crm/leads/blocked-list', {
+              headers: { Authorization: `Bearer ${token}` }
+          });
+          if (Array.isArray(res.data)) {
+              setBlockedCount(res.data.length);
+          }
+      } catch (e) {}
+  };
+
   useEffect(() => { 
       fetchLeads(true); 
+      fetchBlockedCount();
       setCheckedLeads([]); 
       const interval = setInterval(() => { fetchLeads(false); }, 60000);
-      return () => clearInterval(interval);
-  }, [activeTab, staffFilter, phaseFilter, statusFilter, filters?.selectedBusiness, filters?.selectedBatch, assigneeGroup, ccStatus, debouncedSearchQuery]);
+
+      let handleSocketUpdate;
+      let handleLeadBlocked;
+      let handleLeadUnblocked;
+
+      if (socket) {
+          handleSocketUpdate = () => fetchLeads(false);
+
+          handleLeadBlocked = (data) => {
+              if (data?.phone) {
+                  const phoneSuffix = String(data.phone).replace(/[^0-9]/g, '').slice(-9);
+                  if (selectedLead) {
+                      const selSuffix = String(selectedLead.phone || '').replace(/[^0-9]/g, '').slice(-9);
+                      if (selSuffix === phoneSuffix || selectedLead.id === data.leadId) {
+                          setSelectedLead(null);
+                      }
+                  }
+              }
+              fetchBlockedCount();
+              fetchLeads(false);
+          };
+
+          handleLeadUnblocked = () => {
+              fetchBlockedCount();
+              fetchLeads(false);
+          };
+
+          socket.on('lead_updated', handleSocketUpdate);
+          socket.on('lead_blocked', handleLeadBlocked);
+          socket.on('lead_unblocked', handleLeadUnblocked);
+          socket.on('new_inbound_message', handleSocketUpdate);
+      }
+
+      return () => {
+          clearInterval(interval);
+          if (socket) {
+              if (handleSocketUpdate) socket.off('lead_updated', handleSocketUpdate);
+              if (handleLeadBlocked) socket.off('lead_blocked', handleLeadBlocked);
+              if (handleLeadUnblocked) socket.off('lead_unblocked', handleLeadUnblocked);
+              if (handleSocketUpdate) socket.off('new_inbound_message', handleSocketUpdate);
+          }
+      };
+  }, [activeTab, staffFilter, phaseFilter, statusFilter, filters?.selectedBusiness, filters?.selectedBatch, assigneeGroup, ccStatus, debouncedSearchQuery, socket]);
 
   const handleSelectAll = () => {
     if (checkedLeads.length === leads.length) setCheckedLeads([]); else setCheckedLeads(leads.map(l => l.id));
@@ -407,7 +464,8 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
 
   // 🔥 OPTIMIZED SEARCH 🔥
   const filteredLeads = useMemo(() => {
-      let currentLeads = [...leads];
+      let currentLeads = leads.filter(lead => !lead.isBlocked && lead.status !== 'BLOCKED');
+
       if (searchQuery) {
           const q = String(searchQuery).toLowerCase().trim();
           currentLeads = currentLeads.filter(lead => {
@@ -417,7 +475,7 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
           });
       }
       
-      if (selectedLead) {
+      if (selectedLead && !selectedLead.isBlocked && selectedLead.status !== 'BLOCKED') {
           const idx = currentLeads.findIndex(l => l.id === selectedLead.id);
           if (idx > -1) {
               const [sel] = currentLeads.splice(idx, 1);
@@ -428,12 +486,6 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
       }
       return currentLeads;
   }, [leads, searchQuery, selectedLead]);
-
-  // useEffect(() => {
-  //     if (searchQuery && filteredLeads.length === 1 && (!selectedLead || selectedLead.id !== filteredLeads[0].id)) {
-  //         setSelectedLead(filteredLeads[0]);
-  //     }
-  // }, [searchQuery, filteredLeads, selectedLead]);
 
   // 🔥 LOAD MORE LOGIC 🔥
   const displayedLeads = filteredLeads.slice(0, visibleCount);
@@ -672,6 +724,18 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                   className="p-2.5 rounded-xl border transition-all bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white border-emerald-500/30"
                 >
                   <FaChartBar size={16}/>
+                </button>
+                <button 
+                  onClick={() => setShowBlockedModal(true)} 
+                  title="Blocked Numbers List"
+                  className="p-2.5 rounded-xl border transition-all bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white border-rose-500/30 relative shadow-sm"
+                >
+                  <FaBan size={16}/>
+                  {blockedCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow">
+                      {blockedCount}
+                    </span>
+                  )}
                 </button>
                 <button 
                   onClick={() => setCallHistoryMode(!callHistoryMode)} 
@@ -927,6 +991,11 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                       <div className="flex flex-col gap-0.5">
                           <div className="flex items-center gap-2">
                               <h4 className="font-bold text-[15px] text-slate-200 leading-none">{lead.phone}</h4>
+                              {lead.isBlocked && (
+                                  <span className="text-[10px] bg-rose-500/20 text-rose-400 border border-rose-500/30 px-1.5 py-0.5 rounded font-black tracking-wider flex items-center gap-0.5" title={`Blocked: ${lead.blockedReason || 'No reason specified'}`}>
+                                      <FaBan size={9} /> BLOCKED
+                                  </span>
+                              )}
                               {lead.unreadCount > 0 && (
                                   <span className="flex items-center justify-center bg-red-500 text-white text-[10px] font-black h-[18px] min-w-[18px] px-1 rounded-full shadow-md shadow-red-500/40">
                                       {lead.unreadCount}
@@ -1140,6 +1209,16 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
               onClose={() => setShowPermissionsModal(false)} 
           />
       )}
+
+      <BlockedListModal
+          isOpen={showBlockedModal}
+          onClose={() => setShowBlockedModal(false)}
+          onUnblockSuccess={() => {
+              fetchBlockedCount();
+              fetchLeads(true);
+          }}
+          crmPrefix="/coordinator-crm"
+      />
     </div>
   );
 }

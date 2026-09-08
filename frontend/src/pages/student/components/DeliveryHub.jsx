@@ -114,6 +114,63 @@ export default function DeliveryHub() {
     );
 }
 
+// ---------------- Smart Tute Cover Image Component ----------------
+function TuteCoverImage({ coverName, altText = "tute" }) {
+    const [imgSrc, setImgSrc] = useState(null);
+    const [errorStage, setErrorStage] = useState(0);
+
+    const getBaseUrl = () => {
+        const raw = axios.defaults.baseURL || '';
+        return raw.replace(/\/api\/?$/, '');
+    };
+
+    useEffect(() => {
+        if (!coverName || coverName === 'default-tute.png' || coverName === 'null' || coverName === 'undefined') {
+            setImgSrc(null);
+            return;
+        }
+        if (coverName.startsWith('http://') || coverName.startsWith('https://')) {
+            setImgSrc(coverName);
+            return;
+        }
+
+        const baseUrl = getBaseUrl();
+        setImgSrc(`${baseUrl}/storage/documents/${coverName}`);
+        setErrorStage(0);
+    }, [coverName]);
+
+    const handleError = () => {
+        const baseUrl = getBaseUrl();
+        if (errorStage === 0 && coverName) {
+            setImgSrc(`${baseUrl}/storage/icons/${coverName}`);
+            setErrorStage(1);
+        } else if (errorStage === 1 && coverName) {
+            setImgSrc(`${baseUrl}/storage/images/${coverName}`);
+            setErrorStage(2);
+        } else {
+            setImgSrc(null);
+        }
+    };
+
+    if (!imgSrc) {
+        return (
+            <div className="w-16 h-20 rounded-lg bg-black/30 border border-white/20 flex flex-col items-center justify-center text-white/60 shrink-0 shadow-md">
+                <ImageIcon size={20} className="mb-1 text-blue-400/80" />
+                <span className="text-[9px] font-bold text-white/50 uppercase tracking-wider">Book</span>
+            </div>
+        );
+    }
+
+    return (
+        <img
+            src={imgSrc}
+            onError={handleError}
+            className="w-16 h-20 rounded-lg object-cover border border-white/20 bg-slate-800 shrink-0 shadow-md transition-transform duration-200 hover:scale-105"
+            alt={altText}
+        />
+    );
+}
+
 // ---------------- Delivery Card Component ----------------
 function DeliveryCard({ delivery, onConfirm, onOpenTracking }) {
     // Status Logic
@@ -122,7 +179,6 @@ function DeliveryCard({ delivery, onConfirm, onOpenTracking }) {
     const isDelivered = delivery.status === 'Received';
     const isOnTheWay = delivery.status === 'On the way' || isDelivered || isNotReceived;
     const isPacked = delivery.status === 'Packed' || isOnTheWay || isHold;
-    const getTuteImgUrl = (imageName) => (!imageName || imageName === 'default-tute.png' || imageName === 'null') ? '/default-tute.png' : `${axios.defaults.baseURL.replace('/api', '')}/storage/icons/${imageName}`;
 
     // HTTP/HTTPS Supported Copy Function
     const copyToClipboard = (text) => {
@@ -217,7 +273,7 @@ function DeliveryCard({ delivery, onConfirm, onOpenTracking }) {
                     <h4 className="text-xs font-bold text-white/70 font-medium uppercase tracking-widest mb-4">Included Study Materials</h4>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         {delivery.items?.map((item, idx) => {
-                            // 🔥 tuteImage හරි tuteCover හරි දෙකෙන් තියෙන එකක් ගන්නවා
+                            // 🔥 tuteImage / tuteCovers / tuteCover handling
                             const covers = item.tuteCovers?.length > 0 ? item.tuteCovers : (item.tuteImage || item.tuteCover ? [item.tuteImage || item.tuteCover] : []); 
                             
                             return (
@@ -228,9 +284,12 @@ function DeliveryCard({ delivery, onConfirm, onOpenTracking }) {
                                     </div>
                                     <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
                                         {covers.length > 0 ? covers.map((c, i) => (
-                                            <img key={i} src={getTuteImgUrl(c)} className="w-16 h-20 rounded-lg object-cover border border-white/20 bg-slate-800 shrink-0 shadow-md" alt="tute" />
+                                            <TuteCoverImage key={i} coverName={c} altText={item.tuteName || "tute"} />
                                         )) : (
-                                            <div className="w-16 h-20 rounded-lg bg-black/20 backdrop-blur-xl border border-white/20 flex items-center justify-center text-white/70 font-medium shrink-0"><ImageIcon size={18}/></div>
+                                            <div className="w-16 h-20 rounded-lg bg-black/20 backdrop-blur-xl border border-white/20 flex flex-col items-center justify-center text-white/70 font-medium shrink-0">
+                                                <ImageIcon size={18} className="text-blue-400/80 mb-1"/>
+                                                <span className="text-[9px] font-bold text-white/50">Book</span>
+                                            </div>
                                         )}
                                     </div>
                                 </div>

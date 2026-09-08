@@ -269,7 +269,7 @@ export default function MyClassroom() {
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
                         {businesses.map(biz => (
                             <div key={biz.id} onClick={() => handleBusinessSelect(biz)} className="bg-gradient-to-b from-white/10 to-white/5 backdrop-blur-xl border border-white/10 hover:border-red-400 p-8 rounded-[2.5rem] flex flex-col items-center cursor-pointer transition-all duration-500 group shadow-lg hover:shadow-2xl hover:-translate-y-2">
-                                <img src={getImageUrl(biz.logo)} className="w-24 h-24 object-contain mb-6 drop-shadow-xl group-hover:scale-110 transition-transform duration-500" alt="" />
+                                <img src={getImageUrl(biz.logo)} onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.png'; }} className="w-24 h-24 object-contain mb-6 drop-shadow-xl group-hover:scale-110 transition-transform duration-500" alt="" />
                                 <h4 className="text-xl font-extrabold text-white text-center group-hover:text-red-500 transition-colors">{biz.name}</h4>
                             </div>
                         ))}
@@ -297,7 +297,7 @@ export default function MyClassroom() {
                         {getFilteredBatches().map(batch => (
                             <div key={batch.id} onClick={() => { setSelectedBatch(batch); setSelectionLevel(3); setActiveStream(selectedStream); }} className="bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-xl border border-white/10 hover:border-red-400 p-6 md:p-8 rounded-[2.5rem] flex flex-col sm:flex-row items-center gap-6 cursor-pointer transition-all duration-500 group shadow-lg hover:shadow-2xl hover:-translate-y-1">
                                 <div className="w-20 h-20 bg-black/20 backdrop-blur-xl rounded-[1.5rem] p-4 border border-white/20 shrink-0 shadow-inner group-hover:rotate-3 transition-transform duration-500">
-                                    <img src={getImageUrl(batch.logo || selectedBusiness?.logo)} className="w-full h-full object-contain" alt="" />
+                                    <img src={getImageUrl(batch.logo || selectedBusiness?.logo)} onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = '/logo.png'; }} className="w-full h-full object-contain" alt="" />
                                 </div>
                                 <div className="text-center sm:text-left min-w-0">
                                     <h4 className="text-xl font-extrabold text-white group-hover:text-red-500 transition-colors truncate">{batch.name}</h4>

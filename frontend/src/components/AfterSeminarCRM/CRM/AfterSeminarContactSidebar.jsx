@@ -2,12 +2,13 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import axios from '../../../api/axios'; 
-import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaLock, FaBullhorn, FaCommentDots, FaPaperPlane, FaUserCheck, FaHeadset, FaClock, FaHistory, FaLayerGroup, FaFilter, FaChartBar, FaWhatsapp, FaShieldAlt, FaExchangeAlt } from 'react-icons/fa';
+import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaLock, FaBullhorn, FaCommentDots, FaPaperPlane, FaUserCheck, FaHeadset, FaClock, FaHistory, FaLayerGroup, FaFilter, FaChartBar, FaWhatsapp, FaShieldAlt, FaExchangeAlt, FaBan } from 'react-icons/fa';
 import { FiPhoneMissed, FiPhoneIncoming, FiPhoneOutgoing } from 'react-icons/fi';
 import CustomSelect from '../../common/CustomSelect';
 import BusinessBadge from '../../common/BusinessBadge';
 import InboundMissedCallsReportModal from '../../common/InboundMissedCallsReportModal';
 import CallPermissionsWidget from '../../common/CallPermissionsWidget';
+import BlockedListModal from '../../common/BlockedListModal';
 import { useCall } from '../../../contexts/CallContext';
 
 export default function AfterSeminarContactSidebar({ activeMode, selectedLead, setSelectedLead, filters, onRedirectToCampaign }) {
@@ -28,6 +29,8 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   const [callHistoryMode, setCallHistoryMode] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
+  const [showBlockedModal, setShowBlockedModal] = useState(false);
+  const [blockedCount, setBlockedCount] = useState(0);
   const [activeCallTab, setActiveCallTab] = useState('INBOUND');
   const [callBatchFilter, setCallBatchFilter] = useState(filters?.selectedBatch || '');
   const [availableBatches, setAvailableBatches] = useState([]);
@@ -191,15 +194,13 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   const fetchCoordinatorsAndQuotas = async () => {
     try {
       const token = localStorage.getItem('token');
-      const [staffRes, bizRes, batchRes, ccStaffRes] = await Promise.all([ 
+      const [staffRes, bizRes, batchRes] = await Promise.all([ 
           axios.get('/admin/staff', { headers: { Authorization: `Bearer ${token}` } }), 
           axios.get('/admin/businesses', { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get('/admin/manager/batches-full', { headers: { Authorization: `Bearer ${token}` } }),
-          axios.get('/call-center/manager/staff', { headers: { Authorization: `Bearer ${token}` } })
+          axios.get('/admin/manager/batches-full', { headers: { Authorization: `Bearer ${token}` } })
       ]);
       setBatches(batchRes.data || []);
-      setCcStaff(ccStaffRes.data || []);
-      let coords = staffRes.data.filter(s => s?.role && ['COORDINATOR', 'CALLER', 'STAFF', 'MANAGER'].includes(s?.role.toUpperCase()));
+      let coords = staffRes.data.filter(s => s?.role && ['COORDINATOR', 'MANAGER', 'SYSTEM_ADMIN', 'DIRECTOR', 'ASS_MANAGER'].includes(s?.role.toUpperCase()));
       if (filters?.selectedBusiness) {
           const selectedBizObj = bizRes.data.find(b => String(b.id) === String(filters.selectedBusiness));
           const bizName = selectedBizObj ? selectedBizObj.name : '';
@@ -294,27 +295,68 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
       fetchLeads(true, 1, 50); 
       setCheckedLeads([]); 
 
+      const fetchBlockedCount = async () => {
+          try {
+              const token = localStorage.getItem('token');
+              const res = await axios.get('/after-seminar-crm/leads/blocked-list', {
+                  headers: { Authorization: `Bearer ${token}` }
+              });
+              if (Array.isArray(res.data)) {
+                  setBlockedCount(res.data.length);
+              }
+          } catch (e) {}
+      };
+
+      fetchBlockedCount();
+
       // Fast polling (10s)
       const interval = setInterval(() => { 
           fetchLeads(false, 1, pageRef.current * 50); 
       }, 10000);
 
       let handleSocketUpdate;
+      let handleLeadBlocked;
+      let handleLeadUnblocked;
+
       if (socket) {
           handleSocketUpdate = () => {
               fetchLeads(false, 1, pageRef.current * 50);
           };
+
+          handleLeadBlocked = (data) => {
+              if (data?.phone) {
+                  const phoneSuffix = String(data.phone).slice(-9);
+                  if (selectedLead) {
+                      const selSuffix = String(selectedLead.phone || '').split('_')[0].slice(-9);
+                      if (selSuffix === phoneSuffix || selectedLead.id === data.leadId) {
+                          setSelectedLead(null);
+                      }
+                  }
+              }
+              fetchBlockedCount();
+              fetchLeads(false, 1, pageRef.current * 50);
+          };
+
+          handleLeadUnblocked = () => {
+              fetchBlockedCount();
+              fetchLeads(false, 1, pageRef.current * 50);
+          };
+
           socket.on('new_inbound_message', handleSocketUpdate);
           socket.on('lead_updated', handleSocketUpdate);
           socket.on('new_message', handleSocketUpdate);
+          socket.on('lead_blocked', handleLeadBlocked);
+          socket.on('lead_unblocked', handleLeadUnblocked);
       }
 
       return () => {
           clearInterval(interval);
-          if (socket && handleSocketUpdate) {
+          if (socket) {
               socket.off('new_inbound_message', handleSocketUpdate);
               socket.off('lead_updated', handleSocketUpdate);
               socket.off('new_message', handleSocketUpdate);
+              socket.off('lead_blocked', handleLeadBlocked);
+              socket.off('lead_unblocked', handleLeadUnblocked);
           }
       };
   }, [activeTab, newSubTab, staffFilter, groupFilter, statusFilter, assignedInqFilter, roundFilter, unassignedOnlyFilter, filters?.selectedBusiness, filters?.selectedBatch, debouncedSearchQuery, socket]);
@@ -498,20 +540,16 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   };
 
   const filteredLeads = useMemo(() => {
-      if (!searchQuery) return leads;
+      let result = leads.filter(lead => !lead.isBlocked && lead.status !== 'BLOCKED');
+
+      if (!searchQuery) return result;
       const q = String(searchQuery).toLowerCase().trim();
-      return leads.filter(lead => {
+      return result.filter(lead => {
           const phoneMatch = lead.phone ? String(lead.phone).toLowerCase().includes(q) : false;
           const nameMatch = lead.name ? String(lead.name).toLowerCase().includes(q) : false;
           return phoneMatch || nameMatch;
       });
   }, [leads, searchQuery, selectedLead]);
-
-  // useEffect(() => {
-  //     if (searchQuery && filteredLeads.length === 1 && (!selectedLead || selectedLead.id !== filteredLeads[0].id)) {
-  //         setSelectedLead(filteredLeads[0]);
-  //     }
-  // }, [searchQuery, filteredLeads, selectedLead, setSelectedLead]);
 
   const getAssignedStats = () => {
       if (activeTab === 'ASSIGNED' && (staffFilter || groupFilter || statusFilter || assignedInqFilter || roundFilter)) {
@@ -697,14 +735,10 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                     className="w-full text-xs"
                     placeholder="Assign to Staff..."
                     options={[
-                        { value: '', label: 'Assign to Staff...' },
+                        { value: '', label: 'Assign to Coordinator...' },
                         ...coordinators.filter(c => c).map(c => ({
                             value: c.id, 
-                            label: <div className="flex items-center gap-1 text-[11px]">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'}) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
-                        })),
-                        ...ccStaff.filter(c => c).map(c => ({
-                            value: c.id,
-                            label: <div className="flex items-center gap-1 text-[11px]">{c.firstName} (Call Center) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                            label: <div className="flex items-center gap-1 text-[11px]">{c.firstName} <BusinessBadge businessType={c.businessType} role={c.role} /></div>
                         }))
                     ]}
                 />
@@ -749,6 +783,18 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                   className="p-2.5 rounded-lg border transition-all bg-emerald-600/20 text-emerald-400 hover:bg-emerald-600 hover:text-white border-emerald-500/30"
                 >
                   <FaChartBar size={16}/>
+                </button>
+                <button 
+                  onClick={() => setShowBlockedModal(true)} 
+                  title="Blocked Numbers List"
+                  className="p-2.5 rounded-lg border transition-all bg-rose-600/20 text-rose-400 hover:bg-rose-600 hover:text-white border-rose-500/30 relative shadow-sm"
+                >
+                  <FaBan size={16}/>
+                  {blockedCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-rose-500 text-white text-[9px] font-black w-4 h-4 rounded-full flex items-center justify-center shadow">
+                      {blockedCount}
+                    </span>
+                  )}
                 </button>
                 <button 
                   onClick={() => setCallHistoryMode(!callHistoryMode)} 
@@ -1028,6 +1074,11 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                               {((lead.enrollmentStatus === 'ENROLLED' || lead.enrollmentStatus === 'PAID' || (lead.enrollmentStatus && lead.enrollmentStatus.startsWith('ENROLLED_')))) && (
                                   <span className="bg-emerald-500 text-white text-[8px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm border border-emerald-600">Enrolled</span>
                               )}
+                              {lead.isBlocked && (
+                                  <span className="bg-red-500/20 text-red-400 text-[8px] font-black uppercase px-1.5 py-0.5 rounded shadow-sm border border-red-500/30 flex items-center gap-1">
+                                      <FaBan size={8}/> Blocked
+                                  </span>
+                              )}
                           </div>
                           
                           {lead.assignedUser ? (
@@ -1152,21 +1203,17 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                   </div>
 
                   <div className="mb-3">
-                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Coordinator / Call Center Staff</label>
+                     <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1">Coordinator</label>
                      <CustomSelect 
                          value={manualAssignStaffId}
                          onChange={(e) => setManualAssignStaffId(e.target.value)}
                          className="w-full"
-                         placeholder="Select Coordinator / Team..."
+                         placeholder="Select Coordinator..."
                          options={[
-                             { value: '', label: 'Select Coordinator / Team...' },
+                             { value: '', label: 'Select Coordinator...' },
                              ...coordinators.filter(c => c).map(c => ({
                                  value: c.id, 
-                                 label: <div className="flex items-center gap-1.5">{c.firstName} ({c.role === 'CALLER' ? 'Team' : 'Staff'}) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
-                             })),
-                             ...ccStaff.filter(c => c).map(c => ({
-                                 value: c.id,
-                                 label: <div className="flex items-center gap-1.5">{c.firstName} (Call Center) <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                                 label: <div className="flex items-center gap-1.5">{c.firstName} <BusinessBadge businessType={c.businessType} role={c.role} /></div>
                              }))
                          ]}
                      />
@@ -1324,6 +1371,18 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
           <CallPermissionsWidget 
               asModal={true}
               onClose={() => setShowPermissionsModal(false)} 
+          />
+      )}
+
+      {showBlockedModal && (
+          <BlockedListModal
+              isOpen={showBlockedModal}
+              onClose={() => setShowBlockedModal(false)}
+              onUnblockSuccess={() => {
+                  fetchBlockedCount();
+                  fetchLeads(true);
+              }}
+              crmPrefix="/after-seminar-crm"
           />
       )}
     </div>

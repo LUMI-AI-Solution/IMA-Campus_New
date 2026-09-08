@@ -63,6 +63,7 @@ model User {
   systemAuditLogs        SystemAuditLog[]
   actionedCallLogs       CallCampaignAuditLog[] @relation("ActionedCallCampaignLogs")
   paperSubmissions       PaperSubmission[]
+  blockedNumbers         BlockedNumber[]        @relation("BlockedByUser")
 }
 
 model Business {
@@ -455,6 +456,11 @@ model Lead {
 
   callCampaignAuditLogs CallCampaignAuditLog[]
 
+  // 🔥 Block Support 🔥
+  isBlocked     Boolean   @default(false)
+  blockedReason String?
+  blockedAt     DateTime?
+
   @@index([campaignType, batchId, assignedTo], name: "idx_lead_camp_batch_assign")
   @@index([campaignType, status, assignedTo], name: "idx_lead_camp_status_assign")
   @@index([campaignType, inquiryType, assignedTo], name: "idx_lead_camp_inquiry_assign")
@@ -465,6 +471,19 @@ model Lead {
   @@index([coordinationRound, assignedAt], name: "idx_lead_coord_round")
   @@index([updatedAt], name: "idx_lead_updated_at")
   @@index([lastMessageAt], name: "idx_lead_last_msg_at")
+  @@index([isBlocked], name: "idx_lead_is_blocked")
+}
+
+model BlockedNumber {
+  id            Int      @id @default(autoincrement())
+  phone         String   @unique
+  reason        String?
+  blockedBy     Int?
+  blockedByUser User?    @relation("BlockedByUser", fields: [blockedBy], references: [id])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([phone])
 }
 
 // 🔥 NEW MODEL: To keep the history and specific data per each round 🔥

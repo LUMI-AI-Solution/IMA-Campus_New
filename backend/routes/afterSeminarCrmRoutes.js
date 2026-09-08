@@ -73,6 +73,11 @@ router.get('/all-leads', afterSeminarInquiryController.getAllCampaignLeads);
 router.post('/start-coordination', afterSeminarInquiryController.startNewCoordination);
 router.post('/leads/test-followup', afterSeminarInquiryController.testDirectFollowUp);
 
+// 🛑 Block Number Routes
+router.post('/leads/block', afterSeminarInquiryController.blockNumber);
+router.post('/leads/unblock', afterSeminarInquiryController.unblockNumber);
+router.get('/leads/blocked-list', afterSeminarInquiryController.getBlockedNumbers);
+
 
 // ============================================================================
 // 🌉 MODULE 2: THE BRIDGE (Free Seminar -> After Seminar Transfer)

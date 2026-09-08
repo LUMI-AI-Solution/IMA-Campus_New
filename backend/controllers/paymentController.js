@@ -6,10 +6,22 @@ const prisma = new PrismaClient();
 const safeJson = (data) => JSON.parse(JSON.stringify(data, (key, value) => typeof value === 'bigint' ? value.toString() : value));
 
 // Helper: Sync verified payments with corresponding CRM Leads (match by last 7 digits to resolve prefix changes)
+// Helper: Sync verified payments with corresponding CRM Leads (batch-specific isolation)
 const syncLeadEnrollment = async (studentId, paymentType, payment) => {
     try {
         if (!studentId) return;
-        const student = await prisma.user.findUnique({ where: { id: parseInt(studentId) } });
+        const student = await prisma.user.findUnique({ 
+            where: { id: parseInt(studentId) },
+            include: {
+                payments: {
+                    where: { status: { in: [0, 1, 4] } },
+                    orderBy: { created_at: 'desc' },
+                    include: { batch: true }
+                }
+            }
+        });
+        if (!student) return;
+
         const rawPhones = [student.phone, student.whatsapp, student.optionalPhone, student.addressHouseNo];
         const phonesToCheck = [];
         rawPhones.forEach(raw => {
@@ -27,35 +39,79 @@ const syncLeadEnrollment = async (studentId, paymentType, payment) => {
             where: {
                 campaignType: { in: ['AFTER_SEMINAR', 'FREE_SEMINAR', 'OPEN_SEMINAR'] },
                 OR: validLast7Digits.map(last7 => ({ phone: { contains: last7 } }))
+            },
+            include: { batch: true }
+        });
+
+        // Map student payments by batchId and businessId
+        const approvedBatchIds = new Set();
+        const pendingBatchIds = new Set();
+        const batchPaymentMap = new Map();
+
+        student.payments.forEach(p => {
+            if (p.batchId) {
+                if (p.status === 1) {
+                    approvedBatchIds.add(p.batchId);
+                    if (!batchPaymentMap.has(p.batchId)) batchPaymentMap.set(p.batchId, p);
+                } else if (p.status === 0 || p.status === 4) {
+                    pendingBatchIds.add(p.batchId);
+                    if (!batchPaymentMap.has(p.batchId)) batchPaymentMap.set(p.batchId, p);
+                }
             }
         });
 
-        let pIntention = 'MONTHLY';
-        const pType = parseInt(paymentType);
-        if (pType === 3) pIntention = 'FULL';
-        else if (pType === 2) pIntention = 'INSTALLMENT';
-
-        let newEnrollmentStatus = 'NON_ENROLLED';
-        if (payment && payment.status === 1) newEnrollmentStatus = 'ENROLLED';
-        else if (payment && (payment.status === 0 || payment.status === 4)) newEnrollmentStatus = 'PAYMENT_PROCESSING';
-        else if (payment && (payment.status === 2 || payment.status === 5)) newEnrollmentStatus = 'NON_ENROLLED';
-
         if (leads.length > 0) {
-            // Update ALL matching leads for this student so they are marked as ENROLLED / PAID
-            await prisma.lead.updateMany({
-                where: { id: { in: leads.map(l => l.id) } },
-                data: {
-                    enrollmentStatus: newEnrollmentStatus,
-                    paymentIntention: pIntention
+            for (const lead of leads) {
+                const leadBatchId = lead.batchId;
+                let targetStatus = 'NON_ENROLLED';
+                let targetIntention = 'NOT_DECIDED';
+
+                if (leadBatchId && approvedBatchIds.has(leadBatchId)) {
+                    targetStatus = 'ENROLLED';
+                    const batchPay = batchPaymentMap.get(leadBatchId);
+                    const pType = parseInt(batchPay?.payment_type || paymentType || 1);
+                    targetIntention = pType === 3 ? 'FULL' : pType === 2 ? 'INSTALLMENT' : 'MONTHLY';
+                } else if (leadBatchId && pendingBatchIds.has(leadBatchId)) {
+                    targetStatus = 'PAYMENT_PROCESSING';
+                    const batchPay = batchPaymentMap.get(leadBatchId);
+                    const pType = parseInt(batchPay?.payment_type || paymentType || 1);
+                    targetIntention = pType === 3 ? 'FULL' : pType === 2 ? 'INSTALLMENT' : 'MONTHLY';
+                } else if (!leadBatchId && payment && payment.status === 1) {
+                    // Lead has no specific batch attached, check business match
+                    const leadBizId = lead.batch?.businessId || (lead.phone && lead.phone.includes('_BIZ_') ? parseInt(lead.phone.split('_BIZ_')[1]?.split('_')[0]) : null);
+                    if (!leadBizId || leadBizId === payment.businessId) {
+                        targetStatus = 'ENROLLED';
+                        const pType = parseInt(paymentType || 1);
+                        targetIntention = pType === 3 ? 'FULL' : pType === 2 ? 'INSTALLMENT' : 'MONTHLY';
+                    }
                 }
-            });
-            console.log(`[SYNC] Updated ${leads.length} leads to ${newEnrollmentStatus} for Student ID ${studentId}`);
+
+                if (lead.enrollmentStatus !== targetStatus || lead.paymentIntention !== targetIntention) {
+                    await prisma.lead.update({
+                        where: { id: lead.id },
+                        data: {
+                            enrollmentStatus: targetStatus,
+                            paymentIntention: targetIntention
+                        }
+                    });
+                }
+            }
+            console.log(`[SYNC] Evaluated ${leads.length} leads with batch-specific isolation for Student ID ${studentId}`);
         } else {
             // No matching lead found at all, create a completely new PAID_CAMP lead if student exists
             const basePhone = phonesToCheck[0];
             const businessId = payment?.businessId || student.businessId || 1;
             const batchId = payment?.batchId || student.batchId || null;
             const assignedTo = null;
+
+            let pIntention = 'MONTHLY';
+            const pType = parseInt(paymentType || 1);
+            if (pType === 3) pIntention = 'FULL';
+            else if (pType === 2) pIntention = 'INSTALLMENT';
+
+            let newEnrollmentStatus = 'NON_ENROLLED';
+            if (payment && payment.status === 1) newEnrollmentStatus = 'ENROLLED';
+            else if (payment && (payment.status === 0 || payment.status === 4)) newEnrollmentStatus = 'PAYMENT_PROCESSING';
 
             const dbPhoneSuffix = `_BIZ_${businessId}` + (batchId ? `_BATCH_${batchId}` : '') + `_PAID`;
             const newPhone = `${basePhone}${dbPhoneSuffix}`;

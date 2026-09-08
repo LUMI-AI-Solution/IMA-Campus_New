@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { FaLock, FaSave, FaCommentDots, FaChevronDown, FaChevronUp, FaBell } from 'react-icons/fa';
+import { FaLock, FaSave, FaCommentDots, FaChevronDown, FaChevronUp, FaBell, FaBan } from 'react-icons/fa';
+import axios from '../../../../api/axios';
+import toast from 'react-hot-toast';
 
 export default function LeadCard({ 
     lead, realIndex, drafts, handleUpdateLocalLead, 
@@ -58,30 +60,27 @@ export default function LeadCard({
                     <div className="flex flex-col overflow-hidden">
                         <h4 className="font-black text-[15px] text-white flex items-center gap-1.5 truncate tracking-wide">
                             {lead.phone} {isLocked && <FaLock size={10} className="text-rose-500"/>}
-                            {lead.isUpgraded && <span className="text-[9px] bg-teal-500/20 text-teal-400 px-1.5 py-0.5 rounded border border-teal-500/30 uppercase tracking-widest ml-1 shadow-sm">Upgrade</span>}
+                            {lead?.isBlocked && <div className="flex items-center gap-1 bg-red-500/20 px-1.5 py-0.5 rounded text-[10px] font-bold text-red-400 ml-2 border border-red-500/30"><FaBan size={8}/> Blocked</div>}
                         </h4>
                         <p className="text-xs font-medium text-slate-400 truncate w-full mt-0.5">{lead.name || 'No Name Provided'}</p>
                     </div>
                 </div>
                 
-                <div className="flex flex-col items-end gap-1.5 shrink-0 pl-2">
-                    <div className="flex items-center gap-2">
-                        <span className={`text-[9px] font-black tracking-widest uppercase px-2 py-1 rounded border shadow-sm ${localData.callStatus === 'answered' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : localData.callStatus === 'no_answer' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' : localData.callStatus === 'reject' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30' : 'bg-white/5 text-slate-300 border-white/10'}`}>
-                            {localData.callStatus ? localData.callStatus.replace('_', ' ') : 'PENDING'}
-                        </span>
-                        {isExpanded ? <FaChevronUp size={12} className="text-slate-400" /> : <FaChevronDown size={12} className="text-slate-400" />}
-                    </div>
+                <div className="flex items-center gap-2">
+                    <button className="text-slate-400 hover:text-white p-1 rounded-md bg-white/5">
+                        {isExpanded ? <FaChevronUp size={12}/> : <FaChevronDown size={12}/>}
+                    </button>
                 </div>
             </div>
 
             {isExpanded && (
-                <div className="p-3 bg-black/20 border-t border-white/10 flex flex-col gap-3 flex-1">
+                <div className="p-3.5 flex flex-col gap-3 flex-1 border-t border-white/10 bg-black/20">
                     
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="text-[10px] font-bold text-slate-400 block mb-1">Status</label>
-                            <select disabled value={localData.enrollmentStatus} onChange={(e) => setLocalData({...localData, enrollmentStatus: e.target.value})} className="w-full bg-white/5 border border-white/10 text-slate-200 text-xs font-semibold rounded-lg px-2 py-1.5 outline-none opacity-80 cursor-not-allowed">
-                                <option value="NON_ENROLLED" className="bg-slate-800">Non-Enrolled</option>
+                            <select disabled={isLocked} value={localData.enrollmentStatus} onChange={(e) => setLocalData({...localData, enrollmentStatus: e.target.value})} className="w-full bg-white/5 border border-white/10 text-slate-200 text-xs font-semibold rounded-lg px-2 py-1.5 outline-none focus:border-indigo-500 transition-colors cursor-pointer">
+                                <option value="NON_ENROLLED" className="bg-slate-800">Non Enrolled</option>
                                 <option value="PAYMENT_PROCESSING" className="bg-slate-800 text-yellow-400">Payment Processing</option>
                                 <option value="ENROLLED" className="bg-slate-800 text-emerald-400">Enrolled</option>
                             </select>
@@ -142,8 +141,36 @@ export default function LeadCard({
                                 <FaCommentDots size={14}/>
                                 {(lead?.unreadCount || 0) > 0 && <span className="absolute top-1 right-1 w-2 h-2 bg-rose-500 rounded-full border border-slate-800 shadow-sm"></span>}
                             </button>
-                            <button className="bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 px-3.5 rounded-lg flex items-center justify-center transition-colors shadow-sm">
-                                <FaBell size={14}/>
+                            <button 
+                                onClick={async (e) => {
+                                    e.preventDefault();
+                                    if (lead.isBlocked) {
+                                        if (window.confirm(`Unblock ${lead.phone}?`)) {
+                                            try {
+                                                const token = localStorage.getItem('token');
+                                                await axios.post('/after-seminar-crm/leads/unblock', { leadId: lead.id, phone: lead.phone }, { headers: { Authorization: `Bearer ${token}` } });
+                                                lead.isBlocked = false;
+                                                toast.success("Unblocked");
+                                                if (typeof handleUpdateLocalLead === 'function') handleUpdateLocalLead(lead.id, 'isBlocked', false);
+                                            } catch (err) { toast.error("Failed to unblock"); }
+                                        }
+                                    } else {
+                                        const reason = window.prompt(`Block number ${lead.phone}? Enter reason:`, "Spam / Harassment");
+                                        if (reason !== null) {
+                                            try {
+                                                const token = localStorage.getItem('token');
+                                                await axios.post('/after-seminar-crm/leads/block', { leadId: lead.id, phone: lead.phone, reason }, { headers: { Authorization: `Bearer ${token}` } });
+                                                lead.isBlocked = true;
+                                                toast.success("Number blocked");
+                                                if (typeof handleUpdateLocalLead === 'function') handleUpdateLocalLead(lead.id, 'isBlocked', true);
+                                            } catch (err) { toast.error("Failed to block"); }
+                                        }
+                                    }
+                                }}
+                                title={lead.isBlocked ? "Unblock Number" : "Block Number"}
+                                className={`px-3.5 rounded-lg flex items-center justify-center transition-colors shadow-sm ${lead.isBlocked ? 'bg-red-600 text-white hover:bg-red-500' : 'bg-white/10 hover:bg-red-500/20 text-slate-400 hover:text-red-400 border border-white/10'}`}
+                            >
+                                <FaBan size={14}/>
                             </button>
                         </div>
                     </div>

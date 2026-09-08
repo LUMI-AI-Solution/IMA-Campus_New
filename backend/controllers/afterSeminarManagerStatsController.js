@@ -349,7 +349,8 @@ exports.getManagerDashboardStats = async (req, res) => {
                         lastName: staff.lastName || '',
                         businessType: staff.businessType || 'OTHER',
                         role: staff.role || 'COORDINATOR',
-                        image: staff.image || null,
+                        image: staff.image || staff.appChatDp || null,
+                        appChatDp: staff.appChatDp || null,
                         overall: {
                             assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, delayed: 0, enrolled: 0, full: 0, upgrade: 0, monthly: 0, installment: 0, directPaid: 0, r1HistoricalDelays: 0, r2HistoricalDelays: 0
                         },
@@ -363,6 +364,8 @@ exports.getManagerDashboardStats = async (req, res) => {
                 }
 
                 const target = staffMap[sName];
+                if (staff.image && !target.image) target.image = staff.image;
+                if (staff.appChatDp && !target.appChatDp) target.appChatDp = staff.appChatDp;
                 if (staff.overall) {
                     target.overall.assigned += (staff.overall.assigned || 0);
                     target.overall.contacted += (staff.overall.contacted || 0);
@@ -585,7 +588,7 @@ exports.getNewInquiryStats = async (req, res) => {
 
         let leads = await prisma.lead.findMany({
             where: whereClause,
-            include: { assignedUser: { select: { firstName: true, lastName: true, businessType: true, role: true } } }
+            include: { assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true, image: true, appChatDp: true } } }
         });
 
         // 🔥 FIX: Bridge Transfers අනිවාර්යයෙන්ම අයින් කරන්න
@@ -677,6 +680,7 @@ exports.getNewInquiryStats = async (req, res) => {
                         firstName: l.assignedUser?.firstName || '',
                         lastName: l.assignedUser?.lastName || '',
                         name: staffName,
+                        image: l.assignedUser?.image || l.assignedUser?.appChatDp || null,
                         businessType: l.assignedUser?.businessType,
                         role: l.assignedUser?.role,
                         overall: { 

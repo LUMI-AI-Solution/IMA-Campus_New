@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import axios from '../../../../api/axios';
-import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash, FaCheckCircle, FaExclamationCircle, FaUser, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaInfoCircle, FaFileExcel, FaPhoneAlt, FaWhatsapp, FaClock } from 'react-icons/fa';
+import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash, FaCheckCircle, FaExclamationCircle, FaUser, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaInfoCircle, FaFileExcel, FaPhoneAlt, FaWhatsapp, FaClock, FaBan } from 'react-icons/fa';
 import { Target, PhoneCall, Check, Loader, BookOpen, Loader2, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
@@ -870,8 +870,13 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                                         {realIndex}
                                                     </div>
                                                     <div>
-                                                        <h3 className="text-lg font-black text-white leading-tight tracking-wide flex items-center gap-1.5">
+                                                        <h3 className="text-lg font-black text-white leading-tight tracking-wide flex items-center gap-1.5 flex-wrap">
                                                             {lead.phone?.split('_')[0]}
+                                                            {lead.isBlocked && (
+                                                                <span className="flex items-center gap-1 bg-red-600/30 text-red-300 px-2 py-0.5 rounded text-[10px] font-black border border-red-500/50 shadow-sm tracking-wider">
+                                                                    <FaBan size={9}/> Blocked Number
+                                                                </span>
+                                                            )}
                                                         </h3>
                                                         <div className="flex flex-col gap-0.5 mt-1">
                                                             <p className="text-slate-400 text-[10px] font-bold uppercase truncate max-w-[150px]">WA: {lead.name || 'Unknown'}</p>
@@ -932,6 +937,17 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                                     </div>
                                                 </div>
                                             </div>
+
+                                            {/* Blocked Alert Banner */}
+                                            {lead.isBlocked && (
+                                                <div className="mb-4 bg-red-500/20 border border-red-500/40 p-2.5 rounded-xl text-red-300 text-xs font-bold flex items-center gap-2">
+                                                    <FaBan className="text-red-400 shrink-0" size={14}/>
+                                                    <div className="flex-1">
+                                                        <span className="text-white font-black">This number is BLOCKED.</span>
+                                                        {lead.blockedReason && <span className="block text-[11px] font-normal text-red-200 mt-0.5">Reason: {lead.blockedReason}</span>}
+                                                    </div>
+                                                </div>
+                                            )}
 
                                             {/* Grid for Outcome, Attempt, and Open Sem Fields */}
                                             <div className="grid grid-cols-12 gap-3 mb-4">
@@ -1083,12 +1099,50 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                                 </button>
 
                                                 <button
-                                                    disabled={isDisabled}
+                                                    disabled={isDisabled || lead.isBlocked}
                                                     onClick={(e) => handleOpenReminderModal(lead, e)}
                                                     title="Set a Reminder"
                                                     className="flex-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 p-2.5 rounded-xl flex items-center justify-center transition-all shadow-md transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
                                                 >
                                                     <FaBell size={14} />
+                                                </button>
+
+                                                <button
+                                                    onClick={async (e) => {
+                                                        e.preventDefault();
+                                                        e.stopPropagation();
+                                                        if (lead.isBlocked) {
+                                                            if (window.confirm(`Unblock ${lead.phone}?`)) {
+                                                                try {
+                                                                    const token = localStorage.getItem('token');
+                                                                    await axios.post('/after-seminar-crm/leads/unblock', { leadId: lead.id, phone: lead.phone }, { headers: { Authorization: `Bearer ${token}` } });
+                                                                    lead.isBlocked = false;
+                                                                    toast.success("Unblocked");
+                                                                    if (typeof handleUpdateLocalLead === 'function') handleUpdateLocalLead(lead.id, 'isBlocked', false);
+                                                                } catch (err) { toast.error("Failed to unblock"); }
+                                                            }
+                                                        } else {
+                                                            const reason = window.prompt(`Block number ${lead.phone}? Enter reason:`, "Spam / Abusive");
+                                                            if (reason !== null) {
+                                                                try {
+                                                                    const token = localStorage.getItem('token');
+                                                                    await axios.post('/after-seminar-crm/leads/block', { leadId: lead.id, phone: lead.phone, reason }, { headers: { Authorization: `Bearer ${token}` } });
+                                                                    lead.isBlocked = true;
+                                                                    lead.blockedReason = reason;
+                                                                    toast.success("Number blocked");
+                                                                    if (typeof handleUpdateLocalLead === 'function') handleUpdateLocalLead(lead.id, 'isBlocked', true);
+                                                                } catch (err) { toast.error("Failed to block"); }
+                                                            }
+                                                        }
+                                                    }}
+                                                    title={lead.isBlocked ? "Unblock Number" : "Block Number"}
+                                                    className={`flex-1 p-2.5 rounded-xl flex items-center justify-center transition-all shadow-md transform hover:-translate-y-0.5 ${
+                                                        lead.isBlocked 
+                                                            ? 'bg-red-600 text-white hover:bg-red-500 shadow-red-500/30' 
+                                                            : 'bg-white/5 hover:bg-red-500/20 text-slate-400 hover:text-red-400 border border-white/10'
+                                                    }`}
+                                                >
+                                                    <FaBan size={14} />
                                                 </button>
                                             </div>
                                             </div>
@@ -1144,8 +1198,13 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                                             </div>
                                                         </td>
                                                         <td className="p-4 align-top">
-                                                            <h3 className="text-sm font-black text-white flex items-center gap-1.5">
+                                                            <h3 className="text-sm font-black text-white flex items-center gap-1.5 flex-wrap">
                                                                 {lead.phone?.split('_')[0]}
+                                                                {lead.isBlocked && (
+                                                                    <span className="flex items-center gap-1 bg-red-600/30 text-red-300 px-1.5 py-0.5 rounded text-[9px] font-black border border-red-500/50 shadow-sm">
+                                                                        <FaBan size={8}/> BLOCKED
+                                                                    </span>
+                                                                )}
                                                             </h3>
                                                             <div className="flex flex-col gap-0.5 mt-1">
                                                                 <p className="text-slate-400 text-[10px] font-bold uppercase truncate max-w-[150px]" title="WhatsApp Name">WA: {lead.name || 'Unknown'}</p>
@@ -1301,12 +1360,45 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                                                         {lead.unreadCount > 0 && <span className="absolute -top-1 -right-1 w-2 h-2 bg-rose-500 rounded-full"></span>}
                                                                     </button>
                                                                     <button
-                                                                        disabled={isDisabled}
+                                                                        disabled={isDisabled || lead.isBlocked}
                                                                         onClick={(e) => handleOpenReminderModal(lead, e)}
                                                                         className="flex-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 p-1.5 rounded-lg flex justify-center transition-colors disabled:opacity-50"
                                                                         title="Reminder"
                                                                     >
                                                                         <FaBell size={12} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={async (e) => {
+                                                                            e.preventDefault();
+                                                                            e.stopPropagation();
+                                                                            if (lead.isBlocked) {
+                                                                                if (window.confirm(`Unblock ${lead.phone}?`)) {
+                                                                                    try {
+                                                                                        const token = localStorage.getItem('token');
+                                                                                        await axios.post('/after-seminar-crm/leads/unblock', { leadId: lead.id, phone: lead.phone }, { headers: { Authorization: `Bearer ${token}` } });
+                                                                                        lead.isBlocked = false;
+                                                                                        toast.success("Unblocked");
+                                                                                        if (typeof handleUpdateLocalLead === 'function') handleUpdateLocalLead(lead.id, 'isBlocked', false);
+                                                                                    } catch (err) { toast.error("Failed to unblock"); }
+                                                                                }
+                                                                            } else {
+                                                                                const reason = window.prompt(`Block number ${lead.phone}? Enter reason:`, "Spam / Abusive");
+                                                                                if (reason !== null) {
+                                                                                    try {
+                                                                                        const token = localStorage.getItem('token');
+                                                                                        await axios.post('/after-seminar-crm/leads/block', { leadId: lead.id, phone: lead.phone, reason }, { headers: { Authorization: `Bearer ${token}` } });
+                                                                                        lead.isBlocked = true;
+                                                                                        lead.blockedReason = reason;
+                                                                                        toast.success("Number blocked");
+                                                                                        if (typeof handleUpdateLocalLead === 'function') handleUpdateLocalLead(lead.id, 'isBlocked', true);
+                                                                                    } catch (err) { toast.error("Failed to block"); }
+                                                                                }
+                                                                            }
+                                                                        }}
+                                                                        className={`flex-1 p-1.5 rounded-lg flex justify-center transition-colors ${lead.isBlocked ? 'bg-red-600 text-white' : 'bg-white/5 hover:bg-red-500/20 text-slate-400 hover:text-red-400 border border-white/10'}`}
+                                                                        title={lead.isBlocked ? "Unblock" : "Block"}
+                                                                    >
+                                                                        <FaBan size={12} />
                                                                     </button>
                                                                 </div>
                                                             </div>
@@ -1402,7 +1494,7 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
             {/* Student Details Hover Popover */}
             {studentDetailsLead && createPortal(
                 <div className="fixed top-24 right-6 z-[99999] pointer-events-auto transition-all animate-in fade-in slide-in-from-top-4">
-                    <div className="bg-[#0f172a]/95 backdrop-blur-xl border border-sky-500/40 w-[360px] rounded-2xl overflow-hidden flex flex-col transform transition-all shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
+                    <div className="bg-[#0f172a]/95 backdrop-blur-xl border border-sky-500/40 w-[380px] rounded-2xl overflow-hidden flex flex-col transform transition-all shadow-[0_20px_50px_rgba(0,0,0,0.8)]">
                         <div className="flex justify-between items-center p-4 border-b border-slate-700/50 bg-slate-800/30">
                             <h2 className="text-slate-200 font-bold flex items-center gap-2">
                                 <FaUser className="text-sky-400" /> Student Details
@@ -1411,70 +1503,108 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                 <FaTimes size={16} />
                             </button>
                         </div>
-                        <div className="p-5 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                        <div className="p-5 max-h-[75vh] overflow-y-auto custom-scrollbar">
                             {isStudentDetailsLoading ? (
                                 <div className="flex flex-col items-center justify-center py-10">
                                     <Loader2 className="w-8 h-8 text-sky-400 animate-spin mb-3" />
                                     <p className="text-slate-400 text-sm">Fetching records...</p>
                                 </div>
-                            ) : studentDetailsData?.isEnrolled ? (
-                                <div className="space-y-4">
-                                    {studentDetailsData?.hasApprovedPayment ? (
-                                        <div className="flex items-center gap-2 text-emerald-400 font-bold bg-emerald-900/30 p-3 rounded-xl border border-emerald-500/40 text-xs">
-                                            <FaCheckCircle size={14}/> APPROVED & ENROLLED STUDENT
-                                        </div>
-                                    ) : studentDetailsData?.hasPendingPayment ? (
-                                        <div className="flex flex-col gap-1 text-amber-300 font-bold bg-amber-950/60 p-3 rounded-xl border border-amber-500/50 text-xs shadow-inner">
-                                            <div className="flex items-center gap-2">
-                                                <FaClock size={14} className="text-amber-400 shrink-0 animate-pulse"/> SLIP PENDING / POST-PAY (NOT APPROVED)
+                            ) : studentDetailsData?.isEnrolled ? (() => {
+                                const currentBatchId = studentDetailsLead?.batchId;
+                                const enrollmentsList = studentDetailsData?.uniqueEnrollments || (studentDetailsData?.student?.payments ? Object.values(studentDetailsData.student.payments.reduce((acc, p) => {
+                                    const key = `${p.businessId}_${p.batchId}`;
+                                    if (!acc[key]) acc[key] = { ...p, businessName: p.business?.name, batchName: p.batch?.name, paymentType: p.payment_type };
+                                    return acc;
+                                }, {})) : []);
+
+                                const currentBatchEnrollment = enrollmentsList.find(e => e.batchId === currentBatchId && e.status === 1);
+                                const currentBatchPending = enrollmentsList.find(e => e.batchId === currentBatchId && (e.status === 0 || e.status === 4));
+                                const otherApprovedEnrollments = enrollmentsList.filter(e => e.batchId !== currentBatchId && e.status === 1);
+
+                                return (
+                                    <div className="space-y-4">
+                                        {currentBatchEnrollment ? (
+                                            <div className="flex items-center gap-2 text-emerald-400 font-bold bg-emerald-900/30 p-3 rounded-xl border border-emerald-500/40 text-xs">
+                                                <FaCheckCircle size={14} className="shrink-0"/> APPROVED & ENROLLED (THIS BATCH)
                                             </div>
-                                            <span className="text-[10px] text-amber-200/80 font-medium leading-relaxed">
-                                                Payment submitted/post-pay is pending manager approval. Lead moves to Paid section automatically once approved in Payment Management.
-                                            </span>
-                                        </div>
-                                    ) : (
-                                        <div className="flex items-center gap-2 text-sky-400 font-bold bg-sky-900/30 p-3 rounded-xl border border-sky-500/40 text-xs">
-                                            <FaUser size={14}/> REGISTERED ACCOUNT (NO PAYMENT YET)
-                                        </div>
-                                    )}
-                
-                                    <div className="space-y-3 bg-slate-800/20 p-4 rounded-xl border border-slate-700/50">
-                                        <div className="text-sm">
-                                            <span className="text-slate-500 block mb-0.5 text-xs font-semibold">Full Name & ID</span>
-                                            <span className="text-slate-200 font-bold">{studentDetailsData.student.firstName} {studentDetailsData.student.lastName} (ID: {studentDetailsData.student.id})</span>
-                                        </div>
-                                        <div className="text-sm">
-                                            <span className="text-slate-500 block mb-0.5 text-xs font-semibold"><FaMapMarkerAlt className="inline mr-1 text-slate-400"/> Address</span>
-                                            <span className="text-slate-300">{studentDetailsData.student.addressHouseNo}, {studentDetailsData.student.addressStreet}, {studentDetailsData.student.city}</span>
-                                        </div>
-                                        
-                                        {studentDetailsData.student.payments?.[0] && (
-                                            <>
-                                                <div className="text-sm mt-4 pt-4 border-t border-slate-700/50">
-                                                    <span className="text-slate-500 block mb-0.5 text-xs font-semibold"><FaGraduationCap className="inline mr-1 text-slate-400"/> Enrollment</span>
-                                                    <span className="text-sky-300 font-black block">{studentDetailsData.student.payments[0].business?.name}</span>
-                                                    <span className="text-slate-400 block text-xs mt-0.5">{studentDetailsData.student.payments[0].batch?.name}</span>
+                                        ) : otherApprovedEnrollments.length > 0 ? (
+                                            <div className="flex flex-col gap-1 text-sky-300 font-bold bg-sky-950/60 p-3 rounded-xl border border-sky-500/50 text-xs shadow-inner">
+                                                <div className="flex items-center gap-2 text-sky-300">
+                                                    <FaCheckCircle size={14} className="text-sky-400 shrink-0"/> ENROLLED IN OTHER BATCH ({otherApprovedEnrollments.map(e => e.batchName || 'Other Batch').join(', ')})
                                                 </div>
-                                                <div className="text-sm mt-3">
-                                                    <span className="text-slate-500 block mb-1.5 text-xs font-semibold">Enrolled Subjects</span>
-                                                    <div className="flex flex-wrap gap-1.5">
-                                                        {studentDetailsData.enrolledCourses?.map(c => (
-                                                            <span key={c.id} className="bg-slate-700/50 px-2.5 py-1 rounded-md text-[11px] text-slate-200 border border-slate-600 font-medium">{c.name}</span>
-                                                        ))}
-                                                        {(!studentDetailsData.enrolledCourses || studentDetailsData.enrolledCourses.length === 0) && (
-                                                            <span className="text-slate-500 text-xs italic">No specific subjects found.</span>
-                                                        )}
-                                                    </div>
+                                                <span className="text-[10px] text-sky-200/80 font-normal leading-relaxed">
+                                                    Active student in another batch. In this batch, this lead is a fresh prospective lead in Round 1.
+                                                </span>
+                                            </div>
+                                        ) : (currentBatchPending || studentDetailsData?.hasPendingPayment) ? (
+                                            <div className="flex flex-col gap-1 text-amber-300 font-bold bg-amber-950/60 p-3 rounded-xl border border-amber-500/50 text-xs shadow-inner">
+                                                <div className="flex items-center gap-2">
+                                                    <FaClock size={14} className="text-amber-400 shrink-0 animate-pulse"/> SLIP PENDING / POST-PAY (NOT APPROVED)
                                                 </div>
-                                                <div className="text-sm mt-3 pb-1">
-                                                    <span className="text-slate-500 block mb-0.5 text-xs font-semibold"><FaCreditCard className="inline mr-1 text-slate-400"/> Payment Option</span>
-                                                    <span className="text-emerald-400 font-bold">{getPaymentOption(studentDetailsData.student.payments[0])}</span>
-                                                </div>
-                                            </>
+                                                <span className="text-[10px] text-amber-200/80 font-medium leading-relaxed">
+                                                    Payment submitted/post-pay is pending manager approval. Lead moves to Paid section automatically once approved.
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center gap-2 text-sky-400 font-bold bg-sky-900/30 p-3 rounded-xl border border-sky-500/40 text-xs">
+                                                <FaUser size={14} className="shrink-0"/> REGISTERED ACCOUNT (NO PAYMENT YET)
+                                            </div>
                                         )}
+                    
+                                        <div className="space-y-3 bg-slate-800/20 p-4 rounded-xl border border-slate-700/50">
+                                            <div className="text-sm">
+                                                <span className="text-slate-500 block mb-0.5 text-xs font-semibold">Full Name & ID</span>
+                                                <span className="text-slate-200 font-bold">{studentDetailsData.student.firstName} {studentDetailsData.student.lastName} (ID: {studentDetailsData.student.id})</span>
+                                            </div>
+                                            <div className="text-sm">
+                                                <span className="text-slate-500 block mb-0.5 text-xs font-semibold"><FaMapMarkerAlt className="inline mr-1 text-slate-400"/> Address</span>
+                                                <span className="text-slate-300">{studentDetailsData.student.addressHouseNo}, {studentDetailsData.student.addressStreet}, {studentDetailsData.student.city}</span>
+                                            </div>
+                                            
+                                            {enrollmentsList.length > 0 && (
+                                                <div className="space-y-3">
+                                                    {enrollmentsList.map((enr, idx) => {
+                                                        const isThisBatch = enr.batchId === currentBatchId;
+                                                        return (
+                                                            <div key={idx} className="text-sm mt-3 pt-3 border-t border-slate-700/50">
+                                                                <div className="flex items-center justify-between mb-1">
+                                                                    <span className="text-slate-500 text-xs font-semibold flex items-center gap-1">
+                                                                        <FaGraduationCap className="text-slate-400"/> Enrollment #{idx + 1}
+                                                                    </span>
+                                                                    {isThisBatch ? (
+                                                                        <span className="text-[9px] bg-emerald-950 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold">Current Batch</span>
+                                                                    ) : (
+                                                                        <span className="text-[9px] bg-sky-950 text-sky-300 border border-sky-500/40 px-2 py-0.5 rounded-full font-bold">Other Batch</span>
+                                                                    )}
+                                                                </div>
+                                                                <span className="text-sky-300 font-black block">{enr.businessName || enr.business?.name}</span>
+                                                                <span className="text-slate-300 block text-xs mt-0.5 font-medium">{enr.batchName || enr.batch?.name}</span>
+
+                                                                <div className="text-sm mt-2">
+                                                                    <span className="text-slate-500 block mb-1 text-[11px] font-semibold">Enrolled Subjects</span>
+                                                                    <div className="flex flex-wrap gap-1">
+                                                                        {enr.courses?.map(c => (
+                                                                            <span key={c.id} className="bg-slate-700/50 px-2 py-0.5 rounded text-[10px] text-slate-200 border border-slate-600 font-medium">{c.name}</span>
+                                                                        ))}
+                                                                        {(!enr.courses || enr.courses.length === 0) && (
+                                                                            <span className="text-slate-500 text-[11px] italic">No specific subjects found.</span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="text-xs mt-2 pb-1">
+                                                                    <span className="text-slate-500 block mb-0.5 font-semibold"><FaCreditCard className="inline mr-1 text-slate-400"/> Payment Option</span>
+                                                                    <span className="text-emerald-400 font-bold">{getPaymentOption(enr)}</span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
-                            ) : (
+                                );
+                            })() : (
                                 <div className="text-center py-10 bg-slate-800/20 rounded-xl border border-slate-700/50">
                                     <FaExclamationCircle className="mx-auto text-slate-500 mb-3" size={32} />
                                     <p className="text-slate-400 font-medium">No registered student records found for this number.</p>

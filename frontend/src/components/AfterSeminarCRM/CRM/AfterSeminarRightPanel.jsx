@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom'; 
 import axios from '../../../api/axios';
-import { FaPhoneAlt, FaCheckCircle, FaTimesCircle, FaUserSecret, FaKey, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaTimes, FaArrowsAlt, FaChevronRight, FaChevronLeft, FaLayerGroup } from 'react-icons/fa';
+import { FaPhoneAlt, FaCheckCircle, FaTimesCircle, FaUserSecret, FaKey, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaTimes, FaArrowsAlt, FaChevronRight, FaChevronLeft, FaLayerGroup, FaBan } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import { useCall } from '../../../contexts/CallContext';
 
@@ -220,7 +220,14 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
             
             {/* LEAD STATUS */}
             <div className="bg-[#1a2430] p-4 rounded-xl border border-white/5 mb-4 shadow-sm">
-              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">Lead Status</h3>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Lead Status</h3>
+                {selectedLead.isBlocked && (
+                  <span className="bg-red-500/20 text-red-400 text-[9px] font-black uppercase px-2 py-0.5 rounded border border-red-500/30 flex items-center gap-1">
+                    <FaBan size={8}/> Blocked
+                  </span>
+                )}
+              </div>
               <div className="flex justify-between items-center mb-3">
                 <span className="text-sm font-medium text-slate-400">Phase</span>
                 <span className="text-xs font-bold text-emerald-500">Phase {selectedLead.phase}</span>
@@ -243,6 +250,49 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
                   <option value="NORMAL">Imported (Normal)</option>
                 </select>
               </div>
+            </div>
+
+            {/* 🔥 QUICK LEAD ACTIONS (BLOCK / UNBLOCK) 🔥 */}
+            <div className="bg-[#1a2430] p-4 rounded-xl border border-white/5 mb-4 shadow-sm">
+              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Security & Access</h3>
+              {selectedLead.isBlocked ? (
+                <button 
+                  onClick={async () => {
+                    if (!window.confirm(`Are you sure you want to unblock ${selectedLead.phone}?`)) return;
+                    try {
+                      const token = localStorage.getItem('token');
+                      await axios.post('/after-seminar-crm/leads/unblock', { leadId: selectedLead.id, phone: selectedLead.phone }, { headers: { Authorization: `Bearer ${token}` } });
+                      selectedLead.isBlocked = false;
+                      toast.success(`Unblocked ${selectedLead.phone}`);
+                      setTimeout(() => window.location.reload(), 600);
+                    } catch (e) {
+                      toast.error("Failed to unblock");
+                    }
+                  }}
+                  className="w-full bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition-all"
+                >
+                  <FaBan size={12}/> Unblock Phone Number
+                </button>
+              ) : (
+                <button 
+                  onClick={async () => {
+                    const reason = window.prompt(`Enter block reason for ${selectedLead.phone}:`, "Spam / Unwanted");
+                    if (reason === null) return;
+                    try {
+                      const token = localStorage.getItem('token');
+                      await axios.post('/after-seminar-crm/leads/block', { leadId: selectedLead.id, phone: selectedLead.phone, reason }, { headers: { Authorization: `Bearer ${token}` } });
+                      selectedLead.isBlocked = true;
+                      toast.success(`Blocked ${selectedLead.phone}`);
+                      setTimeout(() => window.location.reload(), 600);
+                    } catch (e) {
+                      toast.error("Failed to block");
+                    }
+                  }}
+                  className="w-full bg-slate-800 hover:bg-red-600/20 text-slate-400 hover:text-red-400 border border-slate-700 hover:border-red-500/30 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition-all"
+                >
+                  <FaBan size={12}/> Block Phone Number
+                </button>
+              )}
             </div>
 
             {/* 🔥 BATCH ALLOCATION SECTION 🔥 */}

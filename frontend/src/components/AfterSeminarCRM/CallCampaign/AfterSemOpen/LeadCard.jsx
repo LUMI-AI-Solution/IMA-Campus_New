@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { FaLock, FaUnlock, FaSave, FaCommentDots, FaArrowRight, FaChevronDown, FaChevronUp, FaExclamationTriangle, FaBell, FaTimes, FaCheckCircle, FaTrash, FaInfoCircle, FaPhoneAlt, FaWhatsapp } from 'react-icons/fa';
+import { FaLock, FaUnlock, FaSave, FaCommentDots, FaArrowRight, FaChevronDown, FaChevronUp, FaExclamationTriangle, FaBell, FaTimes, FaCheckCircle, FaTrash, FaInfoCircle, FaPhoneAlt, FaWhatsapp, FaBan } from 'react-icons/fa';
 import { Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import axios from '../../../../api/axios';
@@ -163,6 +163,7 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
                     <div className="flex flex-col overflow-hidden">
                         <h4 className="font-black text-[15px] text-white flex items-center gap-1.5 truncate tracking-wide">
                             {lead?.phone} {isLocked && <div className="flex items-center gap-1 bg-rose-500/20 px-1.5 py-0.5 rounded text-[10px] font-bold text-rose-400 ml-2 border border-rose-500/30"><FaLock size={8}/> Frozen: {unlocksInDays} Days</div>}
+                            {lead?.isBlocked && <div className="flex items-center gap-1 bg-red-600/30 text-red-300 px-2 py-0.5 rounded text-[10px] font-black ml-2 border border-red-500/50 shadow-sm tracking-wider"><FaBan size={9}/> Blocked Number</div>}
                             {lead?.roundProgress && lead.roundProgress.length > 0 && (
                                 <div className="group relative flex items-center ml-1">
                                     <FaInfoCircle size={12} className="text-indigo-400 cursor-help" title={`Round History:\n${lead.roundProgress.map(rp => `Round ${rp.roundNum} (${rp.campaignCategory}): ${rp.callStatus?.toUpperCase() || 'N/A'}, Attempt ${rp.callAttempt || 1}, Remark: ${rp.feedback || 'None'}`).join('\n')}`} />
@@ -190,6 +191,15 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
 
             {isExpanded && (
                 <div className="p-3 bg-black/20 border-t border-white/10 flex flex-col gap-3 flex-1">
+                    {lead?.isBlocked && (
+                        <div className="bg-red-500/20 border border-red-500/40 p-2.5 rounded-xl text-red-300 text-xs font-bold flex items-center gap-2">
+                            <FaBan className="text-red-400 shrink-0" size={14}/>
+                            <div className="flex-1">
+                                <span className="text-white font-black">This number is BLOCKED.</span>
+                                {lead?.blockedReason && <span className="block text-[11px] font-normal text-red-200 mt-0.5">Reason: {lead.blockedReason}</span>}
+                            </div>
+                        </div>
+                    )}
                     <div className="grid grid-cols-2 gap-3">
                         <div>
                             <label className="text-[10px] font-bold text-slate-400 block mb-1">Status</label>
@@ -291,6 +301,39 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
                             
                             <button onClick={handleOpenReminderModal} title="Set a Reminder" className="bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 px-3.5 rounded-lg flex items-center justify-center transition-colors shadow-sm">
                                 <FaBell size={14}/>
+                            </button>
+
+                            <button 
+                                onClick={async (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (lead.isBlocked) {
+                                        if (window.confirm(`Unblock ${lead.phone}?`)) {
+                                            try {
+                                                const token = localStorage.getItem('token');
+                                                await axios.post('/after-seminar-crm/leads/unblock', { leadId: lead.id, phone: lead.phone }, { headers: { Authorization: `Bearer ${token}` } });
+                                                lead.isBlocked = false;
+                                                toast.success("Unblocked");
+                                                if (typeof handleUpdateLocalLead === 'function') handleUpdateLocalLead(lead.id, 'isBlocked', false);
+                                            } catch (err) { toast.error("Failed to unblock"); }
+                                        }
+                                    } else {
+                                        const reason = window.prompt(`Block number ${lead.phone}? Enter reason:`, "Spam / Harassment");
+                                        if (reason !== null) {
+                                            try {
+                                                const token = localStorage.getItem('token');
+                                                await axios.post('/after-seminar-crm/leads/block', { leadId: lead.id, phone: lead.phone, reason }, { headers: { Authorization: `Bearer ${token}` } });
+                                                lead.isBlocked = true;
+                                                toast.success("Number blocked");
+                                                if (typeof handleUpdateLocalLead === 'function') handleUpdateLocalLead(lead.id, 'isBlocked', true);
+                                            } catch (err) { toast.error("Failed to block"); }
+                                        }
+                                    }
+                                }} 
+                                title={lead.isBlocked ? "Unblock Number" : "Block Number"} 
+                                className={`px-3 rounded-lg flex items-center justify-center transition-colors shadow-sm ${lead.isBlocked ? 'bg-red-600 text-white hover:bg-red-500' : 'bg-white/5 hover:bg-red-500/20 text-slate-400 hover:text-red-400 border border-white/10'}`}
+                            >
+                                <FaBan size={13}/>
                             </button>
                         </div>
 

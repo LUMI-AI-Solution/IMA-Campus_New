@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from '../../../api/axios';
 import toast from 'react-hot-toast';
 import { Loader2 } from 'lucide-react';
+import { useCall } from '../../../contexts/CallContext';
 
 import AfterSeminarOpenSem from './AfterSemOpen/AfterSeminarOpenSem';
 import AfterSeminarNewInq from './AfterSemNew/AfterSeminarNewInq';
@@ -9,6 +10,7 @@ import AfterSeminarPaidCampaign from './AftersemPaid/AfterSeminarPaidCampaign';
 import BridgeStaffExecution from "./BridgeStaffExecution";
 
 export default function AfterSeminarStaffExecution({ filters, allBatches, setSelectedLead, externalTab, campaignSearchPhone, onLeadsLoaded }) {
+    const { socket } = useCall?.() || {};
     const [activeTab, setActiveTab] = useState('OPEN_SEM'); 
     const [leads, setLeads] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -17,6 +19,40 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
 
     const currentUser = JSON.parse(localStorage.getItem('user')) || {};
     const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN'].includes(currentUser?.role?.toUpperCase().replace(/ /g, '_'));
+
+    useEffect(() => {
+        if (!socket) return;
+        const handleBlocked = (data) => {
+            if (data?.phone) {
+                const phoneSuffix = String(data.phone).slice(-9);
+                setLeads(prev => prev.map(l => {
+                    const lSuffix = String(l.phone || '').split('_')[0].slice(-9);
+                    if (lSuffix === phoneSuffix || l.id === data.leadId) {
+                        return { ...l, isBlocked: true, blockedReason: data.reason };
+                    }
+                    return l;
+                }));
+            }
+        };
+        const handleUnblocked = (data) => {
+            if (data?.phone) {
+                const phoneSuffix = String(data.phone).slice(-9);
+                setLeads(prev => prev.map(l => {
+                    const lSuffix = String(l.phone || '').split('_')[0].slice(-9);
+                    if (lSuffix === phoneSuffix || l.id === data.leadId) {
+                        return { ...l, isBlocked: false, blockedReason: null };
+                    }
+                    return l;
+                }));
+            }
+        };
+        socket.on('lead_blocked', handleBlocked);
+        socket.on('lead_unblocked', handleUnblocked);
+        return () => {
+            socket.off('lead_blocked', handleBlocked);
+            socket.off('lead_unblocked', handleUnblocked);
+        };
+    }, [socket]);
 
     useEffect(() => {
         if (externalTab) setActiveTab(externalTab);

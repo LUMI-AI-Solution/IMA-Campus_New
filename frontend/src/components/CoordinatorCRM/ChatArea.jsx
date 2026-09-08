@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import { ReactTransliterate } from 'react-transliterate';
 import 'react-transliterate/dist/index.css';
 import axios from '../../api/axios';
-import { FaPaperPlane, FaPaperclip, FaSun, FaMoon, FaMicrophone, FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic, FaSmile, FaStop, FaPhoneAlt, FaChevronDown, FaGoogle } from 'react-icons/fa';
+import { FaPaperPlane, FaPaperclip, FaSun, FaMoon, FaMicrophone, FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic, FaSmile, FaStop, FaPhoneAlt, FaChevronDown, FaGoogle, FaBan } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import englishWords from '../../utils/englishWords.json';
 import OutboundDialerModal from '../AfterSeminarCRM/CRM/OutboundDialerModal';
@@ -102,6 +103,14 @@ export default function ChatArea({ selectedLead, businessId }) {
   const timerRef = useRef(null);
   const audioChunks = useRef([]);
 
+  // 🛑 BLOCK CONTACT STATE
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [blockedReason, setBlockedReason] = useState('');
+  const [showBlockModal, setShowBlockModal] = useState(false);
+  const [selectedBlockReason, setSelectedBlockReason] = useState('Spam / Marketing');
+  const [customBlockReason, setCustomBlockReason] = useState('');
+  const [isBlocking, setIsBlocking] = useState(false);
+
   useEffect(() => {
       const fetchQuickReplies = async () => {
           try {
@@ -139,10 +148,13 @@ export default function ChatArea({ selectedLead, businessId }) {
   }, []);
 
   useEffect(() => {
-    if (!socket || !selectedLead) return;
+    if (!selectedLead) return;
+    setIsBlocked(!!selectedLead.isBlocked);
+    setBlockedReason(selectedLead.blockedReason || '');
+
+    if (!socket) return;
 
     const handlePermissionUpdate = (data) => {
-      console.log("[ChatArea Socket] Real-time permission update received:", data);
       if (data && (data.leadId === selectedLead.id || data.phone === selectedLead.phone)) {
         if (data.status) selectedLead.waCallPermissionStatus = data.status;
         else selectedLead.waCallPermissionStatus = 'ALLOWED';
@@ -151,14 +163,87 @@ export default function ChatArea({ selectedLead, businessId }) {
       }
     };
 
+    const handleLeadBlocked = (data) => {
+      if (data && (data.leadId === selectedLead.id || data.phone === selectedLead.phone?.split('_')[0])) {
+        setIsBlocked(true);
+        setBlockedReason(data.reason || 'Blocked');
+        selectedLead.isBlocked = true;
+        selectedLead.blockedReason = data.reason || 'Blocked';
+      }
+    };
+
+    const handleLeadUnblocked = (data) => {
+      if (data && (data.leadId === selectedLead.id || data.phone === selectedLead.phone?.split('_')[0])) {
+        setIsBlocked(false);
+        setBlockedReason('');
+        selectedLead.isBlocked = false;
+        selectedLead.blockedReason = '';
+      }
+    };
+
     socket.on('wa_call_permission_granted', handlePermissionUpdate);
     socket.on('wa_call_permission_updated', handlePermissionUpdate);
+    socket.on('lead_blocked', handleLeadBlocked);
+    socket.on('lead_unblocked', handleLeadUnblocked);
 
     return () => {
       socket.off('wa_call_permission_granted', handlePermissionUpdate);
       socket.off('wa_call_permission_updated', handlePermissionUpdate);
+      socket.off('lead_blocked', handleLeadBlocked);
+      socket.off('lead_unblocked', handleLeadUnblocked);
     };
   }, [socket, selectedLead]);
+
+  const handleBlockConfirm = async () => {
+      const reasonToSave = selectedBlockReason === 'Other' ? (customBlockReason.trim() || 'Other reason') : selectedBlockReason;
+      setIsBlocking(true);
+      try {
+          const token = localStorage.getItem('token');
+          await axios.post('/coordinator-crm/leads/block', {
+              leadId: selectedLead.id,
+              phone: selectedLead.phone,
+              reason: reasonToSave
+          }, { headers: { Authorization: `Bearer ${token}` } });
+
+          setIsBlocked(true);
+          setBlockedReason(reasonToSave);
+          if (selectedLead) {
+              selectedLead.isBlocked = true;
+              selectedLead.blockedReason = reasonToSave;
+          }
+          setShowBlockModal(false);
+          setCustomBlockReason('');
+          toast.success(`Number ${selectedLead.phone} has been blocked.`);
+      } catch (err) {
+          toast.error(err.response?.data?.error || "Failed to block number.");
+      } finally {
+          setIsBlocking(false);
+      }
+  };
+
+  const handleUnblockConfirm = async () => {
+      if (!window.confirm(`Are you sure you want to unblock ${selectedLead.phone}?`)) return;
+      setIsBlocking(true);
+      try {
+          const token = localStorage.getItem('token');
+          await axios.post('/coordinator-crm/leads/unblock', {
+              leadId: selectedLead.id,
+              phone: selectedLead.phone
+          }, { headers: { Authorization: `Bearer ${token}` } });
+
+          setIsBlocked(false);
+          setBlockedReason('');
+          if (selectedLead) {
+              selectedLead.isBlocked = false;
+              selectedLead.blockedReason = '';
+          }
+          toast.success(`Number ${selectedLead.phone} has been unblocked.`);
+      } catch (err) {
+          toast.error(err.response?.data?.error || "Failed to unblock number.");
+      } finally {
+          setIsBlocking(false);
+      }
+  };
 
   useEffect(() => { 
       if (selectedLead) {
@@ -659,15 +744,61 @@ export default function ChatArea({ selectedLead, businessId }) {
                 ) : null}
             </div>
 
-            <button onClick={() => setShowMetaTemplates(true)} className={`text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-md ${isDark ? 'bg-indigo-600 hover:bg-indigo-500 text-white' : 'bg-indigo-600 hover:bg-indigo-700 text-white'}`}><FaBolt/> Approved Templates</button>
+            <button onClick={() => setShowMetaTemplates(true)} className={`text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-md ${isDark ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}><FaBolt/> Approved Templates</button>
+            
+            {/* 🛑 BLOCK / UNBLOCK BUTTON */}
+            {isBlocked ? (
+                <button 
+                    onClick={handleUnblockConfirm} 
+                    disabled={isBlocking}
+                    className="text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-md bg-red-600 hover:bg-red-500 text-white"
+                    title="Click to unblock this number"
+                >
+                    <FaBan size={13}/> Blocked (Unblock)
+                </button>
+            ) : (
+                <button 
+                    onClick={() => setShowBlockModal(true)} 
+                    className={`text-xs font-bold px-3 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-md ${isDark ? 'bg-slate-800 hover:bg-red-600/30 text-slate-300 hover:text-red-400 border border-slate-700' : 'bg-white hover:bg-red-50 text-slate-600 hover:text-red-600 border border-slate-300'}`}
+                    title="Block this number from sending messages"
+                >
+                    <FaBan size={13} className="text-red-500"/> Block
+                </button>
+            )}
+
             <button onClick={() => setChatTheme(isDark ? 'light' : 'dark')} className={`p-2.5 rounded-full transition-colors shadow-inner ${isDark ? 'bg-[#0f172a] text-yellow-500' : 'bg-white text-slate-600'}`}>
                {isDark ? <FaSun size={14}/> : <FaMoon size={14}/>}
             </button>
         </div>
       </div>
 
-      {/* Messages Area */}
-      <div className={`flex-1 overflow-y-auto p-4 custom-scrollbar relative ${isDark ? "bg-[#0b141a]" : "bg-[#efeae2]"}`} ref={scrollRef} onScroll={handleScroll}>
+      {/* 🛑 BLOCKED CONTACT SPLASH OR ACTIVE CHAT 🛑 */}
+      {isBlocked ? (
+        <div className={`flex-1 flex flex-col items-center justify-center p-8 text-center select-none ${isDark ? "bg-[#0b141a]" : "bg-[#efeae2]"}`}>
+          <div className="w-20 h-20 rounded-3xl bg-rose-500/20 border border-rose-500/30 flex items-center justify-center text-rose-500 mb-5 shadow-2xl animate-pulse">
+            <FaBan size={36} />
+          </div>
+          <h3 className={`text-2xl font-black mb-2 ${isDark ? 'text-white' : 'text-slate-800'}`}>This Contact is Blocked</h3>
+          <p className="text-sm text-slate-400 max-w-md mb-3 font-medium">
+            Incoming and outgoing WhatsApp messages, calls, and automations are rejected for this number.
+          </p>
+          {blockedReason && (
+            <div className="mb-6 px-4 py-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs font-semibold max-w-md shadow-sm">
+              Reason: <span className="font-bold text-white">{blockedReason}</span>
+            </div>
+          )}
+          <button 
+            onClick={handleUnblockConfirm} 
+            disabled={isBlocking}
+            className="px-6 py-3 bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-xs font-black rounded-2xl transition-all shadow-xl shadow-rose-600/30 flex items-center gap-2 uppercase tracking-wider"
+          >
+            <FaBan size={14} /> Unblock Contact to Enable Chat
+          </button>
+        </div>
+      ) : (
+        <>
+          {/* Messages Area */}
+          <div className={`flex-1 overflow-y-auto p-4 custom-scrollbar relative ${isDark ? "bg-[#0b141a]" : "bg-[#efeae2]"}`} ref={scrollRef} onScroll={handleScroll}>
         <div className="relative z-10 flex flex-col">
           {Object.keys(groupedMessages).map(dateLabel => (
              <React.Fragment key={dateLabel}>
@@ -754,7 +885,29 @@ export default function ChatArea({ selectedLead, businessId }) {
 
       {/* Input Section */}
       <div className={`flex flex-col border-t z-20 ${isDark ? 'bg-[#1e293b] border-slate-700' : 'bg-[#f0f2f5] border-slate-300'}`}>
-          {suggestedQRs.length > 0 && (
+          
+          {/* 🛑 BLOCKED BANNER 🛑 */}
+          {isBlocked ? (
+              <div className="p-4 bg-red-500/10 border-b border-red-500/20 flex flex-col sm:flex-row items-center justify-between gap-3">
+                  <div className="flex items-center gap-3 text-red-400 text-sm font-bold">
+                      <FaBan size={22} className="shrink-0 text-red-500"/>
+                      <div>
+                          <p className="font-bold">This contact is currently BLOCKED.</p>
+                          <p className="text-xs text-red-300/80 font-normal">Incoming messages, calls, and automations are rejected.</p>
+                          {blockedReason && <p className="text-xs text-red-400 font-medium mt-0.5">Reason: {blockedReason}</p>}
+                      </div>
+                  </div>
+                  <button 
+                      onClick={handleUnblockConfirm} 
+                      disabled={isBlocking}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-black rounded-xl transition-all shadow-md uppercase tracking-wider shrink-0"
+                  >
+                      Unblock Contact
+                  </button>
+              </div>
+          ) : null}
+
+          {!isBlocked && suggestedQRs.length > 0 && (
               <div className="bg-[#0f172a] border-t border-slate-700 p-3 flex gap-2 overflow-x-auto custom-scrollbar shadow-lg">
                   {suggestedQRs.map((qr, i) => (
                       <button key={i} onClick={() => applyQuickReply(qr)} className="shrink-0 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-colors">
@@ -888,6 +1041,8 @@ export default function ChatArea({ selectedLead, businessId }) {
                 )}
               </div>
       </div>
+    </>
+  )}
 
       {/* QUICK REPLIES MODAL */}
       {showQuickReplies && (
@@ -997,6 +1152,69 @@ export default function ChatArea({ selectedLead, businessId }) {
           businessId={selectedLead?.batch?.businessId}
           campaignType="FREE_SEMINAR" 
       />
+
+      {/* 🛑 Block Contact Confirmation Modal 🛑 */}
+      {showBlockModal && createPortal(
+          <div className="fixed inset-0 z-[99999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
+              <div className="bg-[#1e293b] border border-red-500/30 rounded-3xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95 duration-200">
+                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-700">
+                      <h3 className="text-lg font-black text-red-400 flex items-center gap-2">
+                          <FaBan size={18}/> Block Phone Number
+                      </h3>
+                      <button onClick={() => setShowBlockModal(false)} className="text-slate-400 hover:text-white p-1.5 rounded-lg bg-slate-800">
+                          <FaTimes size={16}/>
+                      </button>
+                  </div>
+
+                  <p className="text-sm text-slate-300 mb-4">
+                      Are you sure you want to block <span className="font-bold text-white">{selectedLead?.phone}</span>?
+                  </p>
+                  <p className="text-xs text-slate-400 mb-4 bg-slate-900/60 p-3 rounded-xl border border-slate-800">
+                      💡 Once blocked, any incoming WhatsApp messages from this number will be discarded immediately. No messages or leads will be updated.
+                  </p>
+
+                  <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-2">Block Reason</label>
+                  <select 
+                      value={selectedBlockReason} 
+                      onChange={(e) => setSelectedBlockReason(e.target.value)}
+                      className="w-full bg-[#0f172a] border border-slate-700 rounded-xl p-3 text-white text-sm font-semibold mb-3 outline-none focus:border-red-500"
+                  >
+                      <option value="Spam / Marketing">Spam / Marketing</option>
+                      <option value="Abusive / Inappropriate Language">Abusive / Inappropriate Language</option>
+                      <option value="Customer Requested Stop">Customer Requested Stop</option>
+                      <option value="Wrong Number / Invalid Contact">Wrong Number / Invalid Contact</option>
+                      <option value="Other">Other Reason</option>
+                  </select>
+
+                  {selectedBlockReason === 'Other' && (
+                      <textarea
+                          value={customBlockReason}
+                          onChange={(e) => setCustomBlockReason(e.target.value)}
+                          placeholder="Type specific reason..."
+                          rows="2"
+                          className="w-full bg-[#0f172a] border border-slate-700 rounded-xl p-3 text-white text-sm mb-4 outline-none focus:border-red-500 resize-none"
+                      />
+                  )}
+
+                  <div className="flex gap-3 mt-4">
+                      <button 
+                          onClick={() => setShowBlockModal(false)}
+                          className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-sm transition-colors"
+                      >
+                          Cancel
+                      </button>
+                      <button 
+                          onClick={handleBlockConfirm}
+                          disabled={isBlocking}
+                          className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-black text-sm transition-colors shadow-lg shadow-red-600/20 flex items-center justify-center gap-2"
+                      >
+                          {isBlocking ? "Blocking..." : "Confirm Block"}
+                      </button>
+                  </div>
+              </div>
+          </div>,
+          document.body
+      )}
 
     </div>
   );
