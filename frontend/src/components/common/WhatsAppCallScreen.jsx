@@ -246,6 +246,9 @@ export default function WhatsAppCallScreen() {
                     </div>
                 ) : null}
             </div>
+
+            {/* Permanent WebRTC Remote Audio Sink */}
+            <audio id="webrtc-remote-audio" autoPlay playsInline style={{ display: 'none' }} />
         </div>
     );
 }

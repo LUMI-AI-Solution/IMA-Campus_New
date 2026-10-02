@@ -1,6 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const physicalFinanceController = require('../controllers/physicalFinanceController');
+const { verifyToken, requireStaff } = require('../middlewares/authMiddleware');
+
+router.use(verifyToken);
+router.use(requireStaff);
 
 // Categories
 router.get('/categories', physicalFinanceController.getCategories);
@@ -12,6 +16,11 @@ router.delete('/categories/:id', physicalFinanceController.deleteCategory);
 router.get('/transactions', physicalFinanceController.getTransactions);
 router.post('/transactions', physicalFinanceController.addTransaction);
 router.delete('/transactions/:id', physicalFinanceController.deleteTransaction);
+
+// Opening Balance
+router.get('/opening-balance', physicalFinanceController.getOpeningBalance);
+router.post('/opening-balance', physicalFinanceController.setOpeningBalance);
+router.delete('/opening-balance/:date', physicalFinanceController.deleteOpeningBalance);
 
 // Trash & Deleted Audit
 router.get('/trash', physicalFinanceController.getTrashTransactions);

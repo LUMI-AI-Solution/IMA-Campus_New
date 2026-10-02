@@ -254,53 +254,6 @@ export default function StudentOverview() {
                 </div>
             </div>
 
-            {/* 🔥 NEW: ENROLLED SUBJECTS UI EXACTLY LIKE ENROLLMENT TAB 🔥 */}
-            {data?.enrolledCourses && data.enrolledCourses.length > 0 && (
-                <div className="mb-6 space-y-4">
-                    <h3 className="text-lg md:text-xl font-bold text-white flex items-center gap-2.5 px-2">
-                        <BookOpen className="text-red-500 w-5 h-5" /> My Enrolled Subjects
-                    </h3>
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        {data.enrolledCourses.map(course => (
-                            <div key={course.id} className="flex flex-col md:flex-row items-start md:items-center justify-between p-4 md:p-5 rounded-2xl border transition-all gap-4 w-full bg-red-600/10 border-red-500 shadow-lg shadow-red-500/5 hover:border-red-400">
-
-                                <div className="flex items-center gap-4 flex-1 min-w-0 w-full md:w-auto">
-                                    <div className="relative flex items-center justify-center shrink-0">
-                                        <div className="shrink-0 w-5 h-5 rounded border-2 border-transparent bg-red-600 text-white flex items-center justify-center shadow-lg shadow-red-500/30">
-                                            <CheckCircle size={14} strokeWidth={3} />
-                                        </div>
-                                    </div>
-                                    <div className="flex flex-col min-w-0 flex-1">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="block font-bold text-white text-base md:text-lg truncate w-full md:w-auto md:max-w-[300px]" title={course.name}>{course.name}</span>
-                                            {course.code && <span className="text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 font-bold uppercase tracking-widest shrink-0">{course.code}</span>}
-                                        </div>
-                                        <span className="text-[10px] text-green-400 font-bold uppercase tracking-widest mt-1 flex items-center gap-1">
-                                            <CheckCircle size={10} /> Active Enrollment
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center gap-3 flex-1 min-w-0 w-full md:w-auto md:border-l md:border-white/20 md:pl-4 pl-8 md:pl-0 pt-3 md:pt-0 border-t border-white/20 md:border-t-0 mt-3 md:mt-0">
-                                    {course.lecturerImage && course.lecturerImage !== 'default.png' && course.lecturerImage !== 'null' ? (
-                                        <img src={`${backendBaseUrl}/storage/icons/${course.lecturerImage}`} alt="Lecturer" className="w-10 h-10 md:w-12 md:h-12 rounded-full object-cover border-2 border-white/20 shrink-0" />
-                                    ) : (
-                                        <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-black/20 backdrop-blur-xl flex items-center justify-center border border-white/20 shrink-0 text-white/80 font-medium">
-                                            <User size={18} />
-                                        </div>
-                                    )}
-                                    <div className="flex flex-col min-w-0">
-                                        <span className="text-[10px] text-white/70 font-medium uppercase tracking-widest font-bold">Lecturer</span>
-                                        <span className="text-sm md:text-base text-white font-semibold truncate" title={course.lecturerName || 'TBA'}>{course.lecturerName || 'TBA'}</span>
-                                    </div>
-                                </div>
-
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-
             {/* MAIN GRID LAYOUT */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
 

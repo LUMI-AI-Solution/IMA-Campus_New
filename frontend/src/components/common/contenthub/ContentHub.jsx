@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { Loader2, FolderOpen, Layers, BookOpen, Plus, ChevronRight, ArrowLeft, Building2, MonitorPlay, MessageSquare, Send, CreditCard, FolderPlus, Users } from 'lucide-react';
 import api from '../../../api/axios'; 
@@ -34,6 +34,7 @@ export default function ContentHub() {
   const [activeBusiness, setActiveBusiness] = useState(null);
   const [activeBatch, setActiveBatch] = useState(null);
   const [batchTab, setBatchTab] = useState('subjects'); 
+  const [selectedClassType, setSelectedClassType] = useState('theory'); // 'theory' (courseType: 1) | 'paper' (courseType: 2) 
   const [activeSubject, setActiveSubject] = useState(null);
   const [contentTab, setContentTab] = useState('live'); 
 
@@ -72,6 +73,8 @@ export default function ContentHub() {
   const [masterTutes, setMasterTutes] = useState([]);
   const [hubBatchConfigs, setHubBatchConfigs] = useState({});
   const [hubActiveBatchTab, setHubActiveBatchTab] = useState(null);
+  const [isSubmittingFolder, setIsSubmittingFolder] = useState(false);
+  const [isSubmittingContent, setIsSubmittingContent] = useState(false);
   const [openFolders, setOpenFolders] = useState({});
 
   const [postBizId, setPostBizId] = useState('all');
@@ -208,7 +211,8 @@ export default function ContentHub() {
       const subs = [];
       batch?.groups?.forEach(g => {
           g.courses?.forEach(c => {
-              const existing = subs.find(s => s.name === c.name);
+              const cType = parseInt(c.courseType || g.classType || 1);
+              const existing = subs.find(s => s.name === c.name && parseInt(s.courseType || 1) === cType);
               
               let gpData = {};
               try {
@@ -230,7 +234,7 @@ export default function ContentHub() {
               };
 
               if(!existing) { 
-                  subs.push({...c, groupPrices: [priceObj], allCourseIds: [c.id] }); 
+                  subs.push({...c, courseType: cType, groupPrices: [priceObj], allCourseIds: [c.id] }); 
               } else { 
                   existing.groupPrices.push(priceObj); 
                   existing.allCourseIds.push(c.id);
@@ -280,6 +284,12 @@ export default function ContentHub() {
       if (batch?.business) {
           setActiveBusiness(batch.business);
       }
+      const bType = parseInt(batch?.type || 1);
+      if (bType === 2) {
+          setSelectedClassType('paper');
+      } else {
+          setSelectedClassType('theory');
+      }
       extractUniqueSubjects(batch); 
       setViewLevel('batch_details'); 
       setBatchTab('subjects'); 
@@ -300,7 +310,32 @@ export default function ContentHub() {
   const getManagerName = (id) => { const m = managersList.find(m => m.id.toString() === id?.toString()); return m ? `${m.firstName} ${m.lastName}` : 'Not Assigned'; };
   const getBatchStreams = () => { try { return activeBusiness?.streams ? activeBusiness.streams.split(',').map(s=>s.trim()) : []; } catch(e) { return []; } };
 
-  const groupedSubjects = uniqueSubjects.reduce((acc, sub) => {
+  // Maintain selected class type without forcing lock to allow full Theory & Paper management across all batches
+  useEffect(() => {
+    if (activeBatch) {
+      const bType = parseInt(activeBatch.type || 1);
+      // Only set initial class type if activeBatch is strictly paper-only (type 2) and hasn't been set
+      if (bType === 2 && !selectedClassType) {
+        setSelectedClassType('paper');
+      }
+    }
+  }, [activeBatch?.id]);
+
+  const theorySubjects = useMemo(() => {
+    return uniqueSubjects.filter(s => parseInt(s.courseType || 1) === 1);
+  }, [uniqueSubjects]);
+
+  const paperSubjects = useMemo(() => {
+    return uniqueSubjects.filter(s => parseInt(s.courseType || 1) === 2);
+  }, [uniqueSubjects]);
+
+  const currentClassSubjects = useMemo(() => {
+    const targetType = selectedClassType === 'paper' ? 2 : 1;
+    return uniqueSubjects.filter(s => parseInt(s.courseType || 1) === targetType);
+  }, [uniqueSubjects, selectedClassType]);
+
+  const groupedSubjects = useMemo(() => {
+    return currentClassSubjects.reduce((acc, sub) => {
       if (activeBusiness?.category === 'Advance Level' || activeBusiness?.category === 'AL') {
           let subStreams = [];
           try {
@@ -323,9 +358,19 @@ export default function ContentHub() {
           acc['All Subjects'].push(sub);
       }
       return acc;
-  }, {});
+    }, {});
+  }, [currentClassSubjects, activeBusiness]);
 
-  const getTypeInt = (tabStr) => { switch(tabStr) { case 'live': return 1; case 'recording': return 2; case 'document': return 3; case 'sPaper': return 4; case 'paper': return 5; default: return 1; } };
+  const getTypeInt = (tabStr) => { 
+    switch(tabStr) { 
+      case 'live': return 1; 
+      case 'recording': return 2; 
+      case 'document': return 3; 
+      case 'testRanking': case 'sPaper': return 4; 
+      case 'paper': return 5; 
+      default: return 1; 
+    } 
+  };
   
   const getEmbedUrl = (url) => {
       if (!url) return '';
@@ -340,13 +385,25 @@ export default function ContentHub() {
           }
           return url; 
       } catch(e) {
-          return url;
+          return url; 
       }
   };
+
   const isMatchedType = (item) => {
       const typeStr = contentType || contentTab;
       const typeInt = getTypeInt(typeStr);
       
+      // If filtering for Test Ranking tab
+      if (typeStr === 'testRanking') {
+          if (item.type !== undefined) {
+              return parseInt(item.type) === 4 || parseInt(item.type) === 5;
+          }
+          if (item.contentType !== undefined) {
+              return ['testRanking', 'rankingTest', 'ranking_test', 'test', 'sPaper', 'paper', '4', '5'].includes(String(item.contentType));
+          }
+          return false;
+      }
+
       // If item is a folder (ContentGroup), it has a numeric 'type'
       if (item.type !== undefined) {
           return parseInt(item.type) === typeInt;
@@ -515,9 +572,13 @@ export default function ContentHub() {
           ...(rule.fixedDiscount != null && rule.fixedDiscount !== '' && { fixedDiscount: parseFloat(rule.fixedDiscount) })
       }));
 
+      const formClassType = formData.get('classType');
+      const classTypeVal = formClassType ? parseInt(formClassType, 10) : (selectedClassType === 'paper' ? 2 : 1);
+
       const payload = { 
           group_id: editData?.id, batch_id: activeBatch.id, name: formData.get('name'), paymentType: pType, itemOrder: formData.get('itemOrder'), 
-          discountRules: pType === 'Full Payment' ? cleanDiscountRules : [] 
+          classType: classTypeVal,
+          discountRules: cleanDiscountRules 
       };
       
       try {
@@ -580,11 +641,21 @@ export default function ContentHub() {
           lecturerImage: selectedGroupPrices[k].lecturerImage
       }));
 
+      let resolvedCourseType = 1;
+      const formCourseType = formData.get('courseType');
+      if (formCourseType) {
+          resolvedCourseType = parseInt(formCourseType);
+      } else if (editMode && editData?.courseType) {
+          resolvedCourseType = parseInt(editData.courseType);
+      } else {
+          resolvedCourseType = selectedClassType === 'paper' ? 2 : 1;
+      }
+
       formData.set('course_id', editData?.id || '');
       formData.set('stream', selectedStreams.length > 0 ? selectedStreams[0] : '');
       formData.set('streams', JSON.stringify(selectedStreams));
       formData.set('itemOrder', formData.get('itemOrder') || 1);
-      formData.set('courseType', 1);
+      formData.set('courseType', resolvedCourseType);
       formData.set('groupPricing', JSON.stringify(formattedPrices));
       formData.set('groupPrices', JSON.stringify(formattedPrices));
       formData.set('isDiscountExcluded', excludeDiscount);
@@ -597,7 +668,7 @@ export default function ContentHub() {
           } else { 
               await api.post('/course-setup/subject', formData, { headers: { 'Content-Type': 'multipart/form-data' }}); 
           }
-          toast.success(editMode ? "Subject Updated!" : "Subject Created!");
+          toast.success(editMode ? "Subject Updated!" : `${resolvedCourseType === 2 ? 'Paper' : 'Theory'} Subject Created!`);
           setShowCourseModal(false); refreshBatches(activeBusiness.id);
       } catch (error) { toast.error("Action Failed"); }
   };
@@ -615,6 +686,8 @@ export default function ContentHub() {
 
   const handleLessonGroupSubmit = async (e) => {
       e.preventDefault();
+      if (isSubmittingFolder) return;
+      setIsSubmittingFolder(true);
       const formData = new FormData(e.target);
       const folderType = getTypeInt(contentTab); 
       const chosenParent = formData.get('parentId') !== null ? formData.get('parentId') : selectedFolderParentId;
@@ -639,18 +712,27 @@ export default function ContentHub() {
           setParentFolderForSub(null);
           setSelectedFolderParentId('');
           fetchContents(activeSubject, activeBatch); 
-      } catch (error) { toast.error("Action Failed"); }
+      } catch (error) { 
+          toast.error(error.response?.data?.error || "Action Failed"); 
+      } finally {
+          setIsSubmittingFolder(false);
+      }
   };
 
   const handleMassAssignSubmit = async (e) => {
       e.preventDefault();
+      if (isSubmittingContent) return;
+      setIsSubmittingContent(true);
       const formData = new FormData(e.target);
       formData.set('type', contentType);
       formData.set('batch_id', activeBatch.id);
 
       try {
           if (editMode) {
-              if (massAssignSubjects.length === 0) return toast.error("Please select at least one subject to assign this content!");
+              if (massAssignSubjects.length === 0) {
+                  setIsSubmittingContent(false);
+                  return toast.error("Please select at least one subject to assign this content!");
+              }
               formData.set('selectedCourses', JSON.stringify(massAssignSubjects));
               formData.set('selectedBatches', JSON.stringify(selectedBatchesForContent));
               if (editData?.id) formData.set('content_id', editData.id);
@@ -693,7 +775,10 @@ export default function ContentHub() {
                   };
               }
 
-              if (!hasSelections) return toast.error("Please select at least one subject to assign this content!");
+              if (!hasSelections) {
+                  setIsSubmittingContent(false);
+                  return toast.error("Please select at least one subject to assign this content!");
+              }
 
               const submissions = Object.keys(folderGroups).map(async (folderKey) => {
                   const fd = new FormData(e.target);
@@ -721,7 +806,11 @@ export default function ContentHub() {
           setHubBatchConfigs({});
           setHubActiveBatchTab(null);
           if (activeSubject) fetchContents(activeSubject, activeBatch); 
-      } catch (error) { toast.error("Failed to process content"); }
+      } catch (error) { 
+          toast.error("Failed to process content"); 
+      } finally {
+          setIsSubmittingContent(false);
+      }
   };
 
   const stateData = {
@@ -731,6 +820,8 @@ export default function ContentHub() {
     showLessonGroupModal, showContentModal, showPostModal, showManagePostsModal, previewData, editMode, editData, selectedLogoName,
     selectedGroupPrices, discountRules, contentType, prefilledFolder, selectedBatchesForContent, massAssignSubjects, openFolders,
     postBizId, postBatches, showInstallmentModal, existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, groupedSubjects, loading, showLecturerModal, masterTutes,
+    selectedClassType, setSelectedClassType, theoryCount: theorySubjects.length, paperCount: paperSubjects.length,
+    isSubmittingFolder, isSubmittingContent,
     hubBatchConfigs, hubActiveBatchTab, parentFolderForSub, selectedFolderParentId
   };
 
@@ -747,7 +838,7 @@ export default function ContentHub() {
     setInstallmentSubjectCount, setInstallmentSteps, setEditInstallmentId, setEditData, setDiscountRules, setSelectedGroupPrices,
     setShowLecturerModal, handleLecturerSubmit, handleDeleteLecturer, setHubBatchConfigs, setHubActiveBatchTab,
     setParentFolderForSub, openCreateSubFolderModal, setSelectedFolderParentId,
-    openPaperBuilder
+    openPaperBuilder, setSelectedClassType
   };
 
   if (loading) return <div className="flex h-full items-center justify-center min-h-[60vh]"><Loader2 size={50} className="animate-spin text-brand-accent" /></div>;
@@ -776,7 +867,7 @@ export default function ContentHub() {
               )}
           </div>
 
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
               <h2 className="text-xl sm:text-2xl md:text-3xl font-extrabold text-white flex items-center gap-3 sm:gap-4 tracking-tight truncate w-full sm:w-auto drop-shadow-md">
                   {viewLevel === 'businesses' && <><Building2 className="text-brand-accent shrink-0 drop-shadow-sm w-6 h-6 sm:w-8 sm:h-8"/> Manage Businesses</>}
                   {viewLevel === 'batches' && <><Layers className="text-brand-accent shrink-0 drop-shadow-sm w-6 h-6 sm:w-8 sm:h-8"/> <span className="truncate" title={activeBusiness?.name}>{activeBusiness?.name} - Batches</span></>}
@@ -793,9 +884,9 @@ export default function ContentHub() {
                   {viewLevel === 'batch_details' && canManageGroupsAndSubjects && (
                       <>
                           <button onClick={openInstallmentModal} className="flex-1 sm:flex-none bg-orange-500/90 hover:bg-orange-500 text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(249,115,22,0.4)] border border-transparent outline-none"><CreditCard size={16}/> <span className="hidden xs:inline">Setup</span> Installments</button>
-                          {batchTab === 'groups' && <button onClick={() => { setEditMode(false); setShowGroupModal(true); setDiscountRules([{courseCount:'',pricePerCourse:''}]); }} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none border border-transparent"><Plus size={16}/> New Group</button>}
-                          {batchTab === 'subjects' && <button onClick={() => { setEditMode(false); setShowCourseModal(true); setSelectedGroupPrices({}); }} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none border border-transparent"><Plus size={16}/> New Subject</button>}
-                          {batchTab === 'lecturers' && <button onClick={() => { setEditMode(false); setShowLecturerModal(true); }} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none border border-transparent"><Plus size={16}/> New Lecturer</button>}
+                          {batchTab === 'groups' && <button onClick={() => { setEditMode(false); setEditData(null); setShowGroupModal(true); setDiscountRules([{courseCount:'',packagePrice:'',pricePerCourse:'',fixedDiscount:''}]); }} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none border border-transparent"><Plus size={16}/> New {selectedClassType === 'paper' ? 'Paper' : 'Theory'} Group</button>}
+                          {batchTab === 'subjects' && <button onClick={() => { setEditMode(false); setEditData(null); setShowCourseModal(true); setSelectedGroupPrices({}); }} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none border border-transparent"><Plus size={16}/> New {selectedClassType === 'paper' ? 'Paper' : 'Theory'} Subject</button>}
+                          {batchTab === 'lecturers' && <button onClick={() => { setEditMode(false); setEditData(null); setShowLecturerModal(true); }} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none border border-transparent"><Plus size={16}/> New Lecturer</button>}
                       </>
                   )}
                   {viewLevel === 'contents' && canManageContent && (
@@ -804,6 +895,8 @@ export default function ContentHub() {
                           <button onClick={() => { 
                               setShowContentModal(true); setContentType(''); setPrefilledFolder(''); setEditMode(false); 
                               setSelectedBatchesForContent([activeBatch.id]); 
+                              setHubBatchConfigs({});
+                              setHubActiveBatchTab(null);
                           }} className="flex-1 sm:flex-none bg-emerald-600/90 hover:bg-emerald-600 text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(5,150,105,0.4)] border border-transparent outline-none"><Plus size={16}/> Add Content</button>
                       </>
                   )}

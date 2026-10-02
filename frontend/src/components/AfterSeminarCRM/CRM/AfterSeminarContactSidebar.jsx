@@ -19,12 +19,11 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   const currentUserId = JSON.parse(localStorage.getItem('user'))?.id;
 
   const location = useLocation();
-  const initialSearchQuery = useMemo(() => {
-      const params = new URLSearchParams(location.search);
-      return params.get('searchQuery') || params.get('search') || '';
-  }, [location.search]);
+  const initialParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const initialSearchQuery = initialParams.get('searchQuery') || initialParams.get('search') || '';
+  const initialTab = initialParams.get('tab') ? initialParams.get('tab').toUpperCase() : (initialSearchQuery ? 'ALL' : (isManager ? 'NEW_INQ' : 'ASSIGNED'));
 
-  const [activeTab, setActiveTab] = useState(initialSearchQuery ? 'ALL' : (isManager ? 'NEW_INQ' : 'ASSIGNED'));
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [newSubTab, setNewSubTab] = useState('OPEN_SEMINAR'); 
   const [callHistoryMode, setCallHistoryMode] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
@@ -86,11 +85,19 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   }, [searchQuery]);
   
   useEffect(() => {
-      if (initialSearchQuery && initialSearchQuery !== searchQuery) {
-          setSearchQuery(initialSearchQuery);
+      const params = new URLSearchParams(location.search);
+      const searchVal = params.get('searchQuery') || params.get('search');
+      const tabVal = params.get('tab');
+      if (tabVal) {
+          setActiveTab(tabVal.toUpperCase());
+      } else if (searchVal) {
           setActiveTab('ALL');
       }
-  }, [initialSearchQuery]);
+      if (searchVal && searchVal !== searchQuery) {
+          setSearchQuery(searchVal);
+          setDebouncedSearchQuery(searchVal);
+      }
+  }, [location.search]);
 
   const [visibleCount, setVisibleCount] = useState(50);
 
@@ -135,7 +142,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                 loggedUserId: currentUserId, 
                 loggedUserRole: rawRole,
                 businessId: filters?.selectedBusiness || '', 
-                batchId: filters?.selectedBatch || '',
+                batchId: (debouncedSearchQuery && activeTab === 'ALL') ? '' : (filters?.selectedBatch || ''),
                 searchQuery: debouncedSearchQuery,
                 unassignedOnly: unassignedOnlyFilter ? 'true' : 'false',
                 page: fetchPage,     // Backend ekata yawanawa
@@ -200,7 +207,14 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
           axios.get('/admin/manager/batches-full', { headers: { Authorization: `Bearer ${token}` } })
       ]);
       setBatches(batchRes.data || []);
-      let coords = staffRes.data.filter(s => s?.role && ['COORDINATOR', 'MANAGER', 'SYSTEM_ADMIN', 'DIRECTOR', 'ASS_MANAGER'].includes(s?.role.toUpperCase()));
+      let coords = (staffRes.data || []).filter(s => {
+          if (!s?.role) return false;
+          const r = String(s.role).toUpperCase().replace(/ /g, '_');
+          const dept = String(s.department || '').toUpperCase().replace(/ /g, '_');
+          return ['COORDINATOR', 'MANAGER', 'SYSTEM_ADMIN', 'DIRECTOR', 'ASS_MANAGER'].includes(r) && 
+                 !r.includes('CALL') && 
+                 dept !== 'CALL_CENTER';
+      });
       if (filters?.selectedBusiness) {
           const selectedBizObj = bizRes.data.find(b => String(b.id) === String(filters.selectedBusiness));
           const bizName = selectedBizObj ? selectedBizObj.name : '';
@@ -1081,14 +1095,14 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                               )}
                           </div>
                           
-                          {lead.assignedUser ? (
+                          {lead.assignedUser && !['CALL_CENTER_AGENT', 'CALLER', 'CALL_CENTER'].includes(String(lead.assignedUser.role || '').toUpperCase().replace(/ /g, '_')) ? (
                               <span className="text-[10px] text-blue-400 font-semibold mt-0.5 flex items-center gap-1">👤 {lead.assignedUser.firstName} {lead.assignedUser.lastName} <BusinessBadge businessType={lead.assignedUser.businessType} role={lead.assignedUser.role} /></span>
                           ) : (
-                              (!lead.assignedTo && (
+                              (!lead.assignedTo || ['CALL_CENTER_AGENT', 'CALLER', 'CALL_CENTER'].includes(String(lead.assignedUser?.role || '').toUpperCase().replace(/ /g, '_'))) && (
                                   <button onClick={(e) => { e.stopPropagation(); handleBulkAction('ASSIGN', currentUserId, [lead.id]); }} className="text-[9px] w-max bg-emerald-600/80 hover:bg-emerald-500 text-white px-2 py-1 rounded shadow-md flex items-center gap-1 transition-all mt-1">
                                      <FaUserCheck size={10}/> Assign to me
                                   </button>
-                              ))
+                              )
                           )}
                       </div>
                       

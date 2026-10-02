@@ -14,13 +14,25 @@ const parseSLTDate = (dateStr, timeStr = "00:00") => {
     return new Date(Date.UTC(year, month - 1, day, hours - 5, minutes - 30, 0));
 };
 
+// Helper to format date object to SLT (UTC+5:30) date string YYYY-MM-DD
+const getSLTDateStr = (d) => {
+    if (!d) return '';
+    const dateObj = new Date(d);
+    if (isNaN(dateObj.getTime())) return '';
+    const sltObj = new Date(dateObj.getTime() + (330 * 60 * 1000));
+    return sltObj.toISOString().split('T')[0];
+};
+
 exports.getSchedule = async (req, res) => {
     try {
         const { batchId, businessId, year, month } = req.query;
-        // මාසෙ මුල සහ අග ලංකාවේ වෙලාවටම ගන්නවා
-        const startDate = parseSLTDate(`${year}-${String(month).padStart(2, '0')}-01`);
-        const nextMonth = new Date(Date.UTC(year, month, 0)); 
-        const endDate = parseSLTDate(`${year}-${String(month).padStart(2, '0')}-${nextMonth.getUTCDate()}`, "23:59");
+        const now = new Date();
+        const curYear = (year && !isNaN(parseInt(year))) ? parseInt(year) : now.getFullYear();
+        const curMonth = (month && !isNaN(parseInt(month))) ? parseInt(month) : (now.getMonth() + 1);
+
+        const startDate = parseSLTDate(`${curYear}-${String(curMonth).padStart(2, '0')}-01`);
+        const nextMonthDays = new Date(Date.UTC(curYear, curMonth, 0)).getUTCDate(); 
+        const endDate = parseSLTDate(`${curYear}-${String(curMonth).padStart(2, '0')}-${String(nextMonthDays).padStart(2, '0')}`, "23:59");
 
         let whereClause = {
             date: {
@@ -28,14 +40,99 @@ exports.getSchedule = async (req, res) => {
                 lte: endDate,
             }
         };
-        if (businessId) whereClause.businessId = parseInt(businessId);
-        else if (batchId) whereClause.batchId = parseInt(batchId);
+        if (businessId) {
+            whereClause.businessId = parseInt(businessId);
+        } else if (batchId) {
+            const bIdNum = parseInt(batchId);
+            whereClause.OR = [
+                { batchId: bIdNum },
+                { additionalBatchIds: { contains: `${bIdNum}` } }
+            ];
+        }
 
         const schedule = await prisma.timetable.findMany({
             where: whereClause,
             include: { hall: true, batch: true },
             orderBy: { startTime: 'asc' }
         });
+
+        // Helper to extract all batch IDs covered by a Timetable record
+        const getCoveredBatchIds = (s) => {
+            const bIds = [s.batchId];
+            if (s.additionalBatchIds) {
+                try {
+                    const parsed = typeof s.additionalBatchIds === 'string' ? JSON.parse(s.additionalBatchIds) : s.additionalBatchIds;
+                    if (Array.isArray(parsed)) {
+                        bIds.push(...parsed.map(Number));
+                    }
+                } catch (e) {}
+            }
+            return [...new Set(bIds.filter(Boolean))];
+        };
+
+        // Normalize string for fuzzy comparison
+        const norm = (str) => (str || '').toLowerCase().replace(/[\s\-_]+/g, ' ').trim();
+
+        // 1. Deduplicate schedule (Timetable records themselves) when viewing a Business or multiple batches
+        // If the same class was created multiple times for different batches on the same date/time, unify them
+        const unifiedScheduleList = [];
+        schedule.forEach(s => {
+            const sDateStr = getSLTDateStr(s.date);
+            const sCleanMeetingId = s.liveLink ? String(s.liveLink).replace(/\D/g, '') : null;
+            const sNormTitle = norm(s.title);
+            const sNormSub = norm(s.subjectName);
+            const sNormLec = norm(s.lecturerName);
+
+            // Find if there is an existing timetable record in unifiedScheduleList representing this same session
+            const matchIndex = unifiedScheduleList.findIndex(existing => {
+                const exDateStr = getSLTDateStr(existing.date);
+                if (exDateStr !== sDateStr) return false;
+                if (existing.startTime !== s.startTime) return false;
+
+                const exCleanMeetingId = existing.liveLink ? String(existing.liveLink).replace(/\D/g, '') : null;
+                const exNormTitle = norm(existing.title);
+                const exNormSub = norm(existing.subjectName);
+                const exNormLec = norm(existing.lecturerName);
+
+                // Check 1: Same Zoom Meeting ID
+                if (sCleanMeetingId && exCleanMeetingId && (sCleanMeetingId === exCleanMeetingId || sCleanMeetingId.includes(exCleanMeetingId) || exCleanMeetingId.includes(sCleanMeetingId))) {
+                    return true;
+                }
+
+                // Check 2: Same Title or high title overlap (same class title)
+                if (sNormTitle && exNormTitle && (sNormTitle === exNormTitle || (sNormTitle.length > 8 && exNormTitle.length > 8 && (sNormTitle.includes(exNormTitle) || exNormTitle.includes(sNormTitle))))) {
+                    return true;
+                }
+
+                // Check 3: Same Lecturer AND same Subject
+                if (sNormLec && exNormLec && sNormLec === exNormLec && sNormSub && exNormSub && sNormSub === exNormSub) {
+                    return true;
+                }
+
+                return false;
+            });
+
+            if (matchIndex !== -1) {
+                const existing = unifiedScheduleList[matchIndex];
+                const existingBatches = getCoveredBatchIds(existing);
+                const newBatches = getCoveredBatchIds(s);
+                const mergedBatches = [...new Set([...existingBatches, ...newBatches])];
+                const others = mergedBatches.filter(id => id !== existing.batchId);
+                existing.additionalBatchIds = others.length > 0 ? JSON.stringify(others) : null;
+                if (!existing.liveLink && s.liveLink) existing.liveLink = s.liveLink;
+                if (!existing.hallId && s.hallId) {
+                    existing.hallId = s.hallId;
+                    existing.hall = s.hall;
+                }
+                if (existing.deliveryStatus !== 'DELIVERED' && s.deliveryStatus === 'DELIVERED') {
+                    existing.deliveryStatus = 'DELIVERED';
+                }
+            } else {
+                unifiedScheduleList.push({ ...s });
+            }
+        });
+
+        const deduplicatedSchedule = unifiedScheduleList;
 
         let contentWhereClause = {
             contentType: { in: ['live', '1'] },
@@ -56,55 +153,127 @@ exports.getSchedule = async (req, res) => {
             include: { group: true }
         });
 
-        // Filter and map Content classes
-        // 1. Group by date + startTime to avoid showing multiple payment group instances as duplicates
-        // 2. Exclude Content records that overlap with a Timetable record (because they were generated from tasks)
-        const uniqueContentClassesMap = new Map();
+        // 2. Filter and map Content classes
+        // Content classes should NOT duplicate an existing Timetable record, AND
+        // if the same Content class is assigned to 2 or 3 batches, it must be unified into ONE class!
+        const uniqueContentClassesList = [];
 
         contentClasses.forEach(c => {
-            // Ignore Content records created without a title (typically those auto-created via tasks)
-            // or if you want to include them, we at least deduplicate them.
-            // But since Timetable records already show the class, we should only show Content 
-            // if there's no Timetable record at the exact same date and time.
-            const dateStr = c.date ? new Date(c.date).toISOString().split('T')[0] : '';
-            const key = `${c.batchId}_${dateStr}_${c.startTime}`;
+            const dateStr = getSLTDateStr(c.date);
+            const normTitle = norm(c.title);
+            const cleanMeetingId = (c.meetingId || c.link) ? String(c.meetingId || c.link).replace(/\D/g, '') : null;
 
-            // Check if a Timetable record already exists for this slot
-            const hasTimetable = schedule.some(s => {
-                const sDateStr = s.date ? new Date(s.date).toISOString().split('T')[0] : '';
-                return s.batchId === c.batchId && sDateStr === dateStr && s.startTime === c.startTime;
+            // Check if ANY Timetable record in deduplicatedSchedule covers this class
+            const matchingTimetable = deduplicatedSchedule.find(s => {
+                const sDateStr = getSLTDateStr(s.date);
+                if (sDateStr !== dateStr) return false;
+                if (s.startTime !== c.startTime) return false;
+
+                const coveredBatches = getCoveredBatchIds(s);
+                const isBatchCovered = coveredBatches.includes(c.batchId);
+
+                const sNormSub = norm(s.subjectName);
+                const sNormTitle = norm(s.title);
+                const sCleanMeetingId = s.liveLink ? String(s.liveLink).replace(/\D/g, '') : null;
+
+                const isMeetingMatch = cleanMeetingId && sCleanMeetingId && (cleanMeetingId.includes(sCleanMeetingId) || sCleanMeetingId.includes(cleanMeetingId));
+                const isTitleMatch = normTitle && sNormTitle && (normTitle === sNormTitle || (normTitle.length > 8 && sNormTitle.length > 8 && (normTitle.includes(sNormTitle) || sNormTitle.includes(normTitle))));
+
+                // 1) Same zoom meeting ID -> definitely the same class
+                if (isMeetingMatch) return true;
+
+                // 2) Same title -> definitely the same class
+                if (isTitleMatch) return true;
+
+                // 3) Batch is covered AND (title contains subject name or subject matches)
+                if (isBatchCovered && sNormSub && normTitle && (normTitle.includes(sNormSub) || sNormSub.includes(normTitle))) {
+                    return true;
+                }
+
+                // 4) Batch is covered
+                if (isBatchCovered) return true;
+
+                return false;
             });
 
-            if (!hasTimetable && !uniqueContentClassesMap.has(key)) {
-                // Determine a meaningful subject name. If c.title is empty, use 'Content Hub Live Class'
-                const subjectName = (c.title && c.title.trim() !== '' && c.title !== 'null') ? c.title : 'Content Hub Live Class';
-                
-                uniqueContentClassesMap.set(key, {
-                    id: `content_${c.id}`,
-                    businessId: businessId ? parseInt(businessId) : 0,
-                    batchId: c.batchId,
-                    date: c.date,
-                    subjectName: subjectName,
-                    title: 'Content Hub Live Class',
-                    startTime: c.startTime || '00:00',
-                    endTime: c.endTime || '00:00',
-                    lecturerName: 'Content Hub',
-                    hall: null,
-                    deliveryStatus: c.link || c.meetingId ? 'DELIVERED' : 'PENDING',
-                    isFromContentHub: true
+            if (matchingTimetable) {
+                // Attach live link / delivery status to timetable if missing
+                if (!matchingTimetable.liveLink && (c.link || c.meetingId)) {
+                    matchingTimetable.liveLink = c.link || c.meetingId;
+                }
+                if (matchingTimetable.deliveryStatus !== 'DELIVERED' && (c.link || c.meetingId)) {
+                    matchingTimetable.deliveryStatus = 'DELIVERED';
+                }
+                // Ensure c.batchId is registered in matchingTimetable
+                const covered = getCoveredBatchIds(matchingTimetable);
+                if (!covered.includes(c.batchId)) {
+                    covered.push(c.batchId);
+                    const others = covered.filter(id => id !== matchingTimetable.batchId);
+                    matchingTimetable.additionalBatchIds = others.length > 0 ? JSON.stringify(others) : null;
+                }
+            } else {
+                // Standalone Content Hub class: Unify Content classes across multiple batches for the same session
+                const matchIndex = uniqueContentClassesList.findIndex(existing => {
+                    const exDateStr = getSLTDateStr(existing.date);
+                    if (exDateStr !== dateStr) return false;
+                    if (existing.startTime !== c.startTime) return false;
+
+                    const exCleanMeetingId = (existing.link || existing.meetingId) ? String(existing.link || existing.meetingId).replace(/\D/g, '') : null;
+                    const exNormTitle = norm(existing.title);
+
+                    if (cleanMeetingId && exCleanMeetingId && (cleanMeetingId === exCleanMeetingId || cleanMeetingId.includes(exCleanMeetingId) || exCleanMeetingId.includes(cleanMeetingId))) {
+                        return true;
+                    }
+                    if (normTitle && exNormTitle && (normTitle === exNormTitle || (normTitle.length > 8 && exNormTitle.length > 8 && (normTitle.includes(exNormTitle) || exNormTitle.includes(normTitle))))) {
+                        return true;
+                    }
+                    return false;
                 });
+
+                if (matchIndex !== -1) {
+                    const existing = uniqueContentClassesList[matchIndex];
+                    let existingBatches = [];
+                    if (existing.additionalBatchIds) {
+                        try { existingBatches = JSON.parse(existing.additionalBatchIds); } catch(e){}
+                    }
+                    if (c.batchId !== existing.batchId && !existingBatches.includes(c.batchId)) {
+                        existingBatches.push(c.batchId);
+                        existing.additionalBatchIds = JSON.stringify(existingBatches);
+                    }
+                    if (!existing.link && c.link) existing.link = c.link;
+                    if (!existing.meetingId && c.meetingId) existing.meetingId = c.meetingId;
+                } else {
+                    const subjectName = (c.title && c.title.trim() !== '' && c.title !== 'null') ? c.title : 'Content Hub Live Class';
+                    uniqueContentClassesList.push({
+                        id: `content_${c.id}`,
+                        businessId: businessId ? parseInt(businessId) : 0,
+                        batchId: c.batchId,
+                        additionalBatchIds: null,
+                        batch: c.batch || null,
+                        date: c.date,
+                        subjectName: subjectName,
+                        title: c.title || 'Content Hub Live Class',
+                        startTime: c.startTime || '00:00',
+                        endTime: c.endTime || '00:00',
+                        lecturerName: 'Content Hub',
+                        hall: null,
+                        deliveryStatus: c.link || c.meetingId ? 'DELIVERED' : 'PENDING',
+                        isFromContentHub: true
+                    });
+                }
             }
         });
 
-        const mappedContentClasses = Array.from(uniqueContentClassesMap.values());
+        const mappedContentClasses = uniqueContentClassesList;
 
-        const mergedSchedule = [...schedule, ...mappedContentClasses].sort((a, b) => {
+        const mergedSchedule = [...deduplicatedSchedule, ...mappedContentClasses].sort((a, b) => {
             if (!a.startTime || !b.startTime) return 0;
             return a.startTime.localeCompare(b.startTime);
         });
 
         res.status(200).json(mergedSchedule);
     } catch (error) {
+        console.error("Timetable getSchedule error:", error);
         res.status(500).json({ error: "Failed to load schedule" });
     }
 };

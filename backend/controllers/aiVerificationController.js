@@ -282,10 +282,11 @@ exports.startBulkVerification = async (req, res) => {
     let pendingSlips = [];
     try {
         if (paymentIds && Array.isArray(paymentIds) && paymentIds.length > 0) {
-            // Process ONLY the exact requested slips
+            // Process ONLY the exact requested slips that are pending or postpay - NEVER touch status 1
             pendingSlips = await prisma.payment.findMany({
                 where: {
                     id: { in: paymentIds },
+                    status: { in: [0, 4] },
                     slip_image: { not: null }
                 },
                 orderBy: { created_at: 'asc' },
@@ -876,12 +877,20 @@ const createDeliveryForVerifiedPayment = async (payment) => {
     try {
         if (!payment || !payment.subjects) return;
 
-        const existingDelivery = await prisma.delivery.findUnique({ where: { paymentId: payment.id } });
+        const existingDelivery = await prisma.delivery.findFirst({
+            where: {
+                paymentId: payment.id,
+                status: { notIn: ['Trash', 'Cancelled', 'Rejected'] }
+            }
+        });
         if (existingDelivery) return;
 
         let subIds = [];
         try {
-            subIds = JSON.parse(payment.subjects).map(id => parseInt(id));
+            const rawSubs = typeof payment.subjects === 'string' ? JSON.parse(payment.subjects) : payment.subjects;
+            if (Array.isArray(rawSubs)) {
+                subIds = rawSubs.map(id => parseInt(id, 10)).filter(id => !isNaN(id) && id > 0);
+            }
         } catch(e) {
             return;
         }
@@ -889,94 +898,15 @@ const createDeliveryForVerifiedPayment = async (payment) => {
         if (subIds.length === 0) return;
 
         const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
-        const deliverableCourses = [];
+        if (!courses || courses.length === 0) return;
 
-        for (const course of courses) {
-            let deliverTute = false;
-            let tuteName = course.name || "Tute";
-            let tuteImage = null;
+        const { getDeliverableCoursesForPayment } = require('./paymentController');
+        const deliverableCourses = await getDeliverableCoursesForPayment(payment, courses);
 
-            if (course.groupPrices && payment.groupId) {
-                try {
-                    const gps = JSON.parse(course.groupPrices);
-                    const match = gps.find(g => g.groupId == payment.groupId);
-                    if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                        if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
-                            match.tutes.forEach(t => {
-                                const tName = t.name || t.tuteName || tuteName;
-                                const tCover = t.cover || t.tuteCover || null;
-                                deliverableCourses.push({
-                                    courseId: course.id,
-                                    tuteName: tName,
-                                    tuteImage: tCover,
-                                    quantity: 1
-                                });
-                            });
-                        } else {
-                            deliverTute = true;
-                            if (match.tuteName && match.tuteName.trim()) tuteName = match.tuteName.trim();
-                            if (match.tuteCover) tuteImage = match.tuteCover;
-                        }
-                    }
-                } catch(e) {}
-            }
+        if (deliverableCourses && deliverableCourses.length > 0) {
+            const pType = parseInt(payment.payment_type !== undefined ? payment.payment_type : payment.paymentType, 10);
+            const paymentTypeStr = pType === 1 ? 'Monthly' : (pType === 2 ? 'Installment' : 'Full');
 
-            if (deliverTute) {
-                deliverableCourses.push({
-                    courseId: course.id,
-                    tuteName: tuteName,
-                    tuteImage: tuteImage,
-                    quantity: 1
-                });
-            }
-        }
-
-        if (deliverableCourses.length === 0) return;
-
-        // Subject-level duplicate prevention for this student in this group/batch
-        let existingDeliveries = [];
-        if (payment.payment_type === 1 && payment.groupId) {
-            existingDeliveries = await prisma.delivery.findMany({
-                where: {
-                    studentId: payment.studentId.toString(),
-                    paymentType: 'Monthly',
-                    payment: { groupId: payment.groupId }
-                },
-                include: { items: true }
-            });
-        } else if ((payment.payment_type === 2 || payment.payment_type === 3) && payment.batchId) {
-            existingDeliveries = await prisma.delivery.findMany({
-                where: {
-                    studentId: payment.studentId.toString(),
-                    paymentType: { in: ['Installment', 'Full'] },
-                    payment: { batchId: payment.batchId }
-                },
-                include: { items: true }
-            });
-        }
-
-        const alreadyDeliveredSet = new Set();
-        existingDeliveries.forEach(d => {
-            (d.items || []).forEach(item => {
-                if (item.courseId) {
-                    alreadyDeliveredSet.add(`${item.courseId}`);
-                    if (item.tuteName) {
-                        alreadyDeliveredSet.add(`${item.courseId}_${item.tuteName.trim().toLowerCase()}`);
-                    }
-                }
-            });
-        });
-
-        const newDeliverableItems = deliverableCourses.filter(item => {
-            const keyTute = item.tuteName ? `${item.courseId}_${item.tuteName.trim().toLowerCase()}` : null;
-            const keyCourse = `${item.courseId}`;
-            if (keyTute && alreadyDeliveredSet.has(keyTute)) return false;
-            if (!keyTute && alreadyDeliveredSet.has(keyCourse)) return false;
-            return true;
-        });
-
-        if (newDeliverableItems.length > 0) {
-            const paymentTypeStr = payment.payment_type === 1 ? 'Monthly' : (payment.payment_type === 2 ? 'Installment' : 'Full');
             await prisma.delivery.create({
                 data: {
                     paymentId: payment.id,
@@ -984,10 +914,12 @@ const createDeliveryForVerifiedPayment = async (payment) => {
                     businessId: payment.businessId,
                     paymentType: paymentTypeStr,
                     status: 'Pending',
-                    items: { create: newDeliverableItems }
+                    items: { create: deliverableCourses }
                 }
             });
-            console.log(`[AI-Delivery] Created Delivery for Payment ID ${payment.id} with ${newDeliverableItems.length} tutes.`);
+            console.log(`[AI-Delivery] Created Delivery for Payment ID ${payment.id} with ${deliverableCourses.length} tutes.`);
+        } else {
+            console.log(`[AI-Delivery] No deliverable tutes for Payment ID ${payment.id}.`);
         }
     } catch(err) {
         console.error("[AI-Delivery] Error in createDeliveryForVerifiedPayment:", err.message);
@@ -1006,6 +938,14 @@ exports.verifySinglePayment = async (req, res) => {
         });
 
         if (!payment) return res.status(404).json({ error: "Payment not found" });
+        if (payment.status === 1) {
+            return res.status(200).json({
+                success: true,
+                status: 'ALREADY_APPROVED',
+                message: "Payment is already approved. Verification skipped to protect student enrollment.",
+                matched: true
+            });
+        }
         if (!payment.slip_image) return res.status(400).json({ error: "No slip image attached to this payment" });
 
         // --- RULE 1: Check for Duplicate Slip (by slip_image) ---
@@ -1021,7 +961,7 @@ exports.verifySinglePayment = async (req, res) => {
                 const remark = `[Duplicate Slip] Duplicate slip image detected. Already verified in Payment #${dupImagePayment.id}. Skipped.`;
                 await prisma.payment.update({
                     where: { id: payment.id },
-                    data: { status: payment.status === 4 ? 4 : 0, aiVerified: false, remark }
+                    data: { status: payment.status === 1 ? 1 : (payment.status === 4 ? 4 : 0), aiVerified: payment.status === 1 ? payment.aiVerified : false, remark }
                 });
                 return res.status(200).json({
                     success: false,
@@ -1058,7 +998,7 @@ exports.verifySinglePayment = async (req, res) => {
                 
                 await prisma.payment.update({
                     where: { id: payment.id },
-                    data: { status: payment.status === 4 ? 4 : 0, aiVerified: false, remark }
+                    data: { status: payment.status === 1 ? 1 : (payment.status === 4 ? 4 : 0), aiVerified: payment.status === 1 ? payment.aiVerified : false, remark }
                 });
                 return res.status(200).json({
                     success: false,
@@ -1356,19 +1296,23 @@ Format:
         }
         
         // --- RULE 3: Check for Duplicate Transaction ID ---
-        if (cleanTxnId && cleanTxnId.length >= 4) {
+        if (cleanTxnId && cleanTxnId.length >= 6) {
             const dupTxnPayment = await prisma.payment.findFirst({
                 where: {
                     id: { not: payment.id },
                     status: 1,
-                    remark: { contains: cleanTxnId }
+                    OR: [
+                        { remark: { contains: `Extracted ID: ${cleanTxnId}` } },
+                        { remark: { contains: `Reference ID (${cleanTxnId})` } },
+                        { remark: { contains: `Cleaned: ${cleanTxnId}` } }
+                    ]
                 }
             });
             if (dupTxnPayment) {
                 const remark = `[Duplicate Slip] Extracted Reference ID (${cleanTxnId}) was already verified in Payment #${dupTxnPayment.id}. Skipped.`;
                 await prisma.payment.update({
                     where: { id: payment.id },
-                    data: { status: payment.status === 4 ? 4 : 0, aiVerified: false, remark }
+                    data: { status: payment.status === 1 ? 1 : (payment.status === 4 ? 4 : 0), aiVerified: payment.status === 1, remark }
                 });
                 return res.status(200).json({
                     success: false,
@@ -1387,7 +1331,7 @@ Format:
             const remark = `[Amount Mismatch] Extracted slip amount (LKR ${totalExtractedAmount.toLocaleString()}) does not match target payment amount (LKR ${targetAmount.toLocaleString()}). Skipped.`;
             await prisma.payment.update({
                 where: { id: payment.id },
-                data: { status: payment.status === 4 ? 4 : 0, aiVerified: false, remark }
+                data: { status: payment.status === 1 ? 1 : (payment.status === 4 ? 4 : 0), aiVerified: payment.status === 1, remark }
             });
             return res.status(200).json({
                 success: false,
@@ -1527,8 +1471,8 @@ Format:
             await prisma.payment.update({
                 where: { id: payment.id },
                 data: {
-                    status: payment.status === 4 ? 4 : 0,
-                    aiVerified: false,
+                    status: payment.status === 1 ? 1 : (payment.status === 4 ? 4 : 0),
+                    aiVerified: payment.status === 1 ? payment.aiVerified : false,
                     remark: `[Batch Mismatch] Student previously paid for ${previousBatchName}. Current payment is for ${payment.batch ? payment.batch.name : 'a different batch'}. Please review manually.`
                 }
             });
@@ -1543,8 +1487,8 @@ Format:
             await prisma.payment.update({
                 where: { id: payment.id },
                 data: {
-                    status: payment.status === 4 ? 4 : 0,
-                    aiVerified: false,
+                    status: payment.status === 1 ? 1 : (payment.status === 4 ? 4 : 0),
+                    aiVerified: payment.status === 1 ? payment.aiVerified : false,
                     remark: `AI Skipped: ${errorMsg}\n\n--- AI Extraction ---\nBank: ${extracted.matched_bank || 'Unknown'}\nType: ${extracted.matched_slip_type || 'Unknown'}\nExtracted ID: ${extracted.transaction_id || 'null'} (Cleaned: ${cleanTxnId})\nAmount: ${extracted.amount || 'null'}\nTarget Amount: ${targetAmount}`
                 }
             });

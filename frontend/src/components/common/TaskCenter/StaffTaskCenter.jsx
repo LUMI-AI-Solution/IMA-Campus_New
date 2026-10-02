@@ -367,7 +367,7 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                                 return;
                             }
                             
-                            const uniqueKey = `${c.id}_${g.name.toUpperCase()}`;
+                            const uniqueKey = `${(c.name || '').trim().toUpperCase()}_${g.id || g.name.toUpperCase()}`;
                             
                             if (!paymentGroups[uniqueKey]) {
                                 paymentGroups[uniqueKey] = {
@@ -496,6 +496,7 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (submitting) return;
         setSubmitting(true);
         const formElement = e.target;
         

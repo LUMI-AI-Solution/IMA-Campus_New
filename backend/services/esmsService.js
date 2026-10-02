@@ -279,6 +279,115 @@ class EsmsService {
   }
 
   /**
+   * Automated Class Fee Payment SMS Notification (Single & Multi-Class Bulk)
+   */
+  async triggerFeePaymentSms({
+    student,
+    studentId,
+    paidAmount,
+    expectedFee,
+    dueAmount,
+    month,
+    className,
+    classNames = [],
+    receiptNo,
+    paymentMethod = 'CASH',
+    cardType,
+    isBulk = false
+  }) {
+    try {
+      const settings = await this.getSettings();
+      if (settings.isFeePaymentSmsEnabled === false) {
+        console.log('[E-SMS Fee Payment] Automated Fee Payment SMS is currently Disabled in settings.');
+        return;
+      }
+
+      let targetStudent = student;
+      const targetStudentId = studentId || (targetStudent ? targetStudent.id : null);
+
+      if (!targetStudent && targetStudentId) {
+        targetStudent = await prisma.physicalStudent.findUnique({
+          where: { id: parseInt(targetStudentId) },
+          include: { class: true, school: true }
+        });
+      } else if (targetStudent && (!targetStudent.studentName && !targetStudent.firstName)) {
+        const enriched = await prisma.physicalStudent.findUnique({
+          where: { id: targetStudent.id },
+          include: { class: true, school: true }
+        });
+        if (enriched) targetStudent = enriched;
+      }
+
+      if (!targetStudent) {
+        console.warn('[E-SMS Fee Payment] Student could not be found for SMS dispatch.');
+        return;
+      }
+
+      const targetPhone = targetStudent.guardianPhone || targetStudent.guardianWhatsapp || targetStudent.phone || targetStudent.whatsapp;
+      if (!targetPhone) {
+        console.log(`[E-SMS Fee Payment] No phone number found for student ID: ${targetStudent.studentId}`);
+        return;
+      }
+
+      const now = new Date();
+      const formattedDate = now.toLocaleDateString('en-GB', { timeZone: 'Asia/Colombo', day: '2-digit', month: '2-digit', year: 'numeric' });
+      const timeStr = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Colombo', hour: '2-digit', minute: '2-digit', hour12: true });
+      const studentDisplayName = targetStudent.studentName || `${targetStudent.firstName || ''} ${targetStudent.lastName || ''}`.trim() || 'Student';
+      const formattedAmount = Number(paidAmount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      // Format Class details cleanly
+      let classSummary = '';
+      if (isBulk && classNames && classNames.length > 0) {
+        const fullJoined = classNames.join(', ');
+        if (fullJoined.length <= 50 || classNames.length <= 2) {
+          classSummary = fullJoined;
+        } else {
+          classSummary = `${classNames.length} Classes (${classNames.slice(0, 2).join(', ')} +${classNames.length - 2} more)`;
+        }
+      } else {
+        classSummary = className || targetStudent.class?.name || 'Class';
+      }
+
+      const receiptStr = receiptNo ? `[Ref: ${receiptNo}]` : '';
+      const dueStr = dueAmount && Number(dueAmount) > 0 ? ` (Due: Rs. ${Number(dueAmount).toLocaleString()})` : '';
+
+      let template = settings.feePaymentSmsTemplate || 'Dear Parent, Payment of Rs. {amount} for {student_name} ({student_id}) has been received for {class_details} ({month}) on {date} at {time}. {receipt_ref} - IMA Campus';
+
+      const personalizedMessage = template
+        .replace(/\{student_name\}/gi, studentDisplayName)
+        .replace(/\{student_id\}/gi, targetStudent.studentId || '')
+        .replace(/\{amount\}/gi, formattedAmount)
+        .replace(/\{class_details\}/gi, classSummary)
+        .replace(/\{class_name\}/gi, classSummary)
+        .replace(/\{month\}/gi, month || '')
+        .replace(/\{date\}/gi, formattedDate)
+        .replace(/\{time\}/gi, timeStr)
+        .replace(/\{receipt_ref\}/gi, receiptStr)
+        .replace(/\{due_amount\}/gi, dueStr)
+        .replace(/\{school\}/gi, targetStudent.school?.name || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      console.log(`[E-SMS Fee Payment] Dispatching automated receipt SMS to ${targetPhone} for ${studentDisplayName} (Rs. ${formattedAmount})...`);
+
+      const result = await this.sendSingleSms({
+        phone: targetPhone,
+        message: personalizedMessage,
+        studentId: targetStudent.id,
+        classId: !isBulk && targetStudent.classId ? targetStudent.classId : null,
+        studentName: studentDisplayName,
+        guardianName: targetStudent.guardianName,
+        type: 'FEE_PAYMENT'
+      });
+
+      return result;
+
+    } catch (error) {
+      console.error('[E-SMS triggerFeePaymentSms Error]:', error);
+    }
+  }
+
+  /**
    * Send Bulk Broadcast SMS
    */
   async sendBulkBroadcast({ studentIds = [], classId = null, customMessage, type = 'BULK' }) {

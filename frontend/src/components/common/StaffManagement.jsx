@@ -85,7 +85,7 @@ export default function StaffManagement({ loggedInUser }) {
             window.location.href = '/login';
         }
     } catch (error) {
-        toast.error("Ghost login failed.");
+        toast.error(error.response?.data?.error || "Ghost login failed.");
     }
   };
 

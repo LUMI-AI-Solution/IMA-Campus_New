@@ -58,6 +58,10 @@ export const physicalCrmService = {
   unallocateClass: (studentId, classId) => api.delete(`/physical-crm/students/${studentId}/classes/${classId}`).then(res => res.data),
   markAttendance: (data) => api.post('/physical-crm/attendance', data).then(res => res.data),
   unmarkAttendance: (data) => api.post('/physical-crm/attendance/unmark', data).then(res => res.data),
+
+  // Entrance Gate Scanner
+  entranceScan: (data) => api.post('/physical-crm/entrance/scan', data).then(res => res.data),
+  getEntranceStats: () => api.get('/physical-crm/entrance/stats').then(res => res.data),
 };
 
 export default physicalCrmService;

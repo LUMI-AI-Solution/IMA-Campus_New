@@ -10,7 +10,7 @@ export default function WhatsAppBusinessNumberBadge({ businessId, campaignType =
 
   useEffect(() => {
     let isMounted = true;
-    if (!businessId) {
+    if (!businessId || businessId === 'ALL') {
       setPhoneInfo(null);
       return;
     }
@@ -35,7 +35,7 @@ export default function WhatsAppBusinessNumberBadge({ businessId, campaignType =
     return () => { isMounted = false; };
   }, [businessId, campaignType]);
 
-  if (!businessId) return null;
+  if (!businessId || businessId === 'ALL') return null;
 
   const handleCopy = async (e) => {
     e.stopPropagation();
@@ -86,8 +86,8 @@ export default function WhatsAppBusinessNumberBadge({ businessId, campaignType =
 
   if (loading) {
     return (
-      <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-950/40 border border-emerald-500/20 text-emerald-400 text-xs font-sans font-black tracking-wider animate-pulse ${className}`}>
-        <FaWhatsapp className="animate-spin text-emerald-400" size={14} />
+      <div className={`h-9 inline-flex items-center gap-2 px-3 rounded-xl bg-emerald-950/40 border border-emerald-500/20 text-emerald-400 text-xs font-bold tracking-wide animate-pulse ${className}`}>
+        <FaWhatsapp className="animate-spin text-emerald-400" size={13} />
         <span className="text-[11px] opacity-80">Fetching WA Number...</span>
       </div>
     );
@@ -95,7 +95,7 @@ export default function WhatsAppBusinessNumberBadge({ businessId, campaignType =
 
   if (!phoneInfo || (!phoneInfo.displayPhoneNumber && !phoneInfo.waNumId)) {
     return (
-      <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-slate-800/40 border border-slate-700/40 text-slate-400 text-[11px] font-sans font-bold tracking-wider ${className}`} title="No WhatsApp Business credentials linked to this business">
+      <div className={`h-9 inline-flex items-center gap-1.5 px-3 rounded-xl bg-slate-800/40 border border-slate-700/40 text-slate-400 text-[11px] font-bold ${className}`} title="No WhatsApp Business credentials linked to this business">
         <FaWhatsapp className="text-slate-500" size={13} />
         <span className="opacity-70">No WA Connected</span>
       </div>
@@ -109,7 +109,7 @@ export default function WhatsAppBusinessNumberBadge({ businessId, campaignType =
     <div
       onClick={handleCopy}
       title={`${phoneInfo.verifiedName ? `[${phoneInfo.verifiedName}] ` : ''}${displayNumber} (Click to copy)`}
-      className={`group relative inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gradient-to-r from-emerald-950/60 to-[#064e3b]/40 hover:from-emerald-900/70 hover:to-emerald-800/50 border border-emerald-500/40 hover:border-emerald-400 text-emerald-300 text-xs font-sans font-black tracking-wider transition-all duration-200 cursor-pointer shadow-sm hover:shadow-emerald-900/30 select-none ${className}`}
+      className={`h-9 group relative inline-flex items-center gap-2 px-3 rounded-xl bg-gradient-to-r from-emerald-950/60 to-emerald-900/40 hover:from-emerald-900/70 hover:to-emerald-800/60 border border-emerald-500/30 hover:border-emerald-400/60 text-emerald-300 text-xs font-bold tracking-wide transition-all duration-200 cursor-pointer shadow-sm hover:shadow-emerald-900/20 select-none ${className}`}
     >
       {/* WhatsApp Icon */}
       <div className="relative flex items-center justify-center">
@@ -120,23 +120,16 @@ export default function WhatsAppBusinessNumberBadge({ businessId, campaignType =
       </div>
 
       {/* Phone Number text */}
-      <div className="flex flex-col">
-        <div className="flex items-center gap-1.5">
-          <span className="tracking-wide text-emerald-200 group-hover:text-white transition-colors">
-            {displayNumber}
-          </span>
-          {phoneInfo.verifiedName && (
-            <span className="text-[9px] font-normal text-emerald-400/80 max-w-[110px] truncate hidden md:inline-block">
-              • {phoneInfo.verifiedName}
-            </span>
-          )}
-        </div>
+      <div className="flex items-center gap-1">
+        <span className="tracking-wide text-emerald-200 group-hover:text-white transition-colors">
+          {displayNumber}
+        </span>
       </div>
 
       {/* Copy / Copied Action */}
       <button
         type="button"
-        className="ml-1 p-1 rounded-md bg-emerald-800/40 group-hover:bg-emerald-600/40 text-emerald-300 group-hover:text-white transition-all"
+        className="p-1 rounded-md bg-emerald-800/40 group-hover:bg-emerald-600/40 text-emerald-300 group-hover:text-white transition-all"
         title="Copy number"
       >
         {copied ? (
@@ -148,7 +141,7 @@ export default function WhatsAppBusinessNumberBadge({ businessId, campaignType =
 
       {/* Copied tooltip overlay */}
       {copied && (
-        <span className="absolute -top-7 left-1/2 -translate-x-1/2 bg-emerald-900 text-emerald-200 text-[10px] font-sans font-bold px-2 py-0.5 rounded shadow-lg border border-emerald-500/40 pointer-events-none whitespace-nowrap animate-fade-in-up">
+        <span className="absolute -top-7 left-1/2 -translate-x-1/2 bg-emerald-900 text-emerald-200 text-[10px] font-bold px-2 py-0.5 rounded shadow-lg border border-emerald-500/40 pointer-events-none whitespace-nowrap animate-fade-in-up">
           Copied!
         </span>
       )}

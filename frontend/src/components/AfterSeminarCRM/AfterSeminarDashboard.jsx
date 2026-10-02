@@ -11,6 +11,7 @@ import AfterSeminarRightPanel from './CRM/AfterSeminarRightPanel';
 import { BarChart, Users, PhoneCall, TrendingUp, CheckCircle, Clock } from 'lucide-react';
 import AgentStatusDropdown from '../../components/CoordinatorCRM/AgentStatusDropdown';
 import WhatsAppBusinessNumberBadge from '../common/WhatsAppBusinessNumberBadge';
+import MissedCallsNavButton from '../common/MissedCallsNavButton';
 
 export default function AfterSeminarDashboard() {
   const [user, setUser] = useState(null);
@@ -168,39 +169,72 @@ export default function AfterSeminarDashboard() {
   return (
     <div className="h-full flex flex-col gap-4 animate-fade-in-up text-slate-200 relative">
       
-      <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-white/5 backdrop-blur-lg p-3 rounded-2xl border border-white/10 shadow-xl shrink-0 relative z-50">
-        <div className="flex items-center gap-3 text-lg font-black tracking-wide text-white uppercase px-2">
-            <div className="flex items-center gap-2">
-                <FaWhatsapp className="text-emerald-400" size={24} /> After Seminar CRM
+      <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 bg-slate-900/60 backdrop-blur-xl p-2 px-3 rounded-2xl border border-white/10 shadow-xl shrink-0 relative z-50">
+        {/* Left Side: Branding + WA Badge + Action Buttons */}
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+          <div className="flex items-center gap-2 mr-0.5 shrink-0">
+            <div className="w-8 h-8 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center shrink-0 shadow-sm shadow-emerald-500/20">
+              <FaWhatsapp className="text-emerald-400" size={17} />
             </div>
-            {selectedBusiness && (
-                <WhatsAppBusinessNumberBadge businessId={selectedBusiness} campaignType="AFTER_SEMINAR" />
-            )}
-        </div>
+            <span className="text-xs sm:text-sm font-black tracking-wider text-white uppercase whitespace-nowrap">
+              After Seminar CRM
+            </span>
+          </div>
 
-        <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
-          {isManager && (
+          {selectedBusiness && selectedBusiness !== 'ALL' && (
             <>
-              <AgentStatusDropdown />
-              <button onClick={handleToggleOpenSem} disabled={needsToSelectBusiness} className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-xs transition-all shadow-md border whitespace-nowrap ${isOpenSemOn ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 hover:bg-amber-500/30' : 'bg-slate-500/20 text-slate-400 border-slate-500/50 hover:bg-slate-500/30'} ${needsToSelectBusiness ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                <FaPowerOff />
-                {isOpenSemOn ? 'OPEN SEM: ON' : 'OPEN SEM: OFF'}
-              </button>
+              <div className="w-px h-4 bg-white/10 hidden sm:block"></div>
+              <WhatsAppBusinessNumberBadge businessId={selectedBusiness} campaignType="AFTER_SEMINAR" />
             </>
           )}
 
-          <div className="w-px h-6 bg-white/10 mx-1 hidden xl:block"></div>
+          <div className="w-px h-5 bg-white/10 mx-0.5 hidden md:block"></div>
 
-          <div className="flex items-center gap-3">
-            <FaFilter className="text-slate-500 shrink-0" />
-            <select value={selectedBusiness} onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }} className="bg-black/40 border border-white/10 text-slate-300 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-brand-accent transition-all cursor-pointer">
-              {displayBusinesses.length > 1 && <option value="">Select Business (All)</option>}
+          {/* Action Tools on the Left */}
+          <AgentStatusDropdown />
+          <MissedCallsNavButton />
+
+          {isManager && (
+            <button
+              type="button"
+              onClick={handleToggleOpenSem}
+              disabled={needsToSelectBusiness}
+              className={`h-9 inline-flex items-center gap-1.5 px-2.5 rounded-xl font-bold text-xs transition-all border whitespace-nowrap shadow-sm select-none ${
+                isOpenSemOn
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30 hover:border-amber-400 shadow-amber-950/30'
+                  : 'bg-slate-800/60 hover:bg-slate-800/90 text-slate-300 hover:text-white border-white/10 hover:border-white/20'
+              } ${needsToSelectBusiness ? 'opacity-40 cursor-not-allowed' : ''}`}
+              title="Toggle Open Seminar Mode"
+            >
+              <FaPowerOff size={11} className={isOpenSemOn ? 'text-amber-400' : 'text-slate-400'} />
+              <span>{isOpenSemOn ? 'Open Sem: ON' : 'Open Sem: OFF'}</span>
+            </button>
+          )}
+        </div>
+
+        {/* Right Side: Filters Group */}
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+          <div className="h-9 inline-flex items-center gap-1 bg-black/40 border border-white/10 rounded-xl px-2 shadow-inner">
+            <FaFilter className="text-slate-400 shrink-0" size={10} />
+            
+            <select
+              value={selectedBusiness}
+              onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }}
+              className="bg-transparent text-slate-200 text-xs font-bold outline-none cursor-pointer hover:text-white border-0 py-1 max-w-[130px] sm:max-w-[150px] truncate"
+            >
+              {displayBusinesses.length > 1 && <option value="" className="bg-slate-900">Select Business (All)</option>}
               {displayBusinesses.map(biz => <option key={biz.id} value={biz.id} className="bg-slate-900">{biz.name}</option>)}
             </select>
 
-            <select value={selectedBatch} onChange={(e) => setSelectedBatch(e.target.value)} className="bg-black/40 border border-white/10 text-slate-300 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-brand-accent transition-all cursor-pointer">
-              <option value="">Select Batch (All)</option>
-              <option value="UNASSIGNED" className="bg-slate-900 text-yellow-400 font-bold">⚠️ Unassigned (No Batch)</option>
+            <div className="w-px h-3.5 bg-white/10"></div>
+
+            <select
+              value={selectedBatch}
+              onChange={(e) => setSelectedBatch(e.target.value)}
+              className="bg-transparent text-slate-200 text-xs font-bold outline-none cursor-pointer hover:text-white border-0 py-1 max-w-[125px] sm:max-w-[145px] truncate"
+            >
+              <option value="" className="bg-slate-900">Select Batch (All)</option>
+              <option value="UNASSIGNED" className="bg-slate-900 text-amber-400 font-bold">⚠️ Unassigned</option>
               {displayBatches.map(b => <option key={b.id} value={b.id} className="bg-slate-900">{b.name}</option>)}
             </select>
           </div>

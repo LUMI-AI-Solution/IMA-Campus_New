@@ -64,6 +64,8 @@ model User {
   actionedCallLogs       CallCampaignAuditLog[] @relation("ActionedCallCampaignLogs")
   paperSubmissions       PaperSubmission[]
   blockedNumbers         BlockedNumber[]        @relation("BlockedByUser")
+  missedCallTasksAssigned MissedCallTask[]      @relation("MissedCallTaskAssignee")
+  missedCallTasksManaged  MissedCallTask[]      @relation("MissedCallTaskAssignedBy")
 }
 
 model Business {
@@ -98,6 +100,7 @@ model Business {
   webInquiries WebInquiry[]
   
   whatsappCalls WhatsAppCallRecord[]
+  missedCallTasks MissedCallTask[]
 }
 
 model Batch {
@@ -127,12 +130,14 @@ model Batch {
 
   targetIndividualGoal Float? @default(40.0)
   targetGroupGoal      Float? @default(50.0)
+  missedCallTasks      MissedCallTask[]
 }
 
 model Group {
   id             Int      @id @default(autoincrement())
   name           String
   type           Int      @default(1)
+  classType      Int      @default(1)
   itemOrder      Int      @default(1)
   discount_rules String?  @db.Text
   batchId        Int
@@ -1268,6 +1273,16 @@ model PhysicalFinanceCategory {
   @@unique([name, type])
 }
 
+model PhysicalDailyOpeningBalance {
+  id        Int      @id @default(autoincrement())
+  date      String   @unique // format "YYYY-MM-DD"
+  amount    Float
+  note      String?  @db.Text
+  setBy     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model PhysicalCrmSetting {
   id                     Int      @id @default(autoincrement())
   esmsApiUrl             String?  @default("https://esms.mobitel.lk/esms/sendsms.php")
@@ -1276,6 +1291,8 @@ model PhysicalCrmSetting {
   esmsSenderId           String?  @default("IMACAMPUS")
   isAttendanceSmsEnabled Boolean  @default(false)
   attendanceSmsTemplate  String?  @default("Dear Parent, {student_name} ({student_id}) has attended {class_name} class on {date} at {time}. - IMA Campus")
+  isFeePaymentSmsEnabled Boolean  @default(true)
+  feePaymentSmsTemplate  String?  @db.VarChar(500) @default("Dear Parent, Payment of Rs. {amount} for {student_name} ({student_id}) has been received for {class_details} ({month}) on {date} at {time}. {receipt_ref} - IMA Campus")
   createdAt              DateTime @default(now())
   updatedAt              DateTime @updatedAt
 }
@@ -1299,21 +1316,36 @@ model PhysicalSmsLog {
 }
 
 model Paper {
-  id                 Int               @id @default(autoincrement())
-  contentId          Int               @unique
-  content            Content           @relation(fields: [contentId], references: [id], onDelete: Cascade)
-  paperType          String            @default("MCQ") // "MCQ" or "STRUCTURED"
-  timerMode          String            @default("FLEXIBLE") // "SCHEDULED" or "FLEXIBLE"
-  scheduledStartTime DateTime?
-  durationMinutes    Int               @default(60)
-  totalMarks         Float?            @default(100)
-  passMarks          Float?            @default(40)
-  instructions       String?           @db.Text
-  createdAt          DateTime          @default(now())
-  updatedAt          DateTime          @updatedAt
+  id                        Int               @id @default(autoincrement())
+  contentId                 Int               @unique
+  content                   Content           @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  paperType                 String            @default("MCQ") // "MCQ", "STRUCTURED", or "BOTH"
+  timerMode                 String            @default("FLEXIBLE") // "SCHEDULED" or "FLEXIBLE"
+  scheduledStartTime        DateTime?
+  mcqTimerMode              String            @default("FLEXIBLE") // "SCHEDULED" or "FLEXIBLE"
+  mcqScheduledStartTime     DateTime?
+  structuredTimerMode       String            @default("FLEXIBLE") // "SCHEDULED" or "FLEXIBLE"
+  structuredScheduledStartTime DateTime?
+  breakIntervalMinutes      Int?              @default(15)
+  structuredUploadMinutes   Int?              @default(15)
+  durationMinutes           Int               @default(60)
+  mcqDurationMinutes        Int?              @default(30)
+  structuredDurationMinutes Int?              @default(60)
+  totalMarks                Float?            @default(100)
+  totalMcqMarks             Float?            @default(50)
+  totalStructuredMarks      Float?            @default(50)
+  passMarks                 Float?            @default(40)
+  instructions              String?           @db.Text
+  gradingScale              String?           @db.Text
+  mcqPaperFile              String?
+  structuredPaperFile       String?
+  category                  String            @default("WEEKLY") // "WEEKLY" or "MONTHLY"
+  manualParticipantCount    Int?              // Staff-entered participant count
+  createdAt                 DateTime          @default(now())
+  updatedAt                 DateTime          @updatedAt
 
-  questions          PaperQuestion[]
-  submissions        PaperSubmission[]
+  questions                 PaperQuestion[]
+  submissions               PaperSubmission[]
 }
 
 model PaperQuestion {
@@ -1322,7 +1354,7 @@ model PaperQuestion {
   paper        Paper                   @relation(fields: [paperId], references: [id], onDelete: Cascade)
   questionNo   Int
   questionText String                  @db.Text
-  image        String?
+  image        String?                 @db.Text
   marks        Float                   @default(1.0)
   createdAt    DateTime                @default(now())
 
@@ -1342,21 +1374,30 @@ model PaperOption {
 }
 
 model PaperSubmission {
-  id              Int                     @id @default(autoincrement())
-  paperId         Int
-  paper           Paper                   @relation(fields: [paperId], references: [id], onDelete: Cascade)
-  studentId       Int
-  student         User                    @relation(fields: [studentId], references: [id], onDelete: Cascade)
-  startedAt       DateTime                @default(now())
-  submittedAt     DateTime?
-  status          String                  @default("IN_PROGRESS") // "IN_PROGRESS", "SUBMITTED", "GRADED"
-  score           Float?                  @default(0)
-  totalQuestions  Int?                    @default(0)
-  correctAnswers  Int?                    @default(0)
-  answerFile      String?                 // For structured paper (PDF upload)
-  teacherFeedback String?                 @db.Text
-  createdAt       DateTime                @default(now())
-  updatedAt       DateTime                @updatedAt
+  id                    Int                     @id @default(autoincrement())
+  paperId               Int
+  paper                 Paper                   @relation(fields: [paperId], references: [id], onDelete: Cascade)
+  studentId             Int
+  student               User                    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  startedAt             DateTime                @default(now())
+  submittedAt           DateTime?
+  mcqSubmittedAt        DateTime?
+  structuredStartedAt   DateTime?
+  structuredSubmittedAt DateTime?
+  isUploadLocked        Boolean                 @default(false)
+  status                String                  @default("IN_PROGRESS") // "IN_PROGRESS", "SUBMITTED", "PENDING_EVALUATION", "GRADED"
+  score                 Float?                  @default(0)
+  mcqScore              Float?                  @default(0)
+  structuredScore       Float?                  @default(0)
+  totalQuestions        Int?                    @default(0)
+  correctAnswers        Int?                    @default(0)
+  answerFile            String?                 // For structured paper (PDF upload)
+  answerImages          String?                 @db.Text // JSON array of uploaded image filenames for structured paper
+  teacherFeedback       String?                 @db.Text
+  gradedBy              Int?                    // User ID of the Paper Marker / Lecturer
+  gradedAt              DateTime?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
 
   answers         PaperSubmissionAnswer[]
 
@@ -1477,5 +1518,60 @@ model LibraryResource {
   updatedAt         DateTime          @updatedAt
 }
 
+model MissedCallTask {
+  id                    Int       @id @default(autoincrement())
+  callLogId             String?
+  phone                 String
+  studentName           String?
+  businessId            Int
+  business              Business  @relation(fields: [businessId], references: [id])
+  batchId               Int?
+  batch                 Batch?    @relation(fields: [batchId], references: [id])
+  callTime              DateTime
+  source                String    @default("CRM") // FREE_SEMINAR, AFTER_SEMINAR, GENERAL
+  
+  // Read-only reference to who owns the lead currently in CRM
+  existingLeadId        Int?
+  existingAssigneeId    Int?
+  existingAssigneeName  String?
 
+  // Task Assignment (Isolated from Lead table)
+  taskAssigneeId        Int?
+  taskAssignee          User?     @relation("MissedCallTaskAssignee", fields: [taskAssigneeId], references: [id])
+  assignedByManagerId   Int?
+  assignedByManager     User?     @relation("MissedCallTaskAssignedBy", fields: [assignedByManagerId], references: [id])
+  assignedAt            DateTime?
 
+  taskDate              String    // Format: YYYY-MM-DD (e.g., 2026-09-08)
+  status                String    @default("PENDING_DISTRIBUTION") // PENDING_DISTRIBUTION, ASSIGNED, COMPLETED, RESOLVED
+
+  // Staff Follow-up Results
+  callOutcome           String?   // PENDING, ANSWERED, NO_ANSWER, REJECTED, CALL_AGAIN
+  callAttempts          Int       @default(0)
+  remarks               String?   @db.Text
+  lastAttemptAt         DateTime?
+  completedAt           DateTime?
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([businessId, taskDate])
+  @@index([taskAssigneeId, status])
+  @@index([phone])
+}
+
+model WhatsappRotator {
+  id          Int      @id @default(autoincrement())
+  campaign    String   @default("default") // Campaign identifier (e.g. "default", "commerce", "batch2026")
+  name        String   // Display name, e.g. "Community 01"
+  inviteUrl   String   @db.Text // https://chat.whatsapp.com/...
+  clickCount  Int      @default(0) // Total scan/redirect counter
+  maxLimit    Int      @default(1020) // Auto-switch limit (WhatsApp group threshold)
+  isActive    Boolean  @default(true) // Whether this link is currently accepting users
+  orderIndex  Int      @default(1) // Priority order (1 -> 2 -> 3...)
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([campaign, isActive, orderIndex])
+}

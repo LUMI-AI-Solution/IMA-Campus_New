@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderOpen, Folder, FolderPlus, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp, Copy, Link, Building2, Sparkles } from 'lucide-react';
+import { FolderOpen, Folder, FolderPlus, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp, Copy, Link, Building2, Sparkles, Trophy, Clock, Award } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../../api/axios'; 
 import UpgradePricingConfig from '../../admin/UpgradePricingConfig'; 
@@ -8,7 +8,8 @@ export default function ContentHubViews({ state, actions }) {
     const {
         isSystemAdmin, canManageBusiness, canManageBatches, canManageGroupsAndSubjects, canManageContent,
         viewLevel, activeBusiness, activeBatch, batchTab, activeSubject, contentTab, businesses, batches, uniqueSubjects,
-        lessonGroups, subjectContents, editMode, openFolders, groupedSubjects, parentFolderForSub, selectedFolderParentId
+        lessonGroups, subjectContents, editMode, openFolders, groupedSubjects, parentFolderForSub, selectedFolderParentId,
+        selectedClassType, setSelectedClassType, theoryCount, paperCount
     } = state;
 
     const {
@@ -16,7 +17,7 @@ export default function ContentHubViews({ state, actions }) {
         setEditData, setEditMode, setSelectedLogoName, setShowBusinessModal, setShowAssignModal, setShowBatchModal, setShowGroupModal, setShowCourseModal,
         setShowLessonGroupModal, setShowContentModal, setPreviewData, setContentType, setPrefilledFolder, setSelectedBatchesForContent,
         toggleFolder, setBatchTab, setContentTab, isMatchedType, getFolderId, setDiscountRules, setSelectedGroupPrices, setMassAssignSubjects,
-        openCreateSubFolderModal, setSelectedFolderParentId, openPaperBuilder
+        openCreateSubFolderModal, setSelectedFolderParentId, openPaperBuilder, setHubBatchConfigs, setHubActiveBatchTab
     } = actions;
 
     const getBaseUrl = () => {
@@ -41,7 +42,19 @@ export default function ContentHubViews({ state, actions }) {
 
     const isItemInFolder = (c, folder) => {
         const fId = c.content_group_id ?? c.contentGroupId ?? c.folder_id;
-        if (fId && String(fId) === String(folder.id)) return true;
+        if (fId) {
+            const matchesId = String(fId) === String(folder.id) || 
+                              (folder.ids && folder.ids.includes(String(fId))) ||
+                              (folder.allIds && folder.allIds.some(id => String(id) === String(fId)));
+            if (matchesId) return true;
+
+            // If item has a specific folder ID assigned and that folder exists, DO NOT fallback to month!
+            const folderExists = (lessonGroups || []).some(g => 
+                String(g.id) === String(fId) || 
+                (g.allIds && g.allIds.some(id => String(id) === String(fId)))
+            );
+            if (folderExists) return false;
+        }
         
         const itemGroupTitle = c.groupTitle || c.group?.title;
         if (itemGroupTitle && folder?.title) {
@@ -52,41 +65,97 @@ export default function ContentHubViews({ state, actions }) {
             const normItem = normalizeFolderTitle(itemGroupTitle);
             const normFolder = normalizeFolderTitle(folder.title);
             if (normItem && normFolder && normItem === normFolder) return true;
+
+            // If item has a specific group title that matches another folder, DO NOT match month!
+            const titleFolderExists = (lessonGroups || []).some(g => {
+                const gRaw = (g.title || '').trim().toLowerCase();
+                const gNorm = normalizeFolderTitle(g.title);
+                return gRaw === rawItem || (normItem && gNorm && normItem === gNorm);
+            });
+            if (titleFolderExists) return false;
         }
 
-        // Smart Month Fallback Matching
-        if (folder?.title) {
-            let targetMonthIdx = -1;
-            if (c.date) {
-                try {
-                    const d = new Date(c.date);
-                    if (!isNaN(d.getTime())) targetMonthIdx = d.getMonth();
-                } catch (err) {}
-            }
-            if (targetMonthIdx === -1 && c.title) {
-                const titleLower = c.title.toLowerCase();
-                targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
-                if (targetMonthIdx === -1) targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
-            }
-            if (targetMonthIdx !== -1) {
-                const engMonth = monthNames[targetMonthIdx];
-                const sinMonth = sinhalaMonths[targetMonthIdx];
-                const folderTitleLower = (folder.title || '').toLowerCase();
-                const folderNorm = normalizeFolderTitle(folder.title);
-                if (folderTitleLower.includes(engMonth) || folderTitleLower.includes(sinMonth) ||
-                    folderNorm.includes(engMonth) || folderNorm.includes(sinMonth)) {
-                    return true;
-                }
-            }
-        }
+        // If an item has NO assigned folder (fId is null/undefined/empty), it is explicitly UNCATEGORIZED!
         return false;
     };
 
     const isUncategorized = (c) => {
         const activeFolders = (lessonGroups || []).filter(isMatchedType);
         if (activeFolders.length === 0) return true;
+        const cFolderId = c.content_group_id ?? c.contentGroupId ?? c.folder_id;
+        if (cFolderId && activeFolders.some(f => String(f.id) === String(cFolderId) || (f.allIds && f.allIds.some(id => String(id) === String(cFolderId))))) {
+            return false;
+        }
         const hasMatch = activeFolders.some(folder => isItemInFolder(c, folder));
         return !hasMatch;
+    };
+
+    const formatDuration = (mins) => {
+        if (!mins) return '60 Mins';
+        const m = parseInt(mins);
+        const hours = Math.floor(m / 60);
+        const remMins = m % 60;
+        if (hours > 0 && remMins > 0) return `${hours}h ${remMins}m`;
+        if (hours > 0) return `${hours} ${hours === 1 ? 'Hour' : 'Hours'}`;
+        return `${remMins} Mins`;
+    };
+
+    const isTestType = (tab, c) => {
+        return tab === 'testRanking' || tab === 'paper' || tab === 'sPaper' || 
+               ['testRanking', 'rankingTest', 'test', 'paper', 'sPaper', '4', '5'].includes(String(c?.contentType));
+    };
+
+    const renderTestBadges = (content) => {
+        const pType = content?.paper?.paperType || (content?.contentType === 'sPaper' || content?.contentType === '4' ? 'STRUCTURED' : 'MCQ');
+        const duration = content?.paper?.durationMinutes || content?.paperTime || 60;
+        const isScheduled = content?.paper?.timerMode === 'SCHEDULED';
+        const startTime = content?.paper?.scheduledStartTime;
+        const category = content?.paper?.category || 'WEEKLY';
+        const candidateCount = content?.paper?.manualParticipantCount;
+
+        return (
+            <div className="space-y-1.5 mb-2.5">
+                <div className="flex flex-wrap items-center gap-1.5">
+                    <span className={`px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black uppercase tracking-wider border flex items-center gap-1 ${
+                        category === 'MONTHLY'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                    }`}>
+                        {category === 'MONTHLY' ? '🏆 Monthly Test' : '⚡ Weekly Test'}
+                    </span>
+
+                    {pType === 'STRUCTURED' ? (
+                        <span className="px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black uppercase tracking-wider bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1">
+                            <FileSignature size={11} /> Structure Essay
+                        </span>
+                    ) : pType === 'BOTH' ? (
+                        <span className="px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                            <Sparkles size={11} className="text-amber-400" /> MCQ + Structured
+                        </span>
+                    ) : (
+                        <span className="px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-black uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
+                            <CheckCircle size={11} /> MCQ Only
+                        </span>
+                    )}
+
+                    <span className="px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-bold bg-white/5 text-slate-300 border border-white/10 flex items-center gap-1">
+                        <Clock size={10} className="text-amber-400" /> {formatDuration(duration)}
+                    </span>
+
+                    {candidateCount && (
+                        <span className="px-2 py-0.5 rounded-md text-[9px] sm:text-[10px] font-bold bg-white/5 text-emerald-300 border border-emerald-500/20 flex items-center gap-1">
+                            <Users size={10} className="text-emerald-400" /> {candidateCount} Candidates
+                        </span>
+                    )}
+                </div>
+
+                {isScheduled && startTime && (
+                    <div className="text-[10px] text-amber-300/90 font-medium flex items-center gap-1 truncate">
+                        <span>⏰ Starts: {new Date(startTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                )}
+            </div>
+        );
     };
 
     const copyToClipboard = (text) => {
@@ -239,69 +308,182 @@ export default function ContentHubViews({ state, actions }) {
                         <button onClick={() => setBatchTab('upgrade-pricing')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${batchTab === 'upgrade-pricing' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><TrendingUp size={16} className="sm:w-4 sm:h-4"/> Upgrade Prices</button>
                     </div>
 
+                    {/* CLASS MODE SWITCHER BAR (Theory Class / Paper Class) - Available for both Groups and Subjects */}
+                    {(() => {
+                        // Always allow both Theory and Paper Class options for all batches
+                        const showTheoryTab = true;
+                        const showPaperTab = true;
+                        const theoryGroupsCount = (activeBatch?.groups || []).filter(g => parseInt(g.classType || 1, 10) === 1).length;
+                        const paperGroupsCount = (activeBatch?.groups || []).filter(g => parseInt(g.classType || 1, 10) === 2).length;
+
+                        if ((batchTab === 'groups' || batchTab === 'subjects')) {
+                            return (
+                                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 p-3 sm:p-4 rounded-2xl bg-white/[0.04] backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.25)] mb-6">
+                                    <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                                        <span className="text-xs font-black uppercase tracking-wider text-gray-400 pl-1 hidden sm:inline-block">Class Stream:</span>
+                                        <div className="inline-flex p-1.5 rounded-xl bg-black/40 border border-white/10 gap-1.5 w-full sm:w-auto">
+                                            {showTheoryTab && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedClassType('theory')}
+                                                    className={`flex-1 sm:flex-initial px-4 sm:px-6 py-2.5 rounded-lg font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all outline-none ${
+                                                        selectedClassType === 'theory'
+                                                            ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-[0_4px_15px_rgba(37,99,235,0.4)] border border-blue-400/40'
+                                                            : 'text-gray-400 hover:text-white hover:bg-white/10 border border-transparent'
+                                                    }`}
+                                                >
+                                                    <BookOpen size={16} className={selectedClassType === 'theory' ? 'text-blue-200' : ''} />
+                                                    <span>Theory Class</span>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                                        selectedClassType === 'theory' ? 'bg-white/20 text-white' : 'bg-white/10 text-gray-400'
+                                                    }`}>
+                                                        {batchTab === 'groups' ? `${theoryGroupsCount} Groups` : `${theoryCount} Subjects`}
+                                                    </span>
+                                                </button>
+                                            )}
+                                            {showPaperTab && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedClassType('paper')}
+                                                    className={`flex-1 sm:flex-initial px-4 sm:px-6 py-2.5 rounded-lg font-extrabold text-xs uppercase tracking-wider flex items-center justify-center gap-2.5 transition-all outline-none ${
+                                                        selectedClassType === 'paper'
+                                                            ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-[0_4px_15px_rgba(245,158,11,0.4)] border border-amber-400/40'
+                                                            : 'text-gray-400 hover:text-white hover:bg-white/10 border border-transparent'
+                                                    }`}
+                                                >
+                                                    <FileSignature size={16} className={selectedClassType === 'paper' ? 'text-amber-200' : ''} />
+                                                    <span>Paper Class</span>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                                                        selectedClassType === 'paper' ? 'bg-white/20 text-white' : 'bg-white/10 text-gray-400'
+                                                    }`}>
+                                                        {batchTab === 'groups' ? `${paperGroupsCount} Groups` : `${paperCount} Subjects`}
+                                                    </span>
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="flex items-center gap-2 text-xs text-gray-400 justify-end pr-1">
+                                        <span className="hidden sm:inline">Active Mode:</span>
+                                        <span className={`font-extrabold uppercase px-3 py-1.5 rounded-lg text-[11px] shadow-sm flex items-center gap-1.5 ${
+                                            selectedClassType === 'paper' 
+                                                ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30' 
+                                                : 'bg-blue-500/15 text-blue-300 border border-blue-500/30'
+                                        }`}>
+                                            {selectedClassType === 'paper' ? <FileSignature size={13}/> : <BookOpen size={13}/>}
+                                            {selectedClassType === 'paper' ? 'Paper Class View' : 'Theory Class View'}
+                                        </span>
+                                    </div>
+                                </div>
+                            );
+                        }
+                        return null;
+                    })()}
+
                     <div className="space-y-6">
                         
                         {/* GROUPS TAB */}
-                        {batchTab === 'groups' && (
-                            activeBatch?.groups?.length === 0 ? <p className="text-center text-gray-400 py-16 bg-white/[0.02] backdrop-blur-xl rounded-3xl border border-white/10 shadow-sm text-lg font-bold">No payment groups created yet.</p> :
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                            {activeBatch?.groups?.map((group) => {
-                                const isMonthly = group.type === 1;
-                                return (
-                                <div key={group.id} className={`group bg-gradient-to-br from-white/[0.05] to-transparent backdrop-blur-3xl border border-white/10 p-6 md:p-8 rounded-[2rem] flex flex-col justify-between gap-6 transition-all duration-500 hover:shadow-[0_20px_50px_-10px_rgba(0,0,0,0.5)] hover:-translate-y-2 relative overflow-hidden ${isMonthly ? 'hover:border-blue-500/50' : 'hover:border-brand-accent/50'}`}>
-                                    {/* Background Subtle Gradient Glow */}
-                                    <div className={`absolute -top-32 -right-32 w-64 h-64 rounded-full blur-[100px] opacity-20 pointer-events-none transition-opacity duration-500 group-hover:opacity-60 ${isMonthly ? 'bg-blue-500' : 'bg-brand-accent'}`}></div>
+                        {batchTab === 'groups' && (() => {
+                            const targetClass = selectedClassType === 'paper' ? 2 : 1;
+                            const currentGroups = (activeBatch?.groups || []).filter(g => parseInt(g.classType || 1, 10) === targetClass);
 
-                                    <div className="flex justify-between items-start relative z-10">
-                                        <div className="overflow-hidden pr-4">
-                                            <div className="flex items-center gap-4 mb-4">
-                                                <div className={`p-3 rounded-2xl shadow-inner border ${isMonthly ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-brand-accent/20 text-brand-accent border-brand-accent/30'}`}>
-                                                    <Layers size={24} />
-                                                </div>
-                                                <h3 className="text-2xl md:text-3xl font-black text-white truncate drop-shadow-md tracking-tight" title={group.name}>{group.name}</h3>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <span className={`text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl shadow-lg border ${isMonthly ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' : 'bg-brand-accent/20 text-brand-accent border-brand-accent/30'}`}>
-                                                    {isMonthly ? 'Monthly Payment' : 'Full Payment'}
-                                                </span>
-                                            </div>
+                            if (currentGroups.length === 0) {
+                                return (
+                                    <div className="text-center py-16 bg-white/[0.02] backdrop-blur-xl rounded-3xl border border-white/10 shadow-sm flex flex-col items-center justify-center gap-4">
+                                        <div className={`w-16 h-16 rounded-2xl flex items-center justify-center border shadow-inner ${
+                                            selectedClassType === 'paper' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                        }`}>
+                                            {selectedClassType === 'paper' ? <FileSignature size={32} /> : <BookOpen size={32} />}
+                                        </div>
+                                        <div>
+                                            <p className="text-white text-lg font-extrabold">
+                                                No {selectedClassType === 'paper' ? 'Paper Class' : 'Theory Class'} Payment Groups Created Yet
+                                            </p>
+                                            <p className="text-gray-400 text-sm max-w-md mt-1">
+                                                Create payment plans and bundle discount rules for this {selectedClassType === 'paper' ? 'Paper Class' : 'Theory Class'} stream.
+                                            </p>
                                         </div>
                                         {canManageGroupsAndSubjects && (
-                                            <div className="flex flex-col sm:flex-row gap-2 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
-                                                <button onClick={() => { setEditData(group); setEditMode(true); setDiscountRules(group.discount_rules ? JSON.parse(group.discount_rules) : []); setShowGroupModal(true); }} className="text-gray-400 bg-white/5 border border-white/10 hover:border-blue-500/50 hover:bg-blue-500/20 hover:text-blue-400 p-2.5 rounded-xl transition-all outline-none shadow-sm flex items-center justify-center"><Edit3 size={18}/></button>
-                                                <button onClick={() => deleteItem('/course-setup/group', { group_id: group.id }, "Group Deleted")} className="text-gray-400 bg-white/5 border border-white/10 hover:border-red-500/50 hover:bg-red-500/20 hover:text-red-400 p-2.5 rounded-xl transition-all outline-none shadow-sm flex items-center justify-center"><Trash2 size={18}/></button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setEditData(null);
+                                                    setEditMode(false);
+                                                    setShowGroupModal(true);
+                                                    setDiscountRules([{courseCount:'',packagePrice:'',pricePerCourse:'',fixedDiscount:''}]);
+                                                }}
+                                                className={`mt-2 ${selectedClassType === 'paper' ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-[0_4px_15px_rgba(245,158,11,0.4)]' : 'bg-brand-accent/90 hover:bg-brand-accent shadow-[0_4px_15px_rgba(225,29,72,0.4)]'} text-white px-6 py-3 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all outline-none border border-transparent hover:scale-105`}
+                                            >
+                                                <Plus size={16}/> Create First {selectedClassType === 'paper' ? 'Paper' : 'Theory'} Group
+                                            </button>
+                                        )}
+                                    </div>
+                                );
+                            }
+
+                            return (
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                {currentGroups.map((group) => {
+                                    const isMonthly = group.type === 1;
+                                    return (
+                                    <div key={group.id} className={`group bg-gradient-to-br from-white/[0.05] to-transparent backdrop-blur-3xl border border-white/10 p-6 md:p-8 rounded-[2rem] flex flex-col justify-between gap-6 transition-all duration-500 hover:shadow-[0_20px_50px_-10px_rgba(0,0,0,0.5)] hover:-translate-y-2 relative overflow-hidden ${isMonthly ? 'hover:border-blue-500/50' : 'hover:border-brand-accent/50'}`}>
+                                        {/* Background Subtle Gradient Glow */}
+                                        <div className={`absolute -top-32 -right-32 w-64 h-64 rounded-full blur-[100px] opacity-20 pointer-events-none transition-opacity duration-500 group-hover:opacity-60 ${isMonthly ? 'bg-blue-500' : 'bg-brand-accent'}`}></div>
+
+                                        <div className="flex justify-between items-start relative z-10">
+                                            <div className="overflow-hidden pr-4">
+                                                <div className="flex items-center gap-4 mb-4">
+                                                    <div className={`p-3 rounded-2xl shadow-inner border ${isMonthly ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-brand-accent/20 text-brand-accent border-brand-accent/30'}`}>
+                                                        <Layers size={24} />
+                                                    </div>
+                                                    <h3 className="text-2xl md:text-3xl font-black text-white truncate drop-shadow-md tracking-tight" title={group.name}>{group.name}</h3>
+                                                </div>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className={`text-[11px] font-black uppercase tracking-widest px-4 py-2 rounded-xl shadow-lg border ${isMonthly ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' : 'bg-brand-accent/20 text-brand-accent border-brand-accent/30'}`}>
+                                                        {isMonthly ? 'Monthly Payment' : 'Full Payment'}
+                                                    </span>
+                                                    <span className={`text-[11px] font-black uppercase tracking-widest px-3 py-1.5 rounded-xl border ${parseInt(group.classType || 1, 10) === 2 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-blue-500/20 text-blue-300 border-blue-500/30'}`}>
+                                                        {parseInt(group.classType || 1, 10) === 2 ? '📝 Paper Class' : '📘 Theory Class'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            {canManageGroupsAndSubjects && (
+                                                <div className="flex flex-col sm:flex-row gap-2 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
+                                                    <button onClick={() => { setEditData(group); setEditMode(true); setDiscountRules(group.discount_rules ? JSON.parse(group.discount_rules) : []); setShowGroupModal(true); }} className="text-gray-400 bg-white/5 border border-white/10 hover:border-blue-500/50 hover:bg-blue-500/20 hover:text-blue-400 p-2.5 rounded-xl transition-all outline-none shadow-sm flex items-center justify-center"><Edit3 size={18}/></button>
+                                                    <button onClick={() => deleteItem('/course-setup/group', { group_id: group.id }, "Group Deleted")} className="text-gray-400 bg-white/5 border border-white/10 hover:border-red-500/50 hover:bg-red-500/20 hover:text-red-400 p-2.5 rounded-xl transition-all outline-none shadow-sm flex items-center justify-center"><Trash2 size={18}/></button>
+                                                </div>
+                                            )}
+                                        </div>
+                                        
+                                        {group.discount_rules && JSON.parse(group.discount_rules).length > 0 && (
+                                            <div className="pt-5 border-t border-white/10 relative z-10 mt-auto">
+                                                <p className="text-[10px] text-gray-500 font-extrabold uppercase tracking-widest mb-3">Active Bundle Discounts</p>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {JSON.parse(group.discount_rules).map((rule, ridx) => {
+                                                        const hasPackage = rule.packagePrice && parseFloat(rule.packagePrice) > 0;
+                                                        const hasFixed = rule.fixedDiscount && parseFloat(rule.fixedDiscount) > 0;
+                                                        let displayTxt = '';
+                                                        if (hasPackage) {
+                                                            displayTxt = 'Total Rs ' + Number(rule.packagePrice).toLocaleString();
+                                                        } else if (hasFixed) {
+                                                            displayTxt = 'Get Rs ' + Number(rule.fixedDiscount).toLocaleString() + ' Off';
+                                                        } else {
+                                                            displayTxt = '@ Rs ' + Number(rule.pricePerCourse).toLocaleString() + ' / ea';
+                                                        }
+                                                        return (
+                                                            <span key={ridx} className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 px-3 py-2 rounded-xl border border-emerald-500/20 shadow-sm">
+                                                                <span className="bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md">Buy {rule.courseCount}+</span> {displayTxt}
+                                                            </span>
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
                                         )}
                                     </div>
-                                    
-                                    {group.type !== 1 && group.discount_rules && JSON.parse(group.discount_rules).length > 0 && (
-                                        <div className="pt-5 border-t border-white/10 relative z-10 mt-auto">
-                                            <p className="text-[10px] text-gray-500 font-extrabold uppercase tracking-widest mb-3">Active Bundle Discounts</p>
-                                            <div className="flex flex-wrap gap-2">
-                                                {JSON.parse(group.discount_rules).map((rule, ridx) => {
-                                                    const hasPackage = rule.packagePrice && parseFloat(rule.packagePrice) > 0;
-                                                    const hasFixed = rule.fixedDiscount && parseFloat(rule.fixedDiscount) > 0;
-                                                    let displayTxt = '';
-                                                    if (hasPackage) {
-                                                        displayTxt = 'Total Rs ' + Number(rule.packagePrice).toLocaleString();
-                                                    } else if (hasFixed) {
-                                                        displayTxt = 'Get Rs ' + Number(rule.fixedDiscount).toLocaleString() + ' Off';
-                                                    } else {
-                                                        displayTxt = '@ Rs ' + Number(rule.pricePerCourse).toLocaleString() + ' / ea';
-                                                    }
-                                                    return (
-                                                        <span key={ridx} className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 px-3 py-2 rounded-xl border border-emerald-500/20 shadow-sm">
-                                                            <span className="bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md">Buy {rule.courseCount}+</span> {displayTxt}
-                                                        </span>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    )}
+                                )})}
                                 </div>
-                            )})}
-                            </div>
-                        )}
+                            );
+                        })()}
 
                         {/* LECTURERS TAB */}
                         {batchTab === 'lecturers' && (
@@ -330,92 +512,137 @@ export default function ContentHubViews({ state, actions }) {
                         )}
 
                         {/* SUBJECTS TAB */}
-                        {batchTab === 'subjects' && (
-                            Object.keys(groupedSubjects).length === 0 ? <p className="text-center text-gray-400 py-16 bg-white/[0.02] backdrop-blur-xl rounded-3xl border border-white/10 shadow-sm text-lg font-bold">No subjects created yet.</p> : 
-                            <div className="space-y-8">
-                                {Object.keys(groupedSubjects).map((streamName, idx) => (
-                                    <div key={idx} className="bg-black/20 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-white/5 shadow-inner">
-                                        {(activeBusiness?.category === 'Advance Level' || activeBusiness?.category === 'AL') && (
-                                            <h3 className="text-lg font-extrabold text-brand-accent mb-6 flex items-center gap-3 uppercase tracking-widest drop-shadow-sm"><Layers size={24}/> {streamName} Stream</h3>
-                                        )}
-                                        <div className="grid grid-cols-1 gap-5">
-                                            {groupedSubjects[streamName].map((sub) => {
-                                                let courseImage = null;
-                                                try { if (sub.groupPrices && sub.groupPrices.length > 0 && sub.groupPrices[0].lecturerImage) { courseImage = sub.groupPrices[0].lecturerImage; } } catch(e) {}
+                        {batchTab === 'subjects' && (() => {
+                            return (
+                                <div className="space-y-6">
 
-                                                return (
-                                                <div key={sub.id} className="bg-white/[0.05] hover:border-brand-accent/40 border border-white/10 p-6 rounded-2xl flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 transition-all shadow-sm hover:shadow-md overflow-hidden group backdrop-blur-md">
-                                                    
-                                                    <div className="flex items-center gap-4 w-full xl:w-auto overflow-hidden">
-                                                        {canManageGroupsAndSubjects && <div className="cursor-move text-slate-600 group-hover:text-brand-accent transition-colors shrink-0 hidden sm:block"><GripVertical size={24}/></div>}
-                                                        
-                                                        <div className="flex flex-col sm:flex-row sm:items-center gap-5 w-full">
-                                                            {courseImage ? (
-                                                                <img src={getImageUrl(courseImage)} alt="Lecturer" className="w-16 h-16 rounded-full object-cover border-2 border-white/10 shrink-0 shadow-sm" />
-                                                            ) : (
-                                                                <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center border border-white/10 shrink-0 shadow-sm">
-                                                                    <User size={28} className="text-slate-500" />
-                                                                </div>
-                                                            )}
+                                    {Object.keys(groupedSubjects).length === 0 ? (
+                                        <div className="text-center py-16 bg-white/[0.02] backdrop-blur-xl rounded-3xl border border-white/10 shadow-sm flex flex-col items-center justify-center gap-4">
+                                            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center border shadow-inner ${
+                                                selectedClassType === 'paper' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                                            }`}>
+                                                {selectedClassType === 'paper' ? <FileSignature size={32} /> : <BookOpen size={32} />}
+                                            </div>
+                                            <div>
+                                                <p className="text-white text-lg font-extrabold">
+                                                    No {selectedClassType === 'paper' ? 'Paper Class' : 'Theory Class'} Subjects Created Yet
+                                                </p>
+                                                <p className="text-gray-400 text-sm max-w-md mt-1">
+                                                    Add subjects and assign them to payment groups for this {selectedClassType === 'paper' ? 'Paper Class' : 'Theory Class'} stream.
+                                                </p>
+                                            </div>
+                                            {canManageGroupsAndSubjects && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setEditData(null);
+                                                        setEditMode(false);
+                                                        setSelectedGroupPrices({});
+                                                        setShowCourseModal(true);
+                                                    }}
+                                                    className={`mt-2 ${selectedClassType === 'paper' ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-[0_4px_15px_rgba(245,158,11,0.4)]' : 'bg-brand-accent/90 hover:bg-brand-accent shadow-[0_4px_15px_rgba(225,29,72,0.4)]'} text-white px-6 py-3 rounded-xl font-bold text-xs sm:text-sm flex items-center gap-2 transition-all outline-none border border-transparent hover:scale-105`}
+                                                >
+                                                    <Plus size={16}/> Create First {selectedClassType === 'paper' ? 'Paper' : 'Theory'} Subject
+                                                </button>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-8">
+                                            {Object.keys(groupedSubjects).map((streamName, idx) => (
+                                                <div key={idx} className="bg-black/20 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] border border-white/5 shadow-inner">
+                                                    {(activeBusiness?.category === 'Advance Level' || activeBusiness?.category === 'AL') && (
+                                                        <h3 className="text-lg font-extrabold text-brand-accent mb-6 flex items-center gap-3 uppercase tracking-widest drop-shadow-sm"><Layers size={24}/> {streamName} Stream</h3>
+                                                    )}
+                                                    <div className="grid grid-cols-1 gap-5">
+                                                        {groupedSubjects[streamName].map((sub) => {
+                                                            let courseImage = null;
+                                                            try { if (sub.groupPrices && sub.groupPrices.length > 0 && sub.groupPrices[0].lecturerImage) { courseImage = sub.groupPrices[0].lecturerImage; } } catch(e) {}
 
-                                                            <div className="flex flex-col overflow-hidden w-full">
-                                                                <div className="flex flex-wrap items-center gap-3 mb-1">
-                                                                    <h3 className="text-lg font-extrabold text-white truncate max-w-full xl:max-w-[400px] drop-shadow-sm" title={sub.name}>{sub.name}</h3>
-                                                                    {sub.code && <span className="text-[10px] font-black uppercase tracking-widest text-brand-accent bg-brand-accent/10 px-2.5 py-1 rounded-md border border-brand-accent/20 shrink-0 w-max shadow-sm">{sub.code}</span>}
-                                                                </div>
-                                                                {sub.lecturerName && <span className="text-sm font-bold text-gray-400 mb-1">{sub.lecturerName}</span>}
+                                                            return (
+                                                            <div key={sub.id} className="bg-white/[0.05] hover:border-brand-accent/40 border border-white/10 p-6 rounded-2xl flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 transition-all shadow-sm hover:shadow-md overflow-hidden group backdrop-blur-md">
                                                                 
-                                                                <div className="flex flex-wrap gap-2 mt-2">
-                                                                    {sub.activeMonths && (
-                                                                        <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20 flex items-center gap-1.5 shadow-sm backdrop-blur-sm">
-                                                                            <Calendar size={12} className="text-emerald-400 shrink-0" />
-                                                                            Active: {sub.activeMonths} {sub.activeMonths === 1 ? 'Month' : 'Months'}
-                                                                            {sub.startMonth && sub.endMonth && (
-                                                                                <span className="text-slate-400 lowercase font-extrabold"> ({sub.startMonth} - {sub.endMonth})</span>
-                                                                            )}
-                                                                        </span>
+                                                                <div className="flex items-center gap-4 w-full xl:w-auto overflow-hidden">
+                                                                    {canManageGroupsAndSubjects && <div className="cursor-move text-slate-600 group-hover:text-brand-accent transition-colors shrink-0 hidden sm:block"><GripVertical size={24}/></div>}
+                                                                    
+                                                                    <div className="flex flex-col sm:flex-row sm:items-center gap-5 w-full">
+                                                                        {courseImage ? (
+                                                                            <img src={getImageUrl(courseImage)} alt="Lecturer" className="w-16 h-16 rounded-full object-cover border-2 border-white/10 shrink-0 shadow-sm" />
+                                                                        ) : (
+                                                                            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center border border-white/10 shrink-0 shadow-sm">
+                                                                                <User size={28} className="text-slate-500" />
+                                                                            </div>
+                                                                        )}
+
+                                                                        <div className="flex flex-col overflow-hidden w-full">
+                                                                            <div className="flex flex-wrap items-center gap-2.5 mb-1">
+                                                                                <h3 className="text-lg font-extrabold text-white truncate max-w-full xl:max-w-[400px] drop-shadow-sm" title={sub.name}>{sub.name}</h3>
+                                                                                {sub.code && <span className="text-[10px] font-black uppercase tracking-widest text-brand-accent bg-brand-accent/10 px-2.5 py-1 rounded-md border border-brand-accent/20 shrink-0 w-max shadow-sm">{sub.code}</span>}
+                                                                                {parseInt(sub.courseType || 1) === 2 ? (
+                                                                                    <span className="text-[10px] font-black uppercase tracking-widest text-amber-300 bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 rounded-md shadow-sm flex items-center gap-1">
+                                                                                        <FileSignature size={11} /> Paper Class
+                                                                                    </span>
+                                                                                ) : (
+                                                                                    <span className="text-[10px] font-black uppercase tracking-widest text-blue-300 bg-blue-500/15 border border-blue-500/30 px-2.5 py-1 rounded-md shadow-sm flex items-center gap-1">
+                                                                                        <BookOpen size={11} /> Theory Class
+                                                                                    </span>
+                                                                                )}
+                                                                            </div>
+                                                                            {sub.lecturerName && <span className="text-sm font-bold text-gray-400 mb-1">{sub.lecturerName}</span>}
+                                                                            
+                                                                            <div className="flex flex-wrap gap-2 mt-2">
+                                                                                {sub.activeMonths && (
+                                                                                    <span className="text-[11px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-3 py-1.5 rounded-lg border border-emerald-500/20 flex items-center gap-1.5 shadow-sm backdrop-blur-sm">
+                                                                                        <Calendar size={12} className="text-emerald-400 shrink-0" />
+                                                                                        Active: {sub.activeMonths} {sub.activeMonths === 1 ? 'Month' : 'Months'}
+                                                                                        {sub.startMonth && sub.endMonth && (
+                                                                                            <span className="text-slate-400 lowercase font-extrabold"> ({sub.startMonth} - {sub.endMonth})</span>
+                                                                                        )}
+                                                                                    </span>
+                                                                                )}
+                                                                                {sub.groupPrices.map((gp, i) => (
+                                                                                    <span key={i} className="text-[11px] font-bold text-slate-300 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10 flex items-center gap-2 whitespace-nowrap shadow-sm backdrop-blur-sm">
+                                                                                        {gp.groupName}: <span className="text-brand-accent font-black">Rs {gp.price}</span>
+                                                                                    </span>
+                                                                                ))}
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                                
+                                                                <div className="flex flex-wrap sm:flex-nowrap gap-3 items-center w-full xl:w-auto justify-end mt-4 xl:mt-0 shrink-0 border-t xl:border-none border-white/5 pt-5 xl:pt-0">
+                                                                    <button onClick={() => openContentsView(sub)} className="flex-1 sm:flex-none bg-green-600/90 hover:bg-green-500 text-white px-6 py-3.5 rounded-xl text-sm font-extrabold uppercase tracking-wide flex justify-center items-center gap-2 transition-transform hover:scale-[1.02] shadow-[0_4px_15px_rgba(22,163,74,0.4)] border border-transparent outline-none"><MonitorPlay size={18}/> Manage Content</button>
+                                                                    {canManageGroupsAndSubjects && (
+                                                                        <>
+                                                                            <button onClick={() => { 
+                                                                                setEditData(sub); setEditMode(true); 
+                                                                                const gPrices = {}; 
+                                                                                sub.groupPrices.forEach(p => {
+                                                                                    let parsedTutes = p.tutes || [];
+                                                                                    if (parsedTutes.length === 0 && p.tuteName) {
+                                                                                        parsedTutes = [{ name: p.tuteName, cover: p.tuteCover || null }];
+                                                                                    }
+                                                                                    gPrices[p.groupId] = { 
+                                                                                        price: p.price, deliverTute: p.deliverTute === true || p.deliverTute === 'true', 
+                                                                                        tuteName: p.tuteName || '', tuteCover: p.tuteCover || null, tuteFile: null,
+                                                                                        tutes: parsedTutes
+                                                                                    };
+                                                                                }); 
+                                                                                setSelectedGroupPrices(gPrices); setShowCourseModal(true); 
+                                                                            }} className="text-blue-400 bg-blue-500/10 hover:bg-blue-500 hover:text-white border border-transparent hover:border-blue-500/50 p-3.5 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={18}/></button>
+                                                                            <button onClick={() => deleteItem('/admin/course/delete', { course_id: sub.id }, "Subject Deleted")} className="text-red-400 bg-red-500/10 hover:bg-red-500 hover:text-white border border-transparent hover:border-red-500/50 p-3.5 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={18}/></button>
+                                                                        </>
                                                                     )}
-                                                                    {sub.groupPrices.map((gp, i) => (
-                                                                        <span key={i} className="text-[11px] font-bold text-slate-300 bg-white/5 px-3 py-1.5 rounded-lg border border-white/10 flex items-center gap-2 whitespace-nowrap shadow-sm backdrop-blur-sm">
-                                                                            {gp.groupName}: <span className="text-brand-accent font-black">Rs {gp.price}</span>
-                                                                        </span>
-                                                                    ))}
                                                                 </div>
                                                             </div>
-                                                        </div>
-                                                    </div>
-                                                    
-                                                    <div className="flex flex-wrap sm:flex-nowrap gap-3 items-center w-full xl:w-auto justify-end mt-4 xl:mt-0 shrink-0 border-t xl:border-none border-white/5 pt-5 xl:pt-0">
-                                                        <button onClick={() => openContentsView(sub)} className="flex-1 sm:flex-none bg-green-600/90 hover:bg-green-500 text-white px-6 py-3.5 rounded-xl text-sm font-extrabold uppercase tracking-wide flex justify-center items-center gap-2 transition-transform hover:scale-[1.02] shadow-[0_4px_15px_rgba(22,163,74,0.4)] border border-transparent outline-none"><MonitorPlay size={18}/> Manage Content</button>
-                                                        {canManageGroupsAndSubjects && (
-                                                            <>
-                                                                <button onClick={() => { 
-                                                                    setEditData(sub); setEditMode(true); 
-                                                                    const gPrices = {}; 
-                                                                    sub.groupPrices.forEach(p => {
-                                                                        let parsedTutes = p.tutes || [];
-                                                                        if (parsedTutes.length === 0 && p.tuteName) {
-                                                                            parsedTutes = [{ name: p.tuteName, cover: p.tuteCover || null }];
-                                                                        }
-                                                                        gPrices[p.groupId] = { 
-                                                                            price: p.price, deliverTute: p.deliverTute === true || p.deliverTute === 'true', 
-                                                                            tuteName: p.tuteName || '', tuteCover: p.tuteCover || null, tuteFile: null,
-                                                                            tutes: parsedTutes
-                                                                        };
-                                                                    }); 
-                                                                    setSelectedGroupPrices(gPrices); setShowCourseModal(true); 
-                                                                }} className="text-blue-400 bg-blue-500/10 hover:bg-blue-500 hover:text-white border border-transparent hover:border-blue-500/50 p-3.5 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={18}/></button>
-                                                                <button onClick={() => deleteItem('/admin/course/delete', { course_id: sub.id }, "Subject Deleted")} className="text-red-400 bg-red-500/10 hover:bg-red-500 hover:text-white border border-transparent hover:border-red-500/50 p-3.5 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={18}/></button>
-                                                            </>
-                                                        )}
+                                                            )})}
                                                     </div>
                                                 </div>
-                                                )})}
+                                            ))}
                                         </div>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
+                                    )}
+                                </div>
+                            );
+                        })()}
 
                         {/* UPGRADE PRICING TAB */}
                         {batchTab === 'upgrade-pricing' && (
@@ -432,7 +659,7 @@ export default function ContentHubViews({ state, actions }) {
                     {/* Content Tabs Header */}
                     <div className="flex overflow-x-auto custom-scrollbar border-b border-white/10 bg-black/20 p-2.5 sm:p-4 gap-2 sm:gap-3 shrink-0">
                         {[ { id: 'live', label: 'Live Classes', icon: Video }, { id: 'recording', label: 'Recordings', icon: MonitorPlay },
-                           { id: 'document', label: 'Documents', icon: FileText }, { id: 'sPaper', label: 'Structured', icon: FileSignature }, { id: 'paper', label: 'MCQs', icon: CheckCircle }
+                           { id: 'document', label: 'Documents', icon: FileText }, { id: 'testRanking', label: 'Test Ranking', icon: Trophy }
                         ].map(tab => (
                             <button key={tab.id} onClick={() => setContentTab(tab.id)} className={`flex items-center gap-2 sm:gap-3 px-3.5 sm:px-6 py-2.5 sm:py-3.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all whitespace-nowrap uppercase tracking-wider outline-none border border-transparent shrink-0 ${contentTab === tab.id ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white border-white/10'}`}>
                                 <tab.icon size={16} className="sm:w-[18px] sm:h-[18px]"/> {tab.label}
@@ -458,13 +685,62 @@ export default function ContentHubViews({ state, actions }) {
                     <div className="p-3.5 sm:p-6 md:p-8 space-y-6 sm:space-y-10 overflow-y-auto custom-scrollbar">
                         
                         {/* ORGANIZED FOLDERS */}
-                        {lessonGroups.filter(g => isMatchedType(g) && !g.parentId).length > 0 && (
-                            <div className="space-y-4 sm:space-y-6">
-                                <h4 className="text-xs font-extrabold text-gray-400 uppercase tracking-widest pl-1 sm:pl-2 drop-shadow-sm">Organized Folders</h4>
-                                
-                                {lessonGroups.filter(g => isMatchedType(g) && !g.parentId).map((folder) => {
-                                    const subFolders = lessonGroups.filter(g => isMatchedType(g) && g.parentId === folder.id);
-                                    const directContents = subjectContents.filter(c => isMatchedType(c) && (c.contentGroupId === folder.id || isItemInFolder(c, folder)) && !subFolders.some(sf => sf.id === c.contentGroupId || isItemInFolder(c, sf)));
+                        {(() => {
+                            const rawRootFolders = (lessonGroups || []).filter(g => isMatchedType(g) && (!g.parentId || !(lessonGroups || []).some(p => String(p.id) === String(g.parentId))));
+                            const mergedRootFoldersMap = new Map();
+                            rawRootFolders.forEach(f => {
+                                const titleKey = normalizeFolderTitle(f.title || f.name) || (f.title || f.name || '').trim().toLowerCase();
+                                if (!mergedRootFoldersMap.has(titleKey)) {
+                                    mergedRootFoldersMap.set(titleKey, { ...f, ids: [String(f.id), ...(f.allIds ? f.allIds.map(String) : [])] });
+                                } else {
+                                    const existing = mergedRootFoldersMap.get(titleKey);
+                                    const toAdd = [String(f.id), ...(f.allIds ? f.allIds.map(String) : [])];
+                                    toAdd.forEach(id => {
+                                        if (!existing.ids.includes(id)) existing.ids.push(id);
+                                    });
+                                }
+                            });
+                            const organizedRootFolders = Array.from(mergedRootFoldersMap.values());
+
+                            if (organizedRootFolders.length === 0) return null;
+
+                            return (
+                                <div className="space-y-4 sm:space-y-6">
+                                    <h4 className="text-xs font-extrabold text-gray-400 uppercase tracking-widest pl-1 sm:pl-2 drop-shadow-sm">Organized Folders</h4>
+                                    
+                                    {organizedRootFolders.map((folder) => {
+                                        const rawSubFolders = (lessonGroups || []).filter(g => isMatchedType(g) && g.parentId && folder.ids.includes(String(g.parentId)));
+                                        const mergedSubMap = new Map();
+                                        rawSubFolders.forEach(sf => {
+                                            const subTitleKey = normalizeFolderTitle(sf.title || sf.name) || (sf.title || sf.name || '').trim().toLowerCase();
+                                            if (!mergedSubMap.has(subTitleKey)) {
+                                                mergedSubMap.set(subTitleKey, { ...sf, ids: [String(sf.id), ...(sf.allIds ? sf.allIds.map(String) : [])] });
+                                            } else {
+                                                const existing = mergedSubMap.get(subTitleKey);
+                                                const toAdd = [String(sf.id), ...(sf.allIds ? sf.allIds.map(String) : [])];
+                                                toAdd.forEach(id => {
+                                                    if (!existing.ids.includes(id)) existing.ids.push(id);
+                                                });
+                                            }
+                                        });
+                                        const subFolders = Array.from(mergedSubMap.values());
+
+                                        const isItemMatch = (c, fObj) => {
+                                            const cFolderId = c.content_group_id ?? c.contentGroupId ?? c.folder_id;
+                                            if (cFolderId) {
+                                                const isDirectMatch = (fObj.ids && fObj.ids.includes(String(cFolderId))) || String(cFolderId) === String(fObj.id);
+                                                if (isDirectMatch) return true;
+                                                const folderExists = (lessonGroups || []).some(g => String(g.id) === String(cFolderId) || (g.allIds && g.allIds.some(id => String(id) === String(cFolderId))));
+                                                if (folderExists) return false;
+                                            }
+                                            return isItemInFolder(c, fObj);
+                                        };
+
+                                        const directContents = subjectContents.filter(c => 
+                                            isMatchedType(c) && 
+                                            isItemMatch(c, folder) && 
+                                            !subFolders.some(sf => isItemMatch(c, sf))
+                                        );
 
                                     const renderContentCard = (content) => (
                                         <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
@@ -493,18 +769,21 @@ export default function ContentHubViews({ state, actions }) {
 
                                             {/* Content Details */}
                                             <div className="p-3.5 sm:p-5 flex-1 flex flex-col justify-between">
-                                                <h4 className="text-xs sm:text-base font-extrabold text-white mb-3 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
+                                                <h4 className="text-xs sm:text-base font-extrabold text-white mb-2 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
                                                     {content.title}
                                                 </h4>
                                                 
+                                                {/* Test Badges and Info */}
+                                                {isTestType(contentTab, content) && renderTestBadges(content)}
+
                                                 {/* Action Buttons */}
-                                                {(contentTab === 'paper' || contentTab === 'sPaper' || content.contentType === 'paper' || content.contentType === 'sPaper' || content.contentType === '4' || content.contentType === '5') && (
+                                                {isTestType(contentTab, content) && (
                                                     <button 
                                                         onClick={() => openPaperBuilder(content)} 
-                                                        className="w-full bg-brand-accent/20 hover:bg-brand-accent border border-brand-accent/40 text-white font-extrabold py-2 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-1.5 mb-2 mt-auto"
+                                                        className="w-full bg-gradient-to-r from-brand-accent/20 to-amber-500/20 hover:from-brand-accent hover:to-amber-600 border border-brand-accent/40 text-white font-extrabold py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2 mb-2 mt-auto active:scale-95 group/btn"
                                                     >
-                                                        <Sparkles size={13} className="text-amber-300 animate-pulse" />
-                                                        {contentTab === 'paper' || content.contentType === 'paper' || content.contentType === '5' ? 'Questions & Answers' : 'Manage Paper & Submissions'}
+                                                        <Trophy size={14} className="text-amber-400 group-hover/btn:scale-110 transition-transform" />
+                                                        Manage Test & Rankings
                                                     </button>
                                                 )}
 
@@ -557,7 +836,17 @@ export default function ContentHubViews({ state, actions }) {
                                                     {canManageContent && (
                                                         <>
                                                             <button onClick={(e) => { e.stopPropagation(); openCreateSubFolderModal(folder); }} className="bg-indigo-600/90 hover:bg-indigo-500 text-white px-3 sm:px-3.5 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider font-extrabold flex items-center gap-1.5 transition-colors shadow-[0_4px_15px_rgba(99,102,241,0.4)] border border-transparent outline-none" title="Create Sub-folder inside this folder"><FolderPlus size={14}/> <span className="hidden xs:inline">+ Sub-folder</span></button>
-                                                            <button onClick={(e) => { e.stopPropagation(); setContentType(contentTab); setPrefilledFolder(String(folder.id)); setSelectedBatchesForContent([activeBatch.id]); setMassAssignSubjects([activeSubject.id]); setShowContentModal(true); setEditMode(false); }} className="bg-green-600/90 hover:bg-green-500 text-white px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider font-extrabold flex items-center gap-1.5 transition-colors shadow-[0_4px_15px_rgba(22,163,74,0.4)] border border-transparent outline-none"><Plus size={14}/> <span className="hidden xs:inline">Add Content</span></button>
+                                                            <button onClick={(e) => { 
+                                                                e.stopPropagation(); 
+                                                                setContentType(contentTab); 
+                                                                setPrefilledFolder(String(folder.id)); 
+                                                                setSelectedBatchesForContent([activeBatch.id]); 
+                                                                setMassAssignSubjects([activeSubject.id]); 
+                                                                if (setHubBatchConfigs) setHubBatchConfigs({});
+                                                                if (setHubActiveBatchTab) setHubActiveBatchTab(null);
+                                                                setShowContentModal(true); 
+                                                                setEditMode(false); 
+                                                            }} className="bg-green-600/90 hover:bg-green-500 text-white px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider font-extrabold flex items-center gap-1.5 transition-colors shadow-[0_4px_15px_rgba(22,163,74,0.4)] border border-transparent outline-none"><Plus size={14}/> <span className="hidden xs:inline">Add Content</span></button>
                                                             <button onClick={(e) => { e.stopPropagation(); setEditData(folder); setSelectedFolderParentId(folder.parentId ? String(folder.parentId) : ''); setEditMode(true); setShowLessonGroupModal(true); }} className="text-blue-400 hover:bg-blue-500 hover:text-white bg-blue-500/10 border border-transparent hover:border-blue-500/50 p-2 sm:p-2.5 rounded-xl transition-colors outline-none shadow-sm"><Edit3 size={16}/></button>
                                                             <button onClick={(e) => { e.stopPropagation(); deleteItem('/admin/content-group/delete', { contentGroupId: folder.id }, "Folder Deleted"); }} className="text-red-400 hover:bg-red-500 hover:text-white bg-red-500/10 border border-transparent hover:border-red-500/50 p-2 sm:p-2.5 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={16}/></button>
                                                         </>
@@ -584,7 +873,7 @@ export default function ContentHubViews({ state, actions }) {
                                                             
                                                             <div className="space-y-3 pl-2 sm:pl-4 border-l-2 border-indigo-500/30">
                                                                 {subFolders.map((subFolder) => {
-                                                                    const subContents = subjectContents.filter(c => isMatchedType(c) && (c.contentGroupId === subFolder.id || isItemInFolder(c, subFolder)));
+                                                                    const subContents = subjectContents.filter(c => isMatchedType(c) && isItemMatch(c, subFolder));
 
                                                                     return (
                                                                         <div key={subFolder.id} className="bg-white/[0.03] border border-white/10 rounded-xl sm:rounded-2xl overflow-hidden transition-all">
@@ -602,7 +891,17 @@ export default function ContentHubViews({ state, actions }) {
                                                                                 <div className="flex gap-1.5 items-center shrink-0">
                                                                                     {canManageContent && (
                                                                                         <>
-                                                                                            <button onClick={(e) => { e.stopPropagation(); setContentType(contentTab); setPrefilledFolder(String(subFolder.id)); setSelectedBatchesForContent([activeBatch.id]); setMassAssignSubjects([activeSubject.id]); setShowContentModal(true); setEditMode(false); }} className="bg-green-600/90 hover:bg-green-500 text-white px-2.5 py-1.5 rounded-lg text-[10px] uppercase tracking-wider font-extrabold flex items-center gap-1 transition-colors shadow-sm border border-transparent outline-none"><Plus size={12}/> Add Content</button>
+                                                                                            <button onClick={(e) => { 
+                                                                                                e.stopPropagation(); 
+                                                                                                setContentType(contentTab); 
+                                                                                                setPrefilledFolder(String(subFolder.id)); 
+                                                                                                setSelectedBatchesForContent([activeBatch.id]); 
+                                                                                                setMassAssignSubjects([activeSubject.id]); 
+                                                                                                if (setHubBatchConfigs) setHubBatchConfigs({});
+                                                                                                if (setHubActiveBatchTab) setHubActiveBatchTab(null);
+                                                                                                setShowContentModal(true); 
+                                                                                                setEditMode(false); 
+                                                                                            }} className="bg-green-600/90 hover:bg-green-500 text-white px-2.5 py-1.5 rounded-lg text-[10px] uppercase tracking-wider font-extrabold flex items-center gap-1 transition-colors shadow-sm border border-transparent outline-none"><Plus size={12}/> Add Content</button>
                                                                                             <button onClick={(e) => { e.stopPropagation(); setEditData(subFolder); setSelectedFolderParentId(subFolder.parentId ? String(subFolder.parentId) : ''); setEditMode(true); setShowLessonGroupModal(true); }} className="text-blue-400 hover:bg-blue-500 hover:text-white bg-blue-500/10 p-1.5 rounded-lg transition-colors outline-none shadow-sm"><Edit3 size={14}/></button>
                                                                                             <button onClick={(e) => { e.stopPropagation(); deleteItem('/admin/content-group/delete', { contentGroupId: subFolder.id }, "Sub-folder Deleted"); }} className="text-red-400 hover:bg-red-500 hover:text-white bg-red-500/10 p-1.5 rounded-lg transition-colors outline-none shadow-sm"><Trash2 size={14}/></button>
                                                                                         </>
@@ -648,7 +947,16 @@ export default function ContentHubViews({ state, actions }) {
                                                             {canManageContent && (
                                                                 <div className="flex justify-center gap-3">
                                                                     <button onClick={() => openCreateSubFolderModal(folder)} className="bg-indigo-600/80 hover:bg-indigo-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"><FolderPlus size={14}/> Create Sub-folder</button>
-                                                                    <button onClick={() => { setContentType(contentTab); setPrefilledFolder(folder.id); setSelectedBatchesForContent([activeBatch.id]); setMassAssignSubjects([activeSubject.id]); setShowContentModal(true); setEditMode(false); }} className="bg-green-600/80 hover:bg-green-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"><Plus size={14}/> Add Content</button>
+                                                                    <button onClick={() => { 
+                                                                        setContentType(contentTab); 
+                                                                        setPrefilledFolder(String(folder.id)); 
+                                                                        setSelectedBatchesForContent([activeBatch.id]); 
+                                                                        setMassAssignSubjects([activeSubject.id]); 
+                                                                        if (setHubBatchConfigs) setHubBatchConfigs({});
+                                                                        if (setHubActiveBatchTab) setHubActiveBatchTab(null);
+                                                                        setShowContentModal(true); 
+                                                                        setEditMode(false); 
+                                                                    }} className="bg-green-600/80 hover:bg-green-600 text-white px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"><Plus size={14}/> Add Content</button>
                                                                 </div>
                                                             )}
                                                         </div>
@@ -659,7 +967,8 @@ export default function ContentHubViews({ state, actions }) {
                                     );
                                 })}
                             </div>
-                        )}
+                        );
+                    })()}
 
                         {/* UNCATEGORIZED ITEMS */}
                         <div className="mt-8 sm:mt-12">
@@ -697,18 +1006,21 @@ export default function ContentHubViews({ state, actions }) {
 
                                             {/* Content Details */}
                                             <div className="p-3.5 sm:p-5 flex-1 flex flex-col justify-between">
-                                                <h4 className="text-xs sm:text-base font-extrabold text-white mb-3 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
+                                                <h4 className="text-xs sm:text-base font-extrabold text-white mb-2 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
                                                     {content.title}
                                                 </h4>
                                                 
+                                                {/* Test Badges and Info */}
+                                                {isTestType(contentTab, content) && renderTestBadges(content)}
+
                                                 {/* Action Buttons */}
-                                                {(contentTab === 'paper' || contentTab === 'sPaper' || content.contentType === 'paper' || content.contentType === 'sPaper' || content.contentType === '4' || content.contentType === '5') && (
+                                                {isTestType(contentTab, content) && (
                                                     <button 
                                                         onClick={() => openPaperBuilder(content)} 
-                                                        className="w-full bg-brand-accent/20 hover:bg-brand-accent border border-brand-accent/40 text-white font-extrabold py-2 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-1.5 mb-2 mt-auto"
+                                                        className="w-full bg-gradient-to-r from-brand-accent/20 to-amber-500/20 hover:from-brand-accent hover:to-amber-600 border border-brand-accent/40 text-white font-extrabold py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2 mb-2 mt-auto active:scale-95 group/btn"
                                                     >
-                                                        <Sparkles size={13} className="text-amber-300 animate-pulse" />
-                                                        {contentTab === 'paper' || content.contentType === 'paper' || content.contentType === '5' ? 'Questions & Answers' : 'Manage Paper & Submissions'}
+                                                        <Trophy size={14} className="text-amber-400 group-hover/btn:scale-110 transition-transform" />
+                                                        Manage Test & Rankings
                                                     </button>
                                                 )}
 

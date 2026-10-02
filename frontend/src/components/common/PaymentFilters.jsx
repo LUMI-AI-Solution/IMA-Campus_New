@@ -18,7 +18,13 @@ export default function PaymentFilters({
     }, []);
 
     const handleChange = (field, value) => {
-        setFilters(prev => ({ ...prev, [field]: value }));
+        if (field === 'businessId') {
+            setFilters(prev => ({ ...prev, [field]: value, batchId: 'All', groupId: 'All', subjectId: [] }));
+        } else if (field === 'batchId') {
+            setFilters(prev => ({ ...prev, [field]: value, groupId: 'All', subjectId: [] }));
+        } else {
+            setFilters(prev => ({ ...prev, [field]: value }));
+        }
     };
 
     return (
@@ -94,14 +100,28 @@ export default function PaymentFilters({
                     </select>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <select 
+                        value={filters.classType || 'All'} 
+                        onChange={e => handleChange('classType', e.target.value)} 
+                        className="w-full bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm truncate"
+                    >
+                        <option value="All" className="bg-slate-900 text-white">All Class Types</option>
+                        <option value="1" className="bg-slate-900 text-sky-400 font-bold">📘 Theory Class</option>
+                        <option value="2" className="bg-slate-900 text-amber-400 font-bold">📝 Paper Class</option>
+                    </select>
+
                     <select 
                         value={filters.groupId} 
                         onChange={e => handleChange('groupId', e.target.value)} 
                         className="w-full bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm truncate"
                     >
-                        <option value="All" className="bg-slate-900 text-white">All Monthly Groups</option>
-                        {groups.map(g => <option key={g.id} value={g.id} className="bg-slate-900 text-white">{g.name}</option>)}
+                        <option value="All" className="bg-slate-900 text-white">All Groups</option>
+                        {groups.map(g => (
+                            <option key={g.id} value={g.id} className="bg-slate-900 text-white">
+                                {g.name} {parseInt(g.classType || 1, 10) === 2 ? '📝 (Paper)' : '📘 (Theory)'}
+                            </option>
+                        ))}
                     </select>
 
                     <div className="relative" ref={dropdownRef}>
@@ -110,7 +130,7 @@ export default function PaymentFilters({
                             className="w-full bg-slate-900/60 hover:bg-slate-900/80 dark:bg-slate-950/40 dark:hover:bg-slate-950/60 border border-white/10 hover:border-white/20 rounded-xl px-4 py-3 text-sm font-bold text-slate-200 outline-none focus:border-brand-accent/50 cursor-pointer transition-all duration-200 shadow-sm flex justify-between items-center"
                         >
                             <span className="truncate">
-                                {!filters.subjectId || filters.subjectId.length === 0 
+                                {(!filters.subjectId || filters.subjectId === 'All' || filters.subjectId.length === 0)
                                     ? "All Subjects" 
                                     : `${filters.subjectId.length} Subject(s) Selected`}
                             </span>
@@ -126,21 +146,23 @@ export default function PaymentFilters({
                                         setIsSubjectDropdownOpen(false);
                                     }}
                                 >
-                                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${(!filters.subjectId || filters.subjectId.length === 0) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-500'}`}>
-                                        {(!filters.subjectId || filters.subjectId.length === 0) && <Check size={12} className="text-white" />}
+                                    <div className={`w-4 h-4 rounded border flex items-center justify-center transition-colors ${(!filters.subjectId || filters.subjectId === 'All' || filters.subjectId.length === 0) ? 'bg-indigo-500 border-indigo-500' : 'border-slate-500'}`}>
+                                        {(!filters.subjectId || filters.subjectId === 'All' || filters.subjectId.length === 0) && <Check size={12} className="text-white" />}
                                     </div>
                                     <span>All Subjects</span>
                                 </div>
                                 {subjects.map(s => {
-                                    const isSelected = filters.subjectId && filters.subjectId.includes(s.id);
+                                    const isSelected = Array.isArray(filters.subjectId) 
+                                        ? filters.subjectId.map(String).includes(String(s.id))
+                                        : (filters.subjectId && filters.subjectId !== 'All' && String(filters.subjectId) === String(s.id));
                                     return (
                                         <div 
                                             key={s.id}
                                             className="flex items-center gap-3 px-3 py-2.5 hover:bg-white/5 rounded-lg cursor-pointer text-sm text-slate-200 font-medium transition-colors"
                                             onClick={() => {
-                                                const current = Array.isArray(filters.subjectId) ? filters.subjectId : [];
+                                                const current = Array.isArray(filters.subjectId) ? filters.subjectId : (filters.subjectId && filters.subjectId !== 'All' ? [filters.subjectId] : []);
                                                 if (isSelected) {
-                                                    handleChange('subjectId', current.filter(id => id !== s.id));
+                                                    handleChange('subjectId', current.filter(id => String(id) !== String(s.id)));
                                                 } else {
                                                     handleChange('subjectId', [...current, s.id]);
                                                 }

@@ -3,6 +3,8 @@ const prisma = new PrismaClient();
 const fs = require('fs');
 const path = require('path');
 const xlsx = require('xlsx');
+const { parseStudentName, extractCallingName } = require('../utils/nameUtils');
+const esmsService = require('../services/esmsService');
 
 const saveBase64Image = (imageStr) => {
   if (!imageStr || typeof imageStr !== 'string' || !imageStr.startsWith('data:image')) return imageStr;
@@ -19,6 +21,48 @@ const saveBase64Image = (imageStr) => {
   } catch (e) {
     console.error("Error saving base64 image:", e);
     return imageStr;
+  }
+};
+
+// Helper to safely get the next unique Physical Student ID (e.g. PHY-STU-14827)
+const getNextPhysicalStudentId = async () => {
+  try {
+    const result = await prisma.$queryRaw`
+      SELECT MAX(CAST(SUBSTRING(studentId, 9) AS UNSIGNED)) as maxId 
+      FROM PhysicalStudent 
+      WHERE studentId LIKE 'PHY-STU-%'
+    `;
+    let nextNum = (result && result[0] && result[0].maxId != null) 
+      ? Number(result[0].maxId) + 1 
+      : 10001;
+
+    // Safety check to ensure no collision
+    while (true) {
+      const candidate = `PHY-STU-${nextNum}`;
+      const existing = await prisma.physicalStudent.findUnique({
+        where: { studentId: candidate },
+        select: { id: true }
+      });
+      if (!existing) {
+        return candidate;
+      }
+      nextNum++;
+    }
+  } catch (err) {
+    console.error('Error computing next studentId:', err);
+    const count = await prisma.physicalStudent.count();
+    let fallbackNum = Math.max(15000, count + 10000 + 1);
+    while (true) {
+      const candidate = `PHY-STU-${fallbackNum}`;
+      const existing = await prisma.physicalStudent.findUnique({
+        where: { studentId: candidate },
+        select: { id: true }
+      });
+      if (!existing) {
+        return candidate;
+      }
+      fallbackNum++;
+    }
   }
 };
 
@@ -113,14 +157,13 @@ exports.createStudent = async (req, res) => {
       }
     }
 
-    // Generate unique studentId
-    const count = await prisma.physicalStudent.count();
-    const studentId = `PHY-STU-${1000 + count + 1}`;
+    // Generate unique studentId based on actual highest existing ID
+    const studentId = await getNextPhysicalStudentId();
 
     const derivedStudentName = studentName || (firstName || lastName ? `${firstName || ''} ${lastName || ''}`.trim() : '');
-    const nameParts = derivedStudentName ? derivedStudentName.split(/\s+/) : ['Student'];
-    const finalFirstName = firstName || nameParts[0] || 'Student';
-    const finalLastName = lastName || nameParts.slice(1).join(' ') || '';
+    const parsedName = parseStudentName(derivedStudentName, firstName, lastName);
+    const finalFirstName = parsedName.firstName;
+    const finalLastName = parsedName.lastName;
 
     // Handle classIds array
     let selectedClassIds = Array.isArray(classIds) ? classIds.map(c => parseInt(c)).filter(Boolean) : [];
@@ -246,9 +289,9 @@ exports.updateStudent = async (req, res) => {
     }
 
     const derivedStudentName = studentName || (firstName || lastName ? `${firstName || ''} ${lastName || ''}`.trim() : '');
-    const nameParts = derivedStudentName ? derivedStudentName.split(/\s+/) : ['Student'];
-    const finalFirstName = firstName || nameParts[0] || 'Student';
-    const finalLastName = lastName || nameParts.slice(1).join(' ') || '';
+    const parsedName = parseStudentName(derivedStudentName, firstName, lastName);
+    const finalFirstName = parsedName.firstName;
+    const finalLastName = parsedName.lastName;
 
     // Handle classIds array
     let selectedClassIds = Array.isArray(classIds) ? classIds.map(c => parseInt(c)).filter(Boolean) : [];
@@ -484,7 +527,19 @@ exports.bulkImportStudents = async (req, res) => {
       if (s.phone) existingByPhoneMap.set(s.phone.trim(), s);
     }
 
-    let currentCount = existingStudents.length;
+    let nextStudentNum = 10001;
+    try {
+      const maxRes = await prisma.$queryRaw`
+        SELECT MAX(CAST(SUBSTRING(studentId, 9) AS UNSIGNED)) as maxId 
+        FROM PhysicalStudent 
+        WHERE studentId LIKE 'PHY-STU-%'
+      `;
+      if (maxRes && maxRes[0] && maxRes[0].maxId != null) {
+        nextStudentNum = Number(maxRes[0].maxId) + 1;
+      }
+    } catch (e) {
+      nextStudentNum = Math.max(15000, existingStudents.length + 10000 + 1);
+    }
     let importedCount = 0;
     let updatedCount = 0;
     let skippedCount = 0;
@@ -546,9 +601,9 @@ exports.bulkImportStudents = async (req, res) => {
       const cleanName = studentName ? studentName.trim().toLowerCase().replace(/\s+/g, ' ') : '';
       let existingRecord = cleanName ? existingByNameMap.get(cleanName) : (phone ? existingByPhoneMap.get(phone) : null);
 
-      const nameParts = studentName ? studentName.split(/\s+/) : ['Student'];
-      const firstName = nameParts[0] || 'Student';
-      const lastName = nameParts.slice(1).join(' ') || '';
+      const parsedName = parseStudentName(studentName);
+      const firstName = parsedName.firstName;
+      const lastName = parsedName.lastName;
 
       if (existingRecord) {
         // UPDATE existing student record with all detailed fields
@@ -572,8 +627,7 @@ exports.bulkImportStudents = async (req, res) => {
         updatedCount++;
       } else {
         // CREATE new student record
-        currentCount++;
-        const generatedStudentId = `PHY-STU-${10000 + currentCount}`;
+        const generatedStudentId = `PHY-STU-${nextStudentNum++}`;
         const newStu = await prisma.physicalStudent.create({
           data: {
             studentId: generatedStudentId,
@@ -705,7 +759,19 @@ exports.allocateExcelToClass = async (req, res) => {
       if (n2 && !nameMap.has(n2)) nameMap.set(n2, s);
     }
 
-    let currentTotalCount = existingStudents.length;
+    let nextStudentNum = 10001;
+    try {
+      const maxRes = await prisma.$queryRaw`
+        SELECT MAX(CAST(SUBSTRING(studentId, 9) AS UNSIGNED)) as maxId 
+        FROM PhysicalStudent 
+        WHERE studentId LIKE 'PHY-STU-%'
+      `;
+      if (maxRes && maxRes[0] && maxRes[0].maxId != null) {
+        nextStudentNum = Number(maxRes[0].maxId) + 1;
+      }
+    } catch (e) {
+      nextStudentNum = Math.max(15000, existingStudents.length + 10000 + 1);
+    }
     let matchedCount = 0;
     let allocatedCount = 0;
     let alreadyEnrolledCount = 0;
@@ -818,18 +884,18 @@ exports.allocateExcelToClass = async (req, res) => {
         }
       } else {
         if (shouldAutoCreate && (rawName || rawPhone)) {
-          currentTotalCount++;
-          const nameParts = rawName ? rawName.split(/\s+/) : ['Student'];
-          const firstName = nameParts[0] || 'Student';
-          const lastName = nameParts.slice(1).join(' ') || '';
+          const parsedName = parseStudentName(rawName);
+          const firstName = parsedName.firstName;
+          const lastName = parsedName.lastName;
           let formattedPhone = rawPhone;
           if (formattedPhone && /^\d{9}$/.test(formattedPhone)) {
             formattedPhone = '0' + formattedPhone;
           }
 
+          const generatedStudentId = `PHY-STU-${nextStudentNum++}`;
           const newStu = await prisma.physicalStudent.create({
             data: {
-              studentId: `PHY-STU-${10000 + currentTotalCount}`,
+              studentId: generatedStudentId,
               studentName: rawName || `${firstName} ${lastName}`.trim(),
               firstName,
               lastName,
@@ -1423,6 +1489,18 @@ exports.toggleStudentFeePayment = async (req, res) => {
       }
     });
 
+    // If class fee is already fully paid for this month, lock it against duplicate payments
+    const isAlreadyFullyPaid = existingPayment && 
+      (existingPayment.status === 'PAID' || existingPayment.status === 'FREE_CARD' || existingPayment.status === 'HALF_PAYMENT') &&
+      ((existingPayment.amount || 0) >= expectedFee || effectiveCardType === 'FREE');
+
+    if (isAlreadyFullyPaid && targetStatus !== 'PENDING' && targetStatus !== 'UNPAID' && !isIncremental && (amount === undefined || amount === null || amount === '')) {
+      return res.status(400).json({
+        error: `Class fee for ${month} is already fully paid. To adjust the amount, please enter a custom amount or mark as unpaid.`,
+        payment: existingPayment
+      });
+    }
+
     let paidAmount = 0;
     if (amount !== undefined && amount !== null && amount !== '') {
       const inputAmount = parseFloat(amount);
@@ -1506,6 +1584,28 @@ exports.toggleStudentFeePayment = async (req, res) => {
           studentId: sId,
           isDeleted: false
         }
+      });
+    }
+
+    const receiptNo = transaction ? `REC-${transaction.id}` : `CF-${payment.id}`;
+
+    // Trigger automated fee payment SMS notification
+    if (deltaAmount > 0 || paidAmount > 0) {
+      esmsService.triggerFeePaymentSms({
+        student: targetStudent,
+        studentId: sId,
+        paidAmount: deltaAmount > 0 ? deltaAmount : paidAmount,
+        expectedFee,
+        dueAmount,
+        month,
+        className: targetClass.name,
+        classNames: [targetClass.name],
+        receiptNo,
+        paymentMethod: paymentMethod || 'CASH',
+        cardType: effectiveCardType,
+        isBulk: false
+      }).catch(smsErr => {
+        console.error('[Automated Fee Payment SMS Error]:', smsErr.message);
       });
     }
 
@@ -1662,6 +1762,15 @@ exports.bulkStudentFeePayment = async (req, res) => {
         }
       });
 
+      // If class fee is already fully paid for this month, skip to avoid double payment
+      const isAlreadyFullyPaid = existingPayment && 
+        (existingPayment.status === 'PAID' || existingPayment.status === 'FREE_CARD' || existingPayment.status === 'HALF_PAYMENT') &&
+        ((existingPayment.amount || 0) >= expectedFee || effectiveCardType === 'FREE');
+
+      if (isAlreadyFullyPaid && !item.isIncremental) {
+        continue;
+      }
+
       let paidAmount = 0;
       if (item.amount !== undefined && item.amount !== null && item.amount !== '') {
         const inputAmount = parseFloat(item.amount);
@@ -1789,6 +1898,26 @@ exports.bulkStudentFeePayment = async (req, res) => {
       items: receiptItems,
       notes: `Keep this receipt for entrance & card verification (${receiptItems.length} classes).`
     };
+
+    // Trigger automated bulk fee payment SMS notification
+    if (totalDeltaAmount > 0 || totalPaidAmount > 0) {
+      esmsService.triggerFeePaymentSms({
+        student: targetStudent,
+        studentId: sId,
+        paidAmount: totalDeltaAmount > 0 ? totalDeltaAmount : totalPaidAmount,
+        expectedFee: totalExpectedFee,
+        dueAmount: totalDueAmount,
+        month,
+        className: classNames.length > 1 ? `Multi-Class Payment (${classNames.length} Classes)` : (classNames[0] || 'Class Fee'),
+        classNames,
+        receiptNo: receiptData.receiptNo,
+        paymentMethod: paymentMethod || 'CASH',
+        cardType: 'MULTIPLE',
+        isBulk: true
+      }).catch(smsErr => {
+        console.error('[Automated Bulk Fee Payment SMS Error]:', smsErr.message);
+      });
+    }
 
     res.json({
       success: true,

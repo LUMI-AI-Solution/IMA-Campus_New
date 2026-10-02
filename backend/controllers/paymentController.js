@@ -150,55 +150,73 @@ const syncLeadEnrollment = async (studentId, paymentType, payment) => {
     }
 };
 
-// Helper: Deduce deliverable tutes for a payment based on Content Hub groupPrices rules and TuteStock
+// Helper: Normalize tute/course string for accurate comparison
+const normalizeTuteText = (txt = '') => {
+    return String(txt || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9\u0D80-\u0DFF]/g, '')
+        .trim();
+};
+
+// Helper: Deduce deliverable tutes for a payment based on Content Hub groupPrices rules.
+// Content Hub (groupPrices) is the single source of truth.
+// If deliverTute is true, the tutes are delivered regardless of whether it is a theory, revision, or paper class.
 const getDeliverableCoursesForPayment = async (payment, courses) => {
+    if (!courses || courses.length === 0) return [];
+
     const deliverableCoursesMap = new Map();
-    const parsedPType = parseInt(payment.payment_type);
 
     for (const course of courses) {
         let deliverTute = false;
-        let tuteName = course.name || "Tute";
+        let tuteName = (course.name || "Tute").trim();
         let tuteImage = null;
 
         if (course.groupPrices && payment.groupId) {
             try {
-                const gps = JSON.parse(course.groupPrices);
-                const match = gps.find(g => g.groupId == payment.groupId);
-                if (match) {
-                    if (match.deliverTute === true || match.deliverTute === 'true') {
-                        if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
-                            match.tutes.forEach(t => {
-                                const tName = t.name || t.tuteName || tuteName;
-                                const tCover = t.cover || t.tuteCover || null;
-                                const key = `${course.id}_${tName}`;
-                                if (!deliverableCoursesMap.has(key)) {
-                                    deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tName, tuteImage: tCover, quantity: 1 });
-                                } else {
-                                    const existing = deliverableCoursesMap.get(key);
-                                    existing.quantity += 1;
+                const gps = typeof course.groupPrices === 'string' ? JSON.parse(course.groupPrices) : course.groupPrices;
+                const match = Array.isArray(gps) ? gps.find(g => String(g.groupId) === String(payment.groupId)) : null;
+
+                if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
+                    if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
+                        match.tutes.forEach(t => {
+                            const tName = (t.name || t.tuteName || '').trim();
+                            const tCover = t.cover || t.tuteCover || null;
+                            if (tName) {
+                                const normKey = normalizeTuteText(tName) || `${course.id}_${tName}`;
+                                if (!deliverableCoursesMap.has(normKey)) {
+                                    deliverableCoursesMap.set(normKey, {
+                                        courseId: course.id,
+                                        tuteName: tName,
+                                        tuteImage: tCover,
+                                        quantity: 1
+                                    });
                                 }
-                            });
-                        } else {
-                            deliverTute = true;
-                            if (match.tuteName && match.tuteName.trim()) {
-                                tuteName = match.tuteName.trim();
                             }
-                            if (match.tuteCover && match.tuteCover.trim()) {
-                                tuteImage = match.tuteCover.trim();
-                            }
+                        });
+                    } else {
+                        deliverTute = true;
+                        if (match.tuteName && match.tuteName.trim()) {
+                            tuteName = match.tuteName.trim();
+                        }
+                        if (match.tuteCover && match.tuteCover.trim()) {
+                            tuteImage = match.tuteCover.trim();
                         }
                     }
                 }
-            } catch (e) { }
+            } catch (e) {
+                console.error("[DELIVERY] Error parsing groupPrices for course:", course.id, e.message);
+            }
         }
 
         if (deliverTute) {
-            const key = `${course.id}_${tuteName}`;
-            if (!deliverableCoursesMap.has(key)) {
-                deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tuteName, tuteImage: typeof tuteImage !== 'undefined' ? tuteImage : null, quantity: 1 });
-            } else {
-                const existing = deliverableCoursesMap.get(key);
-                existing.quantity += 1;
+            const normKey = normalizeTuteText(tuteName) || `${course.id}_${tuteName}`;
+            if (!deliverableCoursesMap.has(normKey)) {
+                deliverableCoursesMap.set(normKey, {
+                    courseId: course.id,
+                    tuteName: tuteName,
+                    tuteImage: tuteImage || null,
+                    quantity: 1
+                });
             }
         }
     }
@@ -206,9 +224,210 @@ const getDeliverableCoursesForPayment = async (payment, courses) => {
     return Array.from(deliverableCoursesMap.values());
 };
 
+/**
+ * Unified Auto-Delivery Creator for both Slip Approval & Online Instant Payments (Paycorp / PayHere).
+ * Strictly mirrors the battle-tested Slip Approval deduplication logic:
+ * 1. Checks if a delivery record already exists for this paymentId.
+ * 2. Fetches candidate items from Content Hub (groupPrices).
+ * 3. Scoped deduplication:
+ *    - Monthly (type 1): Checks previous deliveries for studentId in the SAME groupId.
+ *      (September payment never blocks October payment! But within October, duplicates are avoided).
+ *    - Installment / Full (type 2 / 3): Checks previous deliveries for studentId in the SAME batchId.
+ *      (Prevents duplicate orders if batch tutes were already delivered).
+ * 4. Deduplicates by both courseId and normalized tute name.
+ */
+const createAutoDeliveryForPayment = async (payment, isSelfPicked = false) => {
+    try {
+        if (!payment || !payment.id || !payment.subjects) return null;
+
+        // 1. Ensure a delivery record doesn't already exist for this exact paymentId
+        const existingDeliveryForPayment = await prisma.delivery.findFirst({
+            where: {
+                paymentId: payment.id,
+                status: { notIn: ['Trash', 'Cancelled', 'Rejected'] }
+            }
+        });
+        if (existingDeliveryForPayment) {
+            console.log(`[DELIVERY] Delivery already exists for Payment #${payment.id} (ORD-${existingDeliveryForPayment.id}). Skipping.`);
+            return existingDeliveryForPayment;
+        }
+
+        // 2. Parse subjects and fetch courses
+        let subIds = [];
+        try {
+            subIds = typeof payment.subjects === 'string' ? JSON.parse(payment.subjects) : payment.subjects;
+            if (!Array.isArray(subIds)) subIds = [];
+            subIds = subIds.map(id => parseInt(id, 10)).filter(id => !isNaN(id) && id > 0);
+        } catch (e) {
+            subIds = [];
+        }
+        if (subIds.length === 0) return null;
+
+        const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
+        if (!courses || courses.length === 0) return null;
+
+        // 3. Resolve deliverable tute items from Content Hub (groupPrices)
+        const deliverableItems = await getDeliverableCoursesForPayment(payment, courses);
+        if (!deliverableItems || deliverableItems.length === 0) {
+            console.log(`[DELIVERY] No deliverable tutes configured for Payment #${payment.id} in Content Hub.`);
+            return null;
+        }
+
+        const pType = parseInt(payment.payment_type !== undefined ? payment.payment_type : payment.paymentType, 10);
+        const paymentTypeStr = pType === 1 ? 'Monthly' : (pType === 2 ? 'Installment' : 'Full');
+
+        // 4. Scoped deduplication check (matching Slip Approval logic):
+        // - Monthly: Scoped to studentId + groupId (September deliveries never block October deliveries!)
+        // - Full/Installment: Scoped to studentId + batchId (prevents duplicate delivery if student already received batch tutes)
+        let existingDeliveries = [];
+        if (pType === 1 && payment.groupId) {
+            existingDeliveries = await prisma.delivery.findMany({
+                where: {
+                    studentId: payment.studentId.toString(),
+                    paymentType: 'Monthly',
+                    payment: { groupId: parseInt(payment.groupId, 10) },
+                    status: { notIn: ['Trash', 'Cancelled', 'Rejected'] }
+                },
+                include: { items: true }
+            });
+        } else if ((pType === 2 || pType === 3) && payment.batchId) {
+            existingDeliveries = await prisma.delivery.findMany({
+                where: {
+                    studentId: payment.studentId.toString(),
+                    paymentType: { in: ['Installment', 'Full'] },
+                    payment: { batchId: parseInt(payment.batchId, 10) },
+                    status: { notIn: ['Trash', 'Cancelled', 'Rejected'] }
+                },
+                include: { items: true }
+            });
+        }
+
+        // Collect already delivered/queued items for this student in this scope
+        const alreadyDeliveredSet = new Set();
+        existingDeliveries.forEach(d => {
+            (d.items || []).forEach(item => {
+                if (item.courseId) {
+                    alreadyDeliveredSet.add(`${item.courseId}`);
+                }
+                if (item.tuteName) {
+                    const norm = normalizeTuteText(item.tuteName);
+                    if (norm) {
+                        alreadyDeliveredSet.add(`name_${norm}`);
+                        if (item.courseId) alreadyDeliveredSet.add(`${item.courseId}_${norm}`);
+                    }
+                }
+            });
+        });
+
+        // Filter out already delivered tutes in this scope
+        const newDeliverableItems = deliverableItems.filter(item => {
+            const norm = item.tuteName ? normalizeTuteText(item.tuteName) : null;
+            const keyTute = (norm && item.courseId) ? `${item.courseId}_${norm}` : null;
+            const keyName = norm ? `name_${norm}` : null;
+            const keyCourse = `${item.courseId}`;
+
+            if (keyName && alreadyDeliveredSet.has(keyName)) return false;
+            if (keyTute && alreadyDeliveredSet.has(keyTute)) return false;
+            if (!keyName && !keyTute && alreadyDeliveredSet.has(keyCourse)) return false;
+            return true;
+        });
+
+        if (newDeliverableItems.length === 0) {
+            console.log(`[DELIVERY] All tutes for Payment #${payment.id} have already been delivered in this scope (${paymentTypeStr}). Skipping duplicate delivery.`);
+            return null;
+        }
+
+        // 5. Create Delivery in Pending status (or Delivered if self-picked)
+        const delivery = await prisma.delivery.create({
+            data: {
+                paymentId: payment.id,
+                studentId: payment.studentId.toString(),
+                businessId: payment.businessId,
+                paymentType: paymentTypeStr,
+                status: isSelfPicked ? 'Delivered' : 'Pending',
+                items: {
+                    create: newDeliverableItems.map(item => ({
+                        courseId: item.courseId,
+                        tuteName: item.tuteName || "Tute",
+                        tuteImage: item.tuteImage || null,
+                        quantity: item.quantity || 1
+                    }))
+                }
+            }
+        });
+
+        console.log(`🚚 Auto Delivery created (ORD-${delivery.id}) for Payment #${payment.id} with ${newDeliverableItems.length} items.`);
+        return delivery;
+    } catch (error) {
+        console.error(`[DELIVERY ERROR] Failed in createAutoDeliveryForPayment for Payment #${payment?.id}:`, error);
+        return null;
+    }
+};
+
 // ==========================================
 // 🏦 PAYMENT CONTROLLER LOGIC (ADMIN)
 // ==========================================
+
+let leadIndexCache = null;
+let leadIndexCacheExpiry = 0;
+
+async function getPhoneLeadMap() {
+    const now = Date.now();
+    if (leadIndexCache && now < leadIndexCacheExpiry) {
+        return leadIndexCache;
+    }
+    const leads = await prisma.lead.findMany({
+        select: { phone: true, batchId: true, inquiryType: true, campaignType: true }
+    });
+    const map = new Map();
+    for (let i = 0; i < leads.length; i++) {
+        const l = leads[i];
+        if (!l.phone) continue;
+        const pClean = l.phone.split('_')[0].replace(/[^0-9]/g, '');
+        if (pClean.length >= 9) {
+            const p9 = pClean.slice(-9);
+            let arr = map.get(p9);
+            if (!arr) {
+                arr = [];
+                map.set(p9, arr);
+            }
+            arr.push(l);
+        }
+    }
+    leadIndexCache = map;
+    leadIndexCacheExpiry = now + 60000; // cache for 60 seconds
+    return map;
+}
+
+function resolveLeadSource(p, phoneLeadMap) {
+    if (!p.student) return 'DIRECT';
+    const rawPhones = [p.student.phone, p.student.whatsapp, p.student.optionalPhone].filter(Boolean);
+    let matchedLeads = [];
+    for (const ph of rawPhones) {
+        const c = String(ph).replace(/[^0-9]/g, '');
+        if (c.length >= 9) {
+            const p9 = c.slice(-9);
+            const ml = phoneLeadMap.get(p9);
+            if (ml) matchedLeads.push(...ml);
+        }
+    }
+    if (matchedLeads.length === 0) return 'DIRECT';
+
+    // 1. Exact batch lead with explicit inquiryType
+    let best = matchedLeads.find(l => l.batchId === p.batchId && (l.inquiryType === 'NEW_INQ' || l.inquiryType === 'OPEN_SEMINAR'));
+    // 2. Exact batch lead
+    if (!best) best = matchedLeads.find(l => l.batchId === p.batchId);
+    // 3. Any lead with explicit inquiryType
+    if (!best) best = matchedLeads.find(l => l.inquiryType === 'NEW_INQ' || l.inquiryType === 'OPEN_SEMINAR');
+    // 4. Fallback to first matched lead
+    if (!best) best = matchedLeads[0];
+
+    if (best.inquiryType === 'NEW_INQ') return 'NEW_INQ';
+    if (best.inquiryType === 'OPEN_SEMINAR' || best.inquiryType === 'NORMAL' || best.campaignType === 'FREE_SEMINAR' || best.campaignType === 'AFTER_SEMINAR') {
+        return 'OPEN_SEMINAR';
+    }
+    return 'DIRECT';
+}
 
 // 1. Get All Payments
 exports.getPayments = async (req, res) => {
@@ -239,11 +458,14 @@ exports.getPayments = async (req, res) => {
             whereClause = { businessId: { in: myBizIds } };
         }
 
-        const rawPayments = await prisma.payment.findMany({
-            where: whereClause,
-            include: { student: true, business: true, batch: true, group: true },
-            orderBy: { created_at: 'desc' }
-        });
+        const [phoneLeadMap, rawPayments] = await Promise.all([
+            getPhoneLeadMap(),
+            prisma.payment.findMany({
+                where: whereClause,
+                include: { student: true, business: true, batch: true, group: true },
+                orderBy: { created_at: 'desc' }
+            })
+        ]);
 
         const paymentIds = rawPayments.map(p => p.id);
         const deliveries = await prisma.delivery.findMany({
@@ -252,7 +474,7 @@ exports.getPayments = async (req, res) => {
         const deliveryMap = {};
         deliveries.forEach(d => deliveryMap[d.paymentId] = true);
 
-        const allCourses = await prisma.course.findMany({ select: { id: true, name: true, price: true, code: true, isDiscountExcluded: true } });
+        const allCourses = await prisma.course.findMany({ select: { id: true, name: true, price: true, code: true, isDiscountExcluded: true, courseType: true, groupId: true } });
         const courseMap = {};
         allCourses.forEach(c => courseMap[c.id] = c);
 
@@ -419,6 +641,11 @@ exports.getPayments = async (req, res) => {
             systemTotal = systemTotal - walletBalance;
             if (systemTotal < 0) systemTotal = 0; // Prevent negative expected amount
             
+            const resolvedClassType = p.group?.classType 
+                ? parseInt(p.group.classType) 
+                : (parsedSubjects.some(s => s.courseType === 2) ? 2 : 1);
+            const classTypeName = resolvedClassType === 2 ? 'Paper Class' : 'Theory Class';
+
             return {
                 id: p.id,
                 studentId: p.studentId,
@@ -428,6 +655,8 @@ exports.getPayments = async (req, res) => {
                 businessId: p.businessId, batchId: p.batchId, groupId: p.groupId,
                 business: p.business?.name || 'N/A', batch: p.batch?.name || 'N/A',
                 groupName: p.group?.name || 'Unknown',
+                classType: resolvedClassType,
+                classTypeName: classTypeName,
                 amount: p.amount || 0,
                 systemTotal: systemTotal,
                 baseTotal: baseTotal,
@@ -448,7 +677,8 @@ exports.getPayments = async (req, res) => {
                 excessAmount: p.excessAmount || 0,
                 arrearsAmount: p.arrearsAmount || 0,
                 hasDelivery: deliveryMap[p.id] || false,
-                aiVerified: p.aiVerified || false
+                aiVerified: p.aiVerified || false,
+                inquirySource: resolveLeadSource(p, phoneLeadMap)
             };
         }));
 
@@ -587,68 +817,7 @@ exports.paymentAction = async (req, res) => {
         if (action === 'Approve') {
             if (updatedPayment.subjects) {
                 try {
-                    const subIds = JSON.parse(updatedPayment.subjects).map(id => parseInt(id));
-                    const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
-                    if (courses.length > 0) {
-                        const deliverableItems = await getDeliverableCoursesForPayment(updatedPayment, courses);
-                        if (deliverableItems.length > 0) {
-                            // Find existing deliveries for this student in the same Group (Monthly) or Batch (Installment/Full)
-                            let existingDeliveries = [];
-                            if (updatedPayment.payment_type === 1 && updatedPayment.groupId) {
-                                existingDeliveries = await prisma.delivery.findMany({
-                                    where: {
-                                        studentId: updatedPayment.studentId.toString(),
-                                        paymentType: 'Monthly',
-                                        payment: { groupId: updatedPayment.groupId }
-                                    },
-                                    include: { items: true }
-                                });
-                            } else if ((updatedPayment.payment_type === 2 || updatedPayment.payment_type === 3) && updatedPayment.batchId) {
-                                existingDeliveries = await prisma.delivery.findMany({
-                                    where: {
-                                        studentId: updatedPayment.studentId.toString(),
-                                        paymentType: { in: ['Installment', 'Full'] },
-                                        payment: { batchId: updatedPayment.batchId }
-                                    },
-                                    include: { items: true }
-                                });
-                            }
-
-                            // Collect already delivered/queued items for this student in this scope
-                            const alreadyDeliveredSet = new Set();
-                            existingDeliveries.forEach(d => {
-                                (d.items || []).forEach(item => {
-                                    if (item.courseId) {
-                                        alreadyDeliveredSet.add(`${item.courseId}`);
-                                        if (item.tuteName) {
-                                            alreadyDeliveredSet.add(`${item.courseId}_${item.tuteName.trim().toLowerCase()}`);
-                                        }
-                                    }
-                                });
-                            });
-
-                            // Filter out already delivered tutes, keep newly paid subjects/tutes!
-                            const newDeliverableItems = deliverableItems.filter(item => {
-                                const keyTute = item.tuteName ? `${item.courseId}_${item.tuteName.trim().toLowerCase()}` : null;
-                                const keyCourse = `${item.courseId}`;
-                                if (keyTute && alreadyDeliveredSet.has(keyTute)) return false;
-                                if (!keyTute && alreadyDeliveredSet.has(keyCourse)) return false;
-                                return true;
-                            });
-
-                            if (newDeliverableItems.length > 0) {
-                                const paymentTypeStr = updatedPayment.payment_type === 1 ? 'Monthly' : (updatedPayment.payment_type === 2 ? 'Installment' : 'Full');
-                                await prisma.delivery.create({
-                                    data: {
-                                        paymentId: updatedPayment.id, studentId: updatedPayment.studentId.toString(), businessId: updatedPayment.businessId,
-                                        paymentType: paymentTypeStr, status: isSelfPicked ? 'Delivered' : 'Pending',
-                                        items: { create: newDeliverableItems }
-                                    }
-                                });
-                                console.log(`🚚 Auto Delivery created for Payment #${updatedPayment.id} with ${newDeliverableItems.length} items.`);
-                            }
-                        }
-                    }
+                    await createAutoDeliveryForPayment(updatedPayment, isSelfPicked);
                 } catch (e) {
                     console.error("Auto Delivery Creation Error on Approve:", e);
                 }
@@ -724,57 +893,10 @@ exports.approveInstallment = async (req, res) => {
 
         await syncLeadEnrollment(updatedPayment.studentId, updatedPayment.payment_type, updatedPayment);
 
-        // 🔥 Auto Delivery Logic (Subject-level duplicate check)
+        // 🔥 Auto Delivery Logic (Scoped deduplication check)
         if (updatedPayment.subjects) {
             try {
-                const subIds = JSON.parse(updatedPayment.subjects).map(id => parseInt(id));
-                const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
-                if (courses.length > 0) {
-                    const deliverableItems = await getDeliverableCoursesForPayment(updatedPayment, courses);
-                    if (deliverableItems.length > 0) {
-                        let existingDeliveries = [];
-                        if (updatedPayment.batchId) {
-                            existingDeliveries = await prisma.delivery.findMany({
-                                where: {
-                                    studentId: updatedPayment.studentId.toString(),
-                                    paymentType: { in: ['Installment', 'Full'] },
-                                    payment: { batchId: updatedPayment.batchId }
-                                },
-                                include: { items: true }
-                            });
-                        }
-
-                        const alreadyDeliveredSet = new Set();
-                        existingDeliveries.forEach(d => {
-                            (d.items || []).forEach(item => {
-                                if (item.courseId) {
-                                    alreadyDeliveredSet.add(`${item.courseId}`);
-                                    if (item.tuteName) {
-                                        alreadyDeliveredSet.add(`${item.courseId}_${item.tuteName.trim().toLowerCase()}`);
-                                    }
-                                }
-                            });
-                        });
-
-                        const newDeliverableItems = deliverableItems.filter(item => {
-                            const keyTute = item.tuteName ? `${item.courseId}_${item.tuteName.trim().toLowerCase()}` : null;
-                            const keyCourse = `${item.courseId}`;
-                            if (keyTute && alreadyDeliveredSet.has(keyTute)) return false;
-                            if (!keyTute && alreadyDeliveredSet.has(keyCourse)) return false;
-                            return true;
-                        });
-
-                        if (newDeliverableItems.length > 0) {
-                            await prisma.delivery.create({
-                                data: {
-                                    paymentId: updatedPayment.id, studentId: updatedPayment.studentId.toString(), businessId: updatedPayment.businessId,
-                                    paymentType: 'Installment', status: isSelfPicked ? 'Delivered' : 'Pending',
-                                    items: { create: newDeliverableItems }
-                                }
-                            });
-                        }
-                    }
-                }
+                await createAutoDeliveryForPayment(updatedPayment, isSelfPicked);
             } catch (e) {
                 console.error("Delivery Creation Error in approveInstallment:", e);
             }
@@ -1138,3 +1260,5 @@ exports.getStaffStatsReport = async (req, res) => {
 };
 
 exports.syncLeadEnrollment = syncLeadEnrollment;
+exports.getDeliverableCoursesForPayment = getDeliverableCoursesForPayment;
+exports.createAutoDeliveryForPayment = createAutoDeliveryForPayment;

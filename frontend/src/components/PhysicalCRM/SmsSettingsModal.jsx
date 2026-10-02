@@ -3,7 +3,7 @@ import { physicalCrmService } from '../../api/physicalCrm';
 import { 
   X, MessageSquare, Save, ToggleLeft, ToggleRight, Send, 
   CheckCircle2, AlertCircle, Loader2, Sparkles, Key, Globe, 
-  User, ShieldCheck, HelpCircle, Smartphone, Check
+  User, ShieldCheck, HelpCircle, Smartphone, Check, Receipt
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -19,7 +19,9 @@ export default function SmsSettingsModal({ isOpen, onClose, onSettingsUpdated })
     esmsPassword: '',
     esmsSenderId: 'IMA',
     isAttendanceSmsEnabled: false,
-    attendanceSmsTemplate: 'Dear Parent, {student_name} ({student_id}) has attended {class_name} class on {date} at {time}. - IMA Campus'
+    attendanceSmsTemplate: 'Dear Parent, {student_name} ({student_id}) has attended {class_name} class on {date} at {time}. - IMA Campus',
+    isFeePaymentSmsEnabled: true,
+    feePaymentSmsTemplate: 'Dear Parent, Payment of Rs. {amount} for {student_name} ({student_id}) has been received for {class_details} ({month}) on {date} at {time}. {receipt_ref} - IMA Campus'
   });
 
   useEffect(() => {
@@ -39,7 +41,9 @@ export default function SmsSettingsModal({ isOpen, onClose, onSettingsUpdated })
           esmsPassword: res.settings.esmsPassword || '',
           esmsSenderId: res.settings.esmsSenderId || 'IMA',
           isAttendanceSmsEnabled: Boolean(res.settings.isAttendanceSmsEnabled),
-          attendanceSmsTemplate: res.settings.attendanceSmsTemplate || 'Dear Parent, {student_name} ({student_id}) has attended {class_name} class on {date} at {time}. - IMA Campus'
+          attendanceSmsTemplate: res.settings.attendanceSmsTemplate || 'Dear Parent, {student_name} ({student_id}) has attended {class_name} class on {date} at {time}. - IMA Campus',
+          isFeePaymentSmsEnabled: res.settings.isFeePaymentSmsEnabled !== undefined ? Boolean(res.settings.isFeePaymentSmsEnabled) : true,
+          feePaymentSmsTemplate: res.settings.feePaymentSmsTemplate || 'Dear Parent, Payment of Rs. {amount} for {student_name} ({student_id}) has been received for {class_details} ({month}) on {date} at {time}. {receipt_ref} - IMA Campus'
         });
       }
     } catch (err) {
@@ -57,10 +61,10 @@ export default function SmsSettingsModal({ isOpen, onClose, onSettingsUpdated })
     }));
   };
 
-  const insertVariable = (varName) => {
+  const insertVariable = (field, varName) => {
     setFormData(prev => ({
       ...prev,
-      attendanceSmsTemplate: prev.attendanceSmsTemplate + ` ${varName} `
+      [field]: (prev[field] || '') + ` ${varName} `
     }));
   };
 
@@ -299,8 +303,68 @@ export default function SmsSettingsModal({ isOpen, onClose, onSettingsUpdated })
                     <button
                       key={v.label}
                       type="button"
-                      onClick={() => insertVariable(v.label)}
+                      onClick={() => insertVariable('attendanceSmsTemplate', v.label)}
                       className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-semibold rounded-lg border border-emerald-500/20 transition-all cursor-pointer"
+                    >
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Automated Fee Payment SMS Alert Box */}
+            <div className="bg-black/30 border border-white/10 rounded-2xl p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-xs font-bold text-cyan-400 uppercase tracking-widest flex items-center gap-2">
+                    <Receipt size={14} /> Automated Class Fee Payment SMS Alert
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">Send instant SMS receipt to guardian when fees are paid (Single or Bulk Multi-Class)</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFormData(prev => ({ ...prev, isFeePaymentSmsEnabled: !prev.isFeePaymentSmsEnabled }))}
+                  className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer ${
+                    formData.isFeePaymentSmsEnabled
+                      ? 'bg-cyan-500/20 border-cyan-400/40 text-cyan-300 shadow-[0_0_15px_rgba(6,182,212,0.2)]'
+                      : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
+                  }`}
+                >
+                  {formData.isFeePaymentSmsEnabled ? <ToggleRight size={18} className="text-cyan-400" /> : <ToggleLeft size={18} />}
+                  <span>{formData.isFeePaymentSmsEnabled ? 'Enabled' : 'Disabled'}</span>
+                </button>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Fee Payment Message Template</label>
+                <textarea
+                  rows={3}
+                  name="feePaymentSmsTemplate"
+                  value={formData.feePaymentSmsTemplate}
+                  onChange={handleInputChange}
+                  placeholder="Dear Parent, Payment of Rs. {amount} for {student_name} ({student_id}) has been received for {class_details} ({month}) on {date} at {time}. {receipt_ref} - IMA Campus"
+                  className="w-full px-4 py-3 bg-white/5 border border-white/10 rounded-xl text-white text-xs font-medium focus:ring-2 focus:ring-cyan-500/50 outline-none transition-all shadow-inner placeholder:text-white/20 resize-none"
+                />
+
+                {/* Available Variables Chips */}
+                <div className="flex items-center gap-2 flex-wrap mt-2">
+                  <span className="text-xs text-slate-400 font-semibold">Insert Tags:</span>
+                  {[
+                    { label: '{amount}', desc: 'Amount Paid (e.g. 1,500.00)' },
+                    { label: '{student_name}', desc: 'Student Name' },
+                    { label: '{student_id}', desc: 'Student ID' },
+                    { label: '{class_details}', desc: 'Class Name(s)' },
+                    { label: '{month}', desc: 'Fee Month' },
+                    { label: '{date}', desc: 'Payment Date' },
+                    { label: '{time}', desc: 'Payment Time' },
+                    { label: '{receipt_ref}', desc: 'Receipt Reference' }
+                  ].map(v => (
+                    <button
+                      key={v.label}
+                      type="button"
+                      onClick={() => insertVariable('feePaymentSmsTemplate', v.label)}
+                      className="px-2.5 py-1 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 text-xs font-semibold rounded-lg border border-cyan-500/20 transition-all cursor-pointer"
                     >
                       {v.label}
                     </button>

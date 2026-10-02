@@ -7,7 +7,7 @@ const path = require('path');
 
 
 // 🔥 1. Middleware එක import කරගන්න (එක පාරක් පමණයි!)
-const verifyToken = require('../middlewares/authMiddleware');
+const { verifyToken, requireStudentDeleteAccess } = require('../middlewares/authMiddleware');
 
 // Storage Configs
 const imageStorage = multer.diskStorage({
@@ -69,7 +69,7 @@ router.post('/admin-update', verifyToken, studentController.updateStudentByAdmin
 router.post('/admin-reset-password', verifyToken, studentController.resetStudentPassword);
 router.post('/ghost-login', verifyToken, studentController.ghostLogin);
 
-// 🔥 මේ ලයින් එක හරියටම මේ විදිහටම එකතු කරන්න 🔥
-router.post('/admin-delete', studentController.deleteStudentAccount);
+// 🔥 Delete Student Account 🔥
+router.post('/admin-delete', verifyToken, requireStudentDeleteAccess, studentController.deleteStudentAccount);
 
 module.exports = router;

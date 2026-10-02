@@ -8,13 +8,17 @@ const databaseController = require('../controllers/databaseController');
 const managerDashboardController = require('../controllers/managerDashboardController');
 const leadDataCenterController = require('../controllers/leadDataCenterController');
 const adminAnalyticsController = require('../controllers/adminAnalyticsController');
-const verifyToken = require('../middlewares/authMiddleware');
+const { verifyToken, requireAdmin, requireStaff, requireStudentDeleteAccess } = require('../middlewares/authMiddleware');
+
+// 🔒 All routes under /api/admin strictly require at least staff privileges
+router.use(verifyToken);
+router.use(requireStaff);
 
 // Executive All-in-One Analytics Hub
-router.get('/all-in-one-analytics', verifyToken, adminAnalyticsController.getExecutiveAnalytics);
+router.get('/all-in-one-analytics', adminAnalyticsController.getExecutiveAnalytics);
 
 // Admin Profile
-router.get('/profile', verifyToken, adminController.getAdminProfile);
+router.get('/profile', adminController.getAdminProfile);
 
 // Admin Overview
 router.get('/overview', adminController.getSystemOverview);
@@ -79,10 +83,10 @@ router.get('/student-inspect/:query', studentController.inspectStudentRecords);
 router.put('/students/update', studentController.updateStudentByAdmin);
 router.post('/students/reset-password', studentController.resetStudentPassword);
 router.post('/ghost-login', studentController.ghostLogin);
-router.post('/admin-delete', studentController.deleteStudentAccount);
+router.post('/admin-delete', requireStudentDeleteAccess, studentController.deleteStudentAccount);
 
 // Backup
-router.get('/backup', adminController.downloadDatabaseBackup);
+router.get('/backup', requireAdmin, adminController.downloadDatabaseBackup);
 
 // LUMI Caller Channels API
 router.get('/whatsapp-call/channels', async (req, res) => {
@@ -112,9 +116,9 @@ router.get('/whatsapp-call/channels', async (req, res) => {
 });
 
 // 🔥 Database Manager Routes 🔥
-router.get('/database/:model', databaseController.getAllData);
-router.put('/database/:model/:id', databaseController.updateRecord);
-router.delete('/database/:model/:id', databaseController.deleteRecord);
+router.get('/database/:model', requireAdmin, databaseController.getAllData);
+router.put('/database/:model/:id', requireAdmin, databaseController.updateRecord);
+router.delete('/database/:model/:id', requireAdmin, databaseController.deleteRecord);
 
 // 🔥 Ringtone Management Routes 🔥
 const ringtoneController = require('../controllers/ringtoneController');

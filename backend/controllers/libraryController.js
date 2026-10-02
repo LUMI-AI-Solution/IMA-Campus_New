@@ -240,9 +240,34 @@ exports.getAdminStructure = async (req, res) => {
     }
 };
 
-// --- Category CRUD ---
+// Helper: Check Library Role Permissions
+const checkLibraryPermissions = (user) => {
+    const roleUpper = (user?.role || '').toUpperCase().replace(/[\s_-]+/g, '_');
+    const isSystemAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER_ADMIN', 'ADMIN', 'SUPER'].includes(roleUpper) || roleUpper.includes('ADMIN') || roleUpper.includes('DIRECTOR') || roleUpper.includes('SUPER');
+    const isManager = ['MANAGER', 'HEAD_MANAGER', 'ASS_MANAGER', 'ASSISTANT_MANAGER'].includes(roleUpper) || roleUpper.includes('MANAGER');
+    const isCoordinator = ['COORDINATOR', 'STAFF', 'CLASS_COORDINATOR', 'CALLER'].includes(roleUpper) || user?.department === 'Class Coordination' || roleUpper.includes('COORDINATOR');
+    const isStaffMember = isSystemAdmin || isManager || isCoordinator || Boolean(user?.department);
+
+    return {
+        isSystemAdmin,
+        isManager,
+        isCoordinator,
+        canManageStructure: isSystemAdmin, // Only System Admin can add/edit/delete Category, Grade, Stream
+        canManageSubjects: isSystemAdmin || isManager || isCoordinator || isStaffMember, // Coordinators, Managers, Admins can add & edit
+        canDeleteSubject: isSystemAdmin || isManager || isCoordinator || isStaffMember, // Coordinators, Managers, Admins can delete subjects!
+        canManageResources: isSystemAdmin || isManager || isCoordinator || isStaffMember, // Coordinators, Managers, Admins can upload & edit
+        canDelete: isSystemAdmin // ONLY System Admin can delete Categories, Streams, Grades & Resources!
+    };
+};
+
+// --- Category CRUD (System Admin Only) ---
 exports.createCategory = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageStructure) {
+            return res.status(403).json({ success: false, message: "Access Denied: Only System Administrators can create categories." });
+        }
+
         const { name, code, description, sortOrder } = req.body;
         if (!name || !code) return res.status(400).json({ success: false, message: "Name and Code are required" });
 
@@ -263,6 +288,11 @@ exports.createCategory = async (req, res) => {
 
 exports.updateCategory = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageStructure) {
+            return res.status(403).json({ success: false, message: "Access Denied: Only System Administrators can update categories." });
+        }
+
         const { id } = req.params;
         const { name, code, description, sortOrder, isActive } = req.body;
         const updated = await prisma.libraryCategory.update({
@@ -284,8 +314,18 @@ exports.updateCategory = async (req, res) => {
 
 exports.deleteCategory = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageStructure) {
+            return res.status(403).json({ success: false, message: "Access Denied: Only System Administrators can delete categories." });
+        }
+
         const { id } = req.params;
-        await prisma.libraryCategory.delete({ where: { id: parseInt(id) } });
+        const catId = parseInt(id);
+        await prisma.libraryGrade.updateMany({ where: { categoryId: catId }, data: { categoryId: null } });
+        await prisma.libraryStream.updateMany({ where: { categoryId: catId }, data: { categoryId: null } });
+        await prisma.librarySubject.updateMany({ where: { categoryId: catId }, data: { categoryId: null } });
+        await prisma.libraryResource.updateMany({ where: { categoryId: catId }, data: { categoryId: null } });
+        await prisma.libraryCategory.delete({ where: { id: catId } });
         return res.status(200).json({ success: true, message: "Category deleted successfully" });
     } catch (error) {
         console.error("Error deleting category:", error);
@@ -293,9 +333,14 @@ exports.deleteCategory = async (req, res) => {
     }
 };
 
-// --- Grade CRUD ---
+// --- Grade CRUD (System Admin Only) ---
 exports.createGrade = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageStructure) {
+            return res.status(403).json({ success: false, message: "Access Denied: Only System Administrators can create grades." });
+        }
+
         const { name, gradeNumber, categoryId, sortOrder } = req.body;
         if (!name) return res.status(400).json({ success: false, message: "Grade name is required" });
 
@@ -317,6 +362,11 @@ exports.createGrade = async (req, res) => {
 
 exports.updateGrade = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageStructure) {
+            return res.status(403).json({ success: false, message: "Access Denied: Only System Administrators can update grades." });
+        }
+
         const { id } = req.params;
         const { name, gradeNumber, categoryId, sortOrder, isActive } = req.body;
         const updated = await prisma.libraryGrade.update({
@@ -339,8 +389,16 @@ exports.updateGrade = async (req, res) => {
 
 exports.deleteGrade = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageStructure) {
+            return res.status(403).json({ success: false, message: "Access Denied: Only System Administrators can delete grades." });
+        }
+
         const { id } = req.params;
-        await prisma.libraryGrade.delete({ where: { id: parseInt(id) } });
+        const gId = parseInt(id);
+        await prisma.librarySubject.updateMany({ where: { gradeId: gId }, data: { gradeId: null } });
+        await prisma.libraryResource.updateMany({ where: { gradeId: gId }, data: { gradeId: null } });
+        await prisma.libraryGrade.delete({ where: { id: gId } });
         return res.status(200).json({ success: true, message: "Grade deleted successfully" });
     } catch (error) {
         console.error("Error deleting grade:", error);
@@ -348,9 +406,14 @@ exports.deleteGrade = async (req, res) => {
     }
 };
 
-// --- Stream CRUD ---
+// --- Stream CRUD (System Admin Only) ---
 exports.createStream = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageStructure) {
+            return res.status(403).json({ success: false, message: "Access Denied: Only System Administrators can create streams." });
+        }
+
         const { name, code, description, categoryId, sortOrder } = req.body;
         if (!name) return res.status(400).json({ success: false, message: "Stream name is required" });
 
@@ -373,6 +436,11 @@ exports.createStream = async (req, res) => {
 
 exports.updateStream = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageStructure) {
+            return res.status(403).json({ success: false, message: "Access Denied: Only System Administrators can update streams." });
+        }
+
         const { id } = req.params;
         const { name, code, description, categoryId, sortOrder, isActive } = req.body;
         const updated = await prisma.libraryStream.update({
@@ -396,8 +464,16 @@ exports.updateStream = async (req, res) => {
 
 exports.deleteStream = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageStructure) {
+            return res.status(403).json({ success: false, message: "Access Denied: Only System Administrators can delete streams." });
+        }
+
         const { id } = req.params;
-        await prisma.libraryStream.delete({ where: { id: parseInt(id) } });
+        const stId = parseInt(id);
+        await prisma.librarySubject.updateMany({ where: { streamId: stId }, data: { streamId: null } });
+        await prisma.libraryResource.updateMany({ where: { streamId: stId }, data: { streamId: null } });
+        await prisma.libraryStream.delete({ where: { id: stId } });
         return res.status(200).json({ success: true, message: "Stream deleted successfully" });
     } catch (error) {
         console.error("Error deleting stream:", error);
@@ -405,9 +481,14 @@ exports.deleteStream = async (req, res) => {
     }
 };
 
-// --- Subject CRUD ---
+// --- Subject CRUD (Coordinators, Managers & Admins can Create/Update, ONLY System Admin can Delete) ---
 exports.createSubject = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageSubjects) {
+            return res.status(403).json({ success: false, message: "Access Denied: You do not have permission to create subjects." });
+        }
+
         const { name, code, categoryId, streamId, gradeId, sortOrder } = req.body;
         if (!name) return res.status(400).json({ success: false, message: "Subject name is required" });
 
@@ -431,6 +512,11 @@ exports.createSubject = async (req, res) => {
 
 exports.updateSubject = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageSubjects) {
+            return res.status(403).json({ success: false, message: "Access Denied: You do not have permission to update subjects." });
+        }
+
         const { id } = req.params;
         const { name, code, categoryId, streamId, gradeId, sortOrder, isActive } = req.body;
         const updated = await prisma.librarySubject.update({
@@ -455,8 +541,15 @@ exports.updateSubject = async (req, res) => {
 
 exports.deleteSubject = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canDeleteSubject) {
+            return res.status(403).json({ success: false, message: "Access Denied: You do not have permission to delete subjects." });
+        }
+
         const { id } = req.params;
-        await prisma.librarySubject.delete({ where: { id: parseInt(id) } });
+        const subId = parseInt(id);
+        await prisma.libraryResource.updateMany({ where: { subjectId: subId }, data: { subjectId: null } });
+        await prisma.librarySubject.delete({ where: { id: subId } });
         return res.status(200).json({ success: true, message: "Subject deleted successfully" });
     } catch (error) {
         console.error("Error deleting subject:", error);
@@ -464,9 +557,14 @@ exports.deleteSubject = async (req, res) => {
     }
 };
 
-// --- Resource Upload & CRUD ---
+// --- Resource Upload & CRUD (Coordinators, Managers & Admins can Upload/Update, ONLY System Admin can Delete) ---
 exports.uploadResource = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageResources) {
+            return res.status(403).json({ success: false, message: "Access Denied: You do not have permission to upload resources." });
+        }
+
         const files = req.files || {};
         const paperFile = files.paper ? files.paper[0] : (req.file ? req.file : null);
         const schemeFile = files.markingScheme ? files.markingScheme[0] : null;
@@ -491,8 +589,13 @@ exports.uploadResource = async (req, res) => {
             isPublished = 'true'
         } = req.body;
 
-        if (!title) {
+        if (!title || title.trim() === '') {
             return res.status(400).json({ success: false, message: "Title is required" });
+        }
+
+        // Search tags are strictly mandatory
+        if (!tags || String(tags).trim() === '') {
+            return res.status(400).json({ success: false, message: "Search tags are mandatory (Comma separated keywords)." });
         }
 
         const fileUrl = `/uploads/library/${paperFile.filename}`;
@@ -502,8 +605,8 @@ exports.uploadResource = async (req, res) => {
 
         const resource = await prisma.libraryResource.create({
             data: {
-                title,
-                description,
+                title: title.trim(),
+                description: description || null,
                 fileUrl,
                 fileName: paperFile.originalname,
                 fileSize,
@@ -514,7 +617,7 @@ exports.uploadResource = async (req, res) => {
                 medium,
                 hasMarkingScheme,
                 markingSchemeUrl,
-                tags: tags || null,
+                tags: String(tags).trim(),
                 isFeatured: isFeatured === 'true' || isFeatured === true,
                 isPublished: isPublished === 'true' || isPublished === true,
                 categoryId: categoryId ? parseInt(categoryId) : null,
@@ -540,6 +643,11 @@ exports.uploadResource = async (req, res) => {
 
 exports.updateResource = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canManageResources) {
+            return res.status(403).json({ success: false, message: "Access Denied: You do not have permission to update resources." });
+        }
+
         const { id } = req.params;
         const {
             title,
@@ -558,16 +666,20 @@ exports.updateResource = async (req, res) => {
             subjectId
         } = req.body;
 
+        if (tags !== undefined && (!tags || String(tags).trim() === '')) {
+            return res.status(400).json({ success: false, message: "Search tags cannot be empty." });
+        }
+
         const updated = await prisma.libraryResource.update({
             where: { id: parseInt(id) },
             data: {
-                ...(title && { title }),
+                ...(title && { title: title.trim() }),
                 ...(description !== undefined && { description }),
                 ...(resourceType && { resourceType }),
                 ...(year !== undefined && { year }),
                 ...(term !== undefined && { term }),
                 ...(medium && { medium }),
-                ...(tags !== undefined && { tags }),
+                ...(tags !== undefined && { tags: String(tags).trim() }),
                 ...(hasMarkingScheme !== undefined && { hasMarkingScheme: Boolean(hasMarkingScheme) }),
                 ...(isFeatured !== undefined && { isFeatured: Boolean(isFeatured) }),
                 ...(isPublished !== undefined && { isPublished: Boolean(isPublished) }),
@@ -593,6 +705,11 @@ exports.updateResource = async (req, res) => {
 
 exports.deleteResource = async (req, res) => {
     try {
+        const perms = checkLibraryPermissions(req.user);
+        if (!perms.canDelete) {
+            return res.status(403).json({ success: false, message: "Access Denied: Only System Administrators can delete resources from the vault." });
+        }
+
         const { id } = req.params;
         const resource = await prisma.libraryResource.findUnique({ where: { id: parseInt(id) } });
         if (!resource) return res.status(404).json({ success: false, message: "Resource not found" });

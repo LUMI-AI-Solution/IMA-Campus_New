@@ -4,7 +4,7 @@ import api from '../../../api/axios';
 import { FaFacebook, FaYoutube } from 'react-icons/fa';
 import { 
   MessageCircle, ChevronRight, BookOpen, Users, Award, Briefcase, Globe, GraduationCap, 
-  ArrowRight, Loader2, Phone, Mail, Zap, CheckCircle2, Building2, PlayCircle, X, Layers
+  ArrowRight, Loader2, Phone, Mail, MapPin, Zap, CheckCircle2, Building2, PlayCircle, X, Layers
 } from 'lucide-react';
 
 const heroImages = ['/hero1.jpg', '/hero2.jpg', '/hero3.jpg'];
@@ -242,14 +242,27 @@ export default function IMACampusLandingPage({ loggedInUser }) {
           <div className="space-y-4">
             <h4 className="font-black text-white uppercase tracking-wider mb-2">Contact Info</h4>
             <ul className="space-y-3 font-medium">
-              <li className="flex items-start gap-3"><Phone size={16} className="text-red-500 mt-0.5 shrink-0"/> (+94) 112 345 678</li>
-              <li className="flex items-start gap-3"><Mail size={16} className="text-red-500 mt-0.5 shrink-0"/> info@imacampus.lk</li>
-              <li className="flex items-start gap-3"><Globe size={16} className="text-red-500 mt-0.5 shrink-0"/> 123 Education Mawatha, Colombo 03</li>
+              <li className="flex items-start gap-3">
+                <MapPin size={16} className="text-red-500 mt-0.5 shrink-0"/> 
+                <span>No. 346/A, Robert Gunawardane Mawatha, Malabe</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <Mail size={16} className="text-red-500 mt-0.5 shrink-0"/> 
+                <a href="mailto:info@imacampus.online" className="hover:text-red-400 transition-colors">info@imacampus.online</a>
+              </li>
+              <li className="flex items-start gap-3">
+                <Phone size={16} className="text-red-500 mt-0.5 shrink-0"/> 
+                <div className="flex flex-col gap-0.5">
+                  <a href="tel:0712209030" className="hover:text-red-400 transition-colors">071 220 90 30 (Fast Track)</a>
+                  <Link to="/contact-us" className="text-xs text-red-400 hover:underline">View all stream numbers →</Link>
+                </div>
+              </li>
             </ul>
           </div>
         </div>
-        <div className="max-w-screen-2xl mx-auto border-t border-white/10 mt-12 pt-8 flex flex-col md:flex-row items-center justify-between gap-4 text-white/40">
-           <p>© {new Date().getFullYear()} IMA Campus. All Rights Reserved.</p>
+        <div className="max-w-screen-2xl mx-auto border-t border-white/10 mt-12 pt-8 flex flex-col md:flex-row items-center justify-between gap-4 text-white/40 text-xs">
+           <p>© {new Date().getFullYear()} IMA Campus. Operated by <strong>IDDAMALGODA MEDIA ACADEMY (PVT) LTD</strong> & <strong>IMA FAST TRACK (PVT) LTD</strong>. All Rights Reserved.</p>
+           <p>No. 346/A, Robert Gunawardane Mawatha, Malabe, 10115, Sri Lanka</p>
         </div>
       </footer>
 

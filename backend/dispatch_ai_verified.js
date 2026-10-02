@@ -1,89 +1,60 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { getDeliverableCoursesForPayment } = require('./controllers/paymentController');
 
 async function dispatchAiVerified() {
+    console.log("Checking for AI-Verified payments without delivery records...");
+
     const pendingPayments = await prisma.payment.findMany({
         where: {
-            aiVerified: true,
             status: 1,
             delivery: null
+        },
+        include: {
+            student: true,
+            batch: true,
+            group: true
         }
     });
 
-    console.log(`Found ${pendingPayments.length} AI Verified payments to process for delivery.`);
+    console.log(`Found ${pendingPayments.length} approved payments without delivery.`);
 
     let dispatchedCount = 0;
 
     for (const payment of pendingPayments) {
-        let shouldCreateDelivery = true;
+        if (!payment.subjects) continue;
 
-        if (payment.payment_type === 1) { // Monthly
-            if (payment.groupId) {
-                const ext = await prisma.delivery.findFirst({
-                    where: { studentId: payment.studentId.toString(), paymentType: 'Monthly', payment: { groupId: payment.groupId } }
-                });
-                if (ext) shouldCreateDelivery = false;
-            }
-        } else if (payment.payment_type === 2 || payment.payment_type === 3) { // Installment or Full
-            if (payment.batchId) {
-                const ext = await prisma.delivery.findFirst({
-                    where: { studentId: payment.studentId.toString(), paymentType: { in: ['Installment', 'Full'] }, payment: { batchId: payment.batchId } }
-                });
-                if (ext) shouldCreateDelivery = false;
-            }
-        }
+        try {
+            const rawSubs = typeof payment.subjects === 'string' ? JSON.parse(payment.subjects) : payment.subjects;
+            const subIds = Array.isArray(rawSubs) ? rawSubs.map(id => parseInt(id, 10)).filter(id => !isNaN(id) && id > 0) : [];
+            if (subIds.length === 0) continue;
 
-        if (shouldCreateDelivery && payment.subjects) {
-            try {
-                const subIds = JSON.parse(payment.subjects).map(id => parseInt(id));
-                const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
-                
-                const deliverableCourses = [];
+            const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
+            if (!courses || courses.length === 0) continue;
 
-                for (const course of courses) {
-                    let deliverTute = false;
-                    let tuteName = course.name || "Tute";
+            const deliverableCourses = await getDeliverableCoursesForPayment(payment, courses);
 
-                    if (course.groupPrices && payment.groupId) {
-                        try {
-                            const gps = JSON.parse(course.groupPrices);
-                            const match = gps.find(g => g.groupId == payment.groupId);
-                            if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                                deliverTute = true;
-                                if (match.tuteName) tuteName = match.tuteName;
-                            }
-                        } catch(e) {}
+            if (deliverableCourses && deliverableCourses.length > 0) {
+                const pType = parseInt(payment.payment_type !== undefined ? payment.payment_type : payment.paymentType, 10);
+                const paymentTypeStr = pType === 1 ? 'Monthly' : (pType === 2 ? 'Installment' : 'Full');
+
+                await prisma.delivery.create({
+                    data: {
+                        paymentId: payment.id,
+                        studentId: payment.studentId.toString(),
+                        businessId: payment.businessId,
+                        paymentType: paymentTypeStr,
+                        status: 'Pending',
+                        items: { create: deliverableCourses }
                     }
-
-                    if (deliverTute) {
-                        deliverableCourses.push({
-                            courseId: course.id,
-                            tuteName: tuteName,
-                            quantity: 1
-                        });
-                    }
-                }
-
-                if (deliverableCourses.length > 0) {
-                    const paymentTypeStr = payment.payment_type === 1 ? 'Monthly' : (payment.payment_type === 2 ? 'Installment' : 'Full');
-                    await prisma.delivery.create({
-                        data: {
-                            paymentId: payment.id,
-                            studentId: payment.studentId.toString(),
-                            businessId: payment.businessId,
-                            paymentType: paymentTypeStr,
-                            status: 'Pending',
-                            items: { create: deliverableCourses }
-                        }
-                    });
-                    dispatchedCount++;
-                    console.log(`Dispatched Delivery for Payment ID: ${payment.id} with ${deliverableCourses.length} tutes.`);
-                } else {
-                    console.log(`Payment ID: ${payment.id} processed, but no deliverable tutes found based on Content Hub rules.`);
-                }
-            } catch (e) {
-                console.error(`Error processing payment ID ${payment.id}:`, e.message);
+                });
+                dispatchedCount++;
+                console.log(`Dispatched Delivery for Payment ID: ${payment.id} with ${deliverableCourses.length} tutes.`);
+            } else {
+                console.log(`Payment ID: ${payment.id} processed, but no deliverable tutes found based on Content Hub rules.`);
             }
+        } catch (e) {
+            console.error(`Error processing payment ID ${payment.id}:`, e.message);
         }
     }
 

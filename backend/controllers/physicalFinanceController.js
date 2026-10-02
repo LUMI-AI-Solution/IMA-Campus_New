@@ -126,6 +126,83 @@ exports.deleteCategory = async (req, res) => {
     }
 };
 
+// --- OPENING BALANCE HELPER & CALCULATION ---
+const calculateOpeningBalanceForDate = async (targetDateStr) => {
+    // 1. Check if an explicit manual opening balance exists for targetDateStr
+    const manualForTarget = await prisma.physicalDailyOpeningBalance.findUnique({
+        where: { date: targetDateStr }
+    });
+
+    if (manualForTarget) {
+        return {
+            openingBalance: manualForTarget.amount,
+            isManual: true,
+            manualRecord: manualForTarget
+        };
+    }
+
+    // 2. Look for the closest manual opening balance BEFORE targetDateStr
+    const previousManual = await prisma.physicalDailyOpeningBalance.findFirst({
+        where: {
+            date: { lt: targetDateStr }
+        },
+        orderBy: { date: 'desc' }
+    });
+
+    const targetDateStart = new Date(`${targetDateStr}T00:00:00.000Z`);
+
+    if (previousManual) {
+        const baseDateStart = new Date(`${previousManual.date}T00:00:00.000Z`);
+        const pastTxns = await prisma.physicalTransaction.findMany({
+            where: {
+                isDeleted: false,
+                date: {
+                    gte: baseDateStart,
+                    lt: targetDateStart
+                }
+            },
+            select: { type: true, amount: true }
+        });
+
+        let pastNet = 0;
+        pastTxns.forEach(t => {
+            if (t.type === 'INCOME') pastNet += t.amount;
+            else if (t.type === 'EXPENSE') pastNet -= t.amount;
+        });
+
+        return {
+            openingBalance: previousManual.amount + pastNet,
+            isManual: false,
+            manualRecord: null,
+            baseManualDate: previousManual.date,
+            baseManualAmount: previousManual.amount
+        };
+    } else {
+        // No prior manual record found, calculate from beginning of transactions before targetDateStart
+        const pastTxns = await prisma.physicalTransaction.findMany({
+            where: {
+                isDeleted: false,
+                date: {
+                    lt: targetDateStart
+                }
+            },
+            select: { type: true, amount: true }
+        });
+
+        let pastNet = 0;
+        pastTxns.forEach(t => {
+            if (t.type === 'INCOME') pastNet += t.amount;
+            else if (t.type === 'EXPENSE') pastNet -= t.amount;
+        });
+
+        return {
+            openingBalance: pastNet,
+            isManual: false,
+            manualRecord: null
+        };
+    }
+};
+
 // --- TRANSACTIONS CRUD ---
 exports.getTransactions = async (req, res) => {
     try {
@@ -134,6 +211,7 @@ exports.getTransactions = async (req, res) => {
             isDeleted: false
         };
         
+        let queryDateStr = dateStr;
         if (dateStr) {
             const startDate = new Date(`${dateStr}T00:00:00.000Z`);
             const endDate = new Date(`${dateStr}T23:59:59.999Z`);
@@ -144,12 +222,12 @@ exports.getTransactions = async (req, res) => {
         } else {
             // Default to today
             const today = new Date();
-            today.setUTCHours(0,0,0,0);
-            const tomorrow = new Date(today);
-            tomorrow.setDate(tomorrow.getDate() + 1);
+            queryDateStr = today.toISOString().split('T')[0];
+            const startDate = new Date(`${queryDateStr}T00:00:00.000Z`);
+            const endDate = new Date(`${queryDateStr}T23:59:59.999Z`);
             whereClause.date = {
-                gte: today,
-                lt: tomorrow
+                gte: startDate,
+                lte: endDate
             };
         }
 
@@ -171,14 +249,26 @@ exports.getTransactions = async (req, res) => {
             if (t.type === 'EXPENSE') totalExpense += t.amount;
         });
         
-        const netCash = totalIncome - totalExpense;
+        const dayNet = totalIncome - totalExpense;
+
+        // Opening balance calculation for the target date
+        const openingInfo = await calculateOpeningBalanceForDate(queryDateStr);
+        const openingBalance = openingInfo.openingBalance || 0;
+        const closingBalance = openingBalance + dayNet;
 
         res.json({
             transactions,
             summary: {
                 totalIncome,
                 totalExpense,
-                netCash
+                dayNet,
+                openingBalance,
+                isManualOpeningBalance: openingInfo.isManual,
+                manualOpeningBalanceRecord: openingInfo.manualRecord,
+                baseManualDate: openingInfo.baseManualDate || null,
+                baseManualAmount: openingInfo.baseManualAmount || null,
+                closingBalance,
+                netCash: closingBalance // Cash In Hand at end of day
             }
         });
     } catch (error) {
@@ -194,6 +284,18 @@ exports.addTransaction = async (req, res) => {
             return res.status(400).json({ error: 'Type, category, and amount are required' });
         }
 
+        let txDate = new Date();
+        if (date) {
+            if (typeof date === 'string' && date.length === 10) {
+                // e.g. "2026-09-01" -> set to current UTC hours/minutes on that date so it sits nicely in the day
+                const [year, month, day] = date.split('-').map(Number);
+                const now = new Date();
+                txDate = new Date(Date.UTC(year, month - 1, day, now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds()));
+            } else {
+                txDate = new Date(date);
+            }
+        }
+
         const transaction = await prisma.physicalTransaction.create({
             data: {
                 type: type.toUpperCase(),
@@ -201,7 +303,7 @@ exports.addTransaction = async (req, res) => {
                 amount: parseFloat(amount),
                 description,
                 studentId: studentId ? parseInt(studentId) : null,
-                date: date ? new Date(date) : new Date(),
+                date: txDate,
                 isDeleted: false
             },
             include: {
@@ -212,6 +314,76 @@ exports.addTransaction = async (req, res) => {
         });
         
         res.status(201).json(transaction);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// --- OPENING BALANCE CRUD & CALCULATIONS ---
+exports.getOpeningBalance = async (req, res) => {
+    try {
+        const dateStr = req.query.date || new Date().toISOString().split('T')[0];
+        const result = await calculateOpeningBalanceForDate(dateStr);
+        res.json({
+            date: dateStr,
+            ...result
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+exports.setOpeningBalance = async (req, res) => {
+    try {
+        const { date, amount, note, setBy } = req.body;
+        if (!date || amount === undefined || amount === null || isNaN(parseFloat(amount))) {
+            return res.status(400).json({ error: 'Valid date (YYYY-MM-DD) and numeric amount are required' });
+        }
+
+        const parsedAmount = parseFloat(amount);
+        const updatedRecord = await prisma.physicalDailyOpeningBalance.upsert({
+            where: { date: date.trim() },
+            update: {
+                amount: parsedAmount,
+                note: note ? note.trim() : null,
+                setBy: setBy ? setBy.trim() : 'Staff'
+            },
+            create: {
+                date: date.trim(),
+                amount: parsedAmount,
+                note: note ? note.trim() : null,
+                setBy: setBy ? setBy.trim() : 'Staff'
+            }
+        });
+
+        res.json({
+            success: true,
+            message: `Opening balance for ${date} set to Rs. ${parsedAmount.toLocaleString()}`,
+            record: updatedRecord
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+exports.deleteOpeningBalance = async (req, res) => {
+    try {
+        const { date } = req.params;
+        if (!date) {
+            return res.status(400).json({ error: 'Date is required' });
+        }
+
+        await prisma.physicalDailyOpeningBalance.deleteMany({
+            where: { date: date.trim() }
+        });
+
+        const newCalculated = await calculateOpeningBalanceForDate(date.trim());
+
+        res.json({
+            success: true,
+            message: `Manual opening balance removed for ${date}. Now auto-carrying forward.`,
+            calculatedOpeningBalance: newCalculated.openingBalance
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

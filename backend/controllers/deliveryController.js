@@ -78,30 +78,81 @@ exports.getPendingDeliveries = async (req, res) => {
         const deliveries = await prisma.delivery.findMany({
             where: whereClause,
             include: {
-                items: true,
-                payment: { include: { student: true, batch: true, group: true } }
+                items: {
+                    select: { id: true, courseId: true, tuteName: true, tuteImage: true, quantity: true }
+                },
+                payment: {
+                    select: {
+                        id: true,
+                        status: true,
+                        batchId: true,
+                        groupId: true,
+                        remark: true,
+                        student: {
+                            select: {
+                                id: true,
+                                firstName: true,
+                                lastName: true,
+                                addressHouseNo: true,
+                                addressStreet: true,
+                                city: true,
+                                district: true,
+                                phone: true,
+                                whatsapp: true,
+                                optionalPhone: true
+                            }
+                        },
+                        batch: { select: { id: true, name: true } },
+                        group: { select: { id: true, name: true } }
+                    }
+                }
             },
-            orderBy: { createdAt: 'desc' }
+            orderBy: [
+                { createdAt: 'asc' },
+                { id: 'asc' }
+            ]
         });
 
         const courseIds = [...new Set(deliveries.flatMap(d => d.items.map(i => i.courseId)).filter(Boolean))];
-        const courses = await prisma.course.findMany({
-            where: { id: { in: courseIds.map(id => parseInt(id)) } }
-        });
+        const courses = courseIds.length > 0 ? await prisma.course.findMany({
+            where: { id: { in: courseIds.map(id => parseInt(id)) } },
+            select: { id: true, name: true, lecturerName: true, groupPrices: true }
+        }) : [];
 
         const batchIds = [...new Set(deliveries.map(d => d.payment?.batchId).filter(Boolean))];
-        const allGroups = await prisma.group.findMany({
-            where: { batchId: { in: batchIds } }
-        });
+        const allGroups = batchIds.length > 0 ? await prisma.group.findMany({
+            where: { batchId: { in: batchIds } },
+            select: { id: true, batchId: true, name: true }
+        }) : [];
 
         const studentIds = [...new Set(deliveries.map(d => d.payment?.student?.id).filter(Boolean))];
-        const pastDeliveries = await prisma.delivery.findMany({
+        const pastDeliveries = studentIds.length > 0 ? await prisma.delivery.findMany({
             where: {
                 studentId: { in: studentIds.map(String) },
                 status: { notIn: ['Pending', 'Hold'] }
             },
-            orderBy: { packedAt: 'desc' },
-            include: { payment: { include: { group: true } } }
+            distinct: ['studentId'],
+            orderBy: [{ studentId: 'asc' }, { packedAt: 'desc' }],
+            select: {
+                studentId: true,
+                packedAt: true,
+                trackingNumber: true,
+                paymentType: true,
+                packRemark: true,
+                payment: {
+                    select: {
+                        group: { select: { name: true } }
+                    }
+                }
+            }
+        }) : [];
+
+        // Build quick lookup map for past deliveries by studentId
+        const pastDelMap = new Map();
+        pastDeliveries.forEach(pd => {
+            if (pd.studentId && !pastDelMap.has(pd.studentId)) {
+                pastDelMap.set(pd.studentId, pd);
+            }
         });
 
         const formatted = deliveries.map(d => {
@@ -119,9 +170,19 @@ exports.getPendingDeliveries = async (req, res) => {
 
             const isUpgrade = d.payment?.remark ? d.payment.remark.includes('[UPGRADE]') : false;
 
-            const itemsWithDetails = d.items.flatMap(item => resolveTutesForDeliveryItem(item, d, courses, allGroups));
+            const rawItemsWithDetails = d.items.flatMap(item => resolveTutesForDeliveryItem(item, d, courses, allGroups));
+            const seenTuteKeys = new Set();
+            const itemsWithDetails = [];
+            for (const item of rawItemsWithDetails) {
+                const normName = (item.tuteName || '').toLowerCase().replace(/[^a-z0-9\u0D80-\u0DFF]/g, '');
+                const dedupeKey = normName || String(item.courseId || '');
+                if (!seenTuteKeys.has(dedupeKey)) {
+                    seenTuteKeys.add(dedupeKey);
+                    itemsWithDetails.push(item);
+                }
+            }
 
-            const lastDel = pastDeliveries.find(pd => pd.studentId === String(std.id));
+            const lastDel = std.id ? pastDelMap.get(String(std.id)) : null;
             let lastDeliveryInfo = null;
             if (lastDel) {
                 lastDeliveryInfo = {
@@ -724,7 +785,7 @@ exports.getDispatchDeliveries = async (req, res) => {
                     include: { student: true, batch: true, group: true } 
                 }
             },
-            orderBy: { updatedAt: 'desc' }
+            orderBy: [{ packedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }]
         });
 
         const courseIds = [...new Set(deliveries.flatMap(d => d.items.map(i => i.courseId)).filter(Boolean))];
@@ -786,7 +847,10 @@ exports.getAdvancedHistory = async (req, res) => {
         if (startDate && endDate) {
             const start = new Date(startDate); start.setHours(0, 0, 0, 0);
             const end = new Date(endDate); end.setHours(23, 59, 59, 999);
-            whereClause.updatedAt = { gte: start, lte: end };
+            whereClause.OR = [
+                { packedAt: { gte: start, lte: end } },
+                { createdAt: { gte: start, lte: end } }
+            ];
         }
 
         if (search) {
@@ -815,7 +879,7 @@ exports.getAdvancedHistory = async (req, res) => {
                 items: true, 
                 payment: { include: { student: true, batch: true, group: true } }
             },
-            orderBy: { updatedAt: 'desc' },
+            orderBy: [{ packedAt: 'desc' }, { createdAt: 'desc' }, { id: 'desc' }],
             skip: (parseInt(page) - 1) * parseInt(limit),
             take: parseInt(limit)
         });
@@ -894,20 +958,35 @@ exports.manualConfirmDelivery = async (req, res) => {
 
 exports.getDeliveryStats = async (req, res) => {
     try {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        // Helper: Convert UTC timestamp to Sri Lanka YYYY-MM-DD Date Key (UTC+5:30)
+        const getSLDateKey = (dateInput) => {
+            if (!dateInput) return null;
+            const d = new Date(dateInput);
+            if (isNaN(d.getTime())) return null;
+            const slDate = new Date(d.getTime() + (5.5 * 60 * 60 * 1000));
+            return slDate.toISOString().split('T')[0];
+        };
 
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(today.getDate() - 6);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
+        const now = new Date();
+        const slTodayKey = getSLDateKey(now);
+        const slStartOfToday = new Date(`${slTodayKey}T00:00:00.000+05:30`);
+
+        const slSevenDaysAgoDate = new Date(slStartOfToday.getTime() - (6 * 24 * 60 * 60 * 1000));
 
         const pending = await prisma.delivery.count({ where: { status: 'Pending' } });
         const onHold = await prisma.delivery.count({ where: { status: 'Hold' } });
         const dispatched = await prisma.delivery.count({ where: { status: 'On the way' } });
         const returned = await prisma.delivery.count({ where: { status: 'Returned' } }); 
         const totalDelivered = await prisma.delivery.count({ where: { status: 'Received' } });
+        
         const deliveredToday = await prisma.delivery.count({ 
-            where: { status: 'Received', resolvedAt: { gte: today } } 
+            where: { 
+                status: 'Received', 
+                OR: [
+                    { resolvedAt: { gte: slStartOfToday } },
+                    { updatedAt: { gte: slStartOfToday } }
+                ]
+            } 
         });
         const lowStock = await prisma.tuteStock.count({
             where: { availableQuantity: { lte: 10 } }
@@ -921,27 +1000,49 @@ exports.getDeliveryStats = async (req, res) => {
         ].filter(s => s.value > 0);
 
         const recentDeliveries = await prisma.delivery.findMany({
-            where: { updatedAt: { gte: sevenDaysAgo } },
-            select: { status: true, updatedAt: true }
+            where: { 
+                OR: [
+                    { packedAt: { gte: slSevenDaysAgoDate } },
+                    { resolvedAt: { gte: slSevenDaysAgoDate } },
+                    { updatedAt: { gte: slSevenDaysAgoDate } },
+                    { createdAt: { gte: slSevenDaysAgoDate } }
+                ]
+            },
+            select: { status: true, packedAt: true, resolvedAt: true, updatedAt: true, createdAt: true }
         });
 
         const daysOfWeek = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-        const weeklyTrendMap = {};
+        const weeklyTrendArray = [];
 
         for (let i = 6; i >= 0; i--) {
-            const d = new Date(today);
-            d.setDate(today.getDate() - i);
-            weeklyTrendMap[daysOfWeek[d.getDay()]] = { name: daysOfWeek[d.getDay()], Packed: 0, Delivered: 0 };
+            const dayTime = slStartOfToday.getTime() - (i * 24 * 60 * 60 * 1000);
+            const dayDateObj = new Date(dayTime);
+            const dayKey = getSLDateKey(dayDateObj);
+            const dayLabel = daysOfWeek[new Date(dayTime + (5.5 * 3600 * 1000)).getUTCDay()];
+
+            let packedCount = 0;
+            let deliveredCount = 0;
+
+            recentDeliveries.forEach(del => {
+                const packedDateKey = getSLDateKey(del.packedAt || del.createdAt);
+                if (packedDateKey === dayKey && (del.status === 'Packed' || del.status === 'On the way' || del.status === 'Received')) {
+                    packedCount += 1;
+                }
+
+                const deliveredDateKey = getSLDateKey(del.resolvedAt || del.updatedAt);
+                if (deliveredDateKey === dayKey && del.status === 'Received') {
+                    deliveredCount += 1;
+                }
+            });
+
+            weeklyTrendArray.push({
+                name: dayLabel,
+                Packed: packedCount,
+                Delivered: deliveredCount
+            });
         }
 
-        recentDeliveries.forEach(del => {
-            const dayName = daysOfWeek[new Date(del.updatedAt).getDay()];
-            if (weeklyTrendMap[dayName]) {
-                if (del.status === 'Packed' || del.status === 'On the way') weeklyTrendMap[dayName].Packed += 1;
-                if (del.status === 'Received') weeklyTrendMap[dayName].Delivered += 1;
-            }
-        });
-        const weeklyTrend = Object.values(weeklyTrendMap);
+        const weeklyTrend = weeklyTrendArray;
 
         const businessCounts = await prisma.delivery.groupBy({
             by: ['businessId'],

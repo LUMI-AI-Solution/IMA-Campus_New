@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from '../../../api/axios';
-import { Loader2, Video, MonitorPlay, FileText, FileSignature, CheckCircle, ArrowLeft, X, Lock, CalendarDays, FolderOpen, ChevronDown, Maximize, Minimize, Play, SkipForward, Pause, Info, Sparkles, Download } from 'lucide-react';
+import { Loader2, Video, MonitorPlay, FileText, FileSignature, CheckCircle, ArrowLeft, X, Lock, CalendarDays, FolderOpen, ChevronDown, Maximize, Minimize, Play, SkipForward, Pause, Info, Sparkles, Download, Trophy, Clock, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import YouTube from 'react-youtube';
@@ -64,6 +64,11 @@ export default function CourseView({ courseId, onBack }) {
     const fetchCourseData = () => {
         axios.get(`/student/module/${courseId}`).then(res => {
             setData(res.data);
+            const isPaper = parseInt(res.data?.course?.courseType || res.data?.course?.group?.classType || 1, 10) === 2;
+            if (isPaper) {
+                const hasPapers = (res.data?.rankingTests?.length || 0) + (res.data?.sPapers?.length || 0) + (res.data?.papers?.length || 0) > 0;
+                if (hasPapers) setActiveTab('testRanking');
+            }
             if (res.data?.lessonGroups) {
                 const initialOpen = {};
                 res.data.lessonGroups.forEach(f => initialOpen[f.id] = true);
@@ -184,114 +189,192 @@ export default function CourseView({ courseId, onBack }) {
 
     if (loading) return <div className="flex justify-center items-center py-40"><Loader2 className="animate-spin text-red-500" size={50} /></div>;
 
-    const tabs = [
+    const isPaperCourse = parseInt(data?.course?.courseType || data?.course?.group?.classType || 1, 10) === 2;
+
+    const tabs = isPaperCourse ? [
+        { 
+            id: 'testRanking', 
+            name: 'Exam Papers & Rankings', 
+            icon: Trophy, 
+            data: data?.rankingTests || [...(data?.sPapers || []), ...(data?.papers || [])] 
+        },
+        { 
+            id: 'recordings', 
+            name: 'Paper Discussions', 
+            icon: MonitorPlay, 
+            data: data?.recordings || [] 
+        },
+        { 
+            id: 'live', 
+            name: 'Live Discussions', 
+            icon: Video, 
+            data: data?.liveClasses || [] 
+        },
+        { 
+            id: 'documents', 
+            name: 'Question PDFs & Tutes', 
+            icon: FileText, 
+            data: data?.documents || [] 
+        },
+    ] : [
         { id: 'recordings', name: 'Recordings', icon: MonitorPlay, data: data?.recordings || [] },
         { id: 'live', name: 'Live Classes', icon: Video, data: data?.liveClasses || [] },
         { id: 'documents', name: 'Documents', icon: FileText, data: data?.documents || [] },
-        { id: 'sPapers', name: 'Structured Papers', icon: FileSignature, data: data?.sPapers || [] },
-        { id: 'papers', name: 'MCQ Exams', icon: CheckCircle, data: data?.papers || [] },
+        { 
+            id: 'testRanking', 
+            name: 'Test Ranking', 
+            icon: Trophy, 
+            data: data?.rankingTests || [...(data?.sPapers || []), ...(data?.papers || [])] 
+        },
     ];
 
     const currentTabInfo = tabs.find(t => t.id === activeTab);
     const currentData = currentTabInfo?.data || [];
-    const getTypeInt = (id) => ({ live: 1, recordings: 2, documents: 3, sPapers: 4, papers: 5 }[id] || 1);
+    const getTypeInt = (id) => ({ live: 1, recordings: 2, documents: 3, testRanking: 4, sPapers: 4, papers: 5 }[id] || 1);
     const getFolderId = (item) => {
         const f = item.content_group_id ?? item.contentGroupId ?? item.folder_id;
         return (f !== null && f !== undefined && f !== '' && f !== 'null' && f !== 'undefined') ? String(f) : '';
     };
 
+    const formatDuration = (mins) => {
+        if (!mins) return '60 Mins';
+        const total = parseInt(mins, 10);
+        const h = Math.floor(total / 60);
+        const m = total % 60;
+        if (h > 0 && m > 0) return `${h}h ${m}m`;
+        if (h > 0) return `${h} Hour${h > 1 ? 's' : ''}`;
+        return `${m} Mins`;
+    };
+
     // 🔥 Updated UI Layout: Fully Mobile-Optimized with Responsive Thumbnails & Padding 🔥
-    const renderRow = (item, index) => (
-        <div key={item.id} className="bg-black/30 hover:bg-white/10 border border-white/5 hover:border-red-500/30 p-2.5 sm:p-3.5 md:p-4 rounded-xl sm:rounded-2xl transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-2.5 sm:gap-4 md:gap-6 group">
-            <div className="flex items-start gap-2.5 sm:gap-4 md:gap-5 flex-1 w-full min-w-0">
+    const renderRow = (item, index) => {
+        const isTest = activeTab === 'testRanking' || activeTab === 'sPapers' || activeTab === 'papers';
+        const paperType = item.paper?.paperType || (item.contentType === 'sPaper' ? 'STRUCTURED' : 'MCQ');
+        const timerMode = item.paper?.timerMode || 'FLEXIBLE';
+
+        return (
+            <div key={item.id} className="bg-black/30 hover:bg-white/10 border border-white/5 hover:border-red-500/30 p-2.5 sm:p-3.5 md:p-4 rounded-xl sm:rounded-2xl transition-all flex flex-col md:flex-row justify-between items-start md:items-center gap-2.5 sm:gap-4 md:gap-6 group">
+                <div className="flex items-start gap-2.5 sm:gap-4 md:gap-5 flex-1 w-full min-w-0">
+                    
+                    {/* Responsive Thumbnail */}
+                    <div className="w-24 sm:w-32 md:w-44 aspect-[16/10] shrink-0 rounded-lg sm:rounded-xl bg-black/60 border border-white/10 overflow-hidden relative flex items-center justify-center shadow-md">
+                        {item.thumbnail ? (
+                            <img src={`${getBaseUrl()}/storage/documents/${item.thumbnail}`} alt="thumb" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+                        ) : isTest ? (
+                            <div className={`w-full h-full flex flex-col items-center justify-center gap-1.5 ${paperType === 'MCQ' ? 'bg-emerald-950/40 text-emerald-400' : paperType === 'STRUCTURED' ? 'bg-purple-950/40 text-purple-400' : 'bg-blue-950/40 text-blue-400'}`}>
+                                <Trophy size={26} />
+                                <span className="text-[10px] font-black uppercase tracking-wider">Test Exam</span>
+                            </div>
+                        ) : (
+                            <img src="/logo.png" alt="default-thumb" className="w-12 sm:w-16 md:w-20 h-auto opacity-30 object-contain drop-shadow-lg" />
+                        )}
+                    </div>
+
+                    {/* Title & Details */}
+                    <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch py-0.5">
+                        <div>
+                            {isTest && (
+                                <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                                    <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                                        paperType === 'MCQ' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                                        paperType === 'STRUCTURED' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
+                                        'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                                    }`}>
+                                        {paperType === 'MCQ' ? 'MCQ Only' : paperType === 'STRUCTURED' ? 'Structure Essay' : 'MCQ + Structured'}
+                                    </span>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-slate-300 flex items-center gap-1">
+                                        <Clock size={11} className="text-emerald-400" />
+                                        {formatDuration(item.paper?.durationMinutes || item.paperTime)}
+                                    </span>
+                                    {timerMode === 'SCHEDULED' && item.paper?.scheduledStartTime && (
+                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                            ⏰ Scheduled: {new Date(item.paper.scheduledStartTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+
+                            <h4 className="text-white font-bold text-xs sm:text-sm md:text-base break-words leading-tight sm:leading-snug line-clamp-3 md:line-clamp-none mb-1.5" title={item.title}>
+                                {item.title}
+                            </h4>
+                        </div>
+
+                        <p className="text-[10px] sm:text-xs text-white/70 font-medium flex items-center gap-1.5">
+                            <CalendarDays size={14} className="text-red-400 shrink-0"/> 
+                            <span>{item.date ? new Date(item.date).toDateString() : 'No Date'}</span>
+                        </p>
+                    </div>
+                </div>
                 
-                {/* Responsive Thumbnail */}
-                <div className="w-24 sm:w-32 md:w-44 aspect-[16/10] shrink-0 rounded-lg sm:rounded-xl bg-black/60 border border-white/10 overflow-hidden relative flex items-center justify-center shadow-md">
-                    {item.thumbnail ? (
-                        <img src={`${getBaseUrl()}/storage/documents/${item.thumbnail}`} alt="thumb" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                    ) : (
-                        <img src="/logo.png" alt="default-thumb" className="w-12 sm:w-16 md:w-20 h-auto opacity-30 object-contain drop-shadow-lg" />
+                {/* Action Buttons */}
+                <div className="w-full md:w-auto flex shrink-0 pt-2 sm:pt-2.5 md:pt-0 border-t border-white/5 md:border-0">
+                    {activeTab === 'live' && (
+                        <a href={item.link} target="_blank" rel="noreferrer" className="w-full md:w-max bg-red-600 hover:bg-red-500 text-white font-bold px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md">
+                            <Video size={15}/> Join Live
+                        </a>
+                    )}
+                    {activeTab === 'recordings' && (
+                        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                            {item.youtubeLink && (
+                                <button onClick={() => handlePlayVideo(item, 'yt')} title="Play via YouTube" className="flex-1 md:flex-none bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-red-500/30 transition-all shadow-md">
+                                    <FaYoutube size={16} /> YouTube
+                                </button>
+                            )}
+                            {item.vimeoLink && (
+                                <button onClick={() => handlePlayVideo(item, 'vimeo')} title="Play via Vimeo" className="flex-1 md:flex-none bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-blue-500/30 transition-all shadow-md">
+                                    <FaVimeo size={16} /> Vimeo
+                                </button>
+                            )}
+                            {item.link && (
+                                <button onClick={() => handlePlayVideo(item, 'zoom')} title="Play via Zoom" className="flex-1 md:flex-none bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-blue-500/30 transition-all shadow-md">
+                                    <SiZoom size={16} /> Zoom
+                                </button>
+                            )}
+                            {!item.link && !item.youtubeLink && !item.vimeoLink && (
+                                <span className="text-white/60 text-xs italic px-2">No Video Available</span>
+                            )}
+                        </div>
+                    )}
+                    {activeTab === 'documents' && (
+                        <a href={`${getBaseUrl()}/storage/documents/${item.fileName}`} target="_blank" rel="noreferrer" download className="w-full md:w-max bg-white/10 hover:bg-white/20 text-white font-bold px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 border border-white/10">
+                            <FileText size={15} className="text-yellow-400"/> Download
+                        </a>
+                    )}
+                    {isTest && (
+                        <div className="flex flex-wrap gap-2 w-full md:w-auto">
+                            <button 
+                                onClick={() => { setSelectedExamContent(item); setShowExamPortal(true); }}
+                                className={`w-full md:w-max font-bold px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition-all active:scale-95 text-white ${
+                                    paperType === 'MCQ' ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20' :
+                                    paperType === 'STRUCTURED' ? 'bg-purple-600 hover:bg-purple-500 shadow-purple-600/20' :
+                                    'bg-blue-600 hover:bg-blue-500 shadow-blue-600/20'
+                                }`}
+                            >
+                                <Trophy size={15} /> Start Test / View Rankings
+                            </button>
+                            {item.fileName && (
+                                <a 
+                                    href={`${getBaseUrl()}/storage/documents/${item.fileName}`} 
+                                    target="_blank" 
+                                    rel="noreferrer" 
+                                    download 
+                                    className="w-full md:w-max bg-white/10 hover:bg-white/20 text-white font-bold px-3 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-white/10"
+                                >
+                                    <Download size={14} className="text-yellow-400"/> Question PDF
+                                </a>
+                            )}
+                        </div>
                     )}
                 </div>
-
-                {/* Title & Date Details */}
-                <div className="flex-1 min-w-0 flex flex-col justify-between self-stretch py-0.5">
-                    <h4 className="text-white font-bold text-xs sm:text-sm md:text-base break-words leading-tight sm:leading-snug line-clamp-3 md:line-clamp-none mb-1.5" title={item.title}>
-                        {item.title}
-                    </h4>
-                    <p className="text-[10px] sm:text-xs text-white/70 font-medium flex items-center gap-1.5">
-                        <CalendarDays size={14} className="text-red-400 shrink-0"/> 
-                        <span>{item.date ? new Date(item.date).toDateString() : 'No Date'}</span>
-                    </p>
-                </div>
             </div>
-            
-            {/* Action Buttons */}
-            <div className="w-full md:w-auto flex shrink-0 pt-2 sm:pt-2.5 md:pt-0 border-t border-white/5 md:border-0">
-                {activeTab === 'live' && (
-                    <a href={item.link} target="_blank" rel="noreferrer" className="w-full md:w-max bg-red-600 hover:bg-red-500 text-white font-bold px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md">
-                        <Video size={15}/> Join Live
-                    </a>
-                )}
-                {activeTab === 'recordings' && (
-                    <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-                        {item.youtubeLink && (
-                            <button onClick={() => handlePlayVideo(item, 'yt')} title="Play via YouTube" className="flex-1 md:flex-none bg-red-600/20 hover:bg-red-600 text-red-500 hover:text-white font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-red-500/30 transition-all shadow-md">
-                                <FaYoutube size={16} /> YouTube
-                            </button>
-                        )}
-                        {item.vimeoLink && (
-                            <button onClick={() => handlePlayVideo(item, 'vimeo')} title="Play via Vimeo" className="flex-1 md:flex-none bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-blue-500/30 transition-all shadow-md">
-                                <FaVimeo size={16} /> Vimeo
-                            </button>
-                        )}
-                        {item.link && (
-                            <button onClick={() => handlePlayVideo(item, 'zoom')} title="Play via Zoom" className="flex-1 md:flex-none bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-blue-500/30 transition-all shadow-md">
-                                <SiZoom size={16} /> Zoom
-                            </button>
-                        )}
-                        {!item.link && !item.youtubeLink && !item.vimeoLink && (
-                            <span className="text-white/60 text-xs italic px-2">No Video Available</span>
-                        )}
-                    </div>
-                )}
-                {activeTab === 'documents' && (
-                    <a href={`${getBaseUrl()}/storage/documents/${item.fileName}`} target="_blank" rel="noreferrer" download className="w-full md:w-max bg-white/10 hover:bg-white/20 text-white font-bold px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 border border-white/10">
-                        <FileText size={15} className="text-yellow-400"/> Download
-                    </a>
-                )}
-                {activeTab === 'sPapers' && (
-                    <div className="flex flex-wrap gap-2 w-full md:w-auto">
-                        <button 
-                            onClick={() => { setSelectedExamContent(item); setShowExamPortal(true); }}
-                            className="w-full md:w-max bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition-all active:scale-95"
-                        >
-                            <FileSignature size={15} /> Start / Submit Paper
-                        </button>
-                        {item.fileName && (
-                            <a href={`${getBaseUrl()}/storage/documents/${item.fileName}`} target="_blank" rel="noreferrer" download className="w-full md:w-max bg-white/10 hover:bg-white/20 text-white font-bold px-3 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-1.5 border border-white/10">
-                                <Download size={14} className="text-yellow-400"/> Download PDF
-                            </a>
-                        )}
-                    </div>
-                )}
-                {activeTab === 'papers' && (
-                    <button 
-                        onClick={() => { setSelectedExamContent(item); setShowExamPortal(true); }}
-                        className="w-full md:w-max bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-5 sm:px-7 py-2.5 rounded-xl text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition-all active:scale-95"
-                    >
-                        <CheckCircle size={15} /> Take MCQ Exam
-                    </button>
-                )}
-            </div>
-        </div>
-    );
+        );
+    };
 
     const renderContentRows = () => {
         if (currentData.length === 0) return <div className="text-white/80 text-center py-20 font-medium">No content uploaded yet.</div>;
         
         const folders = (data?.lessonGroups || [])
-            .filter(f => parseInt(f.type) === getTypeInt(activeTab))
+            .filter(f => parseInt(f.type) === getTypeInt(activeTab) || (activeTab === 'testRanking' && (parseInt(f.type) === 4 || parseInt(f.type) === 5)))
             .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1));
 
         const normalizeFolderTitle = (title) => {
@@ -311,6 +394,10 @@ export default function CourseView({ courseId, onBack }) {
             if (fId) {
                 if (String(folder.id) === fId) return true;
                 if (folder.ids && folder.ids.includes(fId)) return true;
+
+                // If item is assigned to another valid folder, do NOT fallback to month!
+                const folderExists = folders.some(f => String(f.id) === fId || (f.ids && f.ids.includes(fId)));
+                if (folderExists) return false;
             }
             
             const itemGroupTitle = item.groupTitle || item.group?.title;
@@ -322,34 +409,16 @@ export default function CourseView({ courseId, onBack }) {
                 const normItem = normalizeFolderTitle(itemGroupTitle);
                 const normFolder = normalizeFolderTitle(folder.title);
                 if (normItem && normFolder && normItem === normFolder) return true;
+
+                const titleFolderExists = folders.some(f => {
+                    const fRaw = (f.title || '').trim().toLowerCase();
+                    const fNorm = normalizeFolderTitle(f.title);
+                    return fRaw === rawItem || (normItem && fNorm && normItem === fNorm);
+                });
+                if (titleFolderExists) return false;
             }
 
-            // Smart Month Fallback Matching
-            if (folder?.title) {
-                let targetMonthIdx = -1;
-                if (item.date) {
-                    try {
-                        const d = new Date(item.date);
-                        if (!isNaN(d.getTime())) targetMonthIdx = d.getMonth();
-                    } catch (err) {}
-                }
-                if (targetMonthIdx === -1 && item.title) {
-                    const titleLower = item.title.toLowerCase();
-                    targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
-                    if (targetMonthIdx === -1) targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
-                }
-                if (targetMonthIdx !== -1) {
-                    const engMonth = monthNames[targetMonthIdx];
-                    const sinMonth = sinhalaMonths[targetMonthIdx];
-                    const folderTitleLower = (folder.title || '').toLowerCase();
-                    const folderNorm = normalizeFolderTitle(folder.title);
-                    if (folderTitleLower.includes(engMonth) || folderTitleLower.includes(sinMonth) ||
-                        folderNorm.includes(engMonth) || folderNorm.includes(sinMonth)) {
-                        return true;
-                    }
-                }
-            }
-
+            // If an item has NO assigned folder (fId is null/undefined/empty), it is explicitly UNCATEGORIZED!
             return false;
         };
 
@@ -568,8 +637,37 @@ export default function CourseView({ courseId, onBack }) {
                         <ArrowLeft size={16} className="mr-2" /> Back
                     </button>
 
-                    <div className="glass-card p-6 rounded-[1.5rem] md:rounded-[2rem] mb-6 border border-white/10">
-                        <h2 className="text-xl md:text-2xl font-extrabold text-white break-words">{data?.course?.name || 'Subject Content'}</h2>
+                    <div className="glass-card p-6 md:p-8 rounded-[1.5rem] md:rounded-[2rem] mb-6 border border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div className="flex flex-col gap-2">
+                            <div className="flex items-center gap-3 flex-wrap">
+                                <h2 className="text-2xl md:text-3xl font-black text-white break-words drop-shadow-md">
+                                    {data?.course?.name || 'Subject Content'}
+                                </h2>
+                                <span className={`text-xs font-black uppercase tracking-widest px-3 py-1 rounded-xl border shrink-0 ${
+                                    isPaperCourse
+                                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-500/20'
+                                        : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                                }`}>
+                                    {isPaperCourse ? '📝 Paper Class' : '📘 Theory Class'}
+                                </span>
+                                {data?.course?.code && (
+                                    <span className="text-xs font-bold text-red-400 bg-red-500/10 px-3 py-1 rounded-xl border border-red-500/20 uppercase tracking-widest">
+                                        {data.course.code}
+                                    </span>
+                                )}
+                            </div>
+                            {data?.course?.lecturerName && (
+                                <p className="text-xs md:text-sm text-slate-300 font-bold flex items-center gap-2">
+                                    <span className="text-slate-400 font-medium">Lecturer:</span>
+                                    <span className="text-white font-extrabold">👨‍🏫 {data.course.lecturerName}</span>
+                                </p>
+                            )}
+                        </div>
+                        {isPaperCourse && (
+                            <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold w-max shadow-sm">
+                                <Trophy size={16} /> Paper Class Portal & Exams
+                            </div>
+                        )}
                     </div>
 
                     <div className="flex overflow-x-auto gap-2 mb-6 pb-2 custom-scrollbar scroll-smooth no-scrollbar">

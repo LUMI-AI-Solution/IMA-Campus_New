@@ -8,12 +8,14 @@ import {
   History, X, Clock, DollarSign, CreditCard, Check, Printer,
   Calendar as CalendarIcon, AlertCircle, Phone, Shield, Sparkles,
   Trash2, Plus, ArrowRight, CheckCircle2, TrendingUp, Receipt,
-  Columns, LayoutGrid, CalendarCheck, UserCheck, Eye, Building2, Zap
+  Columns, LayoutGrid, CalendarCheck, UserCheck, Eye, Building2, Zap, Lock, RotateCcw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, subMonths, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday } from 'date-fns';
 import ThermalReceiptModal from '../../components/PhysicalCRM/ThermalReceiptModal';
 import { printThermalReceipt } from '../../utils/thermalReceiptPrinter';
+
+
 
 export default function AttendancePortal() {
     const [searchParams] = useSearchParams();
@@ -95,6 +97,8 @@ export default function AttendancePortal() {
             return 'Cashier / Admin';
         }
     };
+
+
 
     // Scanner logic
     const scanBuffer = useRef('');
@@ -241,15 +245,22 @@ export default function AttendancePortal() {
         setLoading(true);
         try {
             const res = await axios.get(`/physical-crm/student-scan/${encodeURIComponent(cleanId)}`);
-            setStudentData(res.data.student);
+            const sData = res.data.student;
+            const fPayments = res.data.feePayments || res.data.student?.feePayments || [];
+            const enrolls = sData?.enrollments || [];
+
+            setStudentData(sData);
             setAttendances(res.data.attendances || []);
-            setFeePayments(res.data.feePayments || res.data.student?.feePayments || []);
+            setFeePayments(fPayments);
             setAvailableClasses(res.data.availableClasses || []);
-            
+
+            const sName = sData.studentName || `${sData.firstName || ''} ${sData.lastName || ''}`.trim() || 'Student';
+
             if (autoMarkRef.current) {
-                await markAttendance(res.data.student.id, format(new Date(), 'yyyy-MM-dd'), activeSessionClassIdRef.current);
+                const targetClassId = activeSessionClassIdRef.current || (enrolls.length === 1 ? enrolls[0].classId : null);
+                await markAttendance(sData.id, format(new Date(), 'yyyy-MM-dd'), targetClassId);
             } else {
-                toast.success(`Loaded profile for ${res.data.student.studentName || res.data.student.firstName}`);
+                toast.success(`Loaded profile for ${sName}`);
             }
         } catch (error) {
             toast.error(error.response?.data?.error || 'Student not found');
@@ -261,7 +272,6 @@ export default function AttendancePortal() {
         }
     };
 
-    // Quick Card Allocation Handler
     const handleAllocateCard = async (rfidToBind) => {
         if (!studentData) return;
         const cleanRfid = rfidToBind ? String(rfidToBind).trim() : '';
@@ -411,6 +421,7 @@ export default function AttendancePortal() {
     // Toggle / Full Mark Class Fee Payment with 80mm Thermal Receipt (Instant Auto-Print)
     const handleClassFeePayment = async (classId, monthStr, currentStatus, optionalAmount = null) => {
         if (!studentData) return;
+
         const newStatus = (currentStatus === 'PAID' || currentStatus === 'FREE_CARD') ? 'PENDING' : 'PAID';
         try {
             const payload = {
@@ -426,7 +437,11 @@ export default function AttendancePortal() {
 
             const res = await physicalCrmService.toggleFeePayment(payload);
 
-            toast.success(`Class Fee updated (${res.status}) & logged in Cash Flow!`);
+            if (res.status === 'PENDING') {
+                toast.success(`Payment for ${monthStr} reverted to UNPAID!`);
+            } else {
+                toast.success(`Class Fee updated (${res.status}) & logged in Cash Flow!`);
+            }
             
             // If marked as PAID or PARTIAL, trigger 80mm thermal receipt
             if (res.status === 'PAID' || res.status === 'PARTIAL' || res.status === 'HALF_PAYMENT') {
@@ -660,9 +675,9 @@ export default function AttendancePortal() {
                 : (pRecord?.status === 'PARTIAL' ? (pRecord.amount || 0) : 0);
             const due = cType === 'FREE' ? 0 : Math.max(0, expected - paidAmount);
 
-            const isSelected = preselectedIds && preselectedIds.length > 0
+            const isSelected = !isPaidRecord && (preselectedIds && preselectedIds.length > 0
                 ? preselectedIds.includes(cls.id)
-                : (cType !== 'FREE' && due > 0);
+                : (cType !== 'FREE' && due > 0));
 
             return {
                 classId: cls.id,
@@ -673,7 +688,8 @@ export default function AttendancePortal() {
                 expectedFee: expected,
                 currentPaid: paidAmount,
                 dueAmount: due,
-                payAmount: due > 0 ? String(due) : String(expected),
+                payAmount: due > 0 ? String(due) : '0',
+                isPaidRecord,
                 isSelected
             };
         });
@@ -1027,11 +1043,12 @@ export default function AttendancePortal() {
         const paddingDays = Array(startDay).fill(null);
 
         return (
-            <div className="bg-white/5 p-4 sm:p-5 rounded-3xl border border-white/10 w-full shadow-inner flex flex-col justify-between backdrop-blur-md">
-                <div className="flex justify-between items-center mb-3">
+            <div className="w-full flex flex-col justify-between flex-1 space-y-3">
+                {/* Month Navigator Header */}
+                <div className="flex justify-between items-center bg-white/5 p-2 rounded-2xl border border-white/10 shadow-inner">
                     <button
                         onClick={() => setViewMonth(prev => subMonths(prev, 1))}
-                        className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all border border-white/10 cursor-pointer active:scale-95 shadow-md flex items-center gap-1 text-xs font-bold"
+                        className="p-2 sm:px-3 sm:py-2 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all border border-white/10 cursor-pointer active:scale-95 shadow-md flex items-center gap-1.5 text-xs font-black"
                         title="Previous Month"
                     >
                         <ChevronLeft size={16} />
@@ -1045,7 +1062,7 @@ export default function AttendancePortal() {
                     </div>
                     <button
                         onClick={() => setViewMonth(prev => addMonths(prev, 1))}
-                        className="p-2 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all border border-white/10 cursor-pointer active:scale-95 shadow-md flex items-center gap-1 text-xs font-bold"
+                        className="p-2 sm:px-3 sm:py-2 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all border border-white/10 cursor-pointer active:scale-95 shadow-md flex items-center gap-1.5 text-xs font-black"
                         title="Next Month"
                     >
                         <span className="hidden sm:inline">Next</span>
@@ -1053,14 +1070,16 @@ export default function AttendancePortal() {
                     </button>
                 </div>
 
-                <div className="grid grid-cols-7 gap-1.5 mb-1.5 text-center text-[11px] font-black text-white/50 uppercase tracking-wider">
-                    {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(d => (
+                {/* Weekday Labels */}
+                <div className="grid grid-cols-7 gap-2 text-center text-xs font-black text-white/50 uppercase tracking-wider py-0.5">
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
                         <div key={d} className="py-0.5">{d}</div>
                     ))}
                 </div>
 
-                <div className="grid grid-cols-7 gap-1.5 text-center flex-1">
-                    {paddingDays.map((_, i) => <div key={`pad-${i}`} className="h-9 sm:h-11"></div>)}
+                {/* Days Grid (Larger, prominent interactive cells) */}
+                <div className="grid grid-cols-7 gap-2 sm:gap-2.5 text-center flex-1">
+                    {paddingDays.map((_, i) => <div key={`pad-${i}`} className="h-11 sm:h-13 lg:h-14"></div>)}
                     {days.map(day => {
                         const isAttended = attendances.some(a => isSameDay(new Date(a.date), day) && a.status === 'PRESENT');
                         const isCurrentDay = isToday(day);
@@ -1078,26 +1097,42 @@ export default function AttendancePortal() {
                                 }}
                                 disabled={!studentData || autoMark}
                                 className={`
-                                    h-9 sm:h-11 w-full rounded-xl text-xs sm:text-sm font-black flex flex-col items-center justify-center transition-all relative
-                                    ${isAttended ? 'bg-gradient-to-tr from-emerald-600 to-teal-400 text-white font-extrabold shadow-[0_0_18px_rgba(16,185,129,0.5)] border border-emerald-300 scale-[1.03] z-10' : 
-                                      isCurrentDay ? 'bg-blue-600/30 text-blue-200 border border-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.3)]' : 'bg-white/5 text-white/80 hover:bg-white/15 border border-white/5'}
+                                    h-11 sm:h-13 lg:h-14 w-full rounded-2xl text-sm sm:text-base font-black flex flex-col items-center justify-center transition-all relative
+                                    ${isAttended ? 'bg-gradient-to-tr from-emerald-600 to-teal-400 text-white font-black shadow-[0_0_20px_rgba(16,185,129,0.55)] border border-emerald-300 scale-[1.04] z-10' : 
+                                      isCurrentDay ? 'bg-blue-600/30 text-blue-200 border border-blue-400 shadow-[0_0_14px_rgba(59,130,246,0.35)]' : 'bg-white/5 text-white/80 hover:bg-white/15 border border-white/10'}
                                     ${(!studentData || autoMark) ? 'cursor-default' : 'cursor-pointer hover:scale-105 active:scale-95'}
                                 `}
                             >
                                 <span>{format(day, 'd')}</span>
                                 {isAttended && (
-                                    <span className="w-1 h-1 rounded-full bg-white animate-pulse"></span>
+                                    <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse mt-0.5"></span>
                                 )}
                             </button>
                         );
                     })}
+                </div>
+
+                {/* Calendar Legend */}
+                <div className="flex items-center justify-center gap-4 pt-3 border-t border-white/10 text-xs font-bold text-white/60 flex-wrap">
+                    <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span>
+                        <span>Attended</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-blue-500 border border-blue-300"></span>
+                        <span>Today</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-white/20 border border-white/10"></span>
+                        <span>Absent</span>
+                    </div>
                 </div>
             </div>
         );
     };
 
     return (
-        <div className="p-2 sm:p-4 md:p-5 min-h-full flex flex-col gap-4 text-white relative max-w-[1850px] mx-auto animate-in fade-in duration-300">
+        <div className="p-1 sm:p-2 w-full min-h-full flex flex-col gap-3.5 text-white relative animate-in fade-in duration-300">
             <input 
                 id="hidden-scanner"
                 type="text" 
@@ -1160,6 +1195,8 @@ export default function AttendancePortal() {
                                 <Printer size={12} />
                                 <span>{autoPrintReceipt ? 'Auto Slip: ON' : 'Auto Slip: OFF'}</span>
                             </button>
+
+
                         </div>
                     </div>
 
@@ -1324,7 +1361,7 @@ export default function AttendancePortal() {
             </div>
 
             {/* MAIN CONTENT AREA */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-start">
                 
                 {/* LEFT SIDEBAR: Student Profile + Quick Mark Present + Registration Fee (3 cols on wide, 4 cols on lg) */}
                 <div className="lg:col-span-4 xl:col-span-3 flex flex-col gap-3">
@@ -1341,9 +1378,23 @@ export default function AttendancePortal() {
                                 <User className="text-purple-400" size={18} /> Student Profile
                             </h2>
                             {studentData && (
-                                <span className="bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded-full text-[10px] font-black">
-                                    Active
-                                </span>
+                                <div className="flex items-center gap-2">
+                                    <span className="bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded-full text-[10px] font-black">
+                                        Active
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setStudentData(null);
+                                            setAttendances([]);
+                                            setFeePayments([]);
+                                        }}
+                                        className="p-1 text-white/40 hover:text-white/90 hover:bg-white/10 rounded-lg transition-colors cursor-pointer"
+                                        title="Clear student profile"
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                </div>
                             )}
                         </div>
 
@@ -1391,7 +1442,7 @@ export default function AttendancePortal() {
                                             </span>
                                         </div>
 
-                                        <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar">
+                                        <div className="space-y-2.5 max-h-80 overflow-y-auto custom-scrollbar pr-0.5">
                                             {studentEnrolledClasses.map(cls => {
                                                 const todaySlot = cls.timetables?.find(t => t.dayOfWeek === todayDayName);
                                                 const isAttendedThisClass = attendances.some(a => 
@@ -1406,52 +1457,79 @@ export default function AttendancePortal() {
                                                 );
                                                 const attTime = attRecord?.createdAt ? format(new Date(attRecord.createdAt), 'hh:mm a') : null;
 
+                                                const pRecCheck = feePayments.find(p => p.classId === cls.id && p.month === activeMonthStr);
+                                                const cTypeCheck = cls.cardType || studentData?.cardType || 'FULL';
+                                                const isClassPaid = cTypeCheck === 'FREE' || (pRecCheck && (pRecCheck.status === 'PAID' || pRecCheck.status === 'FREE_CARD' || pRecCheck.status === 'HALF_PAYMENT'));
+
                                                 return (
-                                                    <div key={cls.id} className="p-2.5 rounded-xl bg-white/5 border border-white/10 flex items-center justify-between gap-2.5">
-                                                        <div className="min-w-0 flex-1">
-                                                            <h5 className="font-bold text-white text-xs truncate">{cls.name}</h5>
-                                                            <p className="text-[10px] text-white/60 flex items-center gap-1.5 mt-0.5 flex-wrap">
-                                                                <span>{cls.grade}</span>
+                                                    <div 
+                                                        key={cls.id} 
+                                                        className={`p-3 rounded-2xl border transition-all ${
+                                                            isClassPaid 
+                                                                ? 'bg-emerald-950/20 border-emerald-500/25 hover:border-emerald-500/40' 
+                                                                : 'bg-rose-950/20 border-rose-500/25 hover:border-rose-500/40'
+                                                        }`}
+                                                    >
+                                                        {/* Top Row: Full Class Name & Paid Status Badge */}
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <h5 className="font-extrabold text-white text-xs leading-snug break-words flex-1" title={cls.name}>
+                                                                {cls.name}
+                                                            </h5>
+                                                            {isClassPaid ? (
+                                                                <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0 whitespace-nowrap shadow-sm">
+                                                                    PAID ✓
+                                                                </span>
+                                                            ) : (
+                                                                <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse shrink-0 whitespace-nowrap shadow-sm">
+                                                                    NOT PAID ⚠️
+                                                                </span>
+                                                            )}
+                                                        </div>
+
+                                                        {/* Bottom Row: Metadata & Check-In Action */}
+                                                        <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-white/5">
+                                                            <div className="text-[10px] text-white/60 flex items-center gap-1.5 flex-wrap min-w-0">
+                                                                <span className="bg-white/10 px-1.5 py-0.5 rounded text-white/80 font-semibold">{cls.grade}</span>
                                                                 <span>•</span>
-                                                                <span>Rs. {cls.monthlyFee?.toLocaleString()}</span>
+                                                                <span className="font-bold text-emerald-400">Rs. {cls.monthlyFee?.toLocaleString()}</span>
                                                                 {todaySlot && (
-                                                                    <span className="text-blue-300">
-                                                                        • ⏰ {todaySlot.startTime} - {todaySlot.endTime}
+                                                                    <span className="text-blue-300 font-medium">
+                                                                        • ⏰ {todaySlot.startTime}
                                                                     </span>
                                                                 )}
                                                                 {isAttendedThisClass && attTime && (
                                                                     <span className="text-emerald-400 font-bold">
-                                                                        • Checked-in: {attTime}
+                                                                        • {attTime}
                                                                     </span>
                                                                 )}
-                                                            </p>
-                                                        </div>
-                                                        
-                                                        <div className="flex items-center gap-1.5 shrink-0">
-                                                            {isAttendedThisClass ? (
-                                                                <div className="flex items-center gap-1">
-                                                                    <span className="px-2.5 py-1 rounded-lg text-[10px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 flex items-center gap-1">
-                                                                        <CheckCircle2 size={11} /> Attended
-                                                                    </span>
+                                                            </div>
+
+                                                            <div className="shrink-0">
+                                                                {isAttendedThisClass ? (
+                                                                    <div className="flex items-center gap-1">
+                                                                        <span className="px-2.5 py-1 rounded-xl text-[10px] font-black bg-emerald-500/25 text-emerald-300 border border-emerald-500/40 flex items-center gap-1 shadow-sm">
+                                                                            <CheckCircle2 size={11} /> Attended
+                                                                        </span>
+                                                                        <button
+                                                                            type="button"
+                                                                            onClick={() => unmarkAttendance(studentData.id, format(new Date(), 'yyyy-MM-dd'), cls.id)}
+                                                                            className="p-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-[10px] cursor-pointer transition-all active:scale-95"
+                                                                            title="Unmark attendance for this class"
+                                                                        >
+                                                                            ✕
+                                                                        </button>
+                                                                    </div>
+                                                                ) : (
                                                                     <button
                                                                         type="button"
-                                                                        onClick={() => unmarkAttendance(studentData.id, format(new Date(), 'yyyy-MM-dd'), cls.id)}
-                                                                        className="p-1 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-[10px] cursor-pointer"
-                                                                        title="Unmark attendance for this class"
+                                                                        onClick={() => markAttendance(studentData.id, format(new Date(), 'yyyy-MM-dd'), cls.id)}
+                                                                        className="px-3 py-1.5 rounded-xl text-[10px] font-black bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-md shadow-blue-600/30 cursor-pointer transition-all active:scale-95 flex items-center gap-1"
                                                                     >
-                                                                        ✕
+                                                                        <UserCheck size={12} />
+                                                                        <span>Check In</span>
                                                                     </button>
-                                                                </div>
-                                                            ) : (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => markAttendance(studentData.id, format(new Date(), 'yyyy-MM-dd'), cls.id)}
-                                                                    className="px-3 py-1.5 rounded-lg text-[10px] font-black bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-md cursor-pointer transition-all active:scale-95 flex items-center gap-1"
-                                                                >
-                                                                    <UserCheck size={12} />
-                                                                    <span>Check In</span>
-                                                                </button>
-                                                            )}
+                                                                )}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 );
@@ -1559,9 +1637,11 @@ export default function AttendancePortal() {
                                             <div className="flex items-center gap-2 min-w-0 flex-1">
                                                 <Search size={14} className="text-blue-400 shrink-0" />
                                                 {currentSelectedClass ? (
-                                                    <span className="text-white font-bold truncate">
-                                                        {currentSelectedClass.name} ({currentSelectedClass.grade}) - Rs. {Number(currentSelectedClass.monthlyFee || 0).toLocaleString()}
-                                                    </span>
+                                                    <div className="flex items-center gap-1.5 min-w-0 flex-1 flex-wrap">
+                                                        <span className="text-white font-bold text-xs">{currentSelectedClass.name}</span>
+                                                        <span className="text-[9px] px-1.5 py-0.2 bg-blue-500/20 text-blue-300 rounded font-semibold shrink-0">{currentSelectedClass.grade}</span>
+                                                        <span className="text-[10px] font-mono font-bold text-emerald-400 shrink-0">• Rs. {Number(currentSelectedClass.monthlyFee || 0).toLocaleString()}</span>
+                                                    </div>
                                                 ) : (
                                                     <span className="text-white/40">Search & select class to add...</span>
                                                 )}
@@ -1571,7 +1651,7 @@ export default function AttendancePortal() {
 
                                         {/* Expandable Search & Class Picker Section */}
                                         {isClassDropdownOpen && (
-                                            <div className="bg-slate-950/90 border border-blue-500/30 rounded-2xl p-2.5 space-y-2 animate-in fade-in duration-150 shadow-inner">
+                                            <div className="bg-slate-950/95 border border-blue-500/30 rounded-2xl p-2.5 space-y-2 animate-in fade-in duration-150 shadow-2xl">
                                                 {/* Search Input Bar */}
                                                 <div className="relative">
                                                     <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/40" />
@@ -1587,7 +1667,7 @@ export default function AttendancePortal() {
                                                         <button
                                                             type="button"
                                                             onClick={() => setClassSearchTerm('')}
-                                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
+                                                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white cursor-pointer"
                                                         >
                                                             <X size={12} />
                                                         </button>
@@ -1595,9 +1675,9 @@ export default function AttendancePortal() {
                                                 </div>
 
                                                 {/* Filtered Class List */}
-                                                <div className="max-h-48 overflow-y-auto space-y-1 custom-scrollbar pr-1">
+                                                <div className="max-h-64 overflow-y-auto space-y-1.5 custom-scrollbar pr-1">
                                                     {filteredAvailableClasses.length === 0 ? (
-                                                        <div className="text-center py-3 text-xs text-white/40 font-medium">
+                                                        <div className="text-center py-4 text-xs text-white/40 font-medium">
                                                             No classes found matching "{classSearchTerm}"
                                                         </div>
                                                     ) : (
@@ -1616,35 +1696,43 @@ export default function AttendancePortal() {
                                                                         setIsClassDropdownOpen(false);
                                                                         setClassSearchTerm('');
                                                                     }}
-                                                                    className={`w-full text-left p-2 rounded-xl transition-all flex items-center justify-between gap-2 ${
+                                                                    className={`w-full text-left p-2.5 rounded-xl transition-all flex flex-col gap-1.5 border ${
                                                                         isAlready
-                                                                            ? 'opacity-40 cursor-not-allowed bg-white/[0.02]'
+                                                                            ? 'opacity-40 cursor-not-allowed bg-white/[0.02] border-white/5'
                                                                             : isSelected
-                                                                                ? 'bg-blue-600/40 border border-blue-400 text-white shadow-sm'
-                                                                                : 'hover:bg-white/10 text-white/80 hover:text-white cursor-pointer'
+                                                                                ? 'bg-blue-600/30 border-blue-400 text-white shadow-md shadow-blue-500/20'
+                                                                                : 'bg-white/5 hover:bg-white/10 border-white/10 text-white/90 hover:text-white hover:border-white/20 cursor-pointer'
                                                                     }`}
                                                                 >
-                                                                    <div className="min-w-0 flex-1">
-                                                                        <div className="flex items-center gap-1.5 flex-wrap">
-                                                                            <span className="font-bold text-xs truncate text-white">{c.name}</span>
-                                                                            <span className="text-[9px] font-black px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                                                    {/* Row 1: Class Name & Monthly Fee */}
+                                                                    <div className="flex items-start justify-between gap-2">
+                                                                        <span className="font-bold text-xs text-white leading-snug flex-1">
+                                                                            {c.name}
+                                                                        </span>
+                                                                        <span className="text-xs font-black text-emerald-400 shrink-0 font-mono">
+                                                                            Rs. {Number(c.monthlyFee || 0).toLocaleString()}
+                                                                        </span>
+                                                                    </div>
+
+                                                                    {/* Row 2: Grade, Teacher & Enrolled Status */}
+                                                                    <div className="flex items-center justify-between gap-2 text-[10px] text-white/50 pt-0.5">
+                                                                        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+                                                                            <span className="px-1.5 py-0.2 rounded bg-blue-500/20 text-blue-300 font-bold border border-blue-500/30">
                                                                                 {c.grade || 'A/L'}
                                                                             </span>
-                                                                            {isAlready && (
-                                                                                <span className="text-[9px] font-bold text-amber-300 bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/30">
-                                                                                    Enrolled
+                                                                            {teacherNames && (
+                                                                                <span className="text-white/60 truncate max-w-[200px]" title={teacherNames}>
+                                                                                    👨‍🏫 {teacherNames}
                                                                                 </span>
                                                                             )}
                                                                         </div>
-                                                                        {teacherNames && (
-                                                                            <p className="text-[10px] text-white/50 truncate mt-0.5">
-                                                                                {teacherNames}
-                                                                            </p>
+
+                                                                        {isAlready && (
+                                                                            <span className="text-[9px] font-bold text-amber-300 bg-amber-500/20 px-1.5 py-0.5 rounded border border-amber-500/30 shrink-0">
+                                                                                Enrolled
+                                                                            </span>
                                                                         )}
                                                                     </div>
-                                                                    <span className="text-xs font-sans font-black text-emerald-400 shrink-0">
-                                                                        Rs. {Number(c.monthlyFee || 0).toLocaleString()}
-                                                                    </span>
                                                                 </button>
                                                             );
                                                         })
@@ -1654,7 +1742,7 @@ export default function AttendancePortal() {
                                                 <button
                                                     type="button"
                                                     onClick={() => setIsClassDropdownOpen(false)}
-                                                    className="w-full py-1 text-center text-[10px] font-bold text-white/50 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg border border-white/5 transition-all cursor-pointer"
+                                                    className="w-full py-1.5 text-center text-[11px] font-bold text-white/50 hover:text-white bg-white/5 hover:bg-white/10 rounded-xl border border-white/5 transition-all cursor-pointer"
                                                 >
                                                     Close Selector
                                                 </button>
@@ -1703,34 +1791,52 @@ export default function AttendancePortal() {
                         
                         {/* Active Month Fee Summary Banner */}
                         {studentData && studentEnrolledClasses.length > 0 && (
-                            <div className="bg-gradient-to-r from-blue-900/30 via-indigo-900/25 to-purple-900/30 backdrop-blur-xl border border-white/20 p-3.5 sm:p-4 rounded-2xl shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-                                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                            <div className="bg-gradient-to-r from-blue-900/40 via-indigo-900/35 to-purple-900/40 backdrop-blur-xl border border-white/20 p-4 sm:p-5 rounded-3xl shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                                <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
                                     <div>
-                                        <div className="flex items-center gap-1.5 text-[11px] font-black text-blue-300 uppercase tracking-wider">
-                                            <TrendingUp size={13} />
-                                            <span>Fee Overview ({format(viewMonth, 'MMMM yyyy')})</span>
+                                        <div className="flex items-center gap-2 text-xs font-black text-blue-300 uppercase tracking-wider mb-1 flex-wrap">
+                                            <TrendingUp size={15} />
+                                            <span>Academic Period:</span>
+                                            <span className="bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-2.5 py-0.5 rounded-lg border border-blue-400/40 shadow-sm font-black text-xs">
+                                                {format(viewMonth, 'MMMM yyyy')} ({activeMonthStr})
+                                            </span>
                                         </div>
-                                        <h3 className="text-base font-black text-white mt-0.5">
+                                        <h3 className="text-base sm:text-lg font-black text-white mt-1">
                                             {studentEnrolledClasses.length} Allocated Classes for {studentData.studentName || studentData.firstName}
                                         </h3>
                                     </div>
 
-                                    <div className="flex flex-wrap items-center gap-2">
-                                        <div className="bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 text-center">
-                                            <p className="text-[9px] text-white/60 uppercase font-bold">Total Fees</p>
-                                            <p className="text-xs sm:text-sm font-black text-white">Rs. {activeMonthSummary.totalExpected.toLocaleString()}</p>
-                                        </div>
-                                        <div className="bg-emerald-500/20 px-3 py-1.5 rounded-xl border border-emerald-500/30 text-center">
-                                            <p className="text-[9px] text-emerald-300 uppercase font-bold">Total Paid</p>
-                                            <p className="text-xs sm:text-sm font-black text-emerald-400">Rs. {activeMonthSummary.totalPaid.toLocaleString()}</p>
-                                        </div>
-                                        <div className={`px-3 py-1.5 rounded-xl border text-center ${
-                                            activeMonthSummary.totalDue > 0 
-                                                ? 'bg-rose-500/20 border-rose-500/30 text-rose-300' 
-                                                : 'bg-white/5 border-white/10 text-white/50'
-                                        }`}>
-                                            <p className="text-[9px] uppercase font-bold">Total Due</p>
-                                            <p className="text-xs sm:text-sm font-black text-rose-400">Rs. {activeMonthSummary.totalDue.toLocaleString()}</p>
+                                    {/* BIG PROMINENT MONTHLY STATUS BADGE */}
+                                    <div className="flex flex-wrap items-center gap-3">
+                                        {activeMonthSummary.totalDue === 0 ? (
+                                            <div className="px-4 py-2 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-500 text-white font-black text-xs sm:text-sm shadow-xl shadow-emerald-500/30 border border-emerald-400 flex items-center gap-2 tracking-wide animate-pulse">
+                                                <CheckCircle2 size={18} />
+                                                <span>MONTH PAID ✓ ({format(viewMonth, 'MMMM yyyy')})</span>
+                                            </div>
+                                        ) : (
+                                            <div className="px-4 py-2 rounded-2xl bg-gradient-to-r from-rose-600 via-red-600 to-amber-600 text-white font-black text-xs sm:text-sm shadow-xl shadow-rose-500/30 border border-rose-400 flex items-center gap-2 tracking-wide">
+                                                <AlertCircle size={18} />
+                                                <span>NOT PAID / DUE: Rs. {activeMonthSummary.totalDue.toLocaleString()} ({format(viewMonth, 'MMMM yyyy')})</span>
+                                            </div>
+                                        )}
+
+                                        <div className="flex items-center gap-1.5 bg-black/40 p-1.5 rounded-2xl border border-white/10">
+                                            <div className="bg-white/10 px-3 py-1.5 rounded-xl border border-white/10 text-center">
+                                                <p className="text-[9px] text-white/60 uppercase font-bold">Total Fees</p>
+                                                <p className="text-xs sm:text-sm font-black text-white">Rs. {activeMonthSummary.totalExpected.toLocaleString()}</p>
+                                            </div>
+                                            <div className="bg-emerald-500/20 px-3 py-1.5 rounded-xl border border-emerald-500/30 text-center">
+                                                <p className="text-[9px] text-emerald-300 uppercase font-bold">Total Paid</p>
+                                                <p className="text-xs sm:text-sm font-black text-emerald-400">Rs. {activeMonthSummary.totalPaid.toLocaleString()}</p>
+                                            </div>
+                                            <div className={`px-3 py-1.5 rounded-xl border text-center ${
+                                                activeMonthSummary.totalDue > 0 
+                                                    ? 'bg-rose-500/20 border-rose-500/30 text-rose-300' 
+                                                    : 'bg-white/5 border-white/10 text-white/50'
+                                            }`}>
+                                                <p className="text-[9px] uppercase font-bold">Total Due</p>
+                                                <p className="text-xs sm:text-sm font-black text-rose-400">Rs. {activeMonthSummary.totalDue.toLocaleString()}</p>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
@@ -1806,9 +1912,9 @@ export default function AttendancePortal() {
                         {/* DUAL VIEW / TABBED VIEW CONTAINER (NO-SCROLL LAYOUT) */}
                         <div className="grid grid-cols-1 xl:grid-cols-12 gap-3 items-start">
                             
-                            {/* CLASS CARDS FEED (Takes 7 cols in Dual View, 12 cols in Classes view, Hidden in Calendar view) */}
+                            {/* CLASS CARDS FEED (Takes 6 cols in Dual View, 12 cols in Classes view, Hidden in Calendar view) */}
                             {(activeViewMode === 'dual' || activeViewMode === 'classes') && (
-                                <div className={`${activeViewMode === 'dual' ? 'xl:col-span-7' : 'xl:col-span-12'} bg-black/40 backdrop-blur-xl border border-white/20 p-4 rounded-3xl shadow-lg flex flex-col`}>
+                                <div className={`${activeViewMode === 'dual' ? 'xl:col-span-6' : 'xl:col-span-12'} bg-black/40 backdrop-blur-xl border border-white/20 p-4 rounded-3xl shadow-lg flex flex-col`}>
                                     <div className="flex items-center justify-between mb-3">
                                         <div className="flex items-center gap-2">
                                             <h3 className="text-sm font-black text-white flex items-center gap-1.5">
@@ -1900,7 +2006,7 @@ export default function AttendancePortal() {
                                                         <div className="space-y-2.5">
                                                             <div className="flex items-start justify-between gap-3">
                                                                 <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                                                                    {cType !== 'FREE' && (
+                                                                    {cType !== 'FREE' && !isPaidRecord && (
                                                                         <input
                                                                             type="checkbox"
                                                                             checked={isClassSelected}
@@ -1916,16 +2022,34 @@ export default function AttendancePortal() {
                                                                         />
                                                                     )}
                                                                     <div className="min-w-0 flex-1">
-                                                                        <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                                                                        <div className="flex flex-wrap items-center gap-2 mb-2">
                                                                             <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/30 uppercase tracking-wider">
                                                                                 {cls.grade || 'A/L'}
+                                                                            </span>
+                                                                            <span className="text-[10px] font-black px-2.5 py-0.5 rounded-md bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 flex items-center gap-1">
+                                                                                <CalendarIcon size={11} />
+                                                                                <span>{format(viewMonth, 'MMMM yyyy')}</span>
                                                                             </span>
                                                                             <span className="text-xs font-bold text-white/70 flex items-center gap-1">
                                                                                 <span>👨‍🏫</span> {teacherNames}
                                                                             </span>
-                                                                            {cls.timetables?.some(t => t.dayOfWeek === todayDayName) && (
-                                                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
-                                                                                    🌟 Scheduled Today
+
+                                                                            {/* PROMINENT STATUS BADGE IN CLASS HEADER */}
+                                                                            {cType === 'FREE' ? (
+                                                                                <span className="text-[11px] font-black px-3 py-1 rounded-xl bg-purple-500/25 text-purple-300 border border-purple-500/40 shadow-sm ml-auto">
+                                                                                    🎁 FREE CARD
+                                                                                </span>
+                                                                            ) : isPaidRecord ? (
+                                                                                <span className="text-[11px] font-black px-3 py-1 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 text-white border border-emerald-400 shadow-md shadow-emerald-500/30 flex items-center gap-1 ml-auto">
+                                                                                    <CheckCircle2 size={13} /> PAID ✓
+                                                                                </span>
+                                                                            ) : isPartialRecord ? (
+                                                                                <span className="text-[11px] font-black px-3 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 border border-amber-300 shadow-md shadow-amber-500/30 flex items-center gap-1 ml-auto">
+                                                                                    <Clock size={13} /> PARTIAL (Rs. {paidAmount.toLocaleString()})
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span className="text-[11px] font-black px-3 py-1 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white border border-rose-400 shadow-md shadow-rose-600/30 flex items-center gap-1 ml-auto animate-pulse">
+                                                                                    <AlertCircle size={13} /> NOT PAID ⚠️
                                                                                 </span>
                                                                             )}
                                                                         </div>
@@ -2013,38 +2137,39 @@ export default function AttendancePortal() {
                                                             </div>
 
                                                             {/* Status & Fee Details Box */}
-                                                            <div className="bg-white/[0.03] p-3 rounded-xl border border-white/10 space-y-2 text-xs">
+                                                            <div className="bg-white/[0.04] p-3.5 rounded-2xl border border-white/10 space-y-2.5 text-xs shadow-inner">
                                                                 <div className="flex items-center justify-between">
-                                                                    <span className="text-white/60 font-semibold">Monthly Class Fee:</span>
+                                                                    <span className="text-white/70 font-bold">Monthly Class Fee:</span>
                                                                     <span className="font-extrabold text-white text-sm">
                                                                         Rs. {expectedFee.toLocaleString()} {cType === 'HALF' ? '(50% Off)' : cType === 'FREE' ? '(Free)' : ''}
                                                                     </span>
                                                                 </div>
 
-                                                                <div className="flex items-center justify-between">
-                                                                    <span className="text-white/60 font-semibold">Fee Status:</span>
+                                                                <div className="flex items-center justify-between py-1 border-t border-b border-white/5">
+                                                                    <span className="text-white/80 font-extrabold text-xs">Fee Status ({format(viewMonth, 'MMMM yyyy')}):</span>
                                                                     {cType === 'FREE' ? (
-                                                                        <span className="text-[11px] font-black text-purple-300 bg-purple-500/20 px-2.5 py-0.5 rounded-md border border-purple-500/30">
+                                                                        <span className="text-xs font-black text-purple-300 bg-purple-500/25 px-3 py-1 rounded-xl border border-purple-500/40">
+                                                                            🎁 FREE CARD (0% Fee)
                                                                         </span>
                                                                     ) : isPaidRecord ? (
-                                                                        <span className="text-[11px] font-black text-emerald-300 bg-emerald-500/20 px-2.5 py-0.5 rounded-md border border-emerald-500/30 flex items-center gap-1">
-                                                                            <Check size={12} /> PAID
+                                                                        <span className="text-xs font-black text-emerald-300 bg-emerald-500/25 px-3 py-1 rounded-xl border border-emerald-400/50 flex items-center gap-1.5 shadow-sm">
+                                                                            <CheckCircle2 size={14} /> PAID (Rs. {paidAmount.toLocaleString()})
                                                                         </span>
                                                                     ) : isPartialRecord ? (
-                                                                        <span className="text-[11px] font-black text-amber-300 bg-amber-500/20 px-2.5 py-0.5 rounded-md border border-amber-500/30">
-                                                                            PARTIAL (Paid: Rs. {paidAmount.toLocaleString()})
+                                                                        <span className="text-xs font-black text-amber-300 bg-amber-500/25 px-3 py-1 rounded-xl border border-amber-400/50 flex items-center gap-1.5 shadow-sm">
+                                                                            ⚡ PARTIAL (Paid: Rs. {paidAmount.toLocaleString()})
                                                                         </span>
                                                                     ) : (
-                                                                        <span className="text-[11px] font-black text-rose-300 bg-rose-500/20 px-2.5 py-0.5 rounded-md border border-rose-500/30">
-                                                                            PENDING
+                                                                        <span className="text-xs font-black text-rose-300 bg-rose-500/25 px-3 py-1 rounded-xl border border-rose-400/50 flex items-center gap-1.5 shadow-sm animate-pulse">
+                                                                            ⚠️ NOT PAID (DUE: Rs. {dueAmount.toLocaleString()})
                                                                         </span>
                                                                     )}
                                                                 </div>
 
                                                                 {dueAmount > 0 && cType !== 'FREE' && (
-                                                                    <div className="bg-rose-500/15 border border-rose-500/30 px-3 py-1.5 rounded-lg flex items-center justify-between">
-                                                                        <span className="text-rose-300 font-extrabold text-xs">Remaining Due:</span>
-                                                                        <span className="text-rose-400 font-black text-sm">Rs. {dueAmount.toLocaleString()}</span>
+                                                                    <div className="bg-rose-500/20 border border-rose-500/40 px-3.5 py-2 rounded-xl flex items-center justify-between shadow-sm">
+                                                                        <span className="text-rose-200 font-black text-xs">Remaining Due for {format(viewMonth, 'MMMM')}:</span>
+                                                                        <span className="text-rose-300 font-black text-base">Rs. {dueAmount.toLocaleString()}</span>
                                                                     </div>
                                                                 )}
                                                             </div>
@@ -2054,55 +2179,95 @@ export default function AttendancePortal() {
                                                         <div className="pt-3 border-t border-white/10 flex items-center gap-2 mt-3">
                                                             {cType !== 'FREE' && (
                                                                 <>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => {
-                                                                            if (isPaidRecord) {
-                                                                                handleClassFeePayment(cls.id, activeMonthStr, 'PAID');
-                                                                            } else {
-                                                                                handleClassFeePayment(cls.id, activeMonthStr, 'PENDING', expectedFee);
-                                                                            }
-                                                                        }}
-                                                                        className={`flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-lg active:scale-98 ${
-                                                                            isPaidRecord 
-                                                                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30' 
-                                                                                : 'bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white shadow-emerald-500/25'
-                                                                        }`}
-                                                                    >
-                                                                        {isPaidRecord ? (
-                                                                            <>
-                                                                                <Check size={14} />
+                                                                    {isPaidRecord ? (
+                                                                        <>
+                                                                            <div className="flex-1 py-2.5 px-3 rounded-xl text-xs font-black bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center justify-center gap-1.5 select-none shadow-sm">
+                                                                                <CheckCircle2 size={14} className="text-emerald-400" />
                                                                                 <span>PAID ✓</span>
-                                                                            </>
-                                                                        ) : isPartialRecord ? (
-                                                                            <>
+                                                                            </div>
+
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    if (window.confirm(`Are you sure you want to cancel payment and mark "${cls.name}" as UNPAID (Non-Paid) for ${format(viewMonth, 'MMMM yyyy')}?`)) {
+                                                                                        handleClassFeePayment(cls.id, activeMonthStr, 'PAID');
+                                                                                    }
+                                                                                }}
+                                                                                className="py-2.5 px-3 rounded-xl text-xs font-black bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 hover:text-rose-200 border border-rose-500/30 hover:border-rose-500/50 flex items-center justify-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95 shrink-0"
+                                                                                title={`Cancel payment and mark as UNPAID for ${format(viewMonth, 'MMMM yyyy')}`}
+                                                                            >
+                                                                                <RotateCcw size={13} className="text-rose-400" />
+                                                                                <span>Mark Unpaid</span>
+                                                                            </button>
+
+                                                                            {/* Direct Next Month Navigation Button */}
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setViewMonth(prev => addMonths(prev, 1))}
+                                                                                className="py-2.5 px-3.5 bg-blue-600/20 hover:bg-blue-600/35 text-blue-300 hover:text-white border border-blue-500/30 rounded-xl text-xs font-black transition-all cursor-pointer shrink-0 flex items-center gap-1.5 active:scale-95 shadow-md"
+                                                                                title={`Go to next month (${format(addMonths(viewMonth, 1), 'MMMM yyyy')}) to pay`}
+                                                                            >
+                                                                                <span>Next Month</span>
+                                                                                <ChevronRight size={14} />
+                                                                            </button>
+                                                                        </>
+                                                                    ) : isPartialRecord ? (
+                                                                        <>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleClassFeePayment(cls.id, activeMonthStr, 'PENDING', dueAmount)}
+                                                                                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-lg active:scale-98 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black"
+                                                                            >
                                                                                 <Sparkles size={14} />
                                                                                 <span>Pay Balance (Rs. {dueAmount.toLocaleString()})</span>
-                                                                            </>
-                                                                        ) : (
-                                                                            <>
+                                                                            </button>
+
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setCustomPayModal({
+                                                                                    isOpen: true,
+                                                                                    classObj: cls,
+                                                                                    monthStr: activeMonthStr,
+                                                                                    amount: String(dueAmount),
+                                                                                    isIncremental: true,
+                                                                                    paymentMethod: 'CASH',
+                                                                                    remark: ''
+                                                                                })}
+                                                                                className="py-2.5 px-3.5 bg-white/10 hover:bg-white/15 text-white border border-white/15 hover:border-white/25 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center gap-1 active:scale-98"
+                                                                            >
+                                                                                <DollarSign size={13} />
+                                                                                <span>Custom Pay</span>
+                                                                            </button>
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleClassFeePayment(cls.id, activeMonthStr, 'PENDING', expectedFee)}
+                                                                                className="flex-1 py-2.5 px-4 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-lg active:scale-98 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-white shadow-emerald-500/25"
+                                                                            >
                                                                                 <Check size={14} />
                                                                                 <span>✓ 1-Click Full Pay</span>
-                                                                            </>
-                                                                        )}
-                                                                    </button>
+                                                                            </button>
 
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => setCustomPayModal({
-                                                                            isOpen: true,
-                                                                            classObj: cls,
-                                                                            monthStr: activeMonthStr,
-                                                                            amount: dueAmount > 0 ? String(dueAmount) : String(expectedFee),
-                                                                            isIncremental: isPartialRecord,
-                                                                            paymentMethod: 'CASH',
-                                                                            remark: ''
-                                                                        })}
-                                                                        className="py-2.5 px-3.5 bg-white/10 hover:bg-white/15 text-white border border-white/15 hover:border-white/25 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center gap-1 active:scale-98"
-                                                                    >
-                                                                        <DollarSign size={13} />
-                                                                        <span>Custom Pay</span>
-                                                                    </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setCustomPayModal({
+                                                                                    isOpen: true,
+                                                                                    classObj: cls,
+                                                                                    monthStr: activeMonthStr,
+                                                                                    amount: String(expectedFee),
+                                                                                    isIncremental: false,
+                                                                                    paymentMethod: 'CASH',
+                                                                                    remark: ''
+                                                                                })}
+                                                                                className="py-2.5 px-3.5 bg-white/10 hover:bg-white/15 text-white border border-white/15 hover:border-white/25 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 flex items-center gap-1 active:scale-98"
+                                                                            >
+                                                                                <DollarSign size={13} />
+                                                                                <span>Custom Pay</span>
+                                                                            </button>
+                                                                        </>
+                                                                    )}
                                                                 </>
                                                             )}
                                                         </div>
@@ -2115,15 +2280,15 @@ export default function AttendancePortal() {
                                 </div>
                             )}
 
-                        {/* ATTENDANCE CALENDAR WIDGET (Takes 5 cols in Dual View, 12 cols in Calendar View, Hidden in Classes View) */}
+                        {/* ATTENDANCE CALENDAR WIDGET (Takes 6 cols in Dual View, 12 cols in Calendar View, Hidden in Classes View) */}
                         {(activeViewMode === 'dual' || activeViewMode === 'calendar') && (
-                            <div className={`${activeViewMode === 'dual' ? 'xl:col-span-5' : 'xl:col-span-12'} bg-black/40 backdrop-blur-xl border border-white/20 p-4 rounded-3xl shadow-lg flex flex-col justify-between`}>
-                                <div className="flex items-center justify-between mb-2">
-                                    <h3 className="text-sm font-black text-white flex items-center gap-1.5">
-                                        <CalendarDays size={16} className="text-emerald-400" /> Attendance Calendar
+                            <div className={`${activeViewMode === 'dual' ? 'xl:col-span-6' : 'xl:col-span-12'} bg-black/40 backdrop-blur-xl border border-white/20 p-4 sm:p-5 rounded-3xl shadow-lg flex flex-col justify-between`}>
+                                <div className="flex items-center justify-between mb-3">
+                                    <h3 className="text-sm sm:text-base font-black text-white flex items-center gap-2">
+                                        <CalendarDays size={18} className="text-emerald-400" /> Attendance Calendar
                                     </h3>
-                                    <span className="text-[11px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-black">
-                                        {attendances.filter(a => format(new Date(a.date), 'yyyy-MM') === activeMonthStr && a.status === 'PRESENT').length} Days
+                                    <span className="text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-3 py-1 rounded-full font-black">
+                                        {attendances.filter(a => format(new Date(a.date), 'yyyy-MM') === activeMonthStr && a.status === 'PRESENT').length} Days Present
                                     </span>
                                 </div>
 
@@ -2258,24 +2423,40 @@ export default function AttendancePortal() {
                                             )}
 
                                             {cType !== 'FREE' && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                        setClassHistoryModal({ isOpen: false, classObj: null, year: new Date().getFullYear() });
-                                                        setCustomPayModal({
-                                                            isOpen: true,
-                                                            classObj: classHistoryModal.classObj,
-                                                            monthStr: mStr,
-                                                            amount: dueVal > 0 ? String(dueVal) : String(fullFee),
-                                                            isIncremental: isPartial,
-                                                            paymentMethod: 'CASH',
-                                                            remark: ''
-                                                        });
-                                                    }}
-                                                    className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold cursor-pointer"
-                                                >
-                                                    {isPaid ? 'Edit' : 'Pay'}
-                                                </button>
+                                                <>
+                                                    {isPaid && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                if (window.confirm(`Are you sure you want to mark ${format(mDate, 'MMMM yyyy')} as UNPAID for "${classHistoryModal.classObj?.name}"?`)) {
+                                                                    handleClassFeePayment(classHistoryModal.classObj.id, mStr, 'PAID');
+                                                                }
+                                                            }}
+                                                            className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-[11px] font-bold cursor-pointer transition-all"
+                                                            title="Mark this month as UNPAID"
+                                                        >
+                                                            Mark Unpaid
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setClassHistoryModal({ isOpen: false, classObj: null, year: new Date().getFullYear() });
+                                                            setCustomPayModal({
+                                                                isOpen: true,
+                                                                classObj: classHistoryModal.classObj,
+                                                                monthStr: mStr,
+                                                                amount: dueVal > 0 ? String(dueVal) : String(fullFee),
+                                                                isIncremental: isPartial,
+                                                                paymentMethod: 'CASH',
+                                                                remark: ''
+                                                            });
+                                                        }}
+                                                        className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold cursor-pointer"
+                                                    >
+                                                        {isPaid ? 'Edit' : 'Pay'}
+                                                    </button>
+                                                </>
                                             )}
                                         </div>
                                     </div>
@@ -2586,12 +2767,12 @@ export default function AttendancePortal() {
                                     onClick={() => {
                                         setMultiPayModal(prev => ({
                                             ...prev,
-                                            items: prev.items.map(it => ({ ...it, isSelected: true }))
+                                            items: prev.items.map(it => ({ ...it, isSelected: !it.isPaidRecord && it.cardType !== 'FREE' }))
                                         }));
                                     }}
                                     className="text-[11px] font-bold px-2.5 py-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded-md border border-blue-500/30 cursor-pointer"
                                 >
-                                    Select All
+                                    Select Due Only
                                 </button>
                                 <button
                                     type="button"
@@ -2617,12 +2798,15 @@ export default function AttendancePortal() {
                                         className={`p-3.5 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
                                             it.isSelected
                                                 ? 'bg-gradient-to-r from-blue-950/50 via-slate-900/90 to-slate-900 border-blue-500/50 shadow-md ring-1 ring-blue-500/30'
-                                                : 'bg-white/[0.02] border-white/10 opacity-50'
+                                                : it.isPaidRecord
+                                                    ? 'bg-emerald-950/20 border-emerald-500/25 opacity-80'
+                                                    : 'bg-white/[0.02] border-white/10 opacity-50'
                                         }`}
                                     >
                                         <div className="flex items-center gap-3 min-w-0 flex-1">
                                             <input
                                                 type="checkbox"
+                                                disabled={it.isPaidRecord || it.cardType === 'FREE'}
                                                 checked={it.isSelected}
                                                 onChange={(e) => {
                                                     const checked = e.target.checked;
@@ -2631,21 +2815,27 @@ export default function AttendancePortal() {
                                                         items: prev.items.map((item, i) => i === idx ? { ...item, isSelected: checked } : item)
                                                     }));
                                                 }}
-                                                className="w-4 h-4 rounded text-blue-600 bg-black/40 border-white/20 cursor-pointer shrink-0"
+                                                className="w-4 h-4 rounded text-blue-600 bg-black/40 border-white/20 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
                                             />
                                             <div className="min-w-0 flex-1">
-                                                <div className="flex items-center gap-2">
-                                                    <h4 className="font-extrabold text-sm text-white tracking-tight truncate">{it.className}</h4>
-                                                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md border ${
-                                                        it.cardType === 'FREE' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' :
-                                                        it.cardType === 'HALF' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' :
-                                                        'bg-blue-500/20 text-blue-300 border-blue-500/30'
-                                                    }`}>
-                                                        {it.cardType}
-                                                    </span>
+                                                <div className="flex items-start gap-2 justify-between flex-wrap">
+                                                    <h4 className="font-extrabold text-sm text-white tracking-tight break-words leading-snug flex-1" title={it.className}>{it.className}</h4>
+                                                    {it.isPaidRecord ? (
+                                                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1 shrink-0">
+                                                            <Lock size={10} /> PAID ✓
+                                                        </span>
+                                                    ) : (
+                                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md border shrink-0 ${
+                                                            it.cardType === 'FREE' ? 'bg-purple-500/20 text-purple-300 border-purple-500/30' :
+                                                            it.cardType === 'HALF' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' :
+                                                            'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                                        }`}>
+                                                            {it.cardType}
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 <p className="text-xs text-white/60 mt-0.5 font-medium">
-                                                    Full Fee: <strong className="text-white">Rs. {it.expectedFee.toLocaleString()}</strong> {it.currentPaid > 0 ? `• Paid: Rs. ${it.currentPaid.toLocaleString()}` : ''}
+                                                    Full Fee: <strong className="text-white">Rs. {it.expectedFee.toLocaleString()}</strong> {it.currentPaid > 0 ? `• Paid: Rs. ${it.currentPaid.toLocaleString()}` : ''} {it.dueAmount > 0 ? `• Due: Rs. ${it.dueAmount.toLocaleString()}` : ''}
                                                 </p>
                                             </div>
                                         </div>

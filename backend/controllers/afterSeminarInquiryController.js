@@ -316,16 +316,51 @@ exports.getLeads = async (req, res) => {
         });
         phoneVariants = [...new Set(phoneVariants)];
 
-        const registeredUsers = await prisma.user.findMany({
-            where: {
-                OR: [
-                    { phone: { in: phoneVariants } },
-                    { whatsapp: { in: phoneVariants } }
-                ]
-            },
-            select: { phone: true, whatsapp: true, firstName: true, lastName: true, optionalPhone: true }
+        const [registeredUsers, approvedPayments] = await Promise.all([
+            prisma.user.findMany({
+                where: {
+                    OR: [
+                        { phone: { in: phoneVariants } },
+                        { whatsapp: { in: phoneVariants } }
+                    ]
+                },
+                select: { id: true, phone: true, whatsapp: true, firstName: true, lastName: true, optionalPhone: true }
+            }),
+            prisma.payment.findMany({
+                where: {
+                    status: { in: [1, 4] },
+                    batchId: { not: null },
+                    OR: [
+                        { student: { phone: { in: phoneVariants } } },
+                        { student: { whatsapp: { in: phoneVariants } } },
+                        { student: { optionalPhone: { in: phoneVariants } } }
+                    ]
+                },
+                select: {
+                    batchId: true,
+                    payment_type: true,
+                    student: {
+                        select: { phone: true, whatsapp: true, optionalPhone: true }
+                    }
+                }
+            })
+        ]);
+
+        // Map: `${batchId}_${suffix7}` -> payment_type
+        const approvedBatchPaymentMap = new Map();
+        approvedPayments.forEach(p => {
+            if (!p.student || !p.batchId) return;
+            const pPhones = [p.student.phone, p.student.whatsapp, p.student.optionalPhone];
+            pPhones.forEach(raw => {
+                if (!raw) return;
+                const cleaned = raw.replace(/[^0-9]/g, '');
+                if (cleaned.length >= 7) {
+                    approvedBatchPaymentMap.set(`${p.batchId}_${cleaned.slice(-7)}`, p.payment_type);
+                }
+            });
         });
 
+        const leadsNeedingEnrollmentDbUpdate = [];
         const now = new Date();
 
         await Promise.all(leads.map(async (l, i) => {
@@ -433,80 +468,35 @@ exports.getLeads = async (req, res) => {
                 else leads[i].needs10DayCall = false;
             }
 
-            /* 🔴 DISABLED REAL-TIME SYNC FOR PERFORMANCE 🔴
-            // Sync with actual student payments
-            const bizMatch = l.phone ? l.phone.match(/_BIZ_(\d+)/) : null;
-            const extractedBizId = bizMatch ? parseInt(bizMatch[1]) : null;
-
-            if (extractedBizId) {
-                let rawPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
-                if (rawPhone.length >= 9) {
-                    const phoneSuffix = rawPhone.slice(-9); 
-                    
-                    const student = await prisma.user.findFirst({
-                        where: { phone: { endsWith: phoneSuffix } },
-                        include: {
-                            payments: {
-                                where: { 
-                                    businessId: extractedBizId,
-                                    status: { in: [1, 4] } // 1 = Approved, 4 = Post Pay
-                                },
-                                orderBy: { created_at: 'desc' },
-                                include: { batch: true }
-                            }
-                        }
-                    });
-
-                    if (student && student.payments && student.payments.length > 0) {
-                        const latestPayment = student.payments[0];
-                        
-                        let actualIntention = 'NOT_DECIDED';
-                        if (latestPayment.payment_type === 1) actualIntention = 'MONTHLY';
-                        else if (latestPayment.payment_type === 2) actualIntention = 'INSTALLMENT';
-                        else if (latestPayment.payment_type === 3) actualIntention = 'FULL';
-
-                        let updateData = {};
-                        let needsUpdate = false;
-
-                        if (l.enrollmentStatus !== 'ENROLLED' || l.paymentIntention !== actualIntention) {
-                            updateData.enrollmentStatus = 'ENROLLED';
-                            updateData.paymentIntention = actualIntention;
-                            updateData.isLocked = false; 
-                            needsUpdate = true;
-                        }
-
-                        // 🔥 FIX: Only assign batch if the batch belongs to the same business!
-                        if (!l.batchId && latestPayment.batchId && latestPayment.batch?.businessId === extractedBizId) {
-                            updateData.batchId = latestPayment.batchId;
-                            needsUpdate = true;
-                        }
-
-                        if (needsUpdate) {
-                            await prisma.lead.update({
-                                where: { id: l.id },
-                                data: updateData
-                            });
-                            leads[i] = { ...leads[i], ...updateData };
-                        }
-                    } else {
-                        // 🔥 මේක තමා අලුතෙන් දැම්මේ (STRICT SYNC) 🔥
-                        // සල්ලි ගෙවලා නැත්නම්, හැබැයි Coordinator 'ENROLLED' කියලා දාලා තිබ්බොත් ඒක Auto අයින් වෙනවා
-                        if (l.enrollmentStatus === 'ENROLLED') {
-                            await prisma.lead.update({
-                                where: { id: l.id },
-                                data: { enrollmentStatus: 'NON_ENROLLED', paymentIntention: 'NOT_DECIDED' }
-                            });
-                            leads[i] = { ...leads[i], enrollmentStatus: 'NON_ENROLLED', paymentIntention: 'NOT_DECIDED' };
+            // Real-time batch-level payment verification
+            if (l.batchId && l.phone) {
+                const rawP = l.phone.split('_')[0].replace(/[^0-9]/g, '');
+                if (rawP.length >= 7) {
+                    const suffix7 = rawP.slice(-7);
+                    const approvedPType = approvedBatchPaymentMap.get(`${l.batchId}_${suffix7}`);
+                    if (approvedPType) {
+                        const actualIntention = approvedPType === 3 ? 'FULL' : approvedPType === 2 ? 'INSTALLMENT' : 'MONTHLY';
+                        leads[i].enrollmentStatus = 'ENROLLED';
+                        leads[i].paymentIntention = actualIntention;
+                        leads[i].isLocked = false;
+                        if (l.enrollmentStatus !== 'ENROLLED') {
+                            leadsNeedingEnrollmentDbUpdate.push(l.id);
                         }
                     }
                 }
             }
-            */
 
             leads[i].rawPhone = l.phone;
             leads[i].businessId = l.batch?.businessId || (l.phone && l.phone.includes('_BIZ_') ? parseInt(l.phone.split('_BIZ_')[1]?.split('_')[0]) : null);
             leads[i].phone = l.phone ? l.phone.split('_BIZ')[0] : '';
         }));
+
+        if (leadsNeedingEnrollmentDbUpdate.length > 0) {
+            prisma.lead.updateMany({
+                where: { id: { in: leadsNeedingEnrollmentDbUpdate } },
+                data: { enrollmentStatus: 'ENROLLED' }
+            }).catch(err => console.error("Error auto-syncing enrolled leads:", err));
+        }
 
         // Map the correct campaign fields back to the base properties for frontend compatibility
         const mappedLeads = leads.map(l => {
@@ -1077,6 +1067,9 @@ exports.updateCallCampaign = async (req, res) => {
         if (campaignContext === 'OPEN_SEMINAR') { prefix = 'openSem'; category = 'OPEN_SEM'; }
         else if (campaignContext === 'NEW_INQ') { prefix = 'newInq'; category = 'NEW_INQ'; }
         else if (campaignContext === 'PAID') { prefix = 'paid'; category = 'PAID'; }
+        else if (campaignContext === 'BRIDGE' || lead.source === 'bridge_transfer') {
+            category = 'BRIDGE';
+        }
 
         const phaseField = prefix ? `${prefix}Phase` : 'phase';
         const roundField = prefix ? `${prefix}Round` : 'coordinationRound';
@@ -1127,12 +1120,51 @@ exports.updateCallCampaign = async (req, res) => {
                     attemptsData: attemptsData ? JSON.stringify(attemptsData) : undefined
                 }
             });
+        } else if (campaignContext === 'BRIDGE' || (category === 'BRIDGE' && campaignContext !== 'OPEN_SEMINAR' && campaignContext !== 'NEW_INQ')) {
+            // 🔥 BRIDGE CAMPAIGN SPECIFIC LOGIC: Preserve actual callStatus, attempt count, and phase 🔥
+            finalCallStatus = actualStatus;
+            
+            if (req.body.phase !== undefined && req.body.phase !== null && req.body.phase !== '') {
+                nextPhase = parseInt(req.body.phase);
+            } else if (actualStatus === 'no_answer') {
+                nextPhase = Math.min(3, currentPhase + 1);
+            } else {
+                nextPhase = currentPhase;
+            }
+            nextRound = currentRound;
+
+            const nextAttempt = callAttempt !== undefined ? parseInt(callAttempt) : (lead[attemptField] || 1);
+
+            await prisma.leadRoundProgress.upsert({
+                where: {
+                    leadId_roundNum_campaignCategory: { leadId: lead.id, roundNum: currentRound, campaignCategory: 'BRIDGE' }
+                },
+                update: {
+                    phase: nextPhase,
+                    callStatus: actualStatus,
+                    callMethod: method || lead[methodField] || 'direct',
+                    callAttempt: nextAttempt,
+                    feedback: feedback !== undefined ? feedback : (lead[feedbackField] || ''),
+                    attemptsData: attemptsData ? JSON.stringify(attemptsData) : undefined
+                },
+                create: {
+                    leadId: lead.id,
+                    roundNum: currentRound,
+                    campaignCategory: 'BRIDGE',
+                    phase: nextPhase,
+                    callStatus: actualStatus,
+                    callMethod: method || lead[methodField] || 'direct',
+                    callAttempt: nextAttempt,
+                    feedback: feedback !== undefined ? feedback : (lead[feedbackField] || ''),
+                    attemptsData: attemptsData ? JSON.stringify(attemptsData) : undefined
+                }
+            });
         } else if (isNonEnrolledTab) {
             finalCallStatus = actualStatus;
             nextPhase = currentPhase;
             nextRound = currentRound;
         } else {
-            // 🔥 NEW 14-DAY ABSOLUTE TIMELINE LOGIC 🔥
+            // 🔥 NEW 14-DAY ABSOLUTE TIMELINE LOGIC (OPEN SEMINAR & GENERAL) 🔥
             if (currentRound === 1) {
                 if (actualStatus === 'reject') {
                     finalCallStatus = 'reject';
@@ -1160,7 +1192,7 @@ exports.updateCallCampaign = async (req, res) => {
             }
         }
 
-        if (campaignContext !== 'PAID') {
+        if (campaignContext !== 'PAID' && campaignContext !== 'BRIDGE' && category !== 'BRIDGE') {
             await prisma.leadRoundProgress.upsert({
                 where: {
                     leadId_roundNum_campaignCategory: { leadId: lead.id, roundNum: currentRound, campaignCategory: category }
@@ -1185,7 +1217,7 @@ exports.updateCallCampaign = async (req, res) => {
             });
         }
 
-        if (promoteToRound2 && campaignContext !== 'PAID') {
+        if (promoteToRound2 && campaignContext !== 'PAID' && campaignContext !== 'BRIDGE' && category !== 'BRIDGE') {
             nextRound = 2;
             nextPhase = 1;
             finalCallStatus = 'pending';
@@ -1231,6 +1263,36 @@ exports.updateCallCampaign = async (req, res) => {
             }
         }
 
+        let finalEnrollmentStatus = enrollmentStatus || lead.enrollmentStatus;
+        let finalPaymentIntention = paymentIntention || lead.paymentIntention;
+
+        // 🔥 STRICT ENROLLMENT PROTECTION: If student already paid for this batch, NEVER demote to NON_ENROLLED!
+        if (lead.batchId && lead.phone) {
+            const rawP = lead.phone.split('_')[0].replace(/[^0-9]/g, '');
+            if (rawP.length >= 7) {
+                const suffix7 = rawP.slice(-7);
+                const approvedPay = await prisma.payment.findFirst({
+                    where: {
+                        batchId: lead.batchId,
+                        status: { in: [1, 4] },
+                        OR: [
+                            { student: { phone: { contains: suffix7 } } },
+                            { student: { whatsapp: { contains: suffix7 } } },
+                            { student: { optionalPhone: { contains: suffix7 } } }
+                        ]
+                    },
+                    select: { id: true, payment_type: true }
+                });
+
+                if (approvedPay) {
+                    finalEnrollmentStatus = 'ENROLLED';
+                    if (!paymentIntention || paymentIntention === 'NOT_DECIDED') {
+                        finalPaymentIntention = approvedPay.payment_type === 3 ? 'FULL' : approvedPay.payment_type === 2 ? 'INSTALLMENT' : 'MONTHLY';
+                    }
+                }
+            }
+        }
+
         const updatedLead = await prisma.lead.update({
             where: { id: parseInt(leadId) },
             data: { 
@@ -1245,8 +1307,8 @@ exports.updateCallCampaign = async (req, res) => {
                 coordinationRound: nextRound,
                 [attemptField]: nextCallAttempt,
                 lastAttemptAt: nextLastAttemptAt,
-                paymentIntention: paymentIntention || lead.paymentIntention,
-                enrollmentStatus: enrollmentStatus || lead.enrollmentStatus,
+                paymentIntention: finalPaymentIntention,
+                enrollmentStatus: finalEnrollmentStatus,
                 inquiryType: lead.inquiryType || 'NORMAL',
                 updatedAt: newTimestamp
             }
@@ -1575,19 +1637,54 @@ exports.receiveMessage = async (req, res) => {
                 const msgLower = (messageText || "").toLowerCase().trim();
                 let existingLeadCheck = await prisma.lead.findUnique({ where: { phone: dbPhone } });
                 
+                const exactBizRegex = new RegExp(`_BIZ_${settings.businessId}(_|$)`);
                 if (!existingLeadCheck) {
-                    existingLeadCheck = await prisma.lead.findFirst({
+                    const candidateLeads = await prisma.lead.findMany({
                         where: { 
-                            OR: [
-                                { phone: `${phone}_BIZ_${settings.businessId}` },
-                                { phone: { startsWith: `${phone}_BIZ_${settings.businessId}_` } },
-                                { phone: { contains: `${phoneSuffix}_BIZ_${settings.businessId}` } }
-                            ],
+                            phone: { contains: phoneSuffix },
                             campaignType: 'AFTER_SEMINAR',
                             status: { not: 'ARCHIVED' }
                         },
+                        include: { _count: { select: { messages: true } } },
                         orderBy: { updatedAt: 'desc' }
                     });
+
+                    // Filter for matching business and ensure phone ends with phoneSuffix
+                    const matchedLeads = candidateLeads.filter(l => {
+                        if (!exactBizRegex.test(l.phone)) return false;
+                        const lBase = (l.phone || '').split('_')[0].replace(/[^0-9]/g, '');
+                        return lBase.endsWith(phoneSuffix);
+                    });
+
+                    // Priority Sorting:
+                    // 1. Valid phone length (<= 11 digits) before corrupted (> 11 digits)
+                    // 2. Assigned leads before unassigned
+                    // 3. Enrolled leads before non-enrolled
+                    // 4. More messages before fewer messages
+                    // 5. Most recently updated
+                    matchedLeads.sort((a, b) => {
+                        const aBase = (a.phone || '').split('_')[0].replace(/[^0-9]/g, '');
+                        const bBase = (b.phone || '').split('_')[0].replace(/[^0-9]/g, '');
+                        const aValid = aBase.length <= 11 ? 1 : 0;
+                        const bValid = bBase.length <= 11 ? 1 : 0;
+                        if (aValid !== bValid) return bValid - aValid;
+
+                        const aAssigned = a.assignedTo ? 1 : 0;
+                        const bAssigned = b.assignedTo ? 1 : 0;
+                        if (aAssigned !== bAssigned) return bAssigned - aAssigned;
+
+                        const aEnrolled = a.enrollmentStatus === 'ENROLLED' ? 1 : 0;
+                        const bEnrolled = b.enrollmentStatus === 'ENROLLED' ? 1 : 0;
+                        if (aEnrolled !== bEnrolled) return bEnrolled - aEnrolled;
+
+                        const aMsgs = a._count?.messages || 0;
+                        const bMsgs = b._count?.messages || 0;
+                        if (aMsgs !== bMsgs) return bMsgs - aMsgs;
+
+                        return new Date(b.updatedAt) - new Date(a.updatedAt);
+                    });
+
+                    existingLeadCheck = matchedLeads[0] || null;
                     if (existingLeadCheck) {
                         dbPhone = existingLeadCheck.phone;
                     }
@@ -1656,14 +1753,19 @@ exports.receiveMessage = async (req, res) => {
                 }
 
                 if (!fallbackAssignedTo && phoneSuffix) {
-                    const crossSemLead = await prisma.lead.findFirst({
+                    const crossSemCandidates = await prisma.lead.findMany({
                         where: { 
-                            phone: { contains: `${phoneSuffix}_BIZ_${settings.businessId}` }, 
+                            phone: { contains: phoneSuffix }, 
                             campaignType: 'AFTER_SEMINAR',
                             assignedTo: { not: null } 
                         },
                         include: { assignedUser: { select: { id: true, role: true } } },
                         orderBy: { updatedAt: 'desc' }
+                    });
+                    const crossSemLead = crossSemCandidates.find(l => {
+                        if (!exactBizRegex.test(l.phone)) return false;
+                        const lBase = (l.phone || '').split('_')[0].replace(/[^0-9]/g, '');
+                        return lBase.endsWith(phoneSuffix) && lBase.length <= 11;
                     });
                     if (crossSemLead && crossSemLead.assignedUser) {
                         const sRole = (crossSemLead.assignedUser.role || '').toUpperCase();
@@ -1989,16 +2091,38 @@ exports.receiveMessage = async (req, res) => {
                 const msgLower = (messageText || "").toLowerCase().trim();
                 const isRestartCommand = ['hi', 'hello', 'hey', 'menu', 'start'].includes(msgLower);
                 
-                // Find all matching leads for this phone+business (catches _BATCH_, _AS, etc.)
-                const allMatchingLeads = await prisma.lead.findMany({
+                const exactBizRegex = new RegExp(`_BIZ_${settings.businessId}(_|$)`);
+                const candidateMatchingLeads = await prisma.lead.findMany({
                     where: { 
-                        OR: [
-                            { phone: `${phone}_BIZ_${settings.businessId}` },
-                            { phone: { startsWith: `${phone}_BIZ_${settings.businessId}_` } }
-                        ],
+                        phone: { contains: phoneSuffix },
                         campaignType: 'FREE_SEMINAR'
                     },
+                    include: { _count: { select: { messages: true } } },
                     orderBy: { updatedAt: 'desc' }
+                });
+
+                const allMatchingLeads = candidateMatchingLeads.filter(l => {
+                    if (!exactBizRegex.test(l.phone)) return false;
+                    const lBase = (l.phone || '').split('_')[0].replace(/[^0-9]/g, '');
+                    return lBase.endsWith(phoneSuffix);
+                });
+
+                allMatchingLeads.sort((a, b) => {
+                    const aBase = (a.phone || '').split('_')[0].replace(/[^0-9]/g, '');
+                    const bBase = (b.phone || '').split('_')[0].replace(/[^0-9]/g, '');
+                    const aValid = aBase.length <= 11 ? 1 : 0;
+                    const bValid = bBase.length <= 11 ? 1 : 0;
+                    if (aValid !== bValid) return bValid - aValid;
+
+                    const aAssigned = a.assignedTo ? 1 : 0;
+                    const bAssigned = b.assignedTo ? 1 : 0;
+                    if (aAssigned !== bAssigned) return bAssigned - aAssigned;
+
+                    const aMsgs = a._count?.messages || 0;
+                    const bMsgs = b._count?.messages || 0;
+                    if (aMsgs !== bMsgs) return bMsgs - aMsgs;
+
+                    return new Date(b.updatedAt) - new Date(a.updatedAt);
                 });
 
                 let existingLeadCheck = allMatchingLeads.length > 0 ? allMatchingLeads[0] : null;
@@ -2166,9 +2290,14 @@ exports.sendMessage = async (req, res) => {
                     await new Promise((resolve, reject) => {
                         ffmpeg(inputPath)
                             .audioCodec('libopus')
-                            .audioBitrate('16k')
+                            .audioBitrate('32k')
                             .audioChannels(1)
-                            .audioFrequency(16000)
+                            .audioFrequency(48000)
+                            .outputOptions([
+                                '-application voip',
+                                '-avoid_negative_ts make_zero',
+                                '-map_metadata -1'
+                            ])
                             .toFormat('ogg')
                             .on('end', () => resolve())
                             .on('error', (err) => reject(err))
@@ -2412,9 +2541,14 @@ exports.sendBroadcast = async (req, res) => {
                             await new Promise((resolve, reject) => {
                                 ffmpeg(inputPath)
                                     .audioCodec('libopus')
-                                    .audioBitrate('16k')
+                                    .audioBitrate('32k')
                                     .audioChannels(1)
-                                    .audioFrequency(16000)
+                                    .audioFrequency(48000)
+                                    .outputOptions([
+                                        '-application voip',
+                                        '-avoid_negative_ts make_zero',
+                                        '-map_metadata -1'
+                                    ])
                                     .toFormat('ogg')
                                     .on('end', () => resolve())
                                     .on('error', (err) => reject(err))

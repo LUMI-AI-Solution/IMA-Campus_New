@@ -154,22 +154,49 @@ exports.getCallCenterStaff = async (req, res) => {
             orderBy: { firstName: 'asc' }
         });
 
-        // Compute dynamic counts per staff
-        const staffWithProgress = await Promise.all(staffList.map(async (member) => {
-            const totalAssigned = await prisma.lead.count({
-                where: { isCallCenter: true, assignedTo: member.id }
-            });
-            const completed = await prisma.lead.count({
-                where: { isCallCenter: true, assignedTo: member.id, callCenterStatus: 'completed' }
-            });
+        const staffIds = staffList.map(s => s.id);
 
+        if (staffIds.length === 0) {
+            return res.status(200).json([]);
+        }
+
+        // Bulk count total assigned leads per staff member in 1 query
+        const totalGroup = await prisma.lead.groupBy({
+            by: ['assignedTo'],
+            where: {
+                isCallCenter: true,
+                assignedTo: { in: staffIds }
+            },
+            _count: { _all: true }
+        });
+
+        // Bulk count completed leads per staff member in 1 query
+        const completedGroup = await prisma.lead.groupBy({
+            by: ['assignedTo'],
+            where: {
+                isCallCenter: true,
+                assignedTo: { in: staffIds },
+                callCenterStatus: 'completed'
+            },
+            _count: { _all: true }
+        });
+
+        const totalMap = new Map();
+        totalGroup.forEach(g => { if (g.assignedTo) totalMap.set(g.assignedTo, g._count._all); });
+
+        const completedMap = new Map();
+        completedGroup.forEach(g => { if (g.assignedTo) completedMap.set(g.assignedTo, g._count._all); });
+
+        const staffWithProgress = staffList.map(member => {
+            const totalAssigned = totalMap.get(member.id) || 0;
+            const completed = completedMap.get(member.id) || 0;
             return {
                 ...member,
                 totalAssigned,
                 completed,
                 pending: totalAssigned - completed
             };
-        }));
+        });
 
         res.status(200).json(safeJson(staffWithProgress));
     } catch (error) {

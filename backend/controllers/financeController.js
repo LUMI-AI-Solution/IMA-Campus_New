@@ -10,9 +10,10 @@ const safeJson = (data) => {
 
 exports.getFinanceMatrix = async (req, res) => {
     try {
-        const { businessId, batchId } = req.query;
+        const { businessId, batchId, classType } = req.query;
         if (!batchId || batchId === 'null') return res.status(400).json({ error: "Batch ID is required" });
         const parsedBatchId = parseInt(batchId);
+        const parsedClassType = (classType && classType !== 'ALL') ? parseInt(classType) : (classType === 'ALL' ? null : 1);
 
         const userId = req.user.userId || req.user.id;
         const userRole = req.user.role;
@@ -51,23 +52,39 @@ exports.getFinanceMatrix = async (req, res) => {
         }
 
         // 1. Get Monthly Groups (Columns Headers)
+        let groupWhere = { batchId: parsedBatchId };
+        if (parsedClassType) {
+            groupWhere.classType = parsedClassType;
+        }
+
         const rawGroups = await prisma.group.findMany({
-            where: { batchId: parsedBatchId },
+            where: groupWhere,
             orderBy: { itemOrder: 'asc' },
-            select: { id: true, name: true }
+            select: { id: true, name: true, classType: true }
         });
         const monthlyGroups = rawGroups.filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'));
 
         // 2. Get Courses
+        let courseWhere = { group: { batchId: parsedBatchId } };
+        if (parsedClassType) {
+            courseWhere.OR = [
+                { courseType: parsedClassType },
+                { group: { classType: parsedClassType } }
+            ];
+        }
+
         const courses = await prisma.course.findMany({
-            where: { group: { batchId: parsedBatchId } },
-            select: { id: true, name: true, price: true, code: true, activeMonths: true, startMonth: true, endMonth: true }
+            where: courseWhere,
+            select: { id: true, name: true, price: true, code: true, activeMonths: true, startMonth: true, endMonth: true, courseType: true, groupId: true }
         });
 
         const courseMap = {};
         const courseCodeMap = {};
         courses.forEach(c => {
-            const normalizedSubName = c.name.trim().toUpperCase();
+            let normalizedSubName = c.name.trim().toUpperCase();
+            if (!parsedClassType && (c.courseType === 2 || rawGroups.find(g => g.id === c.groupId)?.classType === 2)) {
+                normalizedSubName += ' (PAPER)';
+            }
             courseMap[c.id] = normalizedSubName;
             if (c.code) courseCodeMap[normalizedSubName] = c.code.trim();
         });
@@ -97,16 +114,65 @@ exports.getFinanceMatrix = async (req, res) => {
         // 3. Dynamic Month Extraction
         const subjectActiveMonthsMap = {};
         uniqueSubjectNames.forEach(subName => {
-            const dbCourse = courses.find(c => c.name.trim().toUpperCase() === subName);
+            const dbCourse = courses.find(c => {
+                let name = c.name.trim().toUpperCase();
+                if (!parsedClassType && (c.courseType === 2 || rawGroups.find(g => g.id === c.groupId)?.classType === 2)) {
+                    name += ' (PAPER)';
+                }
+                return name === subName;
+            });
             const activeM = getActiveMonthsForCourse(dbCourse);
             subjectActiveMonthsMap[subName] = activeM.map(g => g.id);
         });
 
         // 4. Get Payments
-        const payments = await prisma.payment.findMany({
-            where: { batchId: parsedBatchId, status: 1 },
-            include: { student: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, nic: true } } },
+        let paymentWhere = { batchId: parsedBatchId, status: 1 };
+        if (parsedClassType) {
+            paymentWhere.OR = [
+                { group: { classType: parsedClassType } },
+                { groupId: { in: rawGroups.map(g => g.id) } }
+            ];
+        }
+
+        const rawPayments = await prisma.payment.findMany({
+            where: paymentWhere,
+            include: { 
+                student: { 
+                    select: { 
+                        id: true, 
+                        firstName: true, 
+                        lastName: true, 
+                        phone: true, 
+                        whatsapp: true, 
+                        nic: true,
+                        addressHouseNo: true,
+                        addressStreet: true,
+                        city: true,
+                        district: true
+                    } 
+                },
+                group: { select: { id: true, name: true, classType: true } },
+                delivery: { select: { labelAddress: true } }
+            },
             orderBy: { created_at: 'asc' }
+        });
+
+        // Filter payments to match class type precisely
+        const payments = rawPayments.filter(p => {
+            if (!parsedClassType) return true;
+            const gClassType = p.group ? parseInt(p.group.classType || 1) : 1;
+            if (gClassType === parsedClassType) return true;
+
+            try {
+                const subIds = JSON.parse(p.subjects || '[]').map(id => typeof id === 'object' ? parseInt(id.id) : parseInt(id));
+                const hasMatchingCourse = subIds.some(cid => {
+                    const crs = courses.find(c => c.id === cid);
+                    return crs && (crs.courseType === parsedClassType || (crs.groupId && rawGroups.some(rg => rg.id === crs.groupId && rg.classType === parsedClassType)));
+                });
+                if (hasMatchingCourse) return true;
+            } catch (e) {}
+
+            return false;
         });
 
         const installmentPlans = await prisma.installment.findMany({ where: { batchId: parsedBatchId } });
@@ -125,12 +191,24 @@ exports.getFinanceMatrix = async (req, res) => {
                 let nic = p.student.nic || '';
                 let birthYear = nic.length === 12 ? nic.substring(0, 4) : (nic.length === 10 ? '19' + nic.substring(0, 2) : '-');
 
+                let addressParts = [
+                    p.student.addressHouseNo,
+                    p.student.addressStreet,
+                    p.student.city,
+                    p.student.district
+                ].map(s => s ? s.trim() : '').filter(Boolean);
+                let fullAddress = addressParts.join(', ');
+                if (!fullAddress && p.delivery?.labelAddress && p.delivery.labelAddress !== 'No Address Provided') {
+                    fullAddress = p.delivery.labelAddress.trim();
+                }
+
                 studentMap[p.studentId] = {
                     id: p.studentId,
                     studentNo: `STU-${p.studentId}`,
                     studentName: `${p.student.firstName} ${p.student.lastName}`.trim(),
                     phone: p.student.phone || '',
                     whatsapp: p.student.whatsapp || '',
+                    address: fullAddress || '-',
                     birthYear: birthYear,
                     paymentTypes: new Set(),
                     matrixValues: {},
@@ -147,6 +225,9 @@ exports.getFinanceMatrix = async (req, res) => {
             }
 
             const sData = studentMap[p.studentId];
+            if ((!sData.address || sData.address === '-') && p.delivery?.labelAddress && p.delivery.labelAddress !== 'No Address Provided') {
+                sData.address = p.delivery.labelAddress.trim();
+            }
             if (isUpgrade) sData.isUpgradeStudent = true;
             const payType = parseInt(p.payment_type);
             sData.paymentTypes.add(payType === 3 ? 'Full' : (payType === 2 ? 'Installment' : 'Monthly'));
@@ -382,11 +463,23 @@ exports.getFinanceMatrix = async (req, res) => {
             return a.id - b.id; // secondary sort by ID
         });
 
+        const allBatchGroups = await prisma.group.findMany({
+            where: { batchId: parsedBatchId },
+            select: { id: true, classType: true }
+        });
+        const hasTheory = allBatchGroups.some(g => (g.classType || 1) === 1);
+        const hasPaper = allBatchGroups.some(g => g.classType === 2);
+
         res.status(200).json(safeJson({
             months: monthlyGroups,
             subjects: uniqueSubjectNames,
             students: sortedStudents,
-            grandTotal: grandTotal
+            grandTotal: grandTotal,
+            classType: classType || '1',
+            availableClassTypes: {
+                hasTheory,
+                hasPaper
+            }
         }));
 
     } catch (error) {

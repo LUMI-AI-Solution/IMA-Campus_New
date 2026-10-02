@@ -9,7 +9,7 @@ import { FaFacebook, FaYoutube } from 'react-icons/fa';
 import { 
   MessageCircle, ChevronRight, ChevronLeft, 
   BookOpen, Users, Award, Briefcase, Globe, GraduationCap, ArrowRight, Loader2, Search, 
-  Phone, Mail, Zap, CheckCircle2, Building2, PlayCircle 
+  Phone, Mail, MapPin, Zap, CheckCircle2, Building2, PlayCircle 
 } from 'lucide-react';
 
 const heroImages = [
@@ -266,9 +266,21 @@ export default function IMACampusLandingPage({ loggedInUser }) {
           <div className="space-y-4">
             <h4 className="font-black text-white uppercase tracking-wider mb-2">Contact Info</h4>
             <ul className="space-y-3 font-medium">
-              <li className="flex items-start gap-3"><Phone size={16} className="text-red-500 mt-0.5 shrink-0"/> (+94) 112 345 678</li>
-              <li className="flex items-start gap-3"><Mail size={16} className="text-red-500 mt-0.5 shrink-0"/> info@imacampus.lk</li>
-              <li className="flex items-start gap-3"><Globe size={16} className="text-red-500 mt-0.5 shrink-0"/> 123 Education Mawatha, Colombo 03</li>
+              <li className="flex items-start gap-3">
+                <MapPin size={16} className="text-red-500 mt-0.5 shrink-0"/> 
+                <span>No. 346/A, Robert Gunawardane Mawatha, Malabe</span>
+              </li>
+              <li className="flex items-start gap-3">
+                <Mail size={16} className="text-red-500 mt-0.5 shrink-0"/> 
+                <a href="mailto:info@imacampus.online" className="hover:text-red-400 transition-colors">info@imacampus.online</a>
+              </li>
+              <li className="flex items-start gap-3">
+                <Phone size={16} className="text-red-500 mt-0.5 shrink-0"/> 
+                <div className="flex flex-col gap-0.5">
+                  <a href="tel:0712209030" className="hover:text-red-400 transition-colors">071 220 90 30 (Fast Track)</a>
+                  <Link to="/contact-us" className="text-xs text-red-400 hover:underline">View all stream numbers →</Link>
+                </div>
+              </li>
             </ul>
           </div>
         </div>

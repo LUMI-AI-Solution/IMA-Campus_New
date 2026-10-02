@@ -1,6 +1,6 @@
 import React, { useRef, useMemo, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Download, FileSpreadsheet, Image as ImageIcon, Users, Wallet, Filter, Check, Copy, AlertCircle, Tag, Receipt, Gift, Clock } from 'lucide-react';
+import { X, Download, FileSpreadsheet, Image as ImageIcon, Users, Wallet, Filter, Check, Copy, AlertCircle, Tag, Receipt, Gift, Clock, Sparkles } from 'lucide-react';
 import { toPng } from 'html-to-image'; 
 import * as XLSX from 'xlsx';
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, ResponsiveContainer } from 'recharts';
@@ -15,6 +15,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
         batchId: initialFilters.batchId,
         type: 'All', 
         method: 'All', 
+        acquisitionSource: 'All',
         subjectNames: [], 
         dateFrom: initialFilters.dateFrom,
         dateTo: initialFilters.dateTo
@@ -114,7 +115,9 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                 if (localFilters.dateTo && payDate > new Date(localFilters.dateTo)) matchesDate = false;
             }
 
-            return matchesBiz && matchesBatch && matchesType && matchesMethod && matchesSubject && matchesDate;
+            const matchesSource = !localFilters.acquisitionSource || localFilters.acquisitionSource === 'All' || p.inquirySource === localFilters.acquisitionSource;
+
+            return matchesBiz && matchesBatch && matchesType && matchesMethod && matchesSubject && matchesDate && matchesSource;
         });
     }, [payments, localFilters, localSubjects]);
 
@@ -145,6 +148,14 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
         const postPayStudents = new Set();  // 🔥 වෙනම සෙට් එකක් Post Pay අයට
         const dateMap = {};
 
+        // 🔥 LEAD ACQUISITION BREAKDOWN: OPEN SEMINAR VS NEW INQUIRY
+        let openSemRev = 0, openSemSlips = 0;
+        const openSemStudents = new Set();
+        let newInqRev = 0, newInqSlips = 0;
+        const newInqStudents = new Set();
+        let directRev = 0, directSlips = 0;
+        const directStudents = new Set();
+
         const studentSubjectsCount = {}; 
         const subjectStats = {}; 
 
@@ -152,6 +163,22 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
             const amt = getAdjustedAmount(p);
             totalRev += amt;
             uniqueStudents.add(p.studentId); 
+
+            // 🔥 Lead Source Breakdown
+            const src = p.inquirySource || 'DIRECT';
+            if (src === 'OPEN_SEMINAR') {
+                openSemRev += amt;
+                openSemSlips++;
+                openSemStudents.add(p.studentId);
+            } else if (src === 'NEW_INQ') {
+                newInqRev += amt;
+                newInqSlips++;
+                newInqStudents.add(p.studentId);
+            } else {
+                directRev += amt;
+                directSlips++;
+                directStudents.add(p.studentId);
+            }
 
             if (p.status === 'Discount') {
                 discountRev += amt;
@@ -277,6 +304,32 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
 
         const barData = Object.keys(dateMap).sort().map(k => ({ date: k, revenue: dateMap[k] }));
 
+        const totalCalcRev = (openSemRev + newInqRev + directRev) || 1;
+        const openSemPercent = ((openSemRev / totalCalcRev) * 100).toFixed(1);
+        const newInqPercent = ((newInqRev / totalCalcRev) * 100).toFixed(1);
+        const directPercent = ((directRev / totalCalcRev) * 100).toFixed(1);
+
+        const acquisition = {
+            openSem: {
+                revenue: openSemRev,
+                slips: openSemSlips,
+                students: openSemStudents.size,
+                percent: openSemPercent
+            },
+            newInq: {
+                revenue: newInqRev,
+                slips: newInqSlips,
+                students: newInqStudents.size,
+                percent: newInqPercent
+            },
+            direct: {
+                revenue: directRev,
+                slips: directSlips,
+                students: directStudents.size,
+                percent: directPercent
+            }
+        };
+
         return {
             totalRevenue: totalRev,
             enrolled: uniqueStudents.size,
@@ -292,7 +345,8 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
             barData,
             averageCount,
             averageRevenue,
-            subjectStats: formattedSubjectStats
+            subjectStats: formattedSubjectStats,
+            acquisition // 🔥 Lead Acquisition Breakdown
         };
     }, [exportDataList, businesses, payments]);
 
@@ -355,6 +409,12 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
             ["Core Average Students (A/L 3 Sub / O/L 9 Sub)", stats.averageCount, "Students"],
             ["Est. Revenue from Core Average", stats.averageRevenue, "LKR"],
             [],
+            ["STUDENT ACQUISITION BREAKDOWN (LEAD SOURCES)"],
+            ["Acquisition Channel", "Unique Students", "Payment Slips", "Revenue (LKR)", "Revenue Share (%)"],
+            ["Open Seminar", stats.acquisition?.openSem?.students || 0, stats.acquisition?.openSem?.slips || 0, stats.acquisition?.openSem?.revenue || 0, `${stats.acquisition?.openSem?.percent || 0}%`],
+            ["New Inquiry", stats.acquisition?.newInq?.students || 0, stats.acquisition?.newInq?.slips || 0, stats.acquisition?.newInq?.revenue || 0, `${stats.acquisition?.newInq?.percent || 0}%`],
+            ["Direct / Untracked", stats.acquisition?.direct?.students || 0, stats.acquisition?.direct?.slips || 0, stats.acquisition?.direct?.revenue || 0, `${stats.acquisition?.direct?.percent || 0}%`],
+            [],
             ["SUBJECT PERFORMANCE BREAKDOWN"],
             ["Subject Name", "Enrolled", "Full Pay", "Monthly", "Installment", "Free Card", "Post Pay", "Revenue (LKR)"]
         ];
@@ -384,6 +444,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
             "Phone": p.phone,
             "Business": p.business,
             "Batch": p.batch,
+            "Lead Source": p.inquirySource === 'OPEN_SEMINAR' ? 'Open Seminar' : (p.inquirySource === 'NEW_INQ' ? 'New Inquiry' : 'Direct'),
             "Type": p.type,
             "Method": p.method,
             "Status": p.status, 
@@ -410,6 +471,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                 "Phone": p.phone,
                 "Business": p.business,
                 "Batch": p.batch,
+                "Lead Source": p.inquirySource === 'OPEN_SEMINAR' ? 'Open Seminar' : (p.inquirySource === 'NEW_INQ' ? 'New Inquiry' : 'Direct'),
                 "Method": p.method,
                 "Status": p.status,
                 "Upgrade Raw Amount": parseFloat(p.amount || 0),
@@ -503,6 +565,16 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                                         <option value="Online">Online</option>
                                     </select>
                                 </div>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Lead Source</label>
+                                <select value={localFilters.acquisitionSource || 'All'} onChange={e => handleLocalChange('acquisitionSource', e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl p-2.5 text-xs text-white font-medium outline-none focus:border-amber-500">
+                                    <option value="All">All Lead Sources</option>
+                                    <option value="OPEN_SEMINAR">Open Seminar</option>
+                                    <option value="NEW_INQ">New Inquiry</option>
+                                    <option value="DIRECT">Direct / Other</option>
+                                </select>
                             </div>
 
                             <div className="space-y-1.5 pt-2">
@@ -643,6 +715,132 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                                     <Clock className="absolute -right-2 -bottom-2 text-white/10 w-20 h-20 rotate-12" />
                                     <p className="text-orange-100/80 text-[10px] font-bold uppercase tracking-widest mb-1 relative z-10">Post Pay (Temp)</p>
                                     <h2 className="text-3xl font-black text-white relative z-10">{stats.postPayEnrolled}<span className="text-sm font-light ml-1">Sts</span></h2>
+                                </div>
+                            </div>
+
+                            {/* 🔥 STUDENT ACQUISITION & LEAD SOURCE BREAKDOWN 🔥 */}
+                            <div className="mb-10 bg-slate-900/60 border border-white/10 rounded-[2rem] p-6 lg:p-8 shadow-2xl relative overflow-hidden backdrop-blur-xl">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 pb-4 border-b border-white/5">
+                                    <div>
+                                        <h3 className="text-sm md:text-base font-black tracking-wide text-white uppercase flex items-center gap-2.5">
+                                            <Sparkles className="text-amber-400 w-5 h-5" />
+                                            Student Acquisition Breakdown (Lead Sources)
+                                        </h3>
+                                        <p className="text-xs text-slate-400 mt-1">
+                                            Verified enrollment & revenue generated via Open Seminars vs New Inquiries
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-black/40 px-3.5 py-2 rounded-xl border border-white/5 self-start sm:self-auto">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Total Revenue:</span>
+                                        <span className="text-xs font-black text-emerald-400">LKR {stats.totalRevenue.toLocaleString()}</span>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                                    {/* Open Seminar Card */}
+                                    <div className="bg-gradient-to-br from-indigo-950/80 via-purple-950/70 to-slate-900/90 border border-indigo-500/30 p-6 rounded-2xl relative overflow-hidden flex flex-col justify-between group shadow-xl">
+                                        <div className="relative z-10">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <span className="bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                                                    <Users size={12} className="text-indigo-400" /> Open Seminar
+                                                </span>
+                                                <span className="text-xs font-black text-indigo-300 bg-indigo-500/10 px-2.5 py-0.5 rounded-full border border-indigo-500/20">
+                                                    {stats.acquisition?.openSem?.percent || 0}%
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] font-bold text-indigo-200/70 uppercase tracking-widest">Revenue Collected</p>
+                                            <h4 className="text-3xl font-black text-white mt-1 mb-4">
+                                                <span className="text-base font-light text-indigo-300 mr-1.5">LKR</span>
+                                                {(stats.acquisition?.openSem?.revenue || 0).toLocaleString()}
+                                            </h4>
+                                        </div>
+
+                                        <div className="relative z-10 pt-4 border-t border-indigo-500/20 grid grid-cols-2 gap-3 text-xs">
+                                            <div className="bg-black/40 p-2.5 rounded-xl border border-indigo-500/10">
+                                                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Students</p>
+                                                <p className="text-lg font-black text-indigo-300">{stats.acquisition?.openSem?.students || 0}</p>
+                                            </div>
+                                            <div className="bg-black/40 p-2.5 rounded-xl border border-indigo-500/10">
+                                                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Slips</p>
+                                                <p className="text-lg font-black text-slate-200">{stats.acquisition?.openSem?.slips || 0}</p>
+                                            </div>
+                                        </div>
+
+                                        {/* Progress bar */}
+                                        <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden mt-4">
+                                            <div className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full rounded-full transition-all duration-500" style={{ width: `${stats.acquisition?.openSem?.percent || 0}%` }}></div>
+                                        </div>
+                                    </div>
+
+                                    {/* New Inquiry Card */}
+                                    <div className="bg-gradient-to-br from-amber-950/80 via-orange-950/70 to-slate-900/90 border border-amber-500/30 p-6 rounded-2xl relative overflow-hidden flex flex-col justify-between group shadow-xl">
+                                        <div className="relative z-10">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                                                    <Tag size={12} className="text-amber-400" /> New Inquiries
+                                                </span>
+                                                <span className="text-xs font-black text-amber-300 bg-amber-500/10 px-2.5 py-0.5 rounded-full border border-amber-500/20">
+                                                    {stats.acquisition?.newInq?.percent || 0}%
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] font-bold text-amber-200/70 uppercase tracking-widest">Revenue Collected</p>
+                                            <h4 className="text-3xl font-black text-white mt-1 mb-4">
+                                                <span className="text-base font-light text-amber-300 mr-1.5">LKR</span>
+                                                {(stats.acquisition?.newInq?.revenue || 0).toLocaleString()}
+                                            </h4>
+                                        </div>
+
+                                        <div className="relative z-10 pt-4 border-t border-amber-500/20 grid grid-cols-2 gap-3 text-xs">
+                                            <div className="bg-black/40 p-2.5 rounded-xl border border-amber-500/10">
+                                                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Students</p>
+                                                <p className="text-lg font-black text-amber-300">{stats.acquisition?.newInq?.students || 0}</p>
+                                            </div>
+                                            <div className="bg-black/40 p-2.5 rounded-xl border border-amber-500/10">
+                                                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Slips</p>
+                                                <p className="text-lg font-black text-slate-200">{stats.acquisition?.newInq?.slips || 0}</p>
+                                            </div>
+                                        </div>
+
+                                        {/* Progress bar */}
+                                        <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden mt-4">
+                                            <div className="bg-gradient-to-r from-amber-500 to-orange-500 h-full rounded-full transition-all duration-500" style={{ width: `${stats.acquisition?.newInq?.percent || 0}%` }}></div>
+                                        </div>
+                                    </div>
+
+                                    {/* Direct / Other Card */}
+                                    <div className="bg-gradient-to-br from-slate-900/90 via-slate-800/70 to-slate-900/90 border border-slate-700/40 p-6 rounded-2xl relative overflow-hidden flex flex-col justify-between group shadow-xl">
+                                        <div className="relative z-10">
+                                            <div className="flex items-center justify-between mb-3">
+                                                <span className="bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-lg">
+                                                    Direct / Untracked
+                                                </span>
+                                                <span className="text-xs font-black text-slate-400 bg-slate-800/80 px-2.5 py-0.5 rounded-full border border-slate-700">
+                                                    {stats.acquisition?.direct?.percent || 0}%
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Revenue Collected</p>
+                                            <h4 className="text-3xl font-black text-white mt-1 mb-4">
+                                                <span className="text-base font-light text-slate-400 mr-1.5">LKR</span>
+                                                {(stats.acquisition?.direct?.revenue || 0).toLocaleString()}
+                                            </h4>
+                                        </div>
+
+                                        <div className="relative z-10 pt-4 border-t border-slate-700/30 grid grid-cols-2 gap-3 text-xs">
+                                            <div className="bg-black/40 p-2.5 rounded-xl border border-white/5">
+                                                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Students</p>
+                                                <p className="text-lg font-black text-slate-300">{stats.acquisition?.direct?.students || 0}</p>
+                                            </div>
+                                            <div className="bg-black/40 p-2.5 rounded-xl border border-white/5">
+                                                <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Slips</p>
+                                                <p className="text-lg font-black text-slate-200">{stats.acquisition?.direct?.slips || 0}</p>
+                                            </div>
+                                        </div>
+
+                                        {/* Progress bar */}
+                                        <div className="w-full bg-black/50 h-2 rounded-full overflow-hidden mt-4">
+                                            <div className="bg-slate-600 h-full rounded-full transition-all duration-500" style={{ width: `${stats.acquisition?.direct?.percent || 0}%` }}></div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 

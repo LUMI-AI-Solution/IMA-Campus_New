@@ -16,9 +16,13 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
   const rawRole = JSON.parse(localStorage.getItem('user'))?.role || '';
   const userRole = rawRole.toUpperCase().replace(' ', '_');
   const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER'].includes(userRole);
+  const location = useLocation();
+  const initialUrlParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const initialSearch = initialUrlParams.get('search') || initialUrlParams.get('searchQuery') || '';
+  const initialTab = initialUrlParams.get('tab') ? initialUrlParams.get('tab').toUpperCase() : (initialSearch ? 'ALL' : (isManager ? 'NEW' : 'ASSIGNED'));
   const currentUserId = JSON.parse(localStorage.getItem('user'))?.id;
 
-  const [activeTab, setActiveTab] = useState(isManager ? 'NEW' : 'ASSIGNED');
+  const [activeTab, setActiveTab] = useState(initialTab);
   const [callHistoryMode, setCallHistoryMode] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showPermissionsModal, setShowPermissionsModal] = useState(false);
@@ -60,9 +64,8 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
       return availableBatches;
   }, [availableBatches, filters?.selectedBusiness]);
 
-  const location = useLocation();
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialSearch);
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(initialSearch);
 
   useEffect(() => {
     if (filters?.selectedBatch !== undefined) {
@@ -91,7 +94,13 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const searchVal = params.get('search');
+    const searchVal = params.get('search') || params.get('searchQuery');
+    const tabVal = params.get('tab');
+    if (tabVal) {
+      setActiveTab(tabVal.toUpperCase());
+    } else if (searchVal) {
+      setActiveTab('ALL');
+    }
     if (searchVal && searchVal !== searchQuery) {
       setSearchQuery(searchVal);
       setDebouncedSearchQuery(searchVal);
@@ -216,7 +225,7 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                 staffId: staffFilter,
                 loggedUserRole: rawRole,
                 businessId: filters?.selectedBusiness || '', 
-                batchId: filters?.selectedBatch || '',
+                batchId: (debouncedSearchQuery && activeTab === 'ALL') ? '' : (filters?.selectedBatch || ''),
                 searchQuery: debouncedSearchQuery,
                 assigneeGroup,
                 ccStatus

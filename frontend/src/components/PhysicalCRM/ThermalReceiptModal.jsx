@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Printer, X, CheckCircle2, User, BookOpen, Calendar, CreditCard, Sparkles } from 'lucide-react';
-import { printThermalReceipt } from '../../utils/thermalReceiptPrinter';
+import { printThermalReceipt, parseMultiClassReceiptItems } from '../../utils/thermalReceiptPrinter';
 import toast from 'react-hot-toast';
 
 export default function ThermalReceiptModal({
@@ -37,13 +37,28 @@ export default function ThermalReceiptModal({
     cardType = 'FULL',
     paymentMethod = 'CASH',
     paidDate = new Date(),
-    cashierName = 'Cashier / Staff'
+    cashierName = 'Cashier / Staff',
+    amount = 0
   } = receiptData;
 
-  const displayAmount = receiptData.totalAmount !== undefined ? receiptData.totalAmount : (receiptData.amount || 0);
-  const displayExpectedFee = receiptData.expectedFee !== undefined ? receiptData.expectedFee : null;
-  const displayDueAmount = receiptData.dueAmount !== undefined ? receiptData.dueAmount : 0;
-  const dateStr = paidDate instanceof Date ? paidDate.toLocaleString() : String(paidDate);
+  const displayAmount = receiptData.displayAmount || receiptData.totalAmount || receiptData.amount || amount || 0;
+
+  const dateObj = paidDate ? new Date(paidDate) : new Date();
+  const dateStr = isNaN(dateObj.getTime()) 
+    ? new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
+    : dateObj.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+
+  let activeCashier = cashierName;
+  if (!activeCashier || activeCashier.includes('Cashier') || activeCashier.includes('Staff') || activeCashier.includes('Manager')) {
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || '{}');
+      const name = u.name || u.fullName || `${u.firstName || ''} ${u.lastName || ''}`.trim() || u.username;
+      if (name && name.trim()) activeCashier = name.trim();
+    } catch (e) {}
+  }
+
+  const isExpense = receiptData.isExpense || receiptData.type === 'EXPENSE' || (receiptNo && String(receiptNo).startsWith('EXP-'));
+  const showStudentSection = !isExpense && (studentId && studentId !== '-' && studentName && studentName !== 'Student');
 
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
@@ -56,7 +71,7 @@ export default function ThermalReceiptModal({
               <Printer size={18} />
             </div>
             <div>
-              <h3 className="text-base font-bold">80mm Thermal Receipt</h3>
+              <h3 className="text-base font-bold">{isExpense ? '80mm Expense Voucher' : '80mm Thermal Receipt'}</h3>
               <p className="text-[11px] text-white/50">Xprinter XP-80C Thermal POS Slip</p>
             </div>
           </div>
@@ -80,13 +95,13 @@ export default function ThermalReceiptModal({
               <div className="text-sm font-black tracking-wider uppercase">IMA CAMPUS</div>
               <div className="text-[10px] font-bold text-neutral-800">Higher Education Center</div>
               <div className="text-[9px] text-neutral-600 font-medium">Hotline: 0716909030 | www.imacampus.online</div>
-              <div className="text-[11px] font-extrabold mt-1.5 uppercase border-y border-black py-0.5">OFFICIAL PAYMENT RECEIPT</div>
+              <div className="text-[11px] font-extrabold mt-1.5 uppercase border-y border-black py-0.5">{isExpense ? 'OFFICIAL EXPENSE VOUCHER' : 'OFFICIAL PAYMENT RECEIPT'}</div>
             </div>
 
             {/* Meta */}
             <div className="space-y-0.5 text-[10px] my-2 border-b border-dashed border-neutral-400 pb-2">
               <div className="flex justify-between">
-                <span className="text-neutral-600">Receipt No:</span>
+                <span className="text-neutral-600">{isExpense ? 'Voucher No:' : 'Receipt No:'}</span>
                 <span className="font-bold">{receiptNo}</span>
               </div>
               <div className="flex justify-between">
@@ -94,79 +109,65 @@ export default function ThermalReceiptModal({
                 <span>{dateStr}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-neutral-600">Cashier:</span>
-                <span className="font-bold">{cashierName}</span>
+                <span className="text-neutral-600">{isExpense ? 'Issued By:' : 'Cashier:'}</span>
+                <span className="font-bold">{activeCashier}</span>
               </div>
             </div>
 
             {/* Student Info */}
-            <div className="space-y-0.5 text-[10px] my-2 border-b border-dashed border-neutral-400 pb-2">
-              <div className="flex justify-between">
-                <span className="text-neutral-600">Student ID:</span>
-                <span className="font-bold">{studentId}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-neutral-600">Student Name:</span>
-                <span className="font-bold">{studentName}</span>
-              </div>
-              {guardianPhone && (
+            {showStudentSection && (
+              <div className="space-y-0.5 text-[10px] my-2 border-b border-dashed border-neutral-400 pb-2">
                 <div className="flex justify-between">
-                  <span className="text-neutral-600">Contact:</span>
-                  <span>{guardianPhone}</span>
+                  <span className="text-neutral-600">Student ID:</span>
+                  <span className="font-bold">{studentId}</span>
                 </div>
-              )}
-            </div>
+                <div className="flex justify-between">
+                  <span className="text-neutral-600">Student Name:</span>
+                  <span className="font-bold">{studentName}</span>
+                </div>
+              </div>
+            )}
 
             {/* Items */}
             <div className="my-2 border-b-2 border-dashed border-black pb-2">
-              <div className="text-[10px] font-bold uppercase mb-1">Items Paid:</div>
-              {receiptData.items && receiptData.items.length > 0 ? (
-                receiptData.items.map((it, i) => {
-                  let cleanItemDesc = it.description || className;
-                  cleanItemDesc = cleanItemDesc.replace(/^Class Fee\s*(\([^\)]+\))?\s*-\s*/i, '').trim() || cleanItemDesc;
-                  const isSpecial = it.cardType && (it.cardType.includes('HALF') || it.cardType.includes('FREE'));
-                  return (
-                    <div key={i} className="mb-1.5">
-                      <div className="flex justify-between font-bold text-[11px] items-start gap-2">
-                        <span className="leading-tight flex-1">{cleanItemDesc}</span>
-                        <span className="shrink-0 whitespace-nowrap">Rs. {Number(it.amount !== undefined ? it.amount : displayAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                      <div className="text-[9px] text-neutral-700 mt-0.5">
-                        {it.month ? `Month: ${it.month}` : (month ? `Month: ${month}` : '')}{isSpecial ? ` | [${it.cardType.includes('HALF') ? 'HALF CARD' : 'FREE CARD'}]` : ''}
-                      </div>
+              <div className="text-[10px] font-bold uppercase mb-1">{isExpense ? 'Expense Details:' : 'Items Paid:'}</div>
+              {parseMultiClassReceiptItems(receiptData).map((it, i) => {
+                const isSpecial = it.cardType && (it.cardType.includes('HALF') || it.cardType.includes('FREE'));
+                return (
+                  <div key={i} className="mb-1.5">
+                    <div className="flex justify-between font-bold text-[11px] items-start gap-2">
+                      <span className="leading-tight flex-1">{it.description}</span>
+                      {it.amount !== null && it.amount !== undefined && (
+                        <span className="shrink-0 whitespace-nowrap">Rs. {Number(it.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                      )}
                     </div>
-                  );
-                })
-              ) : (
-                <div>
-                  <div className="flex justify-between font-bold text-[11px] items-start gap-2">
-                    <span className="leading-tight flex-1">{String(className).replace(/^Class Fee\s*(\([^\)]+\))?\s*-\s*/i, '').trim()}</span>
-                    <span className="shrink-0 whitespace-nowrap">Rs. {Number(displayAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                    {(it.month || isSpecial) && (
+                      <div className="text-[9px] text-neutral-700 mt-0.5">
+                        {it.month ? `Month: ${it.month}` : ''}{isSpecial ? ` | [${it.cardType.includes('HALF') ? 'HALF CARD' : 'FREE CARD'}]` : ''}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-[9px] text-neutral-700 mt-0.5">
-                    {month ? `Month: ${month}` : ''}{cardType && (cardType.includes('HALF') || cardType.includes('FREE')) ? ` | [${cardType.includes('HALF') ? 'HALF CARD' : 'FREE CARD'}]` : ''}
-                  </div>
-                </div>
-              )}
+                );
+              })}
             </div>
 
             {/* Total */}
             <div className="my-2 space-y-1">
               <div className="flex justify-between text-xs font-black">
-                <span>TOTAL PAID:</span>
+                <span>{isExpense ? 'TOTAL EXPENSE:' : 'TOTAL PAID:'}</span>
                 <span>Rs. {Number(displayAmount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
               </div>
               <div className="flex justify-between text-[10px]">
                 <span className="text-neutral-600">Status:</span>
-                <span className={`font-bold ${receiptData.status === 'PARTIAL' ? 'text-amber-700' : 'text-emerald-700'}`}>
-                  {receiptData.status === 'PARTIAL' ? 'PARTIAL PAYMENT' : (receiptData.status || 'PAID ✓')}
+                <span className={`font-bold ${isExpense ? 'text-emerald-700' : (receiptData.status === 'PARTIAL' ? 'text-amber-700' : 'text-emerald-700')}`}>
+                  {isExpense ? 'COMPLETED ✓' : (receiptData.status === 'PARTIAL' ? 'PARTIAL PAYMENT' : (receiptData.status || 'PAID ✓'))}
                 </span>
               </div>
             </div>
 
             {/* Footer */}
             <div className="text-center text-[8px] text-neutral-600 border-t border-dashed border-neutral-400 pt-2 mt-2">
-              <div>Keep this receipt for entrance & card verification.</div>
+              <div>{isExpense ? 'Official Campus Expense Record' : 'Keep this receipt for entrance & card verification.'}</div>
               <div className="font-bold text-neutral-800 mt-0.5">Thank you for studying with IMA Campus!</div>
             </div>
 

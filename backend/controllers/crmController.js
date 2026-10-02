@@ -142,9 +142,14 @@ exports.addAutoReply = async (req, res) => {
                     await new Promise((resolve, reject) => {
                         ffmpeg(inputPath)
                             .audioCodec('libopus')
-                            .audioBitrate('16k')
+                            .audioBitrate('32k')
                             .audioChannels(1)
-                            .audioFrequency(16000)
+                            .audioFrequency(48000)
+                            .outputOptions([
+                                '-application voip',
+                                '-avoid_negative_ts make_zero',
+                                '-map_metadata -1'
+                            ])
                             .toFormat('ogg')
                             .on('end', () => resolve())
                             .on('error', (err) => reject(err))
@@ -245,9 +250,14 @@ exports.updateAutoReply = async (req, res) => {
                     await new Promise((resolve, reject) => {
                         ffmpeg(inputPath)
                             .audioCodec('libopus')
-                            .audioBitrate('16k')
+                            .audioBitrate('32k')
                             .audioChannels(1)
-                            .audioFrequency(16000)
+                            .audioFrequency(48000)
+                            .outputOptions([
+                                '-application voip',
+                                '-avoid_negative_ts make_zero',
+                                '-map_metadata -1'
+                            ])
                             .toFormat('ogg')
                             .on('end', () => resolve())
                             .on('error', (err) => reject(err))

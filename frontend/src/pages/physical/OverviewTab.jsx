@@ -86,6 +86,15 @@ export default function OverviewTab() {
       bg: 'bg-cyan-400/20',
       border: 'hover:border-cyan-400/50',
       shadow: 'hover:shadow-cyan-400/20'
+    },
+    { 
+      title: 'Entrance Gate Scanner', 
+      image: '/card_entrance_gate.png',
+      path: '/physical/dashboard/entrance-gate', 
+      color: 'text-emerald-400', 
+      bg: 'bg-emerald-500/20',
+      border: 'hover:border-emerald-400/60',
+      shadow: 'hover:shadow-emerald-400/30'
     }
   ];
 

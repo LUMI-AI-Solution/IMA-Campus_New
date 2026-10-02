@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import axios from '../../api/axios';
 import { 
   Loader2, AlertCircle, ChevronDown, TrendingUp, ChevronLeft, ChevronRight, 
-  Search, Download, Building2, GraduationCap, Users, DollarSign, Sparkles, Layers, RefreshCw, FileSpreadsheet
+  Search, Download, Building2, GraduationCap, Users, DollarSign, Sparkles, Layers, RefreshCw, FileSpreadsheet,
+  BookOpen, FileText, Globe
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -26,6 +27,8 @@ export default function FinanceMatrix({ loggedInUser }) {
     const [batches, setBatches] = useState([]);
     const [selectedBiz, setSelectedBiz] = useState(loggedInUser?.businessId ? String(loggedInUser.businessId) : '');
     const [selectedBatch, setSelectedBatch] = useState('');
+    const [classType, setClassType] = useState('1'); // '1' = Theory Class, '2' = Paper Class, 'ALL' = Combined
+    const [availableClassTypes, setAvailableClassTypes] = useState({ hasTheory: true, hasPaper: false });
 
     const [searchTerm, setSearchTerm] = useState('');
     const [enrollmentFilter, setEnrollmentFilter] = useState('ALL');
@@ -64,17 +67,18 @@ export default function FinanceMatrix({ loggedInUser }) {
         if (selectedBiz) {
             fetchBatches(selectedBiz);
             setSelectedBatch('');
+            setClassType('1');
             resetMatrix();
         }
     }, [selectedBiz]);
 
     useEffect(() => {
         if (selectedBiz && selectedBatch) {
-            fetchFinanceMatrixData();
+            fetchFinanceMatrixData(classType);
         } else {
             resetMatrix();
         }
-    }, [selectedBatch]);
+    }, [selectedBatch, classType]);
 
     useEffect(() => {
         const handleKeyDown = (e) => {
@@ -111,17 +115,20 @@ export default function FinanceMatrix({ loggedInUser }) {
         } catch (err) { console.error(err); }
     };
 
-    const fetchFinanceMatrixData = async () => {
+    const fetchFinanceMatrixData = async (targetClassType = classType) => {
         setLoading(true);
         setError(null);
         try {
             const res = await axios.get('/admin/data-export/finance-matrix', {
-                params: { businessId: selectedBiz, batchId: selectedBatch }
+                params: { businessId: selectedBiz, batchId: selectedBatch, classType: targetClassType }
             });
             setMonths(res.data.months || []);
             setSubjects(res.data.subjects || []);
             setStudentsData(res.data.students || []);
             setGrandTotal(res.data.grandTotal || 0);
+            if (res.data.availableClassTypes) {
+                setAvailableClassTypes(res.data.availableClassTypes);
+            }
             setCurrentMonthIndex(0);
         } catch (err) {
             setError("Failed to fetch matrix calculation nodes.");
@@ -148,7 +155,8 @@ export default function FinanceMatrix({ loggedInUser }) {
             stu.studentName?.toLowerCase().includes(term) ||
             stu.studentNo?.toLowerCase().includes(term) ||
             stu.phone?.includes(term) ||
-            stu.whatsapp?.includes(term);
+            stu.whatsapp?.includes(term) ||
+            stu.address?.toLowerCase().includes(term);
 
         const matchesType = enrollmentFilter === 'ALL' ||
             (stu.type && stu.type.toUpperCase() === enrollmentFilter);
@@ -256,7 +264,9 @@ export default function FinanceMatrix({ loggedInUser }) {
 
         const bizName = businesses.find(b => String(b.id) === String(selectedBiz))?.name || 'IMA Campus';
         const batchName = batches.find(b => String(b.id) === String(selectedBatch))?.name || `Batch ${selectedBatch}`;
-        const totalCols = 6 + (months.length * subjects.length) + 1;
+        const classLabel = classType === '1' ? 'Theory Class' : classType === '2' ? 'Paper Class' : 'Combined (Theory & Paper)';
+        const sheetName = classType === '1' ? 'Theory_Matrix' : classType === '2' ? 'Paper_Matrix' : 'Combined_Matrix';
+        const totalCols = 7 + (months.length * subjects.length) + 1;
 
         let tableHtml = `
         <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
@@ -267,7 +277,7 @@ export default function FinanceMatrix({ loggedInUser }) {
             <x:ExcelWorkbook>
               <x:ExcelWorksheets>
                 <x:ExcelWorksheet>
-                  <x:Name>Finance_Matrix</x:Name>
+                  <x:Name>${sheetName}</x:Name>
                   <x:WorksheetOptions>
                     <x:DisplayGridlines/>
                     <x:FreezePanes/>
@@ -327,14 +337,14 @@ export default function FinanceMatrix({ loggedInUser }) {
             <!-- Row 1: Banner Title -->
             <tr>
               <th colspan="${totalCols}" class="banner-title">
-                WEIGHTED REVENUE MATRIX - ${escapeHtml(bizName.toUpperCase())} - ${escapeHtml(batchName.toUpperCase())}
+                WEIGHTED REVENUE MATRIX - ${escapeHtml(bizName.toUpperCase())} - ${escapeHtml(batchName.toUpperCase())} [${escapeHtml(classLabel.toUpperCase())}]
               </th>
             </tr>
             
             <!-- Row 2: Banner Meta -->
             <tr>
               <th colspan="${totalCols}" class="banner-meta">
-                Generated: ${new Date().toLocaleString()} | Total Enrolled: ${processedData.length} Students | Total Batch Revenue: Rs. ${overallGrandTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                Generated: ${new Date().toLocaleString()} | Classification: ${escapeHtml(classLabel)} | Total Enrolled: ${processedData.length} Students | Total Revenue: Rs. ${overallGrandTotal.toLocaleString('en-US', { minimumFractionDigits: 2 })}
               </th>
             </tr>
             
@@ -347,6 +357,7 @@ export default function FinanceMatrix({ loggedInUser }) {
             <tr>
               <th rowspan="2" class="th-meta" style="min-width: 110px;">Student ID</th>
               <th rowspan="2" class="th-meta" style="min-width: 220px;">Student Name</th>
+              <th rowspan="2" class="th-meta" style="min-width: 260px;">Address</th>
               <th rowspan="2" class="th-meta" style="min-width: 90px;">Birth Year</th>
               <th rowspan="2" class="th-meta" style="min-width: 130px;">Phone</th>
               <th rowspan="2" class="th-meta" style="min-width: 130px;">WhatsApp</th>
@@ -380,6 +391,7 @@ export default function FinanceMatrix({ loggedInUser }) {
                 <tr class="${rowClass}">
                   <td class="td-center" style="font-weight: bold;">${escapeHtml(stu.studentNo || '-')}</td>
                   <td class="td-text" style="font-weight: bold;">${escapeHtml(stu.studentName || '-')}</td>
+                  <td class="td-text">${escapeHtml(stu.address || '-')}</td>
                   <td class="td-center">${escapeHtml(stu.birthYear || '-')}</td>
                   <td class="td-center">${escapeHtml(stu.phone || '-')}</td>
                   <td class="td-center">${escapeHtml(stu.whatsapp || '-')}</td>
@@ -405,7 +417,7 @@ export default function FinanceMatrix({ loggedInUser }) {
 
             <!-- Summary Row 1: Total Revenue -->
             <tr class="row-total-revenue">
-              <td colspan="6" style="text-align: right; padding-right: 15px; font-weight: 900;">TOTAL REVENUE:</td>
+              <td colspan="7" style="text-align: right; padding-right: 15px; font-weight: 900;">TOTAL REVENUE:</td>
               ${months.map(m => subjects.map(sub => {
                   const val = colTypeTotals[`${m.id}_${sub}`]?.total || 0;
                   return `<td class="td-num" style="color: #FFFFFF; font-weight: 900;">${Number(val).toFixed(2)}</td>`;
@@ -418,7 +430,7 @@ export default function FinanceMatrix({ loggedInUser }) {
                 const label = type === 'Hybrid' ? 'Hybrid (Mixed) Total' : `${type} Plan Total`;
                 return `
                 <tr class="row-subtotal">
-                  <td colspan="6" style="text-align: right; padding-right: 15px;">${escapeHtml(label)}:</td>
+                  <td colspan="7" style="text-align: right; padding-right: 15px;">${escapeHtml(label)}:</td>
                   ${months.map(m => subjects.map(sub => {
                       const val = colTypeTotals[`${m.id}_${sub}`]?.[type] || 0;
                       return `<td class="td-num">${Number(val).toFixed(2)}</td>`;
@@ -438,7 +450,8 @@ export default function FinanceMatrix({ loggedInUser }) {
         const link = document.createElement("a");
         link.href = url;
         const cleanBatch = batchName.replace(/[^a-zA-Z0-9_-]/g, '_');
-        link.download = `Weighted_Finance_Matrix_${cleanBatch}_${new Date().toISOString().split('T')[0]}.xls`;
+        const cleanClass = classType === '1' ? 'Theory' : classType === '2' ? 'Paper' : 'All';
+        link.download = `Weighted_Finance_Matrix_${cleanBatch}_${cleanClass}_${new Date().toISOString().split('T')[0]}.xls`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
@@ -498,6 +511,55 @@ export default function FinanceMatrix({ loggedInUser }) {
                         <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 pointer-events-none" size={16} />
                     </div>
 
+                    {/* Class Type Toggle (Theory / Paper / All) */}
+                    {selectedBatch && (
+                        <div className="flex items-center p-1 bg-slate-950/80 border border-slate-700/80 rounded-2xl shadow-inner gap-1">
+                            <button
+                                type="button"
+                                onClick={() => setClassType('1')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                    classType === '1'
+                                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/25 ring-1 ring-blue-400/40'
+                                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                                }`}
+                                title="Show Theory Class enrollments and payments"
+                            >
+                                <BookOpen size={13} />
+                                <span>Theory Class</span>
+                                {availableClassTypes.hasTheory && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>}
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setClassType('2')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                    classType === '2'
+                                        ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-md shadow-purple-500/25 ring-1 ring-purple-400/40'
+                                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                                }`}
+                                title="Show Paper Class enrollments and payments"
+                            >
+                                <FileText size={13} />
+                                <span>Paper Class</span>
+                                {availableClassTypes.hasPaper && <span className="w-1.5 h-1.5 rounded-full bg-pink-400 inline-block animate-pulse"></span>}
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => setClassType('ALL')}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                    classType === 'ALL'
+                                        ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-500/25 ring-1 ring-emerald-400/40'
+                                        : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                                }`}
+                                title="Show Combined view of Theory and Paper classes"
+                            >
+                                <Globe size={13} />
+                                <span>All</span>
+                            </button>
+                        </div>
+                    )}
+
                     {/* Export Excel Button */}
                     {studentsData.length > 0 && (
                         <button
@@ -545,12 +607,29 @@ export default function FinanceMatrix({ loggedInUser }) {
                     </div>
 
                     <div className="bg-slate-900/80 border border-slate-700/60 p-4 rounded-2xl flex items-center gap-4 shadow-lg">
-                        <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl border border-amber-500/20">
-                            <Layers size={22} />
+                        <div className={`p-3 rounded-xl border ${
+                            classType === '2' 
+                                ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' 
+                                : classType === 'ALL'
+                                ? 'bg-teal-500/10 text-teal-400 border-teal-500/20'
+                                : 'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                        }`}>
+                            {classType === '2' ? <FileText size={22} /> : classType === 'ALL' ? <Globe size={22} /> : <BookOpen size={22} />}
                         </div>
-                        <div className="overflow-hidden">
-                            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{selectedBizName}</p>
-                            <h3 className="text-xs font-black text-white truncate">{selectedBatchName}</h3>
+                        <div className="overflow-hidden flex-1">
+                            <div className="flex items-center justify-between gap-1">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest truncate">{selectedBizName}</p>
+                                <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded-md uppercase tracking-wider ${
+                                    classType === '2' 
+                                        ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' 
+                                        : classType === 'ALL'
+                                        ? 'bg-teal-500/20 text-teal-300 border border-teal-500/30'
+                                        : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                                }`}>
+                                    {classType === '2' ? 'Paper Class' : classType === 'ALL' ? 'Combined View' : 'Theory Class'}
+                                </span>
+                            </div>
+                            <h3 className="text-xs font-black text-white truncate mt-0.5">{selectedBatchName}</h3>
                         </div>
                     </div>
                 </div>
@@ -657,6 +736,55 @@ export default function FinanceMatrix({ loggedInUser }) {
                                 >
                                     <RefreshCw size={14} /> Retry Loading
                                 </button>
+                            </div>
+                        ) : studentsData.length === 0 ? (
+                            <div className="p-16 text-center flex flex-col items-center justify-center gap-4 my-8">
+                                <div className={`p-5 rounded-3xl border shadow-xl ${
+                                    classType === '2'
+                                        ? 'bg-purple-500/10 border-purple-500/20 text-purple-400 shadow-purple-500/5'
+                                        : classType === 'ALL'
+                                        ? 'bg-teal-500/10 border-teal-500/20 text-teal-400 shadow-teal-500/5'
+                                        : 'bg-blue-500/10 border-blue-500/20 text-blue-400 shadow-blue-500/5'
+                                }`}>
+                                    {classType === '2' ? <FileText size={44} /> : classType === 'ALL' ? <Globe size={44} /> : <BookOpen size={44} />}
+                                </div>
+                                <h4 className="text-xl font-black text-white">
+                                    No {classType === '2' ? 'Paper Class' : classType === '1' ? 'Theory Class' : ''} Revenue Records Found
+                                </h4>
+                                <p className="text-xs text-slate-400 max-w-md">
+                                    {classType === '2'
+                                        ? 'No Paper Class payments or course registrations were found for this batch yet. If this batch runs Theory classes, switch to Theory Class view.'
+                                        : 'No Theory Class payments or course registrations were found for this batch yet. If this batch runs Paper classes, switch to Paper Class view.'}
+                                </p>
+                                <div className="flex items-center gap-3 mt-3">
+                                    {classType !== '1' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setClassType('1')}
+                                            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-600/20 cursor-pointer"
+                                        >
+                                            Switch to Theory Class
+                                        </button>
+                                    )}
+                                    {classType !== '2' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setClassType('2')}
+                                            className="px-4 py-2.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-purple-600/20 cursor-pointer"
+                                        >
+                                            Switch to Paper Class
+                                        </button>
+                                    )}
+                                    {classType !== 'ALL' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setClassType('ALL')}
+                                            className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                                        >
+                                            View All (Combined)
+                                        </button>
+                                    )}
+                                </div>
                             </div>
                         ) : (
                             <table className="w-full text-left border-collapse min-w-max">

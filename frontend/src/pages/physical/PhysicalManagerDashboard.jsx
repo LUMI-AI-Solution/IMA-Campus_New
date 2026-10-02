@@ -12,6 +12,7 @@ import FinancialReports from '../PhysicalCRM/FinancialReports';
 import LecturerReports from '../PhysicalCRM/LecturerReports';
 import StudentReports from '../PhysicalCRM/StudentReports';
 import ClassComparisonReport from '../PhysicalCRM/ClassComparisonReport';
+import EntranceGateScanner from '../PhysicalCRM/EntranceGateScanner';
 
 export default function PhysicalManagerDashboard() {
   const { tab } = useParams();
@@ -31,6 +32,12 @@ export default function PhysicalManagerDashboard() {
         target?.isContentEditable || 
         Boolean(target?.closest?.('input, textarea, select, [contenteditable="true"], form, [role="dialog"], [role="modal"]'));
       
+      // If activeTab is entrance-gate, EntranceGateScanner has its own dedicated handler
+      if (activeTab === 'entrance-gate') {
+        scanBufferRef.current = '';
+        return;
+      }
+
       // If user is currently focused inside any form input/textarea/select/modal or editing forms, do not intercept!
       if (isFormInput) {
         scanBufferRef.current = '';
@@ -89,12 +96,13 @@ export default function PhysicalManagerDashboard() {
     finance: 'Cash Flow Portal',
     timetable: 'Class Timetable',
     reports: 'Financial Reports & Analytics',
-    'lecturer-reports': 'Lecturer Reports & Monthly Invoices'
+    'lecturer-reports': 'Lecturer Reports & Monthly Invoices',
+    'entrance-gate': 'Smart Entrance Gate Scanner'
   };
 
   return (
-    <div className="h-full w-full flex flex-col animate-fade-in relative">
-      {activeTab !== 'overview' && (
+    <div className="h-full w-full flex flex-col animate-fade-in relative overflow-hidden">
+      {activeTab !== 'overview' && activeTab !== 'entrance-gate' && (
         <div className="px-4 pt-3 md:px-6 flex items-center justify-between z-20 shrink-0 mb-1">
           <button
             onClick={() => navigate('/physical/dashboard/overview')}
@@ -111,8 +119,9 @@ export default function PhysicalManagerDashboard() {
       )}
       
       {/* Dynamic Content Area */}
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 relative no-scrollbar bg-black/5 rounded-3xl shadow-inner m-2">
+      <div className={`flex-1 ${activeTab === 'entrance-gate' ? 'p-0 overflow-hidden m-0' : activeTab === 'attendance' ? 'p-1 md:p-2 m-0 overflow-y-auto' : 'overflow-y-auto p-4 md:p-6 lg:p-8 m-2'} relative no-scrollbar bg-black/5 rounded-3xl shadow-inner`}>
           {activeTab === 'overview' && <OverviewTab />}
+          {activeTab === 'entrance-gate' && <EntranceGateScanner />}
           {activeTab === 'registration' && <StudentRegistration />}
           {activeTab === 'staff' && <ClassTeacherManagement />}
           {activeTab === 'attendance' && <AttendancePortal />}

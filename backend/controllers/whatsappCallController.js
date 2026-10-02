@@ -15,11 +15,12 @@ async function getMetaCredentials(businessType, receivingWaNumId, businessId, ca
     if (receivingWaNumId) {
         const settings = await prisma.crmSettings.findFirst({ where: { waNumId: receivingWaNumId } });
         if (settings && settings.metaApiKey) {
-            return { phoneId: settings.waNumId, token: settings.metaApiKey };
+            return { phoneId: settings.waNumId, token: settings.metaApiKey, waId: settings.waId };
         }
     }
-    if (businessId) {
-        let whereClause = { businessId: parseInt(businessId) };
+    if (businessId && businessId !== 'ALL' && !isNaN(parseInt(businessId))) {
+        const bId = parseInt(businessId);
+        let whereClause = { businessId: bId };
         if (campaignType) {
             whereClause.campaignType = campaignType;
         }
@@ -28,11 +29,11 @@ async function getMetaCredentials(businessType, receivingWaNumId, businessId, ca
         
         // Fallback to any if campaignType specific not found
         if (!settings && campaignType) {
-            settings = await prisma.crmSettings.findFirst({ where: { businessId: parseInt(businessId) } });
+            settings = await prisma.crmSettings.findFirst({ where: { businessId: bId } });
         }
         
         if (settings && settings.metaApiKey && settings.waNumId) {
-            return { phoneId: settings.waNumId, token: settings.metaApiKey };
+            return { phoneId: settings.waNumId, token: settings.metaApiKey, waId: settings.waId };
         }
     }
     if (businessType && businessType !== 'ALL') {
@@ -47,11 +48,11 @@ async function getMetaCredentials(businessType, receivingWaNumId, businessId, ca
             }
             
             if (settings && settings.metaApiKey && settings.waNumId) {
-                return { phoneId: settings.waNumId, token: settings.metaApiKey };
+                return { phoneId: settings.waNumId, token: settings.metaApiKey, waId: settings.waId };
             }
         }
     }
-    return { phoneId: FALLBACK_WA_PHONE_ID, token: FALLBACK_WA_TOKEN };
+    return { phoneId: FALLBACK_WA_PHONE_ID, token: FALLBACK_WA_TOKEN, waId: null };
 }
 
 // ================= WEBHOOKS FOR META =================
@@ -186,13 +187,36 @@ exports.handleWebhookEvent = async (req, res) => {
                                     leadWhere.batch = { businessId: businessIdToMatch };
                                 }
                                 
-                                const lead = await prisma.lead.findFirst({
+                                let lead = await prisma.lead.findFirst({
                                     where: leadWhere,
                                     include: { 
                                         assignedUser: true,
                                         batch: { include: { business: true } }
                                     }
                                 });
+
+                                if (!lead) {
+                                    const clean = from.replace(/[^0-9]/g, '').slice(-9);
+                                    if (clean) {
+                                        const altWhere = {
+                                            OR: [
+                                                { phone: { startsWith: '94' + clean } },
+                                                { phone: { startsWith: '0' + clean } },
+                                                { phone: { startsWith: clean } }
+                                            ]
+                                        };
+                                        if (businessIdToMatch) {
+                                            altWhere.batch = { businessId: businessIdToMatch };
+                                        }
+                                        lead = await prisma.lead.findFirst({
+                                            where: altWhere,
+                                            include: { 
+                                                assignedUser: true,
+                                                batch: { include: { business: true } }
+                                            }
+                                        });
+                                    }
+                                }
                                 
                                 let targetAgentId = null;
                                 let leadName = 'Unknown Caller';
@@ -216,7 +240,7 @@ exports.handleWebhookEvent = async (req, res) => {
                                         });
                                         if (staff && staff.agentStatus === 'ACTIVE') {
                                             const roleUpper = staff.role ? String(staff.role).toUpperCase().replace(/ /g, '_') : "";
-                                            const isRestrictedRole = ['SYSTEM_ADMIN', 'DELIVERY', 'FINANCE'].some(r => roleUpper.includes(r));
+                                            const isRestrictedRole = ['STUDENT', 'GUEST', 'DELIVERY', 'FINANCE'].some(r => roleUpper.includes(r));
                                             
                                             if (!isRestrictedRole) {
                                                 const agentRoom = io.sockets.adapter.rooms.get(`user_${staff.id}`);
@@ -280,16 +304,11 @@ exports.handleWebhookEvent = async (req, res) => {
                                         io.to(`user_${targetAgentId}`).emit('incoming_wa_call', payload);
                                     } else {
                                         const idleRoom = io.sockets.adapter.rooms.get(`wa_call_agent_idle_${businessType}`);
-                                        const idleRoomAll = io.sockets.adapter.rooms.get(`wa_call_agent_idle_ALL`);
                                         
-                                        if ((idleRoom && idleRoom.size > 0) || (idleRoomAll && idleRoomAll.size > 0)) {
+                                        if (idleRoom && idleRoom.size > 0) {
                                             hasOnlineAgents = true;
-                                            console.log(`[WhatsApp Incoming Call] Routing to business pool: wa_call_agent_idle_${businessType}`);
+                                            console.log(`[WhatsApp Incoming Call] Routing EXCLUSIVELY to business pool: wa_call_agent_idle_${businessType} (members: ${idleRoom?.size || 0})`);
                                             io.to(`wa_call_agent_idle_${businessType}`).emit('incoming_wa_call', payload);
-                                            // Also broadcast to ALL pool so admins/overseers can receive the call
-                                            if (businessType !== 'ALL') {
-                                                io.to(`wa_call_agent_idle_ALL`).emit('incoming_wa_call', payload);
-                                            }
                                         }
                                     }
 
@@ -303,12 +322,76 @@ exports.handleWebhookEvent = async (req, res) => {
                             } catch (err) {
                                 console.error("[WhatsApp Incoming Call] Error routing call:", err);
                             }
-                        } else if (msg.webrtc.action === 'terminate' || msg.webrtc.action === 'cancel') {
-                            console.log(`[WhatsApp Webhook] Caller disconnected or cancelled call: ${callId}`);
+                        } else if (msg.webrtc.action === 'answer' || msg.webrtc.sdp_type === 'answer' || (msg.webrtc.sdp && msg.webrtc.action !== 'offer')) {
+                            console.log(`[WhatsApp Webhook] Received SDP Answer from Meta for Outbound Call: ${callId}`);
                             if (io) {
+                                io.emit('whatsapp_outbound_answer', {
+                                    callId,
+                                    sdp: msg.webrtc.sdp,
+                                    to: msg.from
+                                });
+                                io.emit('whatsapp_call_status', {
+                                    callId,
+                                    status: 'CONNECTED'
+                                });
+                            }
+                        } else if (msg.webrtc.action === 'ringing') {
+                            console.log(`[WhatsApp Webhook] Outbound Call is RINGING at recipient phone: ${callId}`);
+                            if (io) {
+                                io.emit('whatsapp_call_status', {
+                                    callId,
+                                    status: 'RINGING'
+                                });
+                            }
+                        } else if (msg.webrtc.action === 'accept' || msg.webrtc.action === 'connect') {
+                            console.log(`[WhatsApp Webhook] Outbound Call CONNECTED: ${callId}`);
+                            if (io) {
+                                io.emit('whatsapp_call_status', {
+                                    callId,
+                                    status: 'CONNECTED'
+                                });
+                            }
+                        } else if (msg.webrtc.action === 'terminate' || msg.webrtc.action === 'cancel' || msg.webrtc.action === 'rejected') {
+                            console.log(`[WhatsApp Webhook] Call disconnected or cancelled: ${callId}`);
+                            if (io) {
+                                io.emit('whatsapp_call_end', { callId });
                                 io.emit('whatsapp_call_disconnected', { callId });
                                 io.emit('call_history_updated', { callId });
                             }
+                        }
+                    }
+                }
+            }
+
+            // Also check for calls payload structure from Meta (calls: [...])
+            if (change.value.calls && change.value.calls.length > 0) {
+                const { getIo } = require('./chatController');
+                const io = getIo();
+                for (const callData of change.value.calls) {
+                    const sdpData = callData.connection?.webrtc?.sdp || callData.session?.sdp || "";
+                    const callId = callData.id || callData.call_id;
+                    console.log(`[WhatsApp Webhook] Meta Calls Event: ${callData.event}, direction: ${callData.direction}, callId: ${callId}`);
+                    
+                    if (io) {
+                        if (callData.event === 'connect' && callData.direction === 'BUSINESS_INITIATED') {
+                            io.emit('whatsapp_outbound_answer', {
+                                callId,
+                                sdp: sdpData,
+                                to: callData.to
+                            });
+                            io.emit('whatsapp_call_status', {
+                                callId,
+                                status: 'CONNECTED'
+                            });
+                        } else if (callData.event === 'ringing') {
+                            io.emit('whatsapp_call_status', {
+                                callId,
+                                status: 'RINGING'
+                            });
+                        } else if (callData.event === 'terminate') {
+                            io.emit('whatsapp_call_end', { callId });
+                            io.emit('whatsapp_call_disconnected', { callId });
+                            io.emit('call_history_updated', { callId });
                         }
                     }
                 }
@@ -603,13 +686,17 @@ exports.terminateCall = async (req, res) => {
     }
 };
 
-// Sends the request_call_permission template
+// Sends the dynamic call permission request template (call_request, call_request_01, request_call_permission)
 exports.sendPermissionRequest = async (req, res) => {
+    let matchedLead = null;
+    let cleanPhone = '';
+    let rawPhone = '';
+    let formattedTo = '';
     try {
         let { to, businessType, businessId, campaignType } = req.body;
-        const rawPhone = String(to || '').trim();
-        const cleanPhone = rawPhone.split('_')[0].replace(/[^0-9]/g, '');
-        const formattedTo = cleanPhone.startsWith('0') ? '94' + cleanPhone.substring(1) : cleanPhone;
+        rawPhone = String(to || '').trim();
+        cleanPhone = rawPhone.split('_')[0].replace(/[^0-9]/g, '');
+        formattedTo = cleanPhone.startsWith('0') ? '94' + cleanPhone.substring(1) : cleanPhone;
 
         let resolvedBusinessId = businessId ? parseInt(businessId) : null;
         let resolvedCampaignType = campaignType || null;
@@ -623,13 +710,13 @@ exports.sendPermissionRequest = async (req, res) => {
         }
 
         if (rawPhone) {
-            let lead = await prisma.lead.findUnique({
+            matchedLead = await prisma.lead.findUnique({
                 where: { phone: rawPhone },
                 include: { batch: { include: { business: true } } }
             });
 
-            if (!lead && resolvedBusinessId) {
-                lead = await prisma.lead.findFirst({
+            if (!matchedLead && resolvedBusinessId) {
+                matchedLead = await prisma.lead.findFirst({
                     where: {
                         phone: { startsWith: cleanPhone },
                         batch: { businessId: resolvedBusinessId }
@@ -638,8 +725,8 @@ exports.sendPermissionRequest = async (req, res) => {
                 });
             }
 
-            if (!lead) {
-                lead = await prisma.lead.findFirst({
+            if (!matchedLead) {
+                matchedLead = await prisma.lead.findFirst({
                     where: {
                         OR: [
                             { phone: rawPhone },
@@ -650,34 +737,129 @@ exports.sendPermissionRequest = async (req, res) => {
                 });
             }
 
-            if (lead) {
-                if (!resolvedBusinessId && lead.batch?.businessId) resolvedBusinessId = lead.batch.businessId;
-                if (!resolvedCampaignType && lead.campaignType) resolvedCampaignType = lead.campaignType;
-                if (!resolvedBusinessType && lead.batch?.business?.name) resolvedBusinessType = lead.batch.business.name;
+            if (matchedLead) {
+                if (!resolvedBusinessId && matchedLead.batch?.businessId) resolvedBusinessId = matchedLead.batch.businessId;
+                if (!resolvedCampaignType && matchedLead.campaignType) resolvedCampaignType = matchedLead.campaignType;
+                if (!resolvedBusinessType && matchedLead.batch?.business?.name) resolvedBusinessType = matchedLead.batch.business.name;
+
+                // If already allowed, no need to send again
+                if (matchedLead.waCallPermissionStatus === 'ALLOWED') {
+                    return res.status(200).json({
+                        success: true,
+                        alreadyAllowed: true,
+                        status: 'ALLOWED',
+                        message: 'Call permission is already approved by this student! You can place calls directly via WA.'
+                    });
+                }
+
+                // If already pending within last 24h, no need to send again
+                if (matchedLead.waCallPermissionStatus === 'PENDING' && matchedLead.waCallPermissionRequestedAt) {
+                    const hoursSinceReq = (Date.now() - new Date(matchedLead.waCallPermissionRequestedAt).getTime()) / (1000 * 60 * 60);
+                    if (hoursSinceReq < 24) {
+                        return res.status(200).json({
+                            success: true,
+                            alreadySent: true,
+                            status: 'PENDING',
+                            message: 'Call permission request was already sent to this student. Waiting for student to accept on WhatsApp.'
+                        });
+                    }
+                }
             }
         }
 
         const creds = await getMetaCredentials(resolvedBusinessType, null, resolvedBusinessId, resolvedCampaignType);
         
+        // Dynamically find approved call template for this WhatsApp Business Account
+        let templateName = 'call_request';
+        let templateLang = 'en';
+
+        if (creds.waId) {
+            try {
+                const resTemplates = await axios.get(`https://graph.facebook.com/v20.0/${creds.waId}/message_templates`, {
+                    headers: { Authorization: `Bearer ${creds.token}` }
+                });
+                const callReqs = (resTemplates.data?.data || []).filter(t => 
+                    (t.name.startsWith('call_request') || t.name === 'request_call_permission' || t.name.includes('call_perm')) && 
+                    t.status === 'APPROVED'
+                );
+                if (callReqs.length > 0) {
+                    callReqs.sort((a, b) => b.name.localeCompare(a.name));
+                    templateName = callReqs[0].name;
+                    templateLang = callReqs[0].language || 'en';
+                }
+            } catch (err) {
+                console.warn("[WhatsApp Call] Could not fetch templates dynamically, falling back to call_request:", err.message);
+            }
+        }
+
+        console.log(`[WhatsApp Call] Sending permission template '${templateName}' (${templateLang}) to ${formattedTo}`);
+
         await axios.post(`https://graph.facebook.com/v20.0/${creds.phoneId}/messages`, {
             messaging_product: 'whatsapp',
             to: formattedTo,
             type: 'template',
             template: {
-                name: 'request_call_permission',
+                name: templateName,
                 language: {
-                    code: 'en'
+                    code: templateLang
                 }
             }
         }, { headers: { Authorization: `Bearer ${creds.token}` }});
-        res.status(200).json({ success: true });
+
+        // Update lead status in CRM for all matching leads
+        if (cleanPhone) {
+            await prisma.lead.updateMany({
+                where: { phone: { contains: cleanPhone.slice(-9) } },
+                data: {
+                    waCallPermissionStatus: 'PENDING',
+                    waCallPermissionRequestedAt: new Date()
+                }
+            }).catch(() => {});
+        }
+
+        res.status(200).json({ 
+            success: true, 
+            status: 'PENDING', 
+            message: "Call permission request template successfully sent to student's WhatsApp! 📩", 
+            template: templateName 
+        });
     } catch (error) {
         if (error.response?.data?.error?.code === 138017) {
-            return res.status(200).json({ success: true, message: 'Permission already granted by consumer.' });
+            if (cleanPhone) {
+                await prisma.lead.updateMany({
+                    where: { phone: { contains: cleanPhone.slice(-9) } },
+                    data: {
+                        waCallPermissionStatus: 'ALLOWED',
+                        waCallPermissionExpiry: null
+                    }
+                }).catch(() => {});
+            }
+            return res.status(200).json({ 
+                success: true, 
+                alreadyAllowed: true,
+                status: 'ALLOWED', 
+                message: 'Call permission is already approved by student! You can place calls directly via WA.' 
+            });
+        }
+        if (error.response?.data?.error?.code === 138009) {
+            if (cleanPhone) {
+                await prisma.lead.updateMany({
+                    where: { phone: { contains: cleanPhone.slice(-9) } },
+                    data: {
+                        waCallPermissionStatus: 'PENDING'
+                    }
+                }).catch(() => {});
+            }
+            return res.status(200).json({ 
+                success: true, 
+                alreadySent: true, 
+                status: 'PENDING', 
+                message: 'A call permission request has already been sent to this student recently. Waiting for student to accept on WhatsApp.' 
+            });
         }
         console.error('Error sending permission request', error.response ? error.response.data : error.message);
         const metaError = error.response?.data?.error?.error_user_msg || error.response?.data?.error?.message || "Failed to send permission request via Meta.";
-        res.status(500).json({ error: metaError, details: error.response?.data });
+        res.status(400).json({ success: false, error: metaError, message: metaError, details: error.response?.data });
     }
 };
 
@@ -826,7 +1008,11 @@ exports.initiateCall = async (req, res) => {
     } catch (error) {
         console.error('Error initiating outbound call', error.response ? error.response.data : error.message);
         const metaError = error.response?.data?.error?.error_user_msg || error.response?.data?.error?.message || "Failed to initiate call via Meta.";
-        res.status(500).json({ error: metaError, details: error.response?.data });
+        const isPermError = error.response?.data?.error?.code === 138006 || String(metaError).toLowerCase().includes("permission");
+        const friendlyMsg = isPermError 
+            ? "WhatsApp Call Permission required from student. Please click 'Req Perm' first." 
+            : metaError;
+        res.status(400).json({ error: friendlyMsg, message: friendlyMsg, code: error.response?.data?.error?.code, details: error.response?.data });
     }
 };
 
@@ -994,17 +1180,24 @@ exports.uploadRecording = async (req, res) => {
         }
         
         let resolvedCampaignType = null;
+        let resolvedBusinessId = null;
         if (leadPhone) {
             let phone = leadPhone.replace('+', '').trim();
-            let lead = await prisma.lead.findFirst({ where: { phone: { startsWith: phone } } });
-            if (!lead && phone.startsWith('94')) lead = await prisma.lead.findFirst({ where: { phone: { startsWith: '0' + phone.substring(2) } } });
-            if (!lead && phone.startsWith('0')) lead = await prisma.lead.findFirst({ where: { phone: { startsWith: '94' + phone.substring(1) } } });
-            if (lead && lead.campaignType) resolvedCampaignType = lead.campaignType;
+            let lead = await prisma.lead.findFirst({ where: { phone: { startsWith: phone } }, include: { batch: true } });
+            if (!lead && phone.startsWith('94')) lead = await prisma.lead.findFirst({ where: { phone: { startsWith: '0' + phone.substring(2) } }, include: { batch: true } });
+            if (!lead && phone.startsWith('0')) lead = await prisma.lead.findFirst({ where: { phone: { startsWith: '94' + phone.substring(1) } }, include: { batch: true } });
+            if (lead) {
+                if (lead.campaignType) resolvedCampaignType = lead.campaignType;
+                if (lead.batch?.businessId) resolvedBusinessId = lead.batch.businessId;
+            }
         }
 
         if (callId) {
             if (resolvedCampaignType) {
                 initialUpdateData.campaignType = resolvedCampaignType;
+            }
+            if (resolvedBusinessId) {
+                initialUpdateData.businessId = resolvedBusinessId;
             }
             
             const createData = { 
@@ -1018,6 +1211,9 @@ exports.uploadRecording = async (req, res) => {
             };
             if (resolvedCampaignType) {
                 createData.campaignType = resolvedCampaignType;
+            }
+            if (resolvedBusinessId) {
+                createData.businessId = resolvedBusinessId;
             }
 
             record = await prisma.whatsAppCallRecord.upsert({
@@ -1876,7 +2072,7 @@ const waPhoneCache = new Map();
 exports.getBusinessPhoneInfo = async (req, res) => {
     try {
         const { businessId, campaignType } = req.query;
-        if (!businessId) {
+        if (!businessId || businessId === 'ALL' || isNaN(parseInt(businessId))) {
             return res.json({ success: true, phoneInfo: null });
         }
 

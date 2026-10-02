@@ -13,6 +13,7 @@ const isAdmin = (req, res, next) => {
 };
 
 router.post('/chat', verifyToken, isAdmin, claudeController.handleChat);
+router.post('/generate-image', verifyToken, isAdmin, claudeController.generateImage);
 router.get('/status', verifyToken, isAdmin, claudeController.getStatus);
 
 module.exports = router;

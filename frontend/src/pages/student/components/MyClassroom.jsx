@@ -16,6 +16,7 @@ export default function MyClassroom() {
 
     const [openedCourseId, setOpenedCourseId] = useState(null);
     const [activeStream, setActiveStream] = useState('All');
+    const [classTypeFilter, setClassTypeFilter] = useState('All'); // 'All', 'Theory', 'Paper'
 
     const backendBaseUrl = axios.defaults.baseURL ? axios.defaults.baseURL.replace('/api', '') : 'https://imacampus.online';
 
@@ -105,6 +106,7 @@ export default function MyClassroom() {
                 }
                 setSelectedBatch(null);
                 setActiveStream('All');
+                setClassTypeFilter('All');
             } else if (selectionLevel === 3) {
                 if (selectedBusiness?.batches?.length === 1) {
                     const streams = getEnrolledStreams(selectedBusiness);
@@ -124,6 +126,7 @@ export default function MyClassroom() {
                     setSelectedBatch(null);
                     setActiveStream('All');
                 }
+                setClassTypeFilter('All');
             }
         }
     };
@@ -137,28 +140,86 @@ export default function MyClassroom() {
             );
         }
 
-        // 🔥 FIX: Find subjects that are in Full Payment/Installment groups
-        const fullPaymentSubjectIds = new Set();
+        // 🔥 Separate Full Payment IDs for Theory and Paper to prevent cross-filtering
+        const fullPaymentTheoryIds = new Set();
+        const fullPaymentPaperIds = new Set();
         selectedBatch.groups.forEach(group => {
-            // Check if group is NOT Monthly (type 1)
+            const gClassType = parseInt(group.classType || 1, 10);
             if (group.type !== 1) {
-                group.courses?.forEach(c => fullPaymentSubjectIds.add(c.id));
+                group.courses?.forEach(c => {
+                    const cType = parseInt(c.courseType || gClassType || 1, 10);
+                    if (cType === 2) fullPaymentPaperIds.add(c.id);
+                    else fullPaymentTheoryIds.add(c.id);
+                });
             }
+        });
+
+        // Calculate count of Theory vs Paper courses across batch groups
+        let totalTheoryCourses = 0;
+        let totalPaperCourses = 0;
+        const countedTheoryIds = new Set();
+        const countedPaperIds = new Set();
+
+        selectedBatch.groups.forEach(group => {
+            const gClassType = parseInt(group.classType || 1, 10);
+            let cList = group.courses || [];
+            if (group.type === 1) {
+                const excludeSet = gClassType === 2 ? fullPaymentPaperIds : fullPaymentTheoryIds;
+                cList = cList.filter(c => !excludeSet.has(c.id));
+            }
+            cList.forEach(c => {
+                const cType = parseInt(c.courseType || gClassType || 1, 10);
+                if (cType === 2) {
+                    if (!countedPaperIds.has(c.id)) {
+                        countedPaperIds.add(c.id);
+                        totalPaperCourses++;
+                    }
+                } else {
+                    if (!countedTheoryIds.has(c.id)) {
+                        countedTheoryIds.add(c.id);
+                        totalTheoryCourses++;
+                    }
+                }
+            });
         });
 
         let hasAnyCourse = false;
 
         const content = selectedBatch.groups.flatMap((group, gIdx) => {
+            const isPaperGroup = parseInt(group.classType || 1, 10) === 2;
+
+            // Class Type filter check
+            if (classTypeFilter === 'Theory' && isPaperGroup) return [];
+            if (classTypeFilter === 'Paper' && !isPaperGroup) return [];
+
             let coursesForGroup = group.courses || [];
 
-            // 🔥 FIX: If it's a Monthly Group, remove subjects that exist in Full Payment groups
+            // 🔥 FIX: Deduplicate courses by name and courseType in case of duplicate database records
+            const seenCourses = new Map();
+            coursesForGroup.forEach(c => {
+                const key = `${(c.name || '').trim().toLowerCase()}_${c.courseType || group.classType || 1}`;
+                if (!seenCourses.has(key)) {
+                    seenCourses.set(key, c);
+                }
+            });
+            coursesForGroup = Array.from(seenCourses.values());
+
+            // 🔥 FIX: Remove subjects from monthly group if already in corresponding full payment
             if (group.type === 1) {
-                coursesForGroup = coursesForGroup.filter(c => !fullPaymentSubjectIds.has(c.id));
+                const excludeSet = isPaperGroup ? fullPaymentPaperIds : fullPaymentTheoryIds;
+                coursesForGroup = coursesForGroup.filter(c => !excludeSet.has(c.id));
             }
 
             // Filter by selected stream
             if (activeStream !== 'All') {
                 coursesForGroup = coursesForGroup.filter(c => (c.stream === activeStream) || (!c.stream && activeStream === "Common Subjects"));
+            }
+
+            // Filter courses by classTypeFilter as well
+            if (classTypeFilter === 'Theory') {
+                coursesForGroup = coursesForGroup.filter(c => parseInt(c.courseType || group.classType || 1, 10) !== 2);
+            } else if (classTypeFilter === 'Paper') {
+                coursesForGroup = coursesForGroup.filter(c => parseInt(c.courseType || group.classType || 1, 10) === 2);
             }
 
             if (coursesForGroup.length === 0) return [];
@@ -178,41 +239,73 @@ export default function MyClassroom() {
 
                 const isMonthly = parseInt(type) === 1;
                 const isInstallment = parseInt(type) === 2;
+                const classLabel = isPaperGroup ? "Paper Class" : "Theory Class";
                 const groupTitle = isMonthly 
-                    ? group.name.toLowerCase().includes("monthly payment") ? group.name : `Monthly Payment - ${group.name}`
+                    ? group.name.toLowerCase().includes("monthly payment") ? `${classLabel} - ${group.name}` : `${classLabel} - Monthly Payment (${group.name})`
                     : isInstallment 
-                        ? `Installment Payment` 
-                        : `Full Payment`;
-                const badgeColorClass = isMonthly 
-                    ? "text-orange-400 bg-orange-500/10 border-orange-500/20" 
-                    : isInstallment 
-                        ? "text-yellow-400 bg-yellow-500/10 border-yellow-500/20"
-                        : "text-emerald-400 bg-emerald-500/10 border-emerald-500/20";
+                        ? `${classLabel} - Installment Payment` 
+                        : `${classLabel} - Full Payment`;
+
+                const badgeColorClass = isPaperGroup
+                    ? "text-amber-300 bg-amber-500/20 border-amber-500/40 shadow-sm shadow-amber-500/20"
+                    : isMonthly 
+                        ? "text-orange-400 bg-orange-500/10 border-orange-500/20" 
+                        : isInstallment 
+                            ? "text-yellow-400 bg-yellow-500/10 border-yellow-500/20"
+                            : "text-blue-300 bg-blue-500/20 border-blue-500/40";
 
                 groupBlocks.push(
                     <div key={`${gIdx}-${type}`} className="mb-10 last:mb-0">
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-4 gap-2">
                             <div className="flex items-center gap-3">
-                                <BookOpen className="text-blue-400" size={18} />
-                                <h4 className="text-lg font-bold text-white tracking-wide">Your Subjects</h4>
+                                {isPaperGroup ? (
+                                    <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-300">
+                                        <BookOpen size={16} />
+                                    </div>
+                                ) : (
+                                    <div className="w-8 h-8 rounded-xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center text-blue-300">
+                                        <BookOpen size={16} />
+                                    </div>
+                                )}
+                                <h4 className="text-lg font-bold text-white tracking-wide">
+                                    {isPaperGroup ? 'Paper Class Subjects' : 'Theory Class Subjects'}
+                                </h4>
                             </div>
-                            <div className={`px-4 py-1.5 rounded-lg border ${badgeColorClass} text-[10px] sm:text-xs font-bold uppercase tracking-widest inline-block max-w-full truncate`} title={groupTitle}>
+                            <div className={`px-4 py-1.5 rounded-xl border ${badgeColorClass} text-[11px] sm:text-xs font-black uppercase tracking-widest inline-block max-w-full truncate`} title={groupTitle}>
                                 {groupTitle}
                             </div>
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {courses.map((course) => (
-                                <div key={course.id} onClick={() => setOpenedCourseId(course.id)} className="bg-black/40 backdrop-blur-xl border border-white/10 hover:border-red-500 hover:bg-black/60 p-5 md:p-6 rounded-[2.5rem] cursor-pointer transition-all duration-500 flex flex-row justify-between items-center gap-4 group shadow-md hover:shadow-2xl hover:-translate-y-1">
-                                    <div className="text-left flex flex-col gap-2 min-w-0 flex-1">
-                                        <h3 className="text-xl md:text-2xl font-black text-white group-hover:text-red-400 transition-colors truncate drop-shadow-md">{course.name}</h3>
-                                        {course.code && <span className="text-[10px] font-bold text-red-400 bg-red-500/10 px-3 py-1.5 rounded-xl border border-red-500/20 uppercase w-max tracking-widest shadow-sm">{course.code}</span>}
+                            {courses.map((course) => {
+                                const isPaperCourse = parseInt(course.courseType || group.classType || 1, 10) === 2;
+                                return (
+                                    <div 
+                                        key={course.id} 
+                                        onClick={() => setOpenedCourseId(course.id)} 
+                                        className={`bg-black/40 backdrop-blur-xl border p-5 md:p-6 rounded-[2.5rem] cursor-pointer transition-all duration-500 flex flex-row justify-between items-center gap-4 group shadow-md hover:shadow-2xl hover:-translate-y-1 ${
+                                            isPaperCourse 
+                                                ? 'border-amber-500/30 hover:border-amber-400 hover:bg-amber-950/20 hover:shadow-amber-500/20' 
+                                                : 'border-white/10 hover:border-blue-500 hover:bg-blue-950/20 hover:shadow-blue-500/20'
+                                        }`}
+                                    >
+                                        <div className="text-left flex flex-col justify-center min-w-0 flex-1">
+                                            <h3 className={`text-xl md:text-2xl font-black text-white transition-colors truncate drop-shadow-md ${
+                                                isPaperCourse ? 'group-hover:text-amber-300' : 'group-hover:text-blue-300'
+                                            }`}>
+                                                {course.name}
+                                            </h3>
+                                        </div>
+                                        <div className={`w-14 h-14 rounded-[1.5rem] bg-gradient-to-br from-white/20 to-white/10 backdrop-blur-lg flex items-center justify-center text-white/90 shrink-0 border border-white/20 transition-all duration-500 shadow-md group-hover:scale-110 ${
+                                            isPaperCourse 
+                                                ? 'group-hover:bg-amber-500 group-hover:text-black group-hover:border-amber-400 group-hover:shadow-amber-500/50' 
+                                                : 'group-hover:bg-blue-600 group-hover:text-white group-hover:border-blue-400 group-hover:shadow-blue-600/50'
+                                        }`}>
+                                            <PlayCircle size={26} />
+                                        </div>
                                     </div>
-                                    <div className="w-14 h-14 rounded-[1.5rem] bg-gradient-to-br from-white/20 to-white/10 backdrop-blur-lg group-hover:bg-red-500 flex items-center justify-center text-white/90 group-hover:text-white shrink-0 border border-white/20 group-hover:border-transparent transition-all duration-500 shadow-md group-hover:shadow-red-500/50 group-hover:scale-110">
-                                        <PlayCircle size={26} />
-                                    </div>
-                                </div>
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 );
@@ -221,15 +314,51 @@ export default function MyClassroom() {
             return groupBlocks;
         });
 
-        if (!hasAnyCourse) {
-            return (
-                <div className="text-center py-12 bg-gradient-to-br from-white/5 to-transparent backdrop-blur-2xl rounded-[2.5rem] border border-white/10 shadow-inner">
-                    <p className="text-white/70 font-bold text-lg">No subjects found for this stream in the selected batch.</p>
-                </div>
-            );
-        }
+        return (
+            <div className="space-y-6">
+                {/* 🔥 Theory vs Paper Class Stream Filter Toolbar 🔥 */}
+                {(totalTheoryCourses > 0 && totalPaperCourses > 0) && (
+                    <div className="flex flex-wrap items-center gap-3 p-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-2xl w-max shadow-inner">
+                        <button
+                            onClick={() => setClassTypeFilter('All')}
+                            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                                classTypeFilter === 'All'
+                                    ? 'bg-white text-gray-900 shadow-md scale-105'
+                                    : 'text-white/70 hover:text-white hover:bg-white/10'
+                            }`}
+                        >
+                            All ({totalTheoryCourses + totalPaperCourses})
+                        </button>
+                        <button
+                            onClick={() => setClassTypeFilter('Theory')}
+                            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                                classTypeFilter === 'Theory'
+                                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 scale-105'
+                                    : 'text-blue-300 hover:text-white hover:bg-blue-500/10'
+                            }`}
+                        >
+                            📘 Theory ({totalTheoryCourses})
+                        </button>
+                        <button
+                            onClick={() => setClassTypeFilter('Paper')}
+                            className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                                classTypeFilter === 'Paper'
+                                    ? 'bg-amber-500 text-black shadow-md shadow-amber-500/30 scale-105'
+                                    : 'text-amber-300 hover:text-white hover:bg-amber-500/10'
+                            }`}
+                        >
+                            📝 Paper Class ({totalPaperCourses})
+                        </button>
+                    </div>
+                )}
 
-        return content;
+                {!hasAnyCourse ? (
+                    <div className="text-center py-12 bg-gradient-to-br from-white/5 to-transparent backdrop-blur-2xl rounded-[2.5rem] border border-white/10 shadow-inner">
+                        <p className="text-white/70 font-bold text-lg">No {classTypeFilter !== 'All' ? classTypeFilter : ''} subjects found for this selection.</p>
+                    </div>
+                ) : content}
+            </div>
+        );
     };
 
     if (loading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-red-500" size={40} /></div>;

@@ -30,6 +30,7 @@ export default function ClassTimetable() {
     const [isEditing, setIsEditing] = useState(false);
     const [selectedDay, setSelectedDay] = useState(null);
     const [selectedEvent, setSelectedEvent] = useState(null);
+    const [submitting, setSubmitting] = useState(false);
     
     // Form State (New & Edit Class)
     const [selectedBatchesForNew, setSelectedBatchesForNew] = useState([]);
@@ -146,6 +147,8 @@ export default function ClassTimetable() {
     const handleAddSubmit = async (e) => {
         e.preventDefault();
         
+        if (submitting) return;
+
         if (selectedBatchesForNew.length === 0) {
             toast.error("Please select at least one batch!");
             return;
@@ -165,6 +168,7 @@ export default function ClassTimetable() {
             optionalPaper: formData.get('optionalPaper') === 'on'
         };
 
+        setSubmitting(true);
         try {
             await api.post('/admin/timetable', payload);
             toast.success("Class Scheduled!");
@@ -173,6 +177,8 @@ export default function ClassTimetable() {
             fetchSchedule();
         } catch (error) {
             toast.error("Failed to schedule class");
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -385,10 +391,24 @@ export default function ClassTimetable() {
                                             >
                                                 <div className="flex justify-between items-start gap-1">
                                                     <h4 className="font-bold text-gray-900 dark:text-white text-[10px] md:text-xs truncate leading-tight transition-colors flex-1" title={event.subjectName}>{event.subjectName}</h4>
-                                                    <div className="flex items-center gap-1 shrink-0">
+                                                    <div className="flex items-center gap-1 shrink-0 flex-wrap">
                                                         <span className="text-[8px] bg-brand-accent/10 text-brand-accent border border-brand-accent/20 px-1 py-0.5 rounded font-bold uppercase" title={event.batch?.name}>
-                                                            {event.batch?.name?.substring(0, 4) || 'BATCH'}
+                                                            {event.batch?.name?.substring(0, 6) || 'BATCH'}
                                                         </span>
+                                                        {(() => {
+                                                            if (!event.additionalBatchIds) return null;
+                                                            try {
+                                                                const ids = typeof event.additionalBatchIds === 'string' ? JSON.parse(event.additionalBatchIds) : event.additionalBatchIds;
+                                                                if (Array.isArray(ids) && ids.length > 0) {
+                                                                    return (
+                                                                        <span className="text-[8px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-1 py-0.5 rounded font-bold" title={`+${ids.length} more batches allocated`}>
+                                                                            +{ids.length}
+                                                                        </span>
+                                                                    );
+                                                                }
+                                                            } catch(e) {}
+                                                            return null;
+                                                        })()}
                                                         {canEdit && (
                                                             <button 
                                                                 onClick={(e) => { e.stopPropagation(); handleDeleteEvent(event.id); }} 
@@ -541,8 +561,8 @@ export default function ClassTimetable() {
                                     </div>
 
                                     <div className="pt-2">
-                                        <button type="submit" className="w-full bg-brand-accent hover:bg-brand-accentHover text-white font-black py-4 rounded-xl transition-transform hover:scale-[1.02] text-sm uppercase tracking-widest shadow-md outline-none">
-                                            Save to Schedule
+                                        <button type="submit" disabled={submitting} className={`w-full bg-brand-accent hover:bg-brand-accentHover text-white font-black py-4 rounded-xl transition-transform text-sm uppercase tracking-widest shadow-md outline-none ${submitting ? 'opacity-50 cursor-not-allowed' : 'hover:scale-[1.02]'}`}>
+                                            {submitting ? 'Scheduling Class...' : 'Save to Schedule'}
                                         </button>
                                     </div>
                                 </div>
@@ -691,18 +711,35 @@ export default function ClassTimetable() {
                                         <div className="bg-indigo-50 dark:bg-indigo-500/10 p-2.5 rounded-xl text-indigo-500 border border-indigo-200 dark:border-indigo-500/20 transition-colors"><Building2 size={20} /></div>
                                         <div className="flex-1">
                                             <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-0.5 transition-colors">Technical Department Status</p>
-                                            <div className="flex gap-2 mt-1">
-                                                {selectedEvent.batch ? (
-                                                    <span className="text-xs bg-brand-accent/10 text-brand-accent border border-brand-accent/20 px-2 py-1 rounded-md font-bold">
-                                                        📚 {selectedEvent.batch.name}
-                                                        {selectedEvent.additionalBatchIds && (() => {
-                                                            try {
-                                                                const p = JSON.parse(selectedEvent.additionalBatchIds);
-                                                                return p.length > 0 ? ` + ${p.length} more` : '';
-                                                            } catch(e){return '';}
-                                                        })()}
-                                                    </span>
-                                                ) : null}
+                                            <div className="flex flex-wrap gap-2 mt-1">
+                                                {(() => {
+                                                    let allBatches = [];
+                                                    if (selectedEvent.batch?.name) {
+                                                        allBatches.push(selectedEvent.batch.name);
+                                                    } else if (selectedEvent.batchId) {
+                                                        const found = batches.find(b => b.id === selectedEvent.batchId);
+                                                        if (found) allBatches.push(found.name);
+                                                    }
+                                                    if (selectedEvent.additionalBatchIds) {
+                                                        try {
+                                                            const extraIds = typeof selectedEvent.additionalBatchIds === 'string' 
+                                                                ? JSON.parse(selectedEvent.additionalBatchIds) 
+                                                                : selectedEvent.additionalBatchIds;
+                                                            if (Array.isArray(extraIds)) {
+                                                                extraIds.forEach(id => {
+                                                                    const found = batches.find(b => b.id === id);
+                                                                    const name = found ? found.name : `Batch #${id}`;
+                                                                    if (!allBatches.includes(name)) allBatches.push(name);
+                                                                });
+                                                            }
+                                                        } catch(e) {}
+                                                    }
+                                                    return allBatches.map((bName, idx) => (
+                                                        <span key={idx} className="text-xs bg-brand-accent/10 text-brand-accent border border-brand-accent/20 px-2 py-1 rounded-md font-bold flex items-center gap-1">
+                                                            📚 {bName}
+                                                        </span>
+                                                    ));
+                                                })()}
 
                                                 {selectedEvent.hall ? (
                                                     <span className="text-xs bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 px-2 py-1 rounded-md font-bold">

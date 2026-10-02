@@ -50,10 +50,10 @@ router.get('/resources/:id', libraryController.getResourceById);
 router.post('/resources/:id/download', libraryController.trackDownload);
 
 // ==========================================
-// 🏢 ADMIN & MANAGER ROUTES (PROTECTED)
+// 🏢 ADMIN & MANAGER ROUTES (STRUCTURE READ & PROTECTED MUTATIONS)
 // ==========================================
-router.get('/admin/structure', verifyToken, libraryController.getAdminStructure);
-router.get('/admin/analytics', verifyToken, libraryController.getLibraryAnalytics);
+router.get('/admin/structure', libraryController.getAdminStructure);
+router.get('/admin/analytics', libraryController.getLibraryAnalytics);
 
 // Categories
 router.post('/admin/categories', verifyToken, libraryController.createCategory);

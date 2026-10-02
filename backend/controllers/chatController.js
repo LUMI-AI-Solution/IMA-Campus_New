@@ -144,7 +144,9 @@ const initSocket = (server) => {
         cors: {
             origin: "*", // allow all origins since mobile connects here
             methods: ["GET", "POST"]
-        }
+        },
+        pingInterval: 15000,
+        pingTimeout: 30000
     });
 
     // Socket auth middleware
@@ -168,16 +170,34 @@ const initSocket = (server) => {
         // Always join personal room for global notifications
         socket.join(`user_${userId}`);
         
-        // Auto-join WA idle pool if agent is already marked ACTIVE in DB
+        // Auto-join WA idle pool ONLY for Class Coordination department
         try {
             const user = await prisma.user.findUnique({ where: { id: userId } });
             if (user && user.agentStatus === 'ACTIVE') {
                 const roleUpper = user.role ? String(user.role).toUpperCase().replace(/ /g, '_') : "";
-                const isRestrictedRole = ['SYSTEM_ADMIN'].some(r => roleUpper.includes(r));
-                if (!isRestrictedRole) {
-                    const businessType = user.businessType ? String(user.businessType).trim() : "ALL";
-                    socket.join(`wa_call_agent_idle_${businessType}`);
-                    console.log(`[WA Pool] Agent ${userId} automatically rejoined idle pool ${businessType} on connect`);
+                const deptLower = user.department ? String(user.department).trim().toLowerCase() : "";
+                
+                // Explicitly exclude non-coordination departments (Delivery, Finance, Social Media, Physical, Academic, etc.)
+                const isNonCoordinationDept = ['delivery', 'finance', 'social media', 'physical', 'academic'].some(d => deptLower.includes(d));
+                const isRestrictedRole = ['STUDENT', 'GUEST'].some(r => roleUpper.includes(r));
+                
+                const isClassCoordination = !isNonCoordinationDept && !isRestrictedRole && (
+                    deptLower.includes("class coordination") || 
+                    roleUpper.includes("COORDINATOR") || 
+                    (roleUpper.includes("MANAGER") && !['DELIVERY', 'FINANCE', 'PHYSICAL'].some(r => roleUpper.includes(r)))
+                );
+
+                if (isClassCoordination) {
+                    const businessType = user.businessType ? String(user.businessType).trim() : "";
+                    const types = businessType.split(',').map(t => t.trim()).filter(Boolean);
+                    for (const t of types) {
+                        if (t && t.toUpperCase() !== 'ALL') {
+                            socket.join(`wa_call_agent_idle_${t}`);
+                        }
+                    }
+                    console.log(`[WA Pool] Class Coordinator ${userId} (${user.firstName}) auto-joined business pools: [${types.join(', ')}] on connect`);
+                } else {
+                    console.log(`[WA Pool] User ${userId} (${user.firstName}, Dept: ${user.department}, Role: ${user.role}) is NOT in Class Coordination. Excluded from call pools.`);
                 }
             }
         } catch (err) {
@@ -507,13 +527,14 @@ const initSocket = (server) => {
             const status = data?.status || "ACTIVE"; // ACTIVE, LUNCH, AWAY
             const userId = socket.user.id || socket.user.userId;
             
-            // Fetch user's businessType to join correct pool
+            // Fetch user's businessType & department to join correct pool
             try {
-                const user = await prisma.user.findUnique({ where: { id: userId }, select: { businessType: true, agentStatus: true, role: true } });
-                const businessType = user?.businessType ? String(user.businessType).trim() : "ALL";
+                const user = await prisma.user.findUnique({ 
+                    where: { id: userId }, 
+                    select: { firstName: true, businessType: true, agentStatus: true, role: true, department: true } 
+                });
                 const roleUpper = user?.role ? String(user.role).toUpperCase().replace(/ /g, '_') : "";
-                
-                const isRestrictedRole = ['SYSTEM_ADMIN'].some(r => roleUpper.includes(r));
+                const deptLower = user?.department ? String(user.department).trim().toLowerCase() : "";
                 
                 // Save status in DB
                 await prisma.user.update({
@@ -521,14 +542,23 @@ const initSocket = (server) => {
                     data: { agentStatus: status }
                 });
 
-                if (status === "ACTIVE" && !isRestrictedRole) {
-                    console.log(`[WA Pool] Agent ${userId} marked as IDLE/ACTIVE in ${businessType}`);
+                // Explicitly exclude non-coordination departments (Delivery, Finance, Social Media, Physical, Academic, etc.)
+                const isNonCoordinationDept = ['delivery', 'finance', 'social media', 'physical', 'academic'].some(d => deptLower.includes(d));
+                const isRestrictedRole = ['STUDENT', 'GUEST'].some(r => roleUpper.includes(r));
+                
+                const isClassCoordination = !isNonCoordinationDept && !isRestrictedRole && (
+                    deptLower.includes("class coordination") || 
+                    roleUpper.includes("COORDINATOR") || 
+                    (roleUpper.includes("MANAGER") && !['DELIVERY', 'FINANCE', 'PHYSICAL'].some(r => roleUpper.includes(r)))
+                );
+
+                const businessType = user?.businessType ? String(user.businessType).trim() : "";
+                const types = businessType.split(',').map(t => t.trim()).filter(Boolean);
+
+                if (status === "ACTIVE" && isClassCoordination) {
+                    console.log(`[WA Pool] Class Coordinator ${userId} (${user?.firstName}) marked ACTIVE in business pools: [${types.join(', ')}]`);
                 } else {
-                    if (isRestrictedRole && status === "ACTIVE") {
-                        console.log(`[WA Pool] Agent ${userId} is ACTIVE but restricted from WA calls (Role: ${user?.role})`);
-                    } else {
-                        console.log(`[WA Pool] Agent ${userId} marked as ${status}, leaving pools`);
-                    }
+                    console.log(`[WA Pool] User ${userId} (${user?.firstName}) leaving pools (status: ${status}, isCoordination: ${isClassCoordination})`);
                 }
 
                 // Force ALL sockets for this user to join/leave the pool (handles multiple tabs)
@@ -537,10 +567,17 @@ const initSocket = (server) => {
                     for (const socketId of userSocketsRoom) {
                         const s = io.sockets.sockets.get(socketId);
                         if (s) {
-                            if (status === "ACTIVE" && !isRestrictedRole) {
-                                s.join(`wa_call_agent_idle_${businessType}`);
+                            if (status === "ACTIVE" && isClassCoordination) {
+                                for (const t of types) {
+                                    if (t && t.toUpperCase() !== 'ALL') {
+                                        s.join(`wa_call_agent_idle_${t}`);
+                                    }
+                                }
                             } else {
-                                s.leave(`wa_call_agent_idle_${businessType}`);
+                                for (const t of types) {
+                                    s.leave(`wa_call_agent_idle_${t}`);
+                                }
+                                s.leave(`wa_call_agent_idle_ALL`);
                             }
                         }
                     }
@@ -558,7 +595,7 @@ const initSocket = (server) => {
             const userId = socket.user.id || socket.user.userId;
             try {
                 const user = await prisma.user.findUnique({ where: { id: userId }, select: { businessType: true } });
-                const businessType = user?.businessType ? String(user.businessType).trim() : "ALL";
+                const businessType = user?.businessType ? String(user.businessType).trim() : "";
                 
                 await prisma.user.update({
                     where: { id: userId },
@@ -566,13 +603,18 @@ const initSocket = (server) => {
                 });
 
                 console.log(`[WA Pool] Agent ${userId} marked as OFFLINE`);
+
+                const types = businessType.split(',').map(t => t.trim()).filter(Boolean);
                 
                 const userSocketsRoom = io.sockets.adapter.rooms.get(`user_${userId}`);
                 if (userSocketsRoom) {
                     for (const socketId of userSocketsRoom) {
                         const s = io.sockets.sockets.get(socketId);
                         if (s) {
-                            s.leave(`wa_call_agent_idle_${businessType}`);
+                            for (const t of types) {
+                                s.leave(`wa_call_agent_idle_${t}`);
+                            }
+                            s.leave(`wa_call_agent_idle_ALL`);
                         }
                     }
                 }

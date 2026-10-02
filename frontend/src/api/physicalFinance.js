@@ -32,6 +32,35 @@ export const physicalFinanceService = {
     }
   },
 
+  // Opening Balance
+  getOpeningBalance: async (date) => {
+    try {
+      const response = await api.get('/physical-finance/opening-balance', { params: { date } });
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching opening balance:", error);
+      throw error;
+    }
+  },
+  setOpeningBalance: async (data) => {
+    try {
+      const response = await api.post('/physical-finance/opening-balance', data);
+      return response.data;
+    } catch (error) {
+      console.error("Error setting opening balance:", error);
+      throw error;
+    }
+  },
+  deleteOpeningBalance: async (date) => {
+    try {
+      const response = await api.delete(`/physical-finance/opening-balance/${date}`);
+      return response.data;
+    } catch (error) {
+      console.error("Error deleting opening balance:", error);
+      throw error;
+    }
+  },
+
   // Trash & Deleted Audit
   getTrash: async () => {
     try {

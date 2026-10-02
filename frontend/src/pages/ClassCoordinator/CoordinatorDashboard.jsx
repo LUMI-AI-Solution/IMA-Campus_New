@@ -6,6 +6,7 @@ import RightSidePanel from '../../components/CoordinatorCRM/RightSidePanel';
 import CallCampaignModule from '../../components/CoordinatorCRM/CallCampaignModule';
 import CoordinatorOverview from '../../components/CoordinatorCRM/CoordinatorOverview';
 import DedicatedCoordinatorOverview from '../../components/CoordinatorCRM/DedicatedCoordinatorOverview';
+import MissedCallsNavButton from '../../components/common/MissedCallsNavButton';
 import AgentStatusDropdown from '../../components/CoordinatorCRM/AgentStatusDropdown';
 import WhatsAppBusinessNumberBadge from '../../components/common/WhatsAppBusinessNumberBadge';
 import { FaWhatsapp, FaHeadset, FaFilter, FaChartBar, FaRobot, FaPowerOff } from 'react-icons/fa';
@@ -160,54 +161,69 @@ export default function CoordinatorDashboard({ loggedInUser }) {
     <div className="h-full flex flex-col gap-4 animate-fade-in-up text-slate-300">
       
       {true && (
-        <div className="flex flex-col xl:flex-row justify-between items-center gap-4 bg-white/5 backdrop-blur-lg p-3 rounded-2xl border border-white/10 shadow-xl shrink-0 relative z-50">
+        <div className="flex flex-wrap lg:flex-nowrap items-center justify-between gap-2 bg-slate-900/60 backdrop-blur-xl p-2 px-3 rounded-2xl border border-white/10 shadow-xl shrink-0 relative z-50">
         
-        <div className="flex items-center gap-3 text-lg font-black tracking-wide text-white uppercase px-2">
-          <div className="flex items-center gap-2">
-            {isCrm ? <FaWhatsapp className="text-emerald-400" size={24} /> : <FaChartBar className="text-blue-400" size={24} />}
-            {isCrm ? 'FREE SEMINAR CRM' : activeMode === 'STATS' ? 'FREE SEM CAMPAIGN STATS' : 'COORDINATOR DASHBOARD'}
+        {/* Left Side: Branding + WA Badge + Action Buttons */}
+        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+          <div className="flex items-center gap-2 mr-0.5 shrink-0">
+            <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm ${
+              isCrm ? 'bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 shadow-emerald-500/20' : 'bg-blue-500/15 border border-blue-500/30 text-blue-400 shadow-blue-500/20'
+            }`}>
+              {isCrm ? <FaWhatsapp size={17} /> : <FaChartBar size={17} />}
+            </div>
+            <span className="text-xs sm:text-sm font-black tracking-wider text-white uppercase whitespace-nowrap">
+              {isCrm ? 'FREE SEMINAR CRM' : activeMode === 'STATS' ? 'FREE SEM CAMPAIGN STATS' : 'COORDINATOR DASHBOARD'}
+            </span>
           </div>
-          {selectedBusiness && (
-            <WhatsAppBusinessNumberBadge businessId={selectedBusiness} campaignType="FREE_SEMINAR" />
-          )}
-        </div>
 
-        <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto justify-end relative">
-          
+          {selectedBusiness && selectedBusiness !== 'ALL' && (
+            <>
+              <div className="w-px h-4 bg-white/10 hidden sm:block"></div>
+              <WhatsAppBusinessNumberBadge businessId={selectedBusiness} campaignType="FREE_SEMINAR" />
+            </>
+          )}
+
+          <div className="w-px h-5 bg-white/10 mx-0.5 hidden md:block"></div>
+
           {(isAdmin || isManager) && activeMode === 'CRM' && (
             <button 
+              type="button"
               onClick={() => setActiveMode('OVERVIEW')}
-              className="px-4 py-2 bg-[#0f172a] hover:bg-[#1e293b] text-white rounded-xl text-xs font-bold transition-all border border-white/5 flex items-center gap-2"
+              className="h-9 px-2.5 bg-slate-800/80 hover:bg-slate-700/80 text-white rounded-xl text-xs font-bold transition-all border border-white/10 hover:border-white/20 flex items-center gap-1.5 shadow-sm select-none"
             >
-              <LayoutDashboard size={16} className="text-blue-400" /> ADMIN DASHBOARD
+              <LayoutDashboard size={13} className="text-blue-400" /> ADMIN DASHBOARD
             </button>
           )} 
-          
+
           <AgentStatusDropdown />
+          <MissedCallsNavButton />
+        </div>
 
-          <div className="w-px h-6 bg-white/10 mx-1 hidden xl:block"></div>
+        {/* Right Side: Filters Group */}
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto relative">
+          <div className="h-9 inline-flex items-center gap-1 bg-black/40 border border-white/10 rounded-xl px-2 shadow-inner">
+            <FaFilter className="text-slate-400 shrink-0" size={10} />
+            
+            <select 
+              value={selectedBusiness}
+              onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }}
+              className="bg-transparent text-slate-200 text-xs font-bold outline-none cursor-pointer hover:text-white border-0 py-1 max-w-[130px] sm:max-w-[150px] truncate"
+            >
+              {displayBusinesses.length > 1 && <option value="" className="bg-slate-900">Select Business (All)</option>}
+              {displayBusinesses.map(biz => <option key={biz.id} value={biz.id} className="bg-slate-900">{biz.name}</option>)}
+            </select>
 
-          {true && (
-            <div className="flex items-center gap-3">
-              <FaFilter className="text-slate-500 shrink-0" />
-              <select 
-                value={selectedBusiness}
-                onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }}
-                className="bg-black/40 border border-white/10 text-slate-300 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-brand-accent transition-all cursor-pointer"
-              >
-                {displayBusinesses.length > 1 && <option value="">Select Business (All)</option>}
-                {displayBusinesses.map(biz => <option key={biz.id} value={biz.id} className="bg-slate-900">{biz.name}</option>)}
-              </select>
-              <select 
-                value={selectedBatch}
-                onChange={(e) => setSelectedBatch(e.target.value)}
-                className="bg-black/40 border border-white/10 text-slate-300 text-xs font-bold rounded-lg px-3 py-2 outline-none focus:border-brand-accent transition-all cursor-pointer"
-              >
-                <option value="">Select Batch</option>
-                {displayBatches.map(b => <option key={b.id} value={b.id} className="bg-slate-900">{b.name}</option>)}
-              </select>
-            </div>
-          )}
+            <div className="w-px h-3.5 bg-white/10"></div>
+
+            <select 
+              value={selectedBatch}
+              onChange={(e) => setSelectedBatch(e.target.value)}
+              className="bg-transparent text-slate-200 text-xs font-bold outline-none cursor-pointer hover:text-white border-0 py-1 max-w-[125px] sm:max-w-[145px] truncate"
+            >
+              <option value="" className="bg-slate-900">Select Batch (All)</option>
+              {displayBatches.map(b => <option key={b.id} value={b.id} className="bg-slate-900">{b.name}</option>)}
+            </select>
+          </div>
         </div>
       </div>
       )}

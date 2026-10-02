@@ -9,6 +9,117 @@ const streamCache = {};
 // 🔥 NEW: BigInt convert karana helper function eka meka hama thanatama pawichi karanawa
 const safeJson = (data) => JSON.parse(JSON.stringify(data, (key, value) => typeof value === 'bigint' ? value.toString() : value));
 
+// Helper to safely extract integer subject IDs from raw payment subjects (ignores NaN, strings, objects)
+const parseSafeSubjectIds = (subjects) => {
+    if (!subjects) return [];
+    try {
+        const raw = typeof subjects === 'string' ? JSON.parse(subjects) : subjects;
+        if (!Array.isArray(raw)) return [];
+        return raw
+            .map(id => parseInt(id, 10))
+            .filter(id => !isNaN(id) && id > 0);
+    } catch (e) {
+        return [];
+    }
+};
+
+// Helper to safely extract string subject names/codes from raw payment subjects (e.g. "SUB 01")
+const parseSafeSubjectStrings = (subjects) => {
+    if (!subjects) return [];
+    try {
+        const raw = typeof subjects === 'string' ? JSON.parse(subjects) : subjects;
+        if (!Array.isArray(raw)) return [];
+        return raw
+            .filter(item => typeof item === 'string' && isNaN(parseInt(item, 10)))
+            .map(s => s.trim().toLowerCase())
+            .filter(Boolean);
+    } catch (e) {
+        return [];
+    }
+};
+
+const getCourseGroupPrice = (course, groupId) => {
+    let price = course.price || 0;
+    if (course.groupPrices) {
+        try {
+            const gp = typeof course.groupPrices === 'string' ? JSON.parse(course.groupPrices) : course.groupPrices;
+            if (Array.isArray(gp)) {
+                const found = gp.find(item => String(item.groupId) === String(groupId));
+                if (found && found.price !== undefined && found.price !== null && found.price !== '') {
+                    price = Number(found.price);
+                }
+            } else if (typeof gp === 'object' && gp !== null) {
+                if (gp[groupId] !== undefined && gp[groupId] !== null && gp[groupId] !== '') {
+                    price = Number(gp[groupId]);
+                }
+            }
+        } catch (e) {}
+    }
+    return price;
+};
+
+const calculateGroupAmount = (group, courses) => {
+    if (!courses || courses.length === 0) return 0;
+
+    const coursePriceMap = courses.map(c => ({
+        id: c.id,
+        price: getCourseGroupPrice(c, group ? group.id : null),
+        isDiscountExcluded: !!c.isDiscountExcluded
+    }));
+
+    let activeRule = null;
+    if (group && group.discount_rules) {
+        try {
+            const rules = typeof group.discount_rules === 'string' ? JSON.parse(group.discount_rules) : group.discount_rules;
+            if (Array.isArray(rules) && rules.length > 0) {
+                const sortedRules = [...rules].sort((a, b) => Number(b.courseCount) - Number(a.courseCount));
+                const eligibleCount = coursePriceMap.filter(c => !c.isDiscountExcluded).length;
+                for (const rule of sortedRules) {
+                    if (eligibleCount >= Number(rule.courseCount)) {
+                        activeRule = rule;
+                        break;
+                    }
+                }
+            }
+        } catch (e) {}
+    }
+
+    if (!activeRule) {
+        return coursePriceMap.reduce((sum, c) => sum + c.price, 0);
+    }
+
+    let total = 0;
+    const hasPackage = activeRule.packagePrice !== undefined && activeRule.packagePrice !== null && activeRule.packagePrice !== '';
+    const hasPricePerCourse = activeRule.pricePerCourse !== undefined && activeRule.pricePerCourse !== null && activeRule.pricePerCourse !== '';
+    const hasFixedDiscount = activeRule.fixedDiscount !== undefined && activeRule.fixedDiscount !== null && activeRule.fixedDiscount !== '';
+
+    if (hasPackage) {
+        total += Number(activeRule.packagePrice);
+        coursePriceMap.filter(c => c.isDiscountExcluded).forEach(c => {
+            total += c.price;
+        });
+    } else if (hasPricePerCourse) {
+        const newPrice = Number(activeRule.pricePerCourse);
+        coursePriceMap.forEach(c => {
+            if (c.isDiscountExcluded) {
+                total += c.price;
+            } else {
+                total += newPrice;
+            }
+        });
+        if (hasFixedDiscount) {
+            total -= Number(activeRule.fixedDiscount);
+        }
+    } else if (hasFixedDiscount) {
+        const sumNormal = coursePriceMap.reduce((sum, c) => sum + c.price, 0);
+        total = Math.max(0, sumNormal - Number(activeRule.fixedDiscount));
+    } else {
+        total = coursePriceMap.reduce((sum, c) => sum + c.price, 0);
+    }
+
+    return Math.max(0, total);
+};
+
 // 1. Dashboard
 exports.getStudentDashboard = async (req, res) => {
     try {
@@ -45,10 +156,8 @@ exports.getStudentDashboard = async (req, res) => {
         let enrolledSubjectIds = new Set();
         validPayments.forEach(p => {
             if (p.subjects) {
-                try {
-                    const subs = JSON.parse(p.subjects);
-                    subs.forEach(id => enrolledSubjectIds.add(parseInt(id)));
-                } catch (e) {}
+                const subs = parseSafeSubjectIds(p.subjects);
+                subs.forEach(id => enrolledSubjectIds.add(id));
             }
         });
 
@@ -119,24 +228,13 @@ exports.getStudentDashboard = async (req, res) => {
 
                     if (!existingPayment) {
                         let amount = 0;
-                        let parsedSubjects = [];
-                        try { parsedSubjects = subjects ? JSON.parse(subjects) : []; } catch(e) {}
+                        const parsedSubjects = parseSafeSubjectIds(subjects);
                         
                         if (parsedSubjects.length > 0) {
-                            const courseIds = parsedSubjects.map(id => parseInt(id));
                             const courses = await prisma.course.findMany({
-                                where: { id: { in: courseIds } }
+                                where: { id: { in: parsedSubjects } }
                             });
-                            courses.forEach(c => {
-                                let cPrice = c.price || 0;
-                                if (c.groupPrices) {
-                                    try {
-                                        const gp = JSON.parse(c.groupPrices);
-                                        if (gp[nextGroup.id]) cPrice = Number(gp[nextGroup.id]);
-                                    } catch(e) {}
-                                }
-                                amount += cPrice;
-                            });
+                            amount = calculateGroupAmount(nextGroup, courses);
                         }
 
                         // Push a virtual payment
@@ -193,16 +291,47 @@ exports.getStudentDashboard = async (req, res) => {
         let studyMaterials = 0;
         let upcomingLives = []; 
 
+        let enrolledCourses = [];
         if (enrolledSubjectIds.size > 0) {
-            const courseIds = Array.from(enrolledSubjectIds).map(id => BigInt(id));
+            const rawSubjectIds = Array.from(enrolledSubjectIds).map(Number);
+            enrolledCourses = await prisma.course.findMany({
+                where: { id: { in: rawSubjectIds } },
+                include: { group: true }
+            });
+
+            // 🔥 FIX: Expand course IDs to include:
+            // 1. Duplicate courses in the same group
+            // 2. Matching subject courses in the same batch (so live classes assigned to the batch/subject are visible to enrolled students)
+            const expandedCourseIds = new Set(rawSubjectIds);
+            for (const ec of enrolledCourses) {
+                if (ec.group?.batchId) {
+                    const siblingCourses = await prisma.course.findMany({
+                        where: {
+                            group: { batchId: ec.group.batchId },
+                            OR: [
+                                { name: ec.name },
+                                ec.code ? { code: ec.code } : undefined
+                            ].filter(Boolean)
+                        },
+                        select: { id: true, name: true, code: true }
+                    });
+                    siblingCourses.forEach(sc => {
+                        if (sc.name === ec.name || (ec.code && sc.code === ec.code)) {
+                            expandedCourseIds.add(sc.id);
+                        }
+                    });
+                }
+            }
+
+            const courseIds = Array.from(expandedCourseIds).map(id => BigInt(id));
             const linkedContents = await prisma.contentCourse.findMany({ where: { course_id: { in: courseIds } } });
             
             if (linkedContents.length > 0) {
-                const contentIds = linkedContents.map(lc => lc.content_id);
+                const contentIds = [...new Set(linkedContents.map(lc => lc.content_id))];
                 const allContents = await prisma.content.findMany({ where: { id: { in: contentIds } } });
                 
                 unlockedVideos = allContents.filter(c => ['live', 'recording', '1', '2'].includes(c.contentType)).length;
-                studyMaterials = allContents.filter(c => ['document', 'paper', 'sPaper', '3', '4', '5'].includes(c.contentType)).length;
+                studyMaterials = allContents.filter(c => ['document', 'paper', 'sPaper', 'rankingTest', 'ranking_test', 'test', '3', '4', '5'].includes(c.contentType)).length;
 
                 const startOfToday = new Date();
                 startOfToday.setHours(0, 0, 0, 0); 
@@ -213,7 +342,7 @@ exports.getStudentDashboard = async (req, res) => {
 
                 for (const lc of liveClasses) {
                     const courseLink = linkedContents.find(l => l.content_id === lc.id);
-                    const courseDetails = courseLink ? await prisma.course.findUnique({ where: { id: Number(courseLink.course_id) } }) : null;
+                    const courseDetails = courseLink ? (enrolledCourses.find(c => c.id === Number(courseLink.course_id)) || await prisma.course.findUnique({ where: { id: Number(courseLink.course_id) } })) : null;
 
                     upcomingLives.push({
                         id: lc.id,
@@ -230,6 +359,7 @@ exports.getStudentDashboard = async (req, res) => {
 
         res.status(200).json(safeJson({
             enrolledCount: enrolledSubjectIds.size, 
+            enrolledCourses: enrolledCourses,
             upcomingLives: upcomingLives, 
             posts: posts, // 🔥 ළමයාගේ පෝස්ට් විතරයි යන්නේ
             alerts: alerts,
@@ -303,20 +433,20 @@ exports.getMyEnrolledSubjects = async (req, res) => {
         validPayments.forEach(p => {
             if (p.subjects) {
                 try { 
-                    const parsed = JSON.parse(p.subjects);
-                    const numParsed = parsed.map(Number);
-                    enrolled.push(...numParsed); 
-                    enrolled.push(...parsed.map(String)); 
-                    
-                    if (p.payment_type === 3 || p.payment_type === 2) {
-                        fullPaidSubjects.push(...numParsed);
-                        fullPaidSubjects.push(...parsed.map(String));
-                    }
+                    const parsed = typeof p.subjects === 'string' ? JSON.parse(p.subjects) : p.subjects;
+                    if (Array.isArray(parsed)) {
+                        const numParsed = parsed.map(Number).filter(n => !isNaN(n));
+                        const strParsed = parsed.map(String);
+                        enrolled.push(...numParsed, ...strParsed); 
+                        
+                        if (p.payment_type === 3 || p.payment_type === 2) {
+                            fullPaidSubjects.push(...numParsed, ...strParsed);
+                        }
 
-                    if (p.groupId) {
-                        if (!groupPaidSubjects[p.groupId]) groupPaidSubjects[p.groupId] = [];
-                        groupPaidSubjects[p.groupId].push(...numParsed);
-                        groupPaidSubjects[p.groupId].push(...parsed.map(String));
+                        if (p.groupId) {
+                            if (!groupPaidSubjects[p.groupId]) groupPaidSubjects[p.groupId] = [];
+                            groupPaidSubjects[p.groupId].push(...numParsed, ...strParsed);
+                        }
                     }
                 } catch(e) {
                     console.error("Subject Parse Error:", e);
@@ -344,23 +474,44 @@ exports.getMyEnrolledSubjects = async (req, res) => {
 // 3. PayHere Hash 
 exports.generatePayHereHash = async (req, res) => {
     try {
-        const { amount, orderId, currency } = req.body;
+        const { amount, orderId, currency = 'LKR' } = req.body;
+
+        if (!orderId) {
+            return res.status(400).json({ error: "Order ID is required" });
+        }
         
         const merchantId = process.env.PAYHERE_MERCHANT_ID || process.env.VITE_PAYHERE_MERCHANT_ID || "222646"; 
-        const merchantSecret = process.env.PAYHERE_SECRET || process.env.VITE_PAYHERE_SECRET || "3113931171298094467140764830232859317793"; 
+        const merchantSecret = process.env.PAYHERE_SECRET || process.env.VITE_PAYHERE_SECRET; 
 
         if (!merchantId || !merchantSecret) {
             console.error("❌ Backend .env missing PayHere keys!");
-            return res.status(500).json({ error: "PayHere credentials missing in server .env" });
+            return res.status(500).json({ error: "PayHere credentials missing in server configuration" });
+        }
+
+        let amountFormatted = null;
+
+        // If orderId is a numeric payment ID in DB (e.g. Due / Installment payments), enforce authoritative DB amount
+        const numericOrderId = parseInt(orderId);
+        if (!isNaN(numericOrderId) && String(numericOrderId) === String(orderId).trim()) {
+            const paymentRecord = await prisma.payment.findUnique({ where: { id: numericOrderId } });
+            if (paymentRecord && paymentRecord.amount) {
+                amountFormatted = parseFloat(paymentRecord.amount).toFixed(2);
+            }
+        }
+
+        // For new course enrollments where orderId is generated by client (e.g. ORD-172646...), use validated amount
+        if (!amountFormatted) {
+            if (!amount || isNaN(parseFloat(amount))) {
+                return res.status(400).json({ error: "Valid amount is required" });
+            }
+            amountFormatted = parseFloat(amount).toFixed(2);
         }
 
         const hashedSecret = crypto.createHash('md5').update(merchantSecret).digest('hex').toUpperCase();
-        const amountFormatted = parseFloat(amount).toFixed(2);
-        
         const hashString = merchantId + orderId + amountFormatted + currency + hashedSecret;
         const hash = crypto.createHash('md5').update(hashString).digest('hex').toUpperCase();
 
-        res.status(200).json({ hash });
+        res.status(200).json({ hash, amount: amountFormatted });
     } catch (error) {
         console.error("PayHere Hash Error:", error);
         res.status(500).json({ error: "Failed to generate hash" });
@@ -371,103 +522,50 @@ exports.generatePayHereHash = async (req, res) => {
 exports.payhereNotify = async (req, res) => {
     try {
         const { merchant_id, order_id, payhere_amount, payhere_currency, status_code, md5sig } = req.body;
-        const merchantSecret = process.env.PAYHERE_SECRET;
+        const merchantSecret = process.env.PAYHERE_SECRET || process.env.VITE_PAYHERE_SECRET;
+
+        if (!merchantSecret) {
+            console.error("❌ PayHere Secret missing in environment");
+            return res.status(500).send("Configuration Error");
+        }
 
         const hashedSecret = crypto.createHash('md5').update(merchantSecret).digest('hex').toUpperCase();
         const hashString = merchant_id + order_id + payhere_amount + payhere_currency + status_code + hashedSecret;
         const localMd5sig = crypto.createHash('md5').update(hashString).digest('hex').toUpperCase();
 
         if (localMd5sig === md5sig && status_code === "2") {
-            console.log(`[PayHere] Payment successfully verified for Order ID: ${order_id}`);
-            
-            const updatedPayment = await prisma.payment.update({
-                where: { id: parseInt(order_id) },
-                data: { status: 1 } 
-            });
+            const numericId = parseInt(order_id);
+            if (!isNaN(numericId)) {
+                const existingPayment = await prisma.payment.findUnique({ where: { id: numericId } });
+                if (existingPayment) {
+                    // 🛡️ CRITICAL SECURITY CHECK: Prevent Price Tampering / Underpayment Exploit
+                    const expectedAmount = parseFloat(existingPayment.amount);
+                    const paidAmount = parseFloat(payhere_amount);
+
+                    if (paidAmount < expectedAmount) {
+                        console.error(`🚨 [PayHere Underpayment Alert] Tampered amount detected for Order ${order_id}: Expected Rs. ${expectedAmount}, Paid Rs. ${paidAmount}`);
+                        await prisma.payment.update({
+                            where: { id: numericId },
+                            data: { status: -2 } // -2: Tampered / Underpaid
+                        });
+                        return res.status(400).send("Underpayment Detected");
+                    }
+
+                    console.log(`[PayHere] Payment successfully verified for Order ID: ${order_id}, Amount: Rs. ${paidAmount}`);
+                    
+                    const updatedPayment = await prisma.payment.update({
+                        where: { id: numericId },
+                        data: { status: 1 } 
+                    });
 
             if (updatedPayment.subjects) {
-                const subIds = JSON.parse(updatedPayment.subjects).map(id => parseInt(id));
-                const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
-
-                const paymentTypeStr = parseInt(updatedPayment.payment_type) === 1 ? 'Monthly' : (parseInt(updatedPayment.payment_type) === 2 ? 'Installment' : 'Full');
-
-                let existingDeliveredCourseIds = [];
-                if (updatedPayment.payment_type === 1 && updatedPayment.groupId) {
-                    const existingItems = await prisma.deliveryItem.findMany({
-                        where: { delivery: { studentId: updatedPayment.studentId.toString(), paymentType: 'Monthly', payment: { groupId: updatedPayment.groupId } } },
-                        select: { courseId: true }
-                    });
-                    existingDeliveredCourseIds = existingItems.map(i => i.courseId);
-                } else if ((updatedPayment.payment_type === 2 || updatedPayment.payment_type === 3) && updatedPayment.batchId) {
-                    const existingItems = await prisma.deliveryItem.findMany({
-                        where: { delivery: { studentId: updatedPayment.studentId.toString(), paymentType: { in: ['Installment', 'Full'] }, payment: { batchId: updatedPayment.batchId } } },
-                        select: { courseId: true }
-                    });
-                    existingDeliveredCourseIds = existingItems.map(i => i.courseId);
+                try {
+                    const { createAutoDeliveryForPayment } = require('./paymentController');
+                    await createAutoDeliveryForPayment(updatedPayment);
+                } catch (delErr) {
+                    console.error("Auto Delivery Error in payhereNotify:", delErr);
                 }
-
-                const deliverableCoursesMap = new Map();
-                for (const course of courses) {
-                    if (existingDeliveredCourseIds.includes(course.id)) continue;
-
-                    
-                                let deliverTute = false;
-        let tuteName = course.name || "Tute";
-        let tuteImage = null;
-                                let parsedPType = parseInt(updatedPayment.payment_type);
-
-                                let currentGroupId = null;
-                                if (typeof updatedPayment !== 'undefined' && updatedPayment.groupId) currentGroupId = updatedPayment.groupId;
-                                else if (typeof newPayment !== 'undefined' && newPayment.groupId) currentGroupId = newPayment.groupId;
-                                else if (typeof payRecord !== 'undefined' && payRecord.groupId) currentGroupId = payRecord.groupId;
-                                
-                                if (course.groupPrices && currentGroupId) {
-                                    try {
-                                        const gps = JSON.parse(course.groupPrices);
-                                        const match = gps.find(g => g.groupId == currentGroupId);
-                                        if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                                            if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
-                                                match.tutes.forEach(t => {
-                                                    const tName = t.name || t.tuteName || course.name || "Tute";
-                                                    const tCover = t.cover || t.tuteCover || null;
-                                                    const key = `${course.id}_${tName}`;
-                                                    if (!deliverableCoursesMap.has(key)) {
-                                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tName, tuteImage: tCover, quantity: 1 });
-                                                    }
-                                                });
-                                            } else {
-                                                deliverTute = true;
-                                                if (match.tuteName) tuteName = match.tuteName;
-                                                if (match.tuteCover) tuteImage = match.tuteCover;
-                                            }
-                                        }
-                                    } catch(e) {}
-                                }
-                                
-                                if (deliverTute) {
-                                    const key = `${course.id}_${tuteName}`;
-                                    if (!deliverableCoursesMap.has(key)) {
-                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tuteName, tuteImage: typeof tuteImage !== 'undefined' ? tuteImage : null, quantity: 1 });
-                                    }
-                                }
-
-                }
-                const deliverableCourses = Array.from(deliverableCoursesMap.values());
-
-                if (deliverableCourses.length > 0) {
-                    await prisma.delivery.create({
-                        data: {
-                            paymentId: updatedPayment.id,
-                            studentId: updatedPayment.studentId.toString(),
-                            businessId: updatedPayment.businessId,
-                            paymentType: paymentTypeStr,
-                            status: 'Pending',
-                            items: {
-                                create: deliverableCourses
-                            }
-                        }
-                    });
-                    console.log(`🚚 Auto-Delivery created for PayHere Payment ID: ${order_id}`);
+            }
                 }
             }
         }
@@ -590,93 +688,10 @@ exports.enrollStudent = async (req, res) => {
                 // PayHere/Paycorp Delivery Auto-Create Logic...
                 if ((safeMethod === 'payhere' || safeMethod === 'paycorp') && newPayment.subjects) {
                     try {
-                        if (newPayment.subjects) {
-                            const subIds = JSON.parse(newPayment.subjects).map(id => parseInt(id));
-                            const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
-
-                            let existingDeliveredCourseIds = [];
-                            if (parsedPaymentType === 1 && newPayment.groupId) {
-                                const existingItems = await prisma.deliveryItem.findMany({
-                                    where: { delivery: { studentId: newPayment.studentId.toString(), paymentType: 'Monthly', payment: { groupId: newPayment.groupId } } },
-                                    select: { courseId: true }
-                                });
-                                existingDeliveredCourseIds = existingItems.map(i => i.courseId);
-                            } else if ((parsedPaymentType === 2 || parsedPaymentType === 3) && newPayment.batchId) {
-                                const existingItems = await prisma.deliveryItem.findMany({
-                                    where: { delivery: { studentId: newPayment.studentId.toString(), paymentType: { in: ['Installment', 'Full'] }, payment: { batchId: newPayment.batchId } } },
-                                    select: { courseId: true }
-                                });
-                                existingDeliveredCourseIds = existingItems.map(i => i.courseId);
-                            }
-
-                            const deliverableCoursesMap = new Map();
-                            for (const course of courses) {
-                                if (existingDeliveredCourseIds.includes(course.id)) continue;
-
-                                
-                                let deliverTute = false;
-        let tuteName = course.name || "Tute";
-        let tuteImage = null;
-                                let parsedPType = parseInt(parsedPaymentType);
-
-                                let currentGroupId = null;
-                                if (typeof updatedPayment !== 'undefined' && updatedPayment.groupId) currentGroupId = updatedPayment.groupId;
-                                else if (typeof newPayment !== 'undefined' && newPayment.groupId) currentGroupId = newPayment.groupId;
-                                else if (typeof payRecord !== 'undefined' && payRecord.groupId) currentGroupId = payRecord.groupId;
-                                
-                                if (course.groupPrices && currentGroupId) {
-                                    try {
-                                        const gps = JSON.parse(course.groupPrices);
-                                        const match = gps.find(g => g.groupId == currentGroupId);
-                                        if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                                            if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
-                                                match.tutes.forEach(t => {
-                                                    const tName = t.name || t.tuteName || course.name || "Tute";
-                                                    const tCover = t.cover || t.tuteCover || null;
-                                                    const key = `${course.id}_${tName}`;
-                                                    if (!deliverableCoursesMap.has(key)) {
-                                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tName, tuteImage: tCover, quantity: 1 });
-                                                    }
-                                                });
-                                            } else {
-                                                deliverTute = true;
-                                                if (match.tuteName) tuteName = match.tuteName;
-                                                if (match.tuteCover) tuteImage = match.tuteCover;
-                                            }
-                                        }
-                                    } catch(e) {}
-                                }
-                                
-                                if (deliverTute) {
-                                    const key = `${course.id}_${tuteName}`;
-                                    if (!deliverableCoursesMap.has(key)) {
-                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tuteName, tuteImage: typeof tuteImage !== 'undefined' ? tuteImage : null, quantity: 1 });
-                                    }
-                                }
-
-                            }
-                            const deliverableCourses = Array.from(deliverableCoursesMap.values());
-
-                            if (deliverableCourses.length > 0) {
-                                const paymentTypeStr = parsedPaymentType === 1 ? 'Monthly' : (parsedPaymentType === 2 ? 'Installment' : 'Full');
-
-                                await prisma.delivery.create({
-                                    data: {
-                                        paymentId: newPayment.id,
-                                        studentId: newPayment.studentId.toString(),
-                                        businessId: newPayment.businessId,
-                                        paymentType: paymentTypeStr,
-                                        status: 'Pending', 
-                                        items: {
-                                            create: deliverableCourses
-                                        }
-                                    }
-                                });
-                                console.log(`🚚 Auto-Delivery created for Instant PayHere Payment ID: ${newPayment.id}`);
-                            }
-                        }
+                        const { createAutoDeliveryForPayment } = require('./paymentController');
+                        await createAutoDeliveryForPayment(newPayment);
                     } catch (err) {
-                        console.error("Auto Delivery Error:", err);
+                        console.error("Auto Delivery Error in upgrade flow:", err);
                     }
                 }
 
@@ -775,93 +790,10 @@ exports.enrollStudent = async (req, res) => {
         // PayHere/Paycorp Delivery Auto-Create Logic...
         if ((safeMethod === 'payhere' || safeMethod === 'paycorp') && newPayment.subjects) {
             try {
-                if (newPayment.subjects) {
-                    const subIds = JSON.parse(newPayment.subjects).map(id => parseInt(id));
-                    const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
-
-                    let existingDeliveredCourseIds = [];
-                    if (parsedPaymentType === 1 && newPayment.groupId) {
-                        const existingItems = await prisma.deliveryItem.findMany({
-                            where: { delivery: { studentId: newPayment.studentId.toString(), paymentType: 'Monthly', payment: { groupId: newPayment.groupId } } },
-                            select: { courseId: true }
-                        });
-                        existingDeliveredCourseIds = existingItems.map(i => i.courseId);
-                    } else if ((parsedPaymentType === 2 || parsedPaymentType === 3) && newPayment.batchId) {
-                        const existingItems = await prisma.deliveryItem.findMany({
-                            where: { delivery: { studentId: newPayment.studentId.toString(), paymentType: { in: ['Installment', 'Full'] }, payment: { batchId: newPayment.batchId } } },
-                            select: { courseId: true }
-                        });
-                        existingDeliveredCourseIds = existingItems.map(i => i.courseId);
-                    }
-
-                    const deliverableCoursesMap = new Map();
-                    for (const course of courses) {
-                        if (existingDeliveredCourseIds.includes(course.id)) continue;
-
-                        
-                                let deliverTute = false;
-        let tuteName = course.name || "Tute";
-        let tuteImage = null;
-                                let parsedPType = parseInt(parsedPaymentType);
-
-                                let currentGroupId = null;
-                                if (typeof updatedPayment !== 'undefined' && updatedPayment.groupId) currentGroupId = updatedPayment.groupId;
-                                else if (typeof newPayment !== 'undefined' && newPayment.groupId) currentGroupId = newPayment.groupId;
-                                else if (typeof payRecord !== 'undefined' && payRecord.groupId) currentGroupId = payRecord.groupId;
-                                
-                                if (course.groupPrices && currentGroupId) {
-                                    try {
-                                        const gps = JSON.parse(course.groupPrices);
-                                        const match = gps.find(g => g.groupId == currentGroupId);
-                                        if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                                            if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
-                                                match.tutes.forEach(t => {
-                                                    const tName = t.name || t.tuteName || course.name || "Tute";
-                                                    const tCover = t.cover || t.tuteCover || null;
-                                                    const key = `${course.id}_${tName}`;
-                                                    if (!deliverableCoursesMap.has(key)) {
-                                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tName, tuteImage: tCover, quantity: 1 });
-                                                    }
-                                                });
-                                            } else {
-                                                deliverTute = true;
-                                                if (match.tuteName) tuteName = match.tuteName;
-                                                if (match.tuteCover) tuteImage = match.tuteCover;
-                                            }
-                                        }
-                                    } catch(e) {}
-                                }
-                                
-                                if (deliverTute) {
-                                    const key = `${course.id}_${tuteName}`;
-                                    if (!deliverableCoursesMap.has(key)) {
-                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tuteName, tuteImage: typeof tuteImage !== 'undefined' ? tuteImage : null, quantity: 1 });
-                                    }
-                                }
-
-                    }
-                    const deliverableCourses = Array.from(deliverableCoursesMap.values());
-
-                    if (deliverableCourses.length > 0) {
-                        const paymentTypeStr = parsedPaymentType === 1 ? 'Monthly' : (parsedPaymentType === 2 ? 'Installment' : 'Full');
-
-                        await prisma.delivery.create({
-                            data: {
-                                paymentId: newPayment.id,
-                                studentId: newPayment.studentId.toString(),
-                                businessId: newPayment.businessId,
-                                paymentType: paymentTypeStr,
-                                status: 'Pending', 
-                                items: {
-                                    create: deliverableCourses
-                                }
-                            }
-                        });
-                        console.log(`🚚 Auto-Delivery created for Instant PayHere Payment ID: ${newPayment.id}`);
-                    }
-                }
+                const { createAutoDeliveryForPayment } = require('./paymentController');
+                await createAutoDeliveryForPayment(newPayment);
             } catch (err) {
-                console.error("Auto Delivery Error:", err);
+                console.error("Auto Delivery Error in standard flow:", err);
             }
         }
 
@@ -896,12 +828,10 @@ exports.getStudentClassroom = async (req, res) => {
         let allowedSubjectIds = [];
         validPayments.forEach(p => {
             if (p.subjects) {
-                try {
-                    const subs = JSON.parse(p.subjects);
-                    allowedSubjectIds = [...allowedSubjectIds, ...subs.map(id => parseInt(id))];
-                } catch (e) {}
+                allowedSubjectIds.push(...parseSafeSubjectIds(p.subjects));
             }
         });
+        allowedSubjectIds = [...new Set(allowedSubjectIds)];
 
         const businesses = await prisma.business.findMany({
             where: { batches: { some: { id: { in: validBatchIds } } } },
@@ -919,10 +849,10 @@ exports.getStudentClassroom = async (req, res) => {
         });
 
         // 🔥 FIX: Map all allowed subjects to their codes AND names so we can match payments by code or name instead of just exact ID
-        const paidCourses = await prisma.course.findMany({
+        const paidCourses = allowedSubjectIds.length > 0 ? await prisma.course.findMany({
             where: { id: { in: allowedSubjectIds } },
             select: { id: true, code: true, name: true }
-        });
+        }) : [];
         const paidCourseMap = new Map();
         paidCourses.forEach(c => paidCourseMap.set(c.id, { code: c.code, name: c.name }));
 
@@ -931,9 +861,11 @@ exports.getStudentClassroom = async (req, res) => {
                 batch.groups.forEach(group => {
                     // Determine which subjects were explicitly paid for in THIS group
                     const paidSubjectIdsInThisGroup = [];
+                    const paidSubjectStringsInThisGroup = [];
                     validPayments.filter(p => p.groupId === group.id).forEach(p => {
                         if (p.subjects && p.subjects !== '[]') {
-                            try { paidSubjectIdsInThisGroup.push(...JSON.parse(p.subjects).map(Number)); } catch(e){}
+                            paidSubjectIdsInThisGroup.push(...parseSafeSubjectIds(p.subjects));
+                            paidSubjectStringsInThisGroup.push(...parseSafeSubjectStrings(p.subjects));
                         }
                     });
 
@@ -947,6 +879,10 @@ exports.getStudentClassroom = async (req, res) => {
                         // Check if THIS specific group's payment included this subject
                         if (paidSubjectIdsInThisGroup.includes(c.id)) return true;
                         
+                        // Check if payment included this course by name or code string
+                        if (c.name && paidSubjectStringsInThisGroup.includes(c.name.trim().toLowerCase())) return true;
+                        if (c.code && paidSubjectStringsInThisGroup.includes(c.code.trim().toLowerCase())) return true;
+
                         // Fallback: match by code/name ONLY against subjects paid for in THIS group
                         for (const paidCourse of paidCoursesInThisGroup) {
                             const nameMatches = c.name && paidCourse.name && c.name.trim().toLowerCase() === paidCourse.name.trim().toLowerCase();
@@ -961,6 +897,22 @@ exports.getStudentClassroom = async (req, res) => {
                         
                         return false;
                     });
+
+                    // 🔥 FIX: Deduplicate courses in the group by name/type so duplicate courses in DB don't show multiple cards
+                    const deduplicatedCourses = new Map();
+                    group.courses.forEach(c => {
+                        const key = `${(c.name || '').trim().toLowerCase()}_${c.courseType || group.classType || 1}`;
+                        if (!deduplicatedCourses.has(key)) {
+                            deduplicatedCourses.set(key, c);
+                        } else {
+                            // If this course is the exact one in paidSubjectIdsInThisGroup, prefer it
+                            if (paidSubjectIdsInThisGroup.includes(c.id)) {
+                                deduplicatedCourses.set(key, c);
+                            }
+                        }
+                    });
+                    group.courses = Array.from(deduplicatedCourses.values());
+
                     // Determine actual payment type for the student for EACH course
                     group.courses.forEach(course => {
                         const courseCode = course.code;
@@ -970,9 +922,12 @@ exports.getStudentClassroom = async (req, res) => {
                             if (p.groupId !== group.id) return false;
                             if (!p.subjects || p.subjects === '[]') return true;
                             try {
-                                const subs = JSON.parse(p.subjects).map(id => parseInt(id));
-                                // Check if exact ID matches, OR if the payment contains a subject with the same code or name
-                                return subs.includes(course.id) || subs.some(subId => {
+                                const subs = parseSafeSubjectIds(p.subjects);
+                                const subStrs = parseSafeSubjectStrings(p.subjects);
+                                if (subs.includes(course.id)) return true;
+                                if (courseName && subStrs.includes(courseName.trim().toLowerCase())) return true;
+                                if (courseCode && subStrs.includes(courseCode.trim().toLowerCase())) return true;
+                                return subs.some(subId => {
                                     const paidCourse = paidCourseMap.get(subId);
                                     if (!paidCourse) return false;
                                     const codeMatch = courseCode && paidCourse.code && courseCode.trim().toLowerCase() === paidCourse.code.trim().toLowerCase();
@@ -1021,29 +976,39 @@ exports.getCourseModules = async (req, res) => {
 
         if (requestedCourse && requestedCourse.group?.batchId) {
             const batchId = requestedCourse.group.batchId;
+            const targetClassType = parseInt(requestedCourse.courseType || requestedCourse.group?.classType || 1, 10);
+
             const fullPayments = await prisma.payment.findMany({
                 where: {
                     studentId: parseInt(studentId),
                     batchId: batchId,
                     payment_type: { in: [2, 3] },
-                    status: { in: [1, 4] }
+                    status: { in: [1, 4] },
+                    group: { classType: targetClassType }
                 }
             });
 
             if (fullPayments.length > 0) {
-                // If Full Payment, fetch all courses in this batch with the same code OR same name
+                // If Full Payment, fetch all courses in this batch with the same code OR same name AND matching classType!
                 const similarCoursesRaw = await prisma.course.findMany({
                     where: {
                         OR: [
                             requestedCourse.code ? { code: requestedCourse.code } : undefined,
                             { name: requestedCourse.name }
                         ].filter(Boolean),
-                        group: { batchId: batchId }
+                        group: { 
+                            batchId: batchId,
+                            classType: targetClassType
+                        },
+                        courseType: targetClassType
                     }
                 });
 
-                // 🔥 FIX: Filter out courses that clearly belong to a different subject despite having the same code
+                // 🔥 FIX: Filter out courses that clearly belong to a different subject or different classType
                 const similarCourses = similarCoursesRaw.filter(c => {
+                    const cClassType = parseInt(c.courseType || c.group?.classType || 1, 10);
+                    if (cClassType !== targetClassType) return false;
+
                     if (c.name === requestedCourse.name) return true;
                     if (requestedCourse.code && c.code === requestedCourse.code) {
                         const reqFirstWord = requestedCourse.name.trim().split(/[\s-]+/)[0].toLowerCase();
@@ -1058,7 +1023,7 @@ exports.getCourseModules = async (req, res) => {
                 const validFullPayments = fullPayments.filter(p => {
                     if (!p.subjects) return true;
                     try {
-                        const subs = JSON.parse(p.subjects).map(s => parseInt(s));
+                        const subs = parseSafeSubjectIds(p.subjects);
                         return subs.some(subId => similarCourseIds.includes(subId));
                     } catch (e) {
                         return true;
@@ -1071,6 +1036,23 @@ exports.getCourseModules = async (req, res) => {
             }
         }
 
+        // 🔥 FIX: Include sibling duplicate courses in the same group so contents assigned to duplicate courses are accessible
+        if (requestedCourse && requestedCourse.groupId && requestedCourse.name) {
+            const sameGroupSiblings = await prisma.course.findMany({
+                where: {
+                    groupId: requestedCourse.groupId,
+                    name: requestedCourse.name
+                },
+                select: { id: true }
+            });
+            sameGroupSiblings.forEach(s => {
+                const sBig = BigInt(s.id);
+                if (!targetCourseIds.some(tid => tid.toString() === sBig.toString())) {
+                    targetCourseIds.push(sBig);
+                }
+            });
+        }
+
         const linkedContents = await prisma.contentCourse.findMany({
             where: { course_id: { in: targetCourseIds } }
         });
@@ -1079,7 +1061,7 @@ exports.getCourseModules = async (req, res) => {
         
         const contentsRaw = await prisma.content.findMany({
             where: { id: { in: contentIds } },
-            include: { group: true },
+            include: { group: true, paper: true },
             orderBy: { createdAt: 'desc' }
         });
 
@@ -1103,8 +1085,6 @@ exports.getCourseModules = async (req, res) => {
                  OR: [
                      batchIdForGroups ? { batchId: batchIdForGroups, courseCode: courseCodeForGroups } : undefined,
                      batchIdForGroups && requestedCourse?.code ? { batchId: batchIdForGroups, courseCode: requestedCourse.code } : undefined,
-                     batchIdForGroups ? { batchId: batchIdForGroups, courseCode: null } : undefined,
-                     batchIdForGroups ? { batchId: batchIdForGroups, courseCode: '' } : undefined,
                      batchIdForGroups ? { additionalBatchIds: { contains: `,${batchIdForGroups},` } } : undefined,
                      batchIdForGroups && groupTitles.length > 0 ? { batchId: batchIdForGroups, title: { in: groupTitles } } : undefined,
                      { id: { in: groupIds } }
@@ -1146,8 +1126,7 @@ exports.getCourseModules = async (req, res) => {
             const typeInt = (c.contentType === 'live' || c.contentType === '1') ? 1
                 : (c.contentType === 'recording' || c.contentType === '2') ? 2
                 : (c.contentType === 'document' || c.contentType === '3') ? 3
-                : (c.contentType === 'sPaper' || c.contentType === '4') ? 4
-                : (c.contentType === 'paper' || c.contentType === '5') ? 5 : 1;
+                : (c.contentType === 'testRanking' || c.contentType === 'rankingTest' || c.contentType === 'ranking_test' || c.contentType === 'test' || c.contentType === 'sPaper' || c.contentType === '4' || c.contentType === 'paper' || c.contentType === '5') ? 4 : 1;
 
             if (finalGroupId && !lessonGroups.some(g => g.id === finalGroupId)) {
                 if (groupTitle) {
@@ -1160,8 +1139,8 @@ exports.getCourseModules = async (req, res) => {
                 }
             }
 
-            // Smart month matching fallback
-            if (!finalGroupId || !lessonGroups.some(g => g.id === finalGroupId)) {
+            // Smart month matching fallback for cross-batch folders (only if finalGroupId is NOT null)
+            if (finalGroupId && !lessonGroups.some(g => g.id === finalGroupId)) {
                 let targetMonthIdx = -1;
                 if (c.date) {
                     try {
@@ -1172,15 +1151,17 @@ exports.getCourseModules = async (req, res) => {
                 if (targetMonthIdx === -1 && c.title) {
                     const titleLower = c.title.toLowerCase();
                     targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
-                    if (targetMonthIdx === -1) targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
+                    if (targetMonthIdx === -1) {
+                        targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
+                    }
                 }
                 if (targetMonthIdx !== -1) {
                     const engMonth = monthNames[targetMonthIdx];
                     const sinMonth = sinhalaMonths[targetMonthIdx];
                     const matched = lessonGroups.find(g => {
                         if (g.type && g.type !== typeInt) return false;
-                        const gTitleLower = (g.title || '').toLowerCase();
-                        return gTitleLower.includes(engMonth) || gTitleLower.includes(sinMonth);
+                        const gTitle = (g.title || '').toLowerCase();
+                        return gTitle.includes(engMonth) || gTitle.includes(sinMonth);
                     });
                     if (matched) {
                         finalGroupId = matched.id;
@@ -1202,8 +1183,10 @@ exports.getCourseModules = async (req, res) => {
         const documents = contentsProcessed.filter(c => c.contentType === 'document' || c.contentType === '3');
         const sPapers = contentsProcessed.filter(c => c.contentType === 'sPaper' || c.contentType === '4');
         const papers = contentsProcessed.filter(c => c.contentType === 'paper' || c.contentType === '5');
+        const rankingTests = contentsProcessed.filter(c => ['testRanking', 'rankingTest', 'ranking_test', 'test', 'sPaper', 'paper', '4', '5'].includes(c.contentType));
 
         const safeData = safeJson({ 
+            course: requestedCourse,
             lessonGroups, 
             contents: contentsProcessed,
             liveClasses,
@@ -1211,6 +1194,7 @@ exports.getCourseModules = async (req, res) => {
             documents,
             sPapers,
             papers,
+            rankingTests,
             paidStatus: 1 
         });
         
@@ -1255,11 +1239,16 @@ exports.getMyPayments = async (req, res) => {
             if (p.status === 0 && p.method === 'Slip') frontendStatus = -1; 
             else if (p.status === 0 && p.method === 'Upcoming') frontendStatus = 0; 
 
+            const resolvedClassType = parseInt(p.group?.classType || 1);
+            const classTypeName = resolvedClassType === 2 ? 'Paper Class' : 'Theory Class';
+
             return {
                 id: p.id,
                 businessId: p.businessId || p.business?.id || p.batch?.businessId,
                 courseName: `${p.business?.name || 'Course'} - ${p.batch?.name || 'Batch'} - ${p.group?.name || 'Unknown'}`,
                 groupName: p.group?.name,
+                classType: resolvedClassType,
+                classTypeName: classTypeName,
                 slips: p.slip_image ? p.slip_image.split(',') : [],
                 amount: p.amount || 0, 
                 status: frontendStatus,
@@ -1318,24 +1307,13 @@ exports.getMyPayments = async (req, res) => {
 
                     if (!existingPayment) {
                         let amount = 0;
-                        let parsedSubjects = [];
-                        try { parsedSubjects = subjects ? JSON.parse(subjects) : []; } catch(e) {}
+                        const parsedSubjects = parseSafeSubjectIds(subjects);
                         
                         if (parsedSubjects.length > 0) {
-                            const courseIds = parsedSubjects.map(id => parseInt(id));
                             const courses = await prisma.course.findMany({
-                                where: { id: { in: courseIds } }
+                                where: { id: { in: parsedSubjects } }
                             });
-                            courses.forEach(c => {
-                                let cPrice = c.price || 0;
-                                if (c.groupPrices) {
-                                    try {
-                                        const gp = JSON.parse(c.groupPrices);
-                                        if (gp[nextGroup.id]) cPrice = Number(gp[nextGroup.id]);
-                                    } catch(e) {}
-                                }
-                                amount += cPrice;
-                            });
+                            amount = calculateGroupAmount(nextGroup, courses);
                         }
 
                         const nextMonthDueDate = new Date(today.getFullYear(), today.getMonth() + 1, 5);
@@ -1503,88 +1481,8 @@ exports.uploadDueSlip = async (req, res) => {
         // PayHere Delivery & CRM Auto-Create Logic
         if (safeMethod === 'payhere' && updatedPayment.subjects) {
             try {
-                const parsedPaymentType = updatedPayment.payment_type;
-                const subIds = JSON.parse(updatedPayment.subjects).map(id => parseInt(id));
-                const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
-
-                let existingDeliveredCourseIds = [];
-                if (parsedPaymentType === 1 && updatedPayment.groupId) {
-                    const existingItems = await prisma.deliveryItem.findMany({
-                        where: { delivery: { studentId: updatedPayment.studentId.toString(), paymentType: 'Monthly', payment: { groupId: updatedPayment.groupId } } },
-                        select: { courseId: true }
-                    });
-                    existingDeliveredCourseIds = existingItems.map(i => i.courseId);
-                } else if ((parsedPaymentType === 2 || parsedPaymentType === 3) && updatedPayment.batchId) {
-                    const existingItems = await prisma.deliveryItem.findMany({
-                        where: { delivery: { studentId: updatedPayment.studentId.toString(), paymentType: { in: ['Installment', 'Full'] }, payment: { batchId: updatedPayment.batchId } } },
-                        select: { courseId: true }
-                    });
-                    existingDeliveredCourseIds = existingItems.map(i => i.courseId);
-                }
-
-                const deliverableCoursesMap = new Map();
-                for (const course of courses) {
-                    if (existingDeliveredCourseIds.includes(course.id)) continue;
-
-                    
-                                let deliverTute = false;
-        let tuteName = course.name || "Tute";
-        let tuteImage = null;
-                                let parsedPType = parseInt(updatedPayment.payment_type);
-
-                                let currentGroupId = null;
-                                if (typeof updatedPayment !== 'undefined' && updatedPayment.groupId) currentGroupId = updatedPayment.groupId;
-                                else if (typeof newPayment !== 'undefined' && newPayment.groupId) currentGroupId = newPayment.groupId;
-                                else if (typeof payRecord !== 'undefined' && payRecord.groupId) currentGroupId = payRecord.groupId;
-                                
-                                if (course.groupPrices && currentGroupId) {
-                                    try {
-                                        const gps = JSON.parse(course.groupPrices);
-                                        const match = gps.find(g => g.groupId == currentGroupId);
-                                        if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                                            if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
-                                                match.tutes.forEach(t => {
-                                                    const tName = t.name || t.tuteName || course.name || "Tute";
-                                                    const tCover = t.cover || t.tuteCover || null;
-                                                    const key = `${course.id}_${tName}`;
-                                                    if (!deliverableCoursesMap.has(key)) {
-                                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tName, tuteImage: tCover, quantity: 1 });
-                                                    }
-                                                });
-                                            } else {
-                                                deliverTute = true;
-                                                if (match.tuteName) tuteName = match.tuteName;
-                                                if (match.tuteCover) tuteImage = match.tuteCover;
-                                            }
-                                        }
-                                    } catch(e) {}
-                                }
-                                
-                                if (deliverTute) {
-                                    const key = `${course.id}_${tuteName}`;
-                                    if (!deliverableCoursesMap.has(key)) {
-                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tuteName, tuteImage: typeof tuteImage !== 'undefined' ? tuteImage : null, quantity: 1 });
-                                    }
-                                }
-
-                }
-                const deliverableCourses = Array.from(deliverableCoursesMap.values());
-
-                if (deliverableCourses.length > 0) {
-                    const paymentTypeStr = parsedPaymentType === 1 ? 'Monthly' : (parsedPaymentType === 2 ? 'Installment' : 'Full');
-
-                    await prisma.delivery.create({
-                        data: {
-                            paymentId: updatedPayment.id,
-                            studentId: updatedPayment.studentId.toString(),
-                            businessId: updatedPayment.businessId,
-                            paymentType: paymentTypeStr,
-                            status: 'Pending', 
-                            items: { create: deliverableCourses }
-                        }
-                    });
-                    console.log(`🚚 Auto-Delivery created for Online Due Payment ID: ${updatedPayment.id}`);
-                }
+                const { createAutoDeliveryForPayment } = require('./paymentController');
+                await createAutoDeliveryForPayment(updatedPayment);
             } catch (err) {
                 console.error("Auto Delivery Error for due payment:", err);
             }
@@ -1738,10 +1636,25 @@ exports.updateStudentByAdmin = async (req, res) => {
 exports.resetStudentPassword = async (req, res) => {
     try {
         const { studentId, newPassword } = req.body;
+        if (!studentId || !newPassword) {
+            return res.status(400).json({ error: "Student ID and new password are required" });
+        }
+
+        const targetUser = await prisma.user.findUnique({ where: { id: parseInt(studentId) } });
+        if (!targetUser) return res.status(404).json({ error: "Student not found" });
+
+        const targetRole = String(targetUser.role || '').trim().toUpperCase();
+        const callerRole = String(req.user?.role || '').trim().toUpperCase();
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER_ADMIN', 'ADMIN'].includes(callerRole);
+
+        if (targetRole !== 'STUDENT' && !isAdmin) {
+            return res.status(403).json({ error: "Unauthorized: Only student accounts can be reset." });
+        }
+
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         
         await prisma.user.update({
-            where: { id: parseInt(studentId) },
+            where: { id: targetUser.id },
             data: { 
                 password: hashedPassword,
                 session_id: crypto.randomBytes(16).toString('hex')
@@ -1758,9 +1671,20 @@ exports.resetStudentPassword = async (req, res) => {
 exports.ghostLogin = async (req, res) => {
     try {
         const { studentId } = req.body;
+        if (!studentId) {
+            return res.status(400).json({ error: "Student ID is required" });
+        }
+
         const user = await prisma.user.findUnique({ where: { id: parseInt(studentId) } });
-        
         if (!user) return res.status(404).json({ error: "Student not found" });
+
+        const targetRole = String(user.role || '').trim().toUpperCase();
+        const callerRole = String(req.user?.role || '').trim().toUpperCase();
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER_ADMIN', 'ADMIN'].includes(callerRole);
+
+        if (targetRole !== 'STUDENT' && !isAdmin) {
+            return res.status(403).json({ error: "Unauthorized: Ghost login is only permitted for student accounts." });
+        }
 
         const sessionId = crypto.randomBytes(16).toString('hex');
         await prisma.user.update({
@@ -1947,82 +1871,8 @@ exports.payDueOnline = async (req, res) => {
         // 🔥 Auto-Delivery Creation for Online Due Payment
         if (updatedPayment.subjects) {
             try {
-                const parsedPaymentType = updatedPayment.payment_type;
-                const subIds = JSON.parse(updatedPayment.subjects).map(id => parseInt(id));
-                const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
-
-                let existingDeliveredCourseIds = [];
-                if (parsedPaymentType === 1 && updatedPayment.groupId) {
-                    const existingItems = await prisma.deliveryItem.findMany({
-                        where: { delivery: { studentId: updatedPayment.studentId.toString(), paymentType: 'Monthly', payment: { groupId: updatedPayment.groupId } } },
-                        select: { courseId: true }
-                    });
-                    existingDeliveredCourseIds = existingItems.map(i => i.courseId);
-                } else if ((parsedPaymentType === 2 || parsedPaymentType === 3) && updatedPayment.batchId) {
-                    const existingItems = await prisma.deliveryItem.findMany({
-                        where: { delivery: { studentId: updatedPayment.studentId.toString(), paymentType: { in: ['Installment', 'Full'] }, payment: { batchId: updatedPayment.batchId } } },
-                        select: { courseId: true }
-                    });
-                    existingDeliveredCourseIds = existingItems.map(i => i.courseId);
-                }
-
-                const deliverableCoursesMap = new Map();
-                for (const course of courses) {
-                    if (existingDeliveredCourseIds.includes(course.id)) continue;
-
-                    let deliverTute = false;
-        let tuteName = course.name || "Tute";
-        let tuteImage = null;
-                    let parsedPType = parseInt(updatedPayment.payment_type);
-
-                        let currentGroupId = updatedPayment.groupId;
-                        if (course.groupPrices && currentGroupId) {
-                                    try {
-                                        const gps = JSON.parse(course.groupPrices);
-                                        const match = gps.find(g => g.groupId == currentGroupId);
-                                        if (match && (match.deliverTute === true || match.deliverTute === 'true')) {
-                                            if (match.tutes && Array.isArray(match.tutes) && match.tutes.length > 0) {
-                                                match.tutes.forEach(t => {
-                                                    const tName = t.name || t.tuteName || course.name || "Tute";
-                                                    const tCover = t.cover || t.tuteCover || null;
-                                                    const key = `${course.id}_${tName}`;
-                                                    if (!deliverableCoursesMap.has(key)) {
-                                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tName, tuteImage: tCover, quantity: 1 });
-                                                    }
-                                                });
-                                            } else {
-                                                deliverTute = true;
-                                                if (match.tuteName) tuteName = match.tuteName;
-                                                if (match.tuteCover) tuteImage = match.tuteCover;
-                                            }
-                                        }
-                                    } catch(e) {}
-                                }
-                                
-                                if (deliverTute) {
-                                    const key = `${course.id}_${tuteName}`;
-                                    if (!deliverableCoursesMap.has(key)) {
-                                        deliverableCoursesMap.set(key, { courseId: course.id, tuteName: tuteName, tuteImage: typeof tuteImage !== 'undefined' ? tuteImage : null, quantity: 1 });
-                                    }
-                                }
-                }
-                const deliverableCourses = Array.from(deliverableCoursesMap.values());
-
-                if (deliverableCourses.length > 0) {
-                    const paymentTypeStr = parsedPaymentType === 1 ? 'Monthly' : (parsedPaymentType === 2 ? 'Installment' : 'Full');
-
-                    await prisma.delivery.create({
-                        data: {
-                            paymentId: updatedPayment.id,
-                            studentId: updatedPayment.studentId.toString(),
-                            businessId: updatedPayment.businessId,
-                            paymentType: paymentTypeStr,
-                            status: 'Pending', 
-                            items: { create: deliverableCourses }
-                        }
-                    });
-                    console.log(`🚚 Auto-Delivery created for Online Due Payment ID: ${updatedPayment.id}`);
-                }
+                const { createAutoDeliveryForPayment } = require('./paymentController');
+                await createAutoDeliveryForPayment(updatedPayment);
             } catch (err) {
                 console.error("Auto Delivery Error for due payment:", err);
             }
@@ -2055,21 +1905,54 @@ exports.deleteStudentAccount = async (req, res) => {
         const id = parseInt(studentId);
         console.log(`🗑️ [BACKEND] Processing delete for ID: ${id}`);
 
-        // 1. ළමයාගේ Payments සහ Deliveries අයින් කිරීම
+        const targetUser = await prisma.user.findUnique({ where: { id } });
+        if (!targetUser) {
+            return res.status(404).json({ error: "Student account not found." });
+        }
+
+        const targetRoleUpper = String(targetUser.role || '').trim().toUpperCase();
+        if (['SYSTEM_ADMIN', 'SUPER_ADMIN', 'ADMIN', 'DIRECTOR'].includes(targetRoleUpper)) {
+            return res.status(403).json({ error: "Cannot delete administrator accounts." });
+        }
+
+        // 1. ළමයාගේ Payments, Delivery items සහ Deliveries අයින් කිරීම
         const payments = await prisma.payment.findMany({ where: { studentId: id } });
         if (payments.length > 0) {
             console.log(`📦 [BACKEND] Found ${payments.length} payments. Deleting related deliveries & payments...`);
             const paymentIds = payments.map(p => p.id);
-            await prisma.delivery.deleteMany({ where: { paymentId: { in: paymentIds } } });
-            await prisma.payment.deleteMany({ where: { studentId: id } });
+            await prisma.deliveryItem.deleteMany({ where: { delivery: { paymentId: { in: paymentIds } } } }).catch(() => {});
+            await prisma.delivery.deleteMany({ where: { paymentId: { in: paymentIds } } }).catch(() => {});
+            await prisma.paymentAuditLog.deleteMany({ where: { paymentId: { in: paymentIds } } }).catch(() => {});
+            await prisma.payment.deleteMany({ where: { studentId: id } }).catch(() => {});
         }
 
-        // 2. ළමයා යවපු Chat Messages වල senderId එක null කිරීම
-        console.log(`💬 [BACKEND] Clearing chat messages sender IDs...`);
+        // 2. Chat messages, App chat messages, Web inquiries nulling/cleanup
+        console.log(`💬 [BACKEND] Clearing chat messages & inquiries...`);
         await prisma.chatMessage.updateMany({ 
             where: { senderId: id }, 
             data: { senderId: null } 
-        });
+        }).catch(() => {});
+
+        await prisma.appChatMessage.deleteMany({ 
+            where: { senderId: id } 
+        }).catch(() => {});
+
+        await prisma.webInquiry.updateMany({ 
+            where: { studentId: id }, 
+            data: { studentId: null } 
+        }).catch(() => {});
+
+        await prisma.note.deleteMany({ 
+            where: { userId: id } 
+        }).catch(() => {});
+
+        await prisma.paperSubmissionAnswer.deleteMany({
+            where: { submission: { studentId: id } }
+        }).catch(() => {});
+
+        await prisma.paperSubmission.deleteMany({ 
+            where: { studentId: id } 
+        }).catch(() => {});
 
         // 3. ආරක්ෂිතව ළමයාව Delete කිරීම
         console.log(`👤 [BACKEND] Deleting User Record from DB...`);

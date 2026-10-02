@@ -258,7 +258,7 @@ export default function NewCampusLandingPage({ loggedInUser }) {
             <a href="https://tiktok.com" target="_blank" rel="noreferrer" title="TikTok" className="w-7 h-7 rounded-full bg-white/15 hover:bg-white hover:text-[#7d0202] flex items-center justify-center transition-all text-xs">
               <FaTiktok size={11} />
             </a>
-            <a href="https://wa.me/94716909030" target="_blank" rel="noreferrer" title="WhatsApp" className="w-7 h-7 rounded-full bg-white/15 hover:bg-white hover:text-[#7d0202] flex items-center justify-center transition-all text-xs">
+            <a href="https://wa.me/94712209030" target="_blank" rel="noreferrer" title="WhatsApp" className="w-7 h-7 rounded-full bg-white/15 hover:bg-white hover:text-[#7d0202] flex items-center justify-center transition-all text-xs">
               <FaWhatsapp size={12} />
             </a>
             <a href="https://youtube.com" target="_blank" rel="noreferrer" title="YouTube" className="w-7 h-7 rounded-full bg-white/15 hover:bg-white hover:text-[#7d0202] flex items-center justify-center transition-all text-xs">
@@ -675,11 +675,11 @@ export default function NewCampusLandingPage({ loggedInUser }) {
             </div>
             <h4 className="text-base font-black text-slate-900">Custom Syllabus & Batch Admissions</h4>
             <p className="text-xs text-slate-500 leading-relaxed">
-              New intakes are currently enrolling for this category. Contact our senior admissions desk at 071 690 9030 for full schedules.
+              New intakes are currently enrolling for this category. Contact our senior admissions desk at 071 220 90 30 for full schedules.
             </p>
             <div className="flex items-center justify-center gap-2 pt-2">
               <a
-                href="https://wa.me/94716909030"
+                href="https://wa.me/94712209030"
                 target="_blank"
                 rel="noreferrer"
                 className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5 shadow"
@@ -1188,6 +1188,277 @@ export default function NewCampusLandingPage({ loggedInUser }) {
       </section>
 
       {/* ========================================================
+          SECTION 7: OFFICIAL DEPARTMENT HOTLINES & ADMISSIONS (NEW NUMBERS)
+      ======================================================== */}
+      <section id="admissions" className="py-16 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto z-10 relative">
+        <div className="bg-gradient-to-br from-[#0a0f1d] via-[#111827] to-[#1c1117] rounded-3xl p-6 sm:p-10 border border-white/10 shadow-2xl text-white relative overflow-hidden">
+          
+          <div className="absolute top-0 right-0 w-96 h-96 bg-red-600/10 rounded-full blur-[100px] pointer-events-none" />
+
+          {/* Section Header */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 pb-8 border-b border-white/10 relative z-10">
+            <div>
+              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-black uppercase tracking-wider mb-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                <span>OFFICIAL ADMISSIONS & STREAM HOTLINES</span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                Direct Department Contacts
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-xl">
+                Reach out to our specialized stream coordinators for batch registrations, timetable details, and academic advice.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                to="/contact-us"
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-red-600 via-rose-600 to-amber-600 hover:from-red-500 hover:to-amber-500 text-white font-bold text-xs shadow-lg transition-all flex items-center gap-2 cursor-pointer hover:scale-[1.02]"
+              >
+                <span>Full Contact Center</span>
+                <ArrowRight size={14} />
+              </Link>
+            </div>
+          </div>
+
+          {/* Department Hotlines 6-Card Grid (Matching Poster Styling) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 pt-8 relative z-10">
+            
+            {/* 1. IMA O/L */}
+            <div className="bg-white/5 hover:bg-white/[0.08] border border-white/10 hover:border-emerald-500/40 rounded-2xl p-4.5 transition-all duration-300 flex flex-col justify-between group">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full p-0.5 bg-gradient-to-tr from-amber-400 to-amber-200 shadow-sm shrink-0 flex items-center justify-center">
+                    <div className="w-full h-full rounded-full bg-[#064e3b] flex items-center justify-center text-white text-[10px] font-black">
+                      O/L
+                    </div>
+                  </div>
+                  <div>
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-black bg-[#064e3b] text-emerald-300 border border-emerald-500/30">
+                      IMA O/L
+                    </span>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Ordinary Level Stream</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-black/30 rounded-xl p-2.5 flex items-center justify-between border border-white/5 mb-3">
+                <div className="flex items-center gap-2 text-white font-black text-base sm:text-lg tracking-wide">
+                  <Phone size={14} className="text-emerald-400" />
+                  <span>077 428 90 30</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <a href="tel:0774289030" className="py-2 px-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5">
+                  <Phone size={12} />
+                  <span>Call</span>
+                </a>
+                <a href="https://wa.me/94774289030" target="_blank" rel="noreferrer" className="py-2 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5">
+                  <FaWhatsapp size={13} />
+                  <span>WhatsApp</span>
+                </a>
+              </div>
+            </div>
+
+            {/* 2. IMA ART */}
+            <div className="bg-white/5 hover:bg-white/[0.08] border border-white/10 hover:border-purple-500/40 rounded-2xl p-4.5 transition-all duration-300 flex flex-col justify-between group">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full p-0.5 bg-gradient-to-tr from-amber-400 to-amber-200 shadow-sm shrink-0 flex items-center justify-center">
+                    <div className="w-full h-full rounded-full bg-[#6b21a8] flex items-center justify-center text-white text-[10px] font-black">
+                      ART
+                    </div>
+                  </div>
+                  <div>
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-black bg-[#6b21a8] text-purple-300 border border-purple-500/30">
+                      IMA ART
+                    </span>
+                    <p className="text-[11px] text-slate-400 mt-0.5">A/L Arts Stream</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-black/30 rounded-xl p-2.5 flex items-center justify-between border border-white/5 mb-3">
+                <div className="flex items-center gap-2 text-white font-black text-base sm:text-lg tracking-wide">
+                  <Phone size={14} className="text-purple-400" />
+                  <span>076 625 90 30</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <a href="tel:0766259030" className="py-2 px-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5">
+                  <Phone size={12} />
+                  <span>Call</span>
+                </a>
+                <a href="https://wa.me/94766259030" target="_blank" rel="noreferrer" className="py-2 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5">
+                  <FaWhatsapp size={13} />
+                  <span>WhatsApp</span>
+                </a>
+              </div>
+            </div>
+
+            {/* 3. IMA COMMERCE */}
+            <div className="bg-white/5 hover:bg-white/[0.08] border border-white/10 hover:border-blue-500/40 rounded-2xl p-4.5 transition-all duration-300 flex flex-col justify-between group">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full p-0.5 bg-gradient-to-tr from-amber-400 to-amber-200 shadow-sm shrink-0 flex items-center justify-center">
+                    <div className="w-full h-full rounded-full bg-[#1d4ed8] flex items-center justify-center text-white text-[9px] font-black">
+                      COM
+                    </div>
+                  </div>
+                  <div>
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-black bg-[#1d4ed8] text-blue-300 border border-blue-500/30">
+                      IMA COMMERCE
+                    </span>
+                    <p className="text-[11px] text-slate-400 mt-0.5">A/L Commerce Stream</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-black/30 rounded-xl p-2.5 flex items-center justify-between border border-white/5 mb-3">
+                <div className="flex items-center gap-2 text-white font-black text-base sm:text-lg tracking-wide">
+                  <Phone size={14} className="text-blue-400" />
+                  <span>077 207 90 30</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <a href="tel:0772079030" className="py-2 px-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5">
+                  <Phone size={12} />
+                  <span>Call</span>
+                </a>
+                <a href="https://wa.me/94772079030" target="_blank" rel="noreferrer" className="py-2 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5">
+                  <FaWhatsapp size={13} />
+                  <span>WhatsApp</span>
+                </a>
+              </div>
+            </div>
+
+            {/* 4. IMA TECH */}
+            <div className="bg-white/5 hover:bg-white/[0.08] border border-white/10 hover:border-orange-500/40 rounded-2xl p-4.5 transition-all duration-300 flex flex-col justify-between group">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full p-0.5 bg-gradient-to-tr from-amber-400 to-amber-200 shadow-sm shrink-0 flex items-center justify-center">
+                    <div className="w-full h-full rounded-full bg-[#ea580c] flex items-center justify-center text-white text-[10px] font-black">
+                      TECH
+                    </div>
+                  </div>
+                  <div>
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-black bg-[#ea580c] text-orange-300 border border-orange-500/30">
+                      IMA TECH
+                    </span>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Technology Stream (ET / BST / ICT)</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-black/30 rounded-xl p-2.5 flex items-center justify-between border border-white/5 mb-3">
+                <div className="flex items-center gap-2 text-white font-black text-base sm:text-lg tracking-wide">
+                  <Phone size={14} className="text-orange-400" />
+                  <span>077 334 50 60</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <a href="tel:0773345060" className="py-2 px-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5">
+                  <Phone size={12} />
+                  <span>Call</span>
+                </a>
+                <a href="https://wa.me/94773345060" target="_blank" rel="noreferrer" className="py-2 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5">
+                  <FaWhatsapp size={13} />
+                  <span>WhatsApp</span>
+                </a>
+              </div>
+            </div>
+
+            {/* 5. FAST TRACK */}
+            <div className="bg-white/5 hover:bg-white/[0.08] border border-white/10 hover:border-red-500/40 rounded-2xl p-4.5 transition-all duration-300 flex flex-col justify-between group">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full p-0.5 bg-gradient-to-tr from-amber-400 to-amber-200 shadow-sm shrink-0 flex items-center justify-center">
+                    <div className="w-full h-full rounded-full bg-[#dc2626] flex items-center justify-center text-white text-[10px] font-black">
+                      FAST
+                    </div>
+                  </div>
+                  <div>
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-black bg-[#dc2626] text-red-300 border border-red-500/30">
+                      FAST TRACK
+                    </span>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Accelerated Revision & Papers</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-black/30 rounded-xl p-2.5 flex items-center justify-between border border-white/5 mb-3">
+                <div className="flex items-center gap-2 text-white font-black text-base sm:text-lg tracking-wide">
+                  <Phone size={14} className="text-red-400" />
+                  <span>071 220 90 30</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <a href="tel:0712209030" className="py-2 px-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5">
+                  <Phone size={12} />
+                  <span>Call</span>
+                </a>
+                <a href="https://wa.me/94712209030" target="_blank" rel="noreferrer" className="py-2 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5">
+                  <FaWhatsapp size={13} />
+                  <span>WhatsApp</span>
+                </a>
+              </div>
+            </div>
+
+            {/* 6. IMA LAW SCHOOL */}
+            <div className="bg-white/5 hover:bg-white/[0.08] border border-white/10 hover:border-amber-400/40 rounded-2xl p-4.5 transition-all duration-300 flex flex-col justify-between group">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-full p-0.5 bg-gradient-to-tr from-amber-400 to-amber-200 shadow-sm shrink-0 flex items-center justify-center">
+                    <div className="w-full h-full rounded-full bg-[#0f172a] flex items-center justify-center text-amber-300 text-[10px] font-black">
+                      LAW
+                    </div>
+                  </div>
+                  <div>
+                    <span className="inline-block px-2.5 py-0.5 rounded-full text-[11px] font-black bg-[#0f172a] text-amber-300 border border-amber-400/30">
+                      IMA LAW SCHOOL
+                    </span>
+                    <p className="text-[11px] text-slate-400 mt-0.5">Law College Entrance & LL.B</p>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-black/30 rounded-xl p-2.5 flex items-center justify-between border border-white/5 mb-3">
+                <div className="flex items-center gap-2 text-white font-black text-base sm:text-lg tracking-wide">
+                  <Phone size={14} className="text-amber-400" />
+                  <span>070 7 678 561</span>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <a href="tel:0707678561" className="py-2 px-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5">
+                  <Phone size={12} />
+                  <span>Call</span>
+                </a>
+                <a href="https://wa.me/94707678561" target="_blank" rel="noreferrer" className="py-2 px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold text-center transition-all flex items-center justify-center gap-1.5">
+                  <FaWhatsapp size={13} />
+                  <span>WhatsApp</span>
+                </a>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Bottom Campus Address Bar */}
+          <div className="mt-8 pt-6 border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400">
+            <div className="flex items-center gap-2">
+              <MapPin size={15} className="text-red-400 shrink-0" />
+              <span className="text-slate-200 font-medium">Campus: No. 346/A, Robert Gunawardane Mawatha, Malabe</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <a href="mailto:info@imacampus.online" className="hover:text-white transition-colors flex items-center gap-1.5">
+                <Mail size={13} className="text-amber-400" />
+                <span>info@imacampus.online</span>
+              </a>
+              <span className="text-white/20">|</span>
+              <a href="https://www.imacampus.online" className="hover:text-white transition-colors flex items-center gap-1.5">
+                <Globe size={13} className="text-blue-400" />
+                <span>www.imacampus.online</span>
+              </a>
+            </div>
+          </div>
+
+        </div>
+      </section>
+
+      {/* ========================================================
           PRESTIGE FOOTER
       ======================================================== */}
       <footer className="border-t border-slate-200 bg-white py-14 px-4 sm:px-6 lg:px-8 relative z-10 text-slate-600 text-xs">
@@ -1211,7 +1482,7 @@ export default function NewCampusLandingPage({ loggedInUser }) {
               <a href="https://youtube.com" target="_blank" rel="noreferrer" className="w-8 h-8 rounded-full bg-slate-100 hover:bg-[#7d0202] hover:text-white text-slate-700 flex items-center justify-center transition-colors">
                 <FaYoutube size={13} />
               </a>
-              <a href="https://wa.me/94716909030" target="_blank" rel="noreferrer" className="w-8 h-8 rounded-full bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 flex items-center justify-center transition-colors">
+              <a href="https://wa.me/94712209030" target="_blank" rel="noreferrer" className="w-8 h-8 rounded-full bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 flex items-center justify-center transition-colors">
                 <FaWhatsapp size={13} />
               </a>
               <a href="https://tiktok.com" target="_blank" rel="noreferrer" className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-800 hover:text-white text-slate-700 flex items-center justify-center transition-colors">
@@ -1233,9 +1504,22 @@ export default function NewCampusLandingPage({ loggedInUser }) {
           <div className="space-y-3">
             <h4 className="font-black text-slate-900 uppercase tracking-wider text-xs">Admissions & Contact</h4>
             <ul className="space-y-2 font-medium">
-              <li className="flex items-center gap-2"><Phone size={13} className="text-[#7d0202]" /> 071 690 9030</li>
-              <li className="flex items-center gap-2"><Mail size={13} className="text-[#7d0202]" /> info@imacampus.online</li>
-              <li className="flex items-center gap-2"><Globe size={13} className="text-[#7d0202]" /> www.imacampus.online</li>
+              <li className="flex items-start gap-2 text-slate-700">
+                <MapPin size={14} className="text-[#7d0202] mt-0.5 shrink-0" />
+                <span>No. 346/A, Robert Gunawardane Mawatha, Malabe</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <Mail size={13} className="text-[#7d0202] shrink-0" />
+                <a href="mailto:info@imacampus.online" className="hover:text-[#7d0202] transition-colors">info@imacampus.online</a>
+              </li>
+              <li className="flex items-center gap-2">
+                <Globe size={13} className="text-[#7d0202] shrink-0" />
+                <a href="https://www.imacampus.online" target="_blank" rel="noreferrer" className="hover:text-[#7d0202] transition-colors">www.imacampus.online</a>
+              </li>
+              <li className="flex items-center gap-2">
+                <Phone size={13} className="text-[#7d0202] shrink-0" />
+                <Link to="/contact-us" className="text-[#7d0202] font-bold hover:underline">View Official Hotlines →</Link>
+              </li>
               <li className="pt-1 text-[11px] text-emerald-600 font-bold">● Admissions Open 2026/2027/2028</li>
             </ul>
           </div>
@@ -1243,8 +1527,8 @@ export default function NewCampusLandingPage({ loggedInUser }) {
         </div>
 
         <div className="max-w-7xl mx-auto mt-10 pt-5 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-slate-500 text-[11px]">
-          <p>© {new Date().getFullYear()} IMA Campus Higher Education Center. All rights reserved.</p>
-          <p>www.imacampus.online</p>
+          <p>© {new Date().getFullYear()} IMA Campus Higher Education Center. Operated by <strong>IDDAMALGODA MEDIA ACADEMY (PVT) LTD</strong> & <strong>IMA FAST TRACK (PVT) LTD</strong>.</p>
+          <p>No. 346/A, Robert Gunawardane Mawatha, Malabe • info@imacampus.online</p>
         </div>
       </footer>
 
@@ -1321,7 +1605,7 @@ export default function NewCampusLandingPage({ loggedInUser }) {
                 <div className="text-center py-10 space-y-2">
                   <Layers size={40} className="mx-auto text-slate-300" />
                   <p className="text-slate-700 font-bold text-sm">No specific sub-batches listed at the moment.</p>
-                  <p className="text-xs text-slate-500">You can enroll directly or contact admissions at 071 690 9030 for timetables.</p>
+                  <p className="text-xs text-slate-500">You can enroll directly or contact admissions at 071 220 90 30 for timetables.</p>
                   <button
                     onClick={() => navigate('/login')}
                     className="mt-4 px-6 py-2.5 rounded-xl bg-[#7d0202] text-white text-xs font-bold shadow"
@@ -1360,12 +1644,12 @@ export default function NewCampusLandingPage({ loggedInUser }) {
             <div className="p-4 border-t border-slate-100 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
               <span>Have questions about fees or admission?</span>
               <a
-                href="https://wa.me/94716909030"
+                href="https://wa.me/94712209030"
                 target="_blank"
                 rel="noreferrer"
                 className="text-emerald-700 font-bold hover:underline"
               >
-                WhatsApp 071 690 9030
+                WhatsApp 071 220 90 30
               </a>
             </div>
 

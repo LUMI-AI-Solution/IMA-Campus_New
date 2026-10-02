@@ -79,14 +79,27 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
         const lead = leads.find(l => l.id === leadId);
         if (!lead) return;
         const feedback = drafts[leadId] !== undefined ? drafts[leadId] : (lead.feedback || '');
-        
+        const targetStatus = lead.callStatus || 'pending';
+        const targetAttempt = parseInt(lead.callAttempt || lead.attemptCount || 1);
+        const targetMethod = lead.callMethod || 'direct';
+
+        let targetPhase = lead.phase || 1;
+        if (targetStatus === 'no_answer') {
+            if (targetPhase === 1) targetPhase = 2;
+            else if (targetPhase === 2) targetPhase = 3;
+        }
+
         const loadToast = toast.loading("Saving call data...");
         try {
             const token = localStorage.getItem('token');
             await axios.post('/after-seminar-crm/leads/update-call', {
                 leadId, 
-                method: lead.callMethod || 'direct', 
-                status: lead.callStatus || 'pending', 
+                campaignContext: 'BRIDGE',
+                method: targetMethod, 
+                status: targetStatus,
+                callStatus: targetStatus,
+                callAttempt: targetAttempt,
+                phase: targetPhase,
                 feedback,
                 coordinationRound: lead.coordinationRound || 1,
                 paymentIntention: lead.paymentIntention || 'NOT_DECIDED',
@@ -106,12 +119,15 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
             } else {
                 setLeads(prev => prev.map(l => {
                     if (l.id === leadId) {
-                        let newPhase = l.phase || 1;
-                        if (lead.callStatus === 'no_answer') {
-                            if (l.phase === 1 || !l.phase) newPhase = 2;
-                            else if (l.phase === 2) newPhase = 3;
-                        }
-                        return { ...l, callStatus: lead.callStatus, feedback: feedback, phase: newPhase };
+                        return { 
+                            ...l, 
+                            callStatus: targetStatus, 
+                            callAttempt: targetAttempt,
+                            attemptCount: targetAttempt,
+                            callMethod: targetMethod,
+                            feedback: feedback, 
+                            phase: targetPhase 
+                        };
                     }
                     return l;
                 }));
@@ -423,8 +439,12 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
                                             <div className="w-16 shrink-0">
                                                 <label className="text-[10px] font-bold text-slate-400 block mb-1 uppercase tracking-wider">Att.</label>
                                                 <select 
-                                                    value={lead.attemptCount || lead.callAttempt || 1} 
-                                                    onChange={(e) => handleUpdateLocalLead(lead.id, 'attemptCount', parseInt(e.target.value))} 
+                                                    value={lead.callAttempt || lead.attemptCount || 1} 
+                                                    onChange={(e) => {
+                                                        const val = parseInt(e.target.value);
+                                                        handleUpdateLocalLead(lead.id, 'callAttempt', val);
+                                                        handleUpdateLocalLead(lead.id, 'attemptCount', val);
+                                                    }} 
                                                     className="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs font-semibold rounded-lg px-1 py-1.5 outline-none text-center focus:border-indigo-500 transition-colors cursor-pointer"
                                                 >
                                                     {[1, 2, 3, 4, 5].map(r => <option key={r} value={r}>{r}</option>)}

@@ -7,7 +7,7 @@ import {
     Calendar as CalendarIcon, PhoneCall, MessageSquare,
     TrendingUp, Layers, Zap, UserCheck, FileText,
     ChevronRight, Activity, Search, ShieldCheck, PieChart as PieChartIcon, BarChart2, Briefcase,
-    Sparkles, ArrowUpRight, CheckCircle2, XCircle, Clock, Award, RefreshCw, Send, PhoneForwarded
+    Sparkles, ArrowUpRight, CheckCircle2, XCircle, Clock, Award, RefreshCw, Send, PhoneForwarded, Ghost
 } from 'lucide-react';
 import { 
     PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip, 
@@ -208,6 +208,24 @@ export default function CoordinatorProgressSheet({ filters = {} }) {
         XLSX.utils.book_append_sheet(workbook, worksheet, "Coordinator_Progress");
         XLSX.writeFile(workbook, `Coordinator_Progress_Sheet_${new Date().toISOString().split('T')[0]}.xlsx`);
         toast.success("Full Coordinator Report Exported successfully!");
+    };
+
+    const handleGhostLogin = async (coordinatorId) => {
+        try {
+            const toastId = toast.loading("Switching to Ghost Mode...");
+            const res = await axios.post(`/auth/ghost-login/${coordinatorId}`);
+            if (res.data.token && res.data.user) {
+                localStorage.setItem('admin_token', localStorage.getItem('token'));
+                localStorage.setItem('admin_user', localStorage.getItem('user'));
+                const { password, ...safeUser } = res.data.user;
+                localStorage.setItem('token', res.data.token);
+                localStorage.setItem('user', JSON.stringify(safeUser));
+                toast.success("Switched to Ghost Mode successfully!", { id: toastId });
+                window.location.href = '/login';
+            }
+        } catch (error) {
+            toast.error(error.response?.data?.error || "Ghost login failed.");
+        }
     };
 
     // Filter active team coordinators for business
@@ -621,11 +639,19 @@ export default function CoordinatorProgressSheet({ filters = {} }) {
                                             {coord.name ? coord.name.charAt(0).toUpperCase() : 'C'}
                                         </div>
                                         <div>
-                                            <div className="flex items-center gap-2.5">
+                                            <div className="flex items-center flex-wrap gap-2.5">
                                                 <h2 className="text-xl md:text-2xl font-black text-white tracking-tight">{coord.name}</h2>
                                                 <span className="text-[10px] font-black uppercase tracking-wider bg-indigo-950/80 text-indigo-300 border border-indigo-500/40 px-2.5 py-0.5 rounded-full shadow-sm">
                                                     Coordinator #{coord.id}
                                                 </span>
+                                                <button
+                                                    onClick={() => handleGhostLogin(coord.id)}
+                                                    className="flex items-center gap-1.5 px-3 py-1 bg-purple-500/15 hover:bg-purple-600 text-purple-300 hover:text-white rounded-lg text-xs font-bold border border-purple-500/30 transition-all shadow-sm group/ghost cursor-pointer"
+                                                    title="Ghost Login as this Coordinator"
+                                                >
+                                                    <Ghost size={13} className="text-purple-400 group-hover/ghost:text-white transition-colors" />
+                                                    <span>Ghost Login</span>
+                                                </button>
                                             </div>
                                             <p className="text-xs text-slate-400 mt-1 font-medium flex items-center gap-2">
                                                 <span>Performance Metrics & Daily Campaign Velocity</span>

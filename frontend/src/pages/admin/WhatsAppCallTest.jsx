@@ -247,13 +247,14 @@ export default function WhatsAppCallTest({ loggedInUser, externalSocket, globalS
       });
       peerConnectionRef.current = pc;
 
-      stream.getTracks().forEach(track => pc.addTrack(track, stream));
-
       pc.ontrack = (event) => {
         addLog('Receiving remote audio stream.');
-        const remoteStream = event.streams[0];
+        const remoteStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
         if (remoteAudioRef.current) {
           remoteAudioRef.current.srcObject = remoteStream;
+          remoteAudioRef.current.muted = false;
+          remoteAudioRef.current.volume = 1.0;
+          remoteAudioRef.current.play().catch(e => console.warn(e));
         }
         startRecording(stream, remoteStream);
       };
@@ -287,8 +288,12 @@ export default function WhatsAppCallTest({ loggedInUser, externalSocket, globalS
         }
       };
 
+      // Set remote offer FIRST
       const remoteDesc = new RTCSessionDescription({ type: 'offer', sdp: incomingCall.sdp });
       await pc.setRemoteDescription(remoteDesc);
+
+      // Add track AFTER remote offer to ensure sendrecv direction
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
       const answer = await pc.createAnswer();
       await pc.setLocalDescription(answer);

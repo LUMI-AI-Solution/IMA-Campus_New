@@ -50,7 +50,7 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
     const [activePayTab, setActivePayTab] = useState('All');
     const [selectedBatchFilter, setSelectedBatchFilter] = useState('All');
     const [apiBatches, setApiBatches] = useState([]);
-
+    const [sortBy, setSortBy] = useState('oldest');
     
     const [viewType, setViewType] = useState('Pending'); 
     const [isEditOrderMode, setIsEditOrderMode] = useState(false);
@@ -85,6 +85,15 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
 
     useEffect(() => {
         fetchAllInitialData();
+
+        const handleReset = () => {
+            setSelectedBiz(null);
+            setDeliveries([]);
+            fetchAllInitialData();
+        };
+
+        window.addEventListener('reset-pending-holds', handleReset);
+        return () => window.removeEventListener('reset-pending-holds', handleReset);
     }, []);
 
     useEffect(() => {
@@ -140,9 +149,20 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
         });
 
         const sorted = [...deliveries].sort((a, b) => {
-            const nameA = a.studentName || '';
-            const nameB = b.studentName || '';
-            return nameA.localeCompare(nameB);
+            if (sortBy === 'alphabetical') {
+                const nameA = a.studentName || '';
+                const nameB = b.studentName || '';
+                return nameA.localeCompare(nameB);
+            }
+            const timeA = a.createdAt ? new Date(a.createdAt).getTime() : (a.id || 0);
+            const timeB = b.createdAt ? new Date(b.createdAt).getTime() : (b.id || 0);
+            if (sortBy === 'newest') {
+                if (timeB !== timeA) return timeB - timeA;
+                return (b.id || 0) - (a.id || 0);
+            }
+            // Default: 'oldest' (First In, First Out - Earliest arrived pending orders first)
+            if (timeA !== timeB) return timeA - timeB;
+            return (a.id || 0) - (b.id || 0);
         });
 
         return sorted.map(d => {
@@ -155,7 +175,7 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
                 isMix: !isUpgradeRelated && counts[key] > 1 
             };
         });
-    }, [deliveries]);
+    }, [deliveries, sortBy]);
 
     const availableBatches = useMemo(() => {
         if (apiBatches.length > 0) {
@@ -164,6 +184,72 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
         const batches = new Set(processedDeliveries.map(d => d.batchName).filter(Boolean));
         return ['All', ...Array.from(batches).sort()];
     }, [processedDeliveries, apiBatches]);
+
+    const isSearching = Boolean(searchQuery && searchQuery.trim().length > 0);
+
+    // Global Search across BOTH Pending & Hold orders
+    const globalSearchResults = useMemo(() => {
+        if (!isSearching) return [];
+        const searchLower = searchQuery.toLowerCase().trim();
+        const pool = selectedBiz
+            ? allDeliveries.filter(d => d.businessId === selectedBiz)
+            : allDeliveries;
+
+        const matches = pool.filter(order => {
+            const studentName = (order.studentName || '').toLowerCase();
+            const phone = (order.phone || '').toLowerCase();
+            const idStr = (order.id || '').toString();
+            const batch = (order.batchName || '').toLowerCase();
+            const labelAddress = (order.labelAddress || order.address || '').toLowerCase();
+            const itemsStr = (order.items || []).map(i => (i.tuteName || '').toLowerCase() + ' ' + (i.courseName || '').toLowerCase()).join(' ');
+
+            return studentName.includes(searchLower) ||
+                   phone.includes(searchLower) ||
+                   idStr.includes(searchLower) ||
+                   batch.includes(searchLower) ||
+                   labelAddress.includes(searchLower) ||
+                   itemsStr.includes(searchLower);
+        });
+
+        const sortedMatches = [...matches].sort((a, b) => {
+            if (sortBy === 'alphabetical') {
+                const nameA = a.studentName || '';
+                const nameB = b.studentName || '';
+                return nameA.localeCompare(nameB);
+            }
+            const timeA = a.createdAt ? new Date(a.createdAt).getTime() : (a.id || 0);
+            const timeB = b.createdAt ? new Date(b.createdAt).getTime() : (b.id || 0);
+            if (sortBy === 'newest') {
+                if (timeB !== timeA) return timeB - timeA;
+                return (b.id || 0) - (a.id || 0);
+            }
+            // Default: 'oldest' (FIFO)
+            if (timeA !== timeB) return timeA - timeB;
+            return (a.id || 0) - (b.id || 0);
+        });
+
+        const counts = {};
+        const upgradeKeys = new Set();
+        sortedMatches.forEach(d => {
+            const key = d.phone ? d.phone.trim() : d.studentName?.trim();
+            if (key) {
+                counts[key] = (counts[key] || 0) + 1;
+                if (d.isUpgrade) upgradeKeys.add(key);
+            }
+        });
+
+        return sortedMatches.map(d => {
+            const key = d.phone ? d.phone.trim() : d.studentName?.trim();
+            const isUpgradeRelated = upgradeKeys.has(key);
+            const bizObj = businesses.find(b => b.id === d.businessId);
+            return {
+                ...d,
+                isUpgrade: isUpgradeRelated,
+                isMix: !isUpgradeRelated && counts[key] > 1,
+                bizName: bizObj ? bizObj.name : ''
+            };
+        });
+    }, [searchQuery, isSearching, selectedBiz, allDeliveries, businesses, sortBy]);
 
     const baseFilteredDeliveries = processedDeliveries.filter(order => {
         if (selectedBatchFilter !== 'All' && order.batchName !== selectedBatchFilter) return false;
@@ -203,154 +289,235 @@ export default function PendingHolds({ searchQuery, isReadOnly }) {
     return (
         <div className="animate-fade-in font-sans relative z-10">
             
-            {!selectedBiz && (
-                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
-                    <div className="flex gap-4 bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl p-2 rounded-2xl border border-gray-200 dark:border-white/10 w-max shadow-lg transition-colors">
-                        <button
-                            onClick={() => { setViewType('Pending'); setSelectedBiz(null); }}
-                            className={`px-8 py-3 rounded-xl font-black text-sm tracking-widest uppercase transition-all flex items-center gap-2 ${viewType === 'Pending' ? 'bg-brand-accent text-white shadow-lg shadow-brand-accent/30 scale-105' : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/5'}`}
-                        >
-                            <Clock size={18}/> Pending Orders
-                        </button>
-                        <button
-                            onClick={() => { setViewType('Hold'); setSelectedBiz(null); }}
-                            className={`px-8 py-3 rounded-xl font-black text-sm tracking-widest uppercase transition-all flex items-center gap-2 ${viewType === 'Hold' ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30 scale-105' : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/5'}`}
-                        >
-                            <AlertTriangle size={18}/> On Hold Orders
-                        </button>
-                    </div>
-
-                    <div className="flex items-center gap-3">
-                        {isEditOrderMode ? (
-                            <>
-                                <button onClick={toggleEditOrderMode} className="px-5 py-2.5 rounded-xl font-black text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
-                                    Cancel
-                                </button>
-                                <button onClick={handleSaveOrders} disabled={isSavingOrders} className="px-5 py-2.5 rounded-xl font-black text-sm bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-2">
-                                    {isSavingOrders ? <Loader2 size={16} className="animate-spin"/> : <Check size={16}/>} Save Orders
-                                </button>
-                            </>
-                        ) : (
-                            <button onClick={toggleEditOrderMode} className="px-5 py-2.5 rounded-xl font-black text-sm text-brand-accent bg-brand-accent/10 hover:bg-brand-accent/20 border border-brand-accent/20 transition-colors flex items-center gap-2 shadow-sm">
-                                <Settings size={16}/> Edit Business Order
+            {/* Active Search Results View across BOTH Pending & Hold */}
+            {isSearching ? (
+                <div className="space-y-6">
+                    <div className="bg-white/70 dark:bg-white/[0.03] backdrop-blur-2xl border border-brand-accent/30 p-6 rounded-[2rem] shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div>
+                            <h3 className="text-xl font-black text-gray-900 dark:text-white flex items-center gap-3">
+                                <Search size={24} className="text-brand-accent"/>
+                                Search Results for "{searchQuery}"
+                            </h3>
+                            <p className="text-xs font-bold text-gray-500 dark:text-slate-400 mt-1 uppercase tracking-wider">
+                                Showing matching orders across BOTH Pending & On Hold ({globalSearchResults.length} found)
+                            </p>
+                        </div>
+                        {selectedBiz && (
+                            <button onClick={() => setSelectedBiz(null)} className="px-4 py-2 rounded-xl text-xs font-black bg-brand-accent/10 text-brand-accent hover:bg-brand-accent/20 border border-brand-accent/20 transition-all">
+                                Clear Business Filter
                             </button>
                         )}
                     </div>
-                </div>
-            )}
 
-            {!selectedBiz ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-                    {businesses.map(biz => {
-                        const bizStatusCount = allDeliveries.filter(d => d.businessId === biz.id && d.status === viewType).length;
-
-                        return (
-                            <div 
-                                key={biz.id} 
-                                onClick={(e) => {
-                                    if(isEditOrderMode) return;
-                                    fetchDeliveriesForBiz(biz.id, true);
-                                }}
-                                className={`relative bg-white/70 dark:bg-white/[0.03] backdrop-blur-2xl border p-8 rounded-[2rem] ${isEditOrderMode ? 'cursor-default ring-2 ring-brand-accent/50' : 'cursor-pointer hover:shadow-2xl hover:border-brand-accent/50 dark:hover:border-brand-accent/70'} transition-all shadow-sm flex flex-col items-center justify-center text-center group ${viewType === 'Hold' ? 'border-gray-200 dark:border-orange-500/30 hover:border-orange-500 dark:hover:border-orange-500/60' : 'border-gray-200 dark:border-white/10'}`}
-                            >
-                                {isEditOrderMode ? (
-                                    <div className="absolute -top-3 -right-3 z-20 shadow-xl rounded-xl">
-                                        <div className="bg-white dark:bg-[#1a1a2e] p-2 rounded-xl border-2 border-brand-accent shadow-sm flex flex-col items-center gap-1" onClick={e=>e.stopPropagation()}>
-                                            <span className="text-[10px] font-black text-brand-accent uppercase tracking-widest leading-none">Order #</span>
-                                            <input 
-                                                type="number" 
-                                                min="1"
-                                                value={businessOrders[biz.id] || ''}
-                                                onChange={(e) => setBusinessOrders({...businessOrders, [biz.id]: e.target.value})}
-                                                className="w-16 h-8 bg-brand-accent/10 border-none rounded-lg text-sm font-black text-center outline-none text-brand-accent focus:ring-2 focus:ring-brand-accent"
-                                            />
-                                        </div>
-                                    </div>
-                                ) : bizStatusCount > 0 && (
-                                    <span className={`absolute -top-3 -right-3 animate-pulse border-4 border-white dark:border-[#1a1a2e] text-white text-base font-black w-10 h-10 flex items-center justify-center rounded-full shadow-xl z-10 ${viewType === 'Hold' ? 'bg-orange-500' : 'bg-brand-accent'}`}>
-                                        {bizStatusCount}
-                                    </span>
-                                )}
-
-                                <div className="w-28 h-28 bg-white/50 dark:bg-black/20 rounded-2xl p-3 border border-gray-100 dark:border-white/5 group-hover:scale-105 transition-transform mb-4 shadow-sm backdrop-blur-sm">
-                                    <img 
-                                        src={getBizLogoUrl(biz.logo)} 
-                                        alt={biz.name} 
-                                        onError={(e) => { e.target.onerror = null; e.target.src = '/logo.png'; }} 
-                                        className="w-full h-full object-contain drop-shadow-sm dark:drop-shadow-lg" 
-                                    />
-                                </div>
-                                <h3 className="text-xl font-black text-gray-900 dark:text-white transition-colors">{biz.name}</h3>
-                                <p className={`text-sm font-bold mt-3 px-4 py-1.5 rounded-full border transition-colors shadow-sm backdrop-blur-md ${viewType === 'Hold' ? 'bg-orange-50/80 dark:bg-orange-500/10 text-orange-600 dark:text-orange-300 border-orange-200 dark:border-orange-500/20' : 'bg-gray-100/80 dark:bg-white/5 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-white/10'}`}>
-                                    Click to view {bizStatusCount} {viewType.toLowerCase()}
-                                </p>
-                            </div>
-                        );
-                    })}
-                </div>
-            ) : (
-                <div>
-                    <div className="flex flex-col gap-4 mb-8">
-                        <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
-                            <div className="flex flex-wrap gap-4 items-center shrink-0 w-full xl:w-auto">
-                                <button onClick={() => {setSelectedBiz(null); setDeliveries([]); fetchAllInitialData();}} className="text-base font-bold text-gray-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white flex items-center gap-2 bg-white/80 dark:bg-white/[0.05] backdrop-blur-xl border border-gray-200 dark:border-white/10 px-6 py-3 rounded-2xl transition-all shadow-md hover:shadow-lg shrink-0">
-                                    <ArrowLeft size={18}/> Back to Businesses
-                                </button>
-                                
-                                <div className="flex flex-col sm:flex-row gap-3 items-center bg-white/60 dark:bg-black/20 p-2 rounded-xl border border-gray-200 dark:border-white/10 shadow-inner w-full sm:w-auto">
-                                    <div className="flex items-center gap-2 w-full sm:w-auto">
-                                        <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider ml-1">Batch:</span>
-                                        <select 
-                                            className="w-full sm:w-auto bg-white/80 dark:bg-black/40 text-gray-800 dark:text-gray-200 text-sm font-bold rounded-lg px-3 py-1.5 border border-gray-200 dark:border-white/10 focus:outline-none focus:border-brand-accent cursor-pointer"
-                                            value={selectedBatchFilter}
-                                            onChange={(e) => setSelectedBatchFilter(e.target.value)}
-                                        >
-                                            {availableBatches.map(b => (
-                                                <option key={b} value={b}>{b}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="flex flex-wrap gap-3 bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl p-2 rounded-2xl border border-gray-200 dark:border-white/10 w-full shadow-lg transition-colors overflow-x-auto">
-                            {['All', 'Mixed', 'Monthly', 'Full', 'Installment'].map(tab => (
-                                <button 
-                                    key={tab} 
-                                    onClick={() => setActivePayTab(tab)}
-                                    className={`flex-1 xl:flex-none px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${activePayTab === tab ? (tab === 'Mixed' ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30 scale-105' : 'bg-brand-accent text-white shadow-lg shadow-brand-accent/30 scale-105') : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/10'}`}
-                                >
-                                    {tab === 'Mixed' && <Layers size={16} className={activePayTab === tab ? 'text-white' : 'text-rose-500 dark:text-rose-400'}/>}
-                                    {tab !== 'Mixed' && tab} 
-                                    <span className={`px-2.5 py-1 rounded-lg text-sm font-black transition-colors ${activePayTab === tab ? 'bg-black/20 text-white shadow-inner' : 'bg-gray-200/80 dark:bg-black/30 text-gray-700 dark:text-slate-300 border border-gray-300 dark:border-white/10'}`}>
-                                        {tabCounts[tab]}
-                                    </span>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-
-                    {filteredDeliveries.length === 0 ? (
-                        <div className="text-center py-24 bg-white/50 dark:bg-white/[0.02] backdrop-blur-xl rounded-[2rem] border border-gray-200 dark:border-white/5 shadow-sm transition-colors">
+                    {globalSearchResults.length === 0 ? (
+                        <div className="text-center py-24 bg-white/50 dark:bg-white/[0.02] backdrop-blur-xl rounded-[2rem] border border-gray-200 dark:border-white/5 shadow-sm">
                             <p className="text-gray-500 dark:text-slate-400 font-bold text-xl flex flex-col items-center justify-center gap-4">
-                                <Check size={40} className="text-emerald-500/50" />
-                                No {viewType.toLowerCase()} deliveries for {activePayTab !== 'All' ? activePayTab : 'this category'}.
+                                <Search size={40} className="text-gray-400/50" />
+                                No orders found matching "{searchQuery}" in Pending or On Hold.
                             </p>
                         </div>
                     ) : (
                         <div className="space-y-6">
-                            {filteredDeliveries.map(order => (
+                            {globalSearchResults.map(order => (
                                 <OrderCard 
                                     key={order.id} 
                                     order={order} 
                                     isReadOnly={isReadOnly}
-                                    onRefresh={() => fetchAllInitialData().then(() => fetchDeliveriesForBiz(selectedBiz))} 
+                                    onRefresh={() => fetchAllInitialData().then(() => {
+                                        if(selectedBiz) fetchDeliveriesForBiz(selectedBiz);
+                                    })} 
                                 />
                             ))}
                         </div>
                     )}
                 </div>
+            ) : (
+                <>
+                    {!selectedBiz && (
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 gap-4">
+                            <div className="flex gap-4 bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl p-2 rounded-2xl border border-gray-200 dark:border-white/10 w-max shadow-lg transition-colors">
+                                <button
+                                    onClick={() => { setViewType('Pending'); setSelectedBiz(null); }}
+                                    className={`px-8 py-3 rounded-xl font-black text-sm tracking-widest uppercase transition-all flex items-center gap-2 ${viewType === 'Pending' ? 'bg-brand-accent text-white shadow-lg shadow-brand-accent/30 scale-105' : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/5'}`}
+                                >
+                                    <Clock size={18}/> Pending Orders
+                                </button>
+                                <button
+                                    onClick={() => { setViewType('Hold'); setSelectedBiz(null); }}
+                                    className={`px-8 py-3 rounded-xl font-black text-sm tracking-widest uppercase transition-all flex items-center gap-2 ${viewType === 'Hold' ? 'bg-orange-500 text-white shadow-lg shadow-orange-500/30 scale-105' : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/5'}`}
+                                >
+                                    <AlertTriangle size={18}/> On Hold Orders
+                                </button>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                                {isEditOrderMode ? (
+                                    <>
+                                        <button onClick={toggleEditOrderMode} className="px-5 py-2.5 rounded-xl font-black text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-white/5 transition-colors">
+                                            Cancel
+                                        </button>
+                                        <button onClick={handleSaveOrders} disabled={isSavingOrders} className="px-5 py-2.5 rounded-xl font-black text-sm bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-2">
+                                            {isSavingOrders ? <Loader2 size={16} className="animate-spin"/> : <Check size={16}/>} Save Orders
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button onClick={toggleEditOrderMode} className="px-5 py-2.5 rounded-xl font-black text-sm text-brand-accent bg-brand-accent/10 hover:bg-brand-accent/20 border border-brand-accent/20 transition-colors flex items-center gap-2 shadow-sm">
+                                        <Settings size={16}/> Edit Business Order
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {!selectedBiz ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+                            {businesses.map(biz => {
+                                const pendingCount = allDeliveries.filter(d => d.businessId === biz.id && d.status === 'Pending').length;
+                                const holdCount = allDeliveries.filter(d => d.businessId === biz.id && d.status === 'Hold').length;
+                                const totalBizCount = pendingCount + holdCount;
+
+                                return (
+                                    <div 
+                                        key={biz.id} 
+                                        onClick={(e) => {
+                                            if(isEditOrderMode) return;
+                                            fetchDeliveriesForBiz(biz.id, true);
+                                        }}
+                                        className={`relative bg-white/70 dark:bg-white/[0.03] backdrop-blur-2xl border p-8 rounded-[2rem] ${isEditOrderMode ? 'cursor-default ring-2 ring-brand-accent/50' : 'cursor-pointer hover:shadow-2xl hover:border-brand-accent/50 dark:hover:border-brand-accent/70'} transition-all shadow-sm flex flex-col items-center justify-center text-center group border-gray-200 dark:border-white/10`}
+                                    >
+                                        {isEditOrderMode ? (
+                                            <div className="absolute -top-3 -right-3 z-20 shadow-xl rounded-xl">
+                                                <div className="bg-white dark:bg-[#1a1a2e] p-2 rounded-xl border-2 border-brand-accent shadow-sm flex flex-col items-center gap-1" onClick={e=>e.stopPropagation()}>
+                                                    <span className="text-[10px] font-black text-brand-accent uppercase tracking-widest leading-none">Order #</span>
+                                                    <input 
+                                                        type="number" 
+                                                        min="1"
+                                                        value={businessOrders[biz.id] || ''}
+                                                        onChange={(e) => setBusinessOrders({...businessOrders, [biz.id]: e.target.value})}
+                                                        className="w-16 h-8 bg-brand-accent/10 border-none rounded-lg text-sm font-black text-center outline-none text-brand-accent focus:ring-2 focus:ring-brand-accent"
+                                                    />
+                                                </div>
+                                            </div>
+                                        ) : (!isEditOrderMode && (pendingCount > 0 || holdCount > 0) && (
+                                            <div className="absolute -top-3 -right-3 z-10 flex items-center gap-1.5">
+                                                {pendingCount > 0 && (
+                                                    <span 
+                                                        title={`${pendingCount} Pending Orders`}
+                                                        className="animate-pulse border-4 border-white dark:border-[#1a1a2e] text-white text-xs font-black min-w-[2.5rem] h-10 px-2 flex items-center justify-center rounded-full shadow-xl bg-brand-accent"
+                                                    >
+                                                        {pendingCount}
+                                                    </span>
+                                                )}
+                                                {holdCount > 0 && (
+                                                    <span 
+                                                        title={`${holdCount} On Hold Orders`}
+                                                        className="animate-pulse border-4 border-white dark:border-[#1a1a2e] text-white text-xs font-black min-w-[2.5rem] h-10 px-2 flex items-center justify-center rounded-full shadow-xl bg-orange-500"
+                                                    >
+                                                        {holdCount}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        ))}
+
+                                        <div className="w-28 h-28 bg-white/50 dark:bg-black/20 rounded-2xl p-3 border border-gray-100 dark:border-white/5 group-hover:scale-105 transition-transform mb-4 shadow-sm backdrop-blur-sm">
+                                            <img 
+                                                src={getBizLogoUrl(biz.logo)} 
+                                                alt={biz.name} 
+                                                onError={(e) => { e.target.onerror = null; e.target.src = '/logo.png'; }} 
+                                                className="w-full h-full object-contain drop-shadow-sm dark:drop-shadow-lg" 
+                                            />
+                                        </div>
+                                        <h3 className="text-xl font-black text-gray-900 dark:text-white transition-colors">{biz.name}</h3>
+                                        <div className="mt-3 px-4 py-1.5 rounded-full border transition-colors shadow-sm backdrop-blur-md bg-white/80 dark:bg-black/40 border-gray-200 dark:border-white/10 flex items-center gap-2 text-xs font-black">
+                                            <span className="text-rose-600 dark:text-rose-400 font-extrabold">{pendingCount} Pending</span>
+                                            <span className="text-gray-400 dark:text-white/20">•</span>
+                                            <span className="text-amber-500 dark:text-amber-400 font-extrabold">{holdCount} On Hold</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ) : (
+                        <div>
+                            <div className="flex flex-col gap-4 mb-8">
+                                <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+                                    <div className="flex flex-wrap gap-4 items-center shrink-0 w-full xl:w-auto">
+                                        <button onClick={() => {setSelectedBiz(null); setDeliveries([]); fetchAllInitialData();}} className="text-base font-bold text-gray-700 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white flex items-center gap-2 bg-white/80 dark:bg-white/[0.05] backdrop-blur-xl border border-gray-200 dark:border-white/10 px-6 py-3 rounded-2xl transition-all shadow-md hover:shadow-lg shrink-0">
+                                            <ArrowLeft size={18}/> Back to Businesses
+                                        </button>
+                                        
+                                        <div className="flex flex-col sm:flex-row gap-3 items-center bg-white/60 dark:bg-black/20 p-2 rounded-xl border border-gray-200 dark:border-white/10 shadow-inner w-full sm:w-auto">
+                                            <div className="flex items-center gap-2 w-full sm:w-auto">
+                                                <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider ml-1">Batch:</span>
+                                                <select 
+                                                    className="w-full sm:w-auto bg-white/80 dark:bg-black/40 text-gray-800 dark:text-gray-200 text-sm font-bold rounded-lg px-3 py-1.5 border border-gray-200 dark:border-white/10 focus:outline-none focus:border-brand-accent cursor-pointer"
+                                                    value={selectedBatchFilter}
+                                                    onChange={(e) => setSelectedBatchFilter(e.target.value)}
+                                                >
+                                                    {availableBatches.map(b => (
+                                                        <option key={b} value={b}>{b}</option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            <div className="h-4 w-px bg-gray-300 dark:bg-white/10 hidden sm:block"></div>
+
+                                            <div className="flex items-center gap-2 w-full sm:w-auto">
+                                                <span className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider ml-1">Sort:</span>
+                                                <select 
+                                                    className="w-full sm:w-auto bg-white/80 dark:bg-black/40 text-gray-800 dark:text-gray-200 text-sm font-bold rounded-lg px-3 py-1.5 border border-gray-200 dark:border-white/10 focus:outline-none focus:border-brand-accent cursor-pointer font-sans"
+                                                    value={sortBy}
+                                                    onChange={(e) => setSortBy(e.target.value)}
+                                                    title="Change pending order sort priority"
+                                                >
+                                                    <option value="oldest">⏳ Earliest Orders (FIFO)</option>
+                                                    <option value="newest">⚡ Newest Orders</option>
+                                                    <option value="alphabetical">🔤 Student Name (A-Z)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-wrap gap-3 bg-white/60 dark:bg-white/[0.03] backdrop-blur-xl p-2 rounded-2xl border border-gray-200 dark:border-white/10 w-full shadow-lg transition-colors overflow-x-auto">
+                                    {['All', 'Mixed', 'Monthly', 'Full', 'Installment'].map(tab => (
+                                        <button 
+                                            key={tab} 
+                                            onClick={() => setActivePayTab(tab)}
+                                            className={`flex-1 xl:flex-none px-5 py-2.5 rounded-xl text-sm font-black uppercase tracking-widest transition-all flex items-center justify-center gap-3 ${activePayTab === tab ? (tab === 'Mixed' ? 'bg-rose-600 text-white shadow-lg shadow-rose-600/30 scale-105' : 'bg-brand-accent text-white shadow-lg shadow-brand-accent/30 scale-105') : 'text-gray-600 dark:text-slate-300 hover:text-gray-900 dark:hover:text-white hover:bg-white/50 dark:hover:bg-white/10'}`}
+                                        >
+                                            {tab === 'Mixed' && <Layers size={16} className={activePayTab === tab ? 'text-white' : 'text-rose-500 dark:text-rose-400'}/>}
+                                            {tab !== 'Mixed' && tab} 
+                                            <span className={`px-2.5 py-1 rounded-lg text-sm font-black transition-colors ${activePayTab === tab ? 'bg-black/20 text-white shadow-inner' : 'bg-gray-200/80 dark:bg-black/30 text-gray-700 dark:text-slate-300 border border-gray-300 dark:border-white/10'}`}>
+                                                {tabCounts[tab]}
+                                            </span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {filteredDeliveries.length === 0 ? (
+                                <div className="text-center py-24 bg-white/50 dark:bg-white/[0.02] backdrop-blur-xl rounded-[2rem] border border-gray-200 dark:border-white/5 shadow-sm transition-colors">
+                                    <p className="text-gray-500 dark:text-slate-400 font-bold text-xl flex flex-col items-center justify-center gap-4">
+                                        <Check size={40} className="text-emerald-500/50" />
+                                        No {viewType.toLowerCase()} deliveries for {activePayTab !== 'All' ? activePayTab : 'this category'}.
+                                    </p>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    {filteredDeliveries.map(order => (
+                                        <OrderCard 
+                                            key={order.id} 
+                                            order={order} 
+                                            isReadOnly={isReadOnly}
+                                            onRefresh={() => fetchAllInitialData().then(() => fetchDeliveriesForBiz(selectedBiz))} 
+                                        />
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </>
             )}
         </div>
     );
@@ -644,9 +811,31 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
                                     <span className={`text-[11px] font-black px-3 py-1.5 rounded-lg border tracking-widest uppercase shadow-sm flex items-center gap-1.5 transition-colors ${typeBadgeStyle}`}>
                                         {order.isUpgrade ? `UPGRADE ORDER • ${order.paymentType}` : (order.isMix ? `MIXED ORDER • ${order.paymentType}` : order.paymentType)}
                                     </span>
+                                    {order.status === 'Hold' ? (
+                                        <span className="text-[11px] font-black text-orange-700 dark:text-orange-300 bg-orange-100 dark:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-200 dark:border-orange-500/30 uppercase tracking-widest shadow-sm flex items-center gap-1">
+                                            <AlertTriangle size={12}/> ON HOLD
+                                        </span>
+                                    ) : (
+                                        <span className="text-[11px] font-black text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-500/20 px-3 py-1.5 rounded-lg border border-emerald-200 dark:border-emerald-500/30 uppercase tracking-widest shadow-sm flex items-center gap-1">
+                                            <Clock size={12}/> PENDING
+                                        </span>
+                                    )}
+                                    {order.bizName && (
+                                        <span className="text-[11px] font-black text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-500/20 px-3 py-1.5 rounded-lg border border-amber-200 dark:border-amber-500/30 uppercase tracking-widest shadow-sm">
+                                            {order.bizName}
+                                        </span>
+                                    )}
                                     <span className="text-[11px] font-black text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-500/20 px-3 py-1.5 rounded-lg border border-blue-200 dark:border-blue-500/30 uppercase tracking-widest shadow-sm transition-colors backdrop-blur-md">BATCH: {order.batchName}</span>
                                     {order.groupName && order.groupName !== 'No Group' && (
                                         <span className="text-[11px] font-black text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-500/20 px-3 py-1.5 rounded-lg border border-purple-200 dark:border-purple-500/30 uppercase tracking-widest shadow-sm transition-colors backdrop-blur-md">MONTH: {order.groupName}</span>
+                                    )}
+                                    {order.createdAt && (
+                                        <span 
+                                            className="text-[11px] font-black text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-500/20 px-3 py-1.5 rounded-lg border border-amber-200 dark:border-amber-500/30 uppercase tracking-widest shadow-sm transition-colors backdrop-blur-md flex items-center gap-1.5"
+                                            title={`Order Placed: ${new Date(order.createdAt).toLocaleString()}`}
+                                        >
+                                            <Calendar size={12}/> ORDERED: {new Date(order.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                        </span>
                                     )}
                                 </h4>
                                 <p className="text-sm text-gray-700 dark:text-slate-300 leading-relaxed w-11/12 font-bold bg-white/60 dark:bg-black/20 p-2.5 rounded-xl border border-gray-200 dark:border-white/5 inline-block transition-colors shadow-sm backdrop-blur-md">

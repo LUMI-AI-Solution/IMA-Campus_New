@@ -352,18 +352,22 @@ exports.saveSmsSettings = async (req, res) => {
       esmsPassword,
       esmsSenderId,
       isAttendanceSmsEnabled,
-      attendanceSmsTemplate
+      attendanceSmsTemplate,
+      isFeePaymentSmsEnabled,
+      feePaymentSmsTemplate
     } = req.body;
 
     const existing = await prisma.physicalCrmSetting.findFirst();
 
     const data = {
-      esmsApiUrl: esmsApiUrl || 'https://esms.dialog.lk/api/sms/send',
-      esmsUsername: esmsUsername || '',
-      esmsPassword: esmsPassword || '',
-      esmsSenderId: esmsSenderId || 'IMACAMPUS',
-      isAttendanceSmsEnabled: Boolean(isAttendanceSmsEnabled),
-      attendanceSmsTemplate: attendanceSmsTemplate || 'Dear Parent, {student_name} ({student_id}) has attended {class_name} class on {date} at {time}. - IMA Campus'
+      esmsApiUrl: esmsApiUrl || existing?.esmsApiUrl || 'https://esms.dialog.lk/api/sms/send',
+      esmsUsername: esmsUsername !== undefined ? esmsUsername : (existing?.esmsUsername || 'imaarts'),
+      esmsPassword: (esmsPassword !== undefined && esmsPassword.trim() !== '') ? esmsPassword.trim() : (existing?.esmsPassword || ''),
+      esmsSenderId: esmsSenderId || existing?.esmsSenderId || 'IMA',
+      isAttendanceSmsEnabled: isAttendanceSmsEnabled !== undefined ? Boolean(isAttendanceSmsEnabled) : (existing?.isAttendanceSmsEnabled ?? false),
+      attendanceSmsTemplate: attendanceSmsTemplate || existing?.attendanceSmsTemplate || 'Dear Parent, {student_name} ({student_id}) has attended {class_name} class on {date} at {time}. - IMA Campus',
+      isFeePaymentSmsEnabled: isFeePaymentSmsEnabled !== undefined ? Boolean(isFeePaymentSmsEnabled) : (existing?.isFeePaymentSmsEnabled ?? true),
+      feePaymentSmsTemplate: feePaymentSmsTemplate || existing?.feePaymentSmsTemplate || 'Dear Parent, Payment of Rs. {amount} for {student_name} ({student_id}) has been received for {class_details} ({month}) on {date} at {time}. {receipt_ref} - IMA Campus'
     };
 
     let updated;

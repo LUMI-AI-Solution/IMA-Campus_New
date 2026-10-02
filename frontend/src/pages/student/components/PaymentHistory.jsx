@@ -331,7 +331,20 @@ export default function PaymentHistory({ isActive = true }) {
                                     <div className="absolute top-0 left-0 w-1.5 h-full bg-red-500"></div>
                                     <div className="pl-3">
                                         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-2">
-                                            <h4 className="text-base md:text-lg font-bold text-white">{p.courseName}</h4>
+                                            <div>
+                                                <div className="flex items-center gap-2 flex-wrap mb-1">
+                                                    {p.classType === 2 ? (
+                                                        <span className="text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+                                                            📝 Paper Class
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[10px] font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+                                                            📘 Theory Class
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                <h4 className="text-base md:text-lg font-bold text-white">{p.courseName}</h4>
+                                            </div>
                                             <div className="flex gap-2 flex-wrap shrink-0">
                                                 {p.isInstallment && p.installmentNo && (
                                                     <span className="text-[10px] uppercase font-bold bg-orange-500/20 text-orange-400 px-2.5 py-1 rounded-lg border border-orange-500/30 w-max">
@@ -382,12 +395,23 @@ export default function PaymentHistory({ isActive = true }) {
                             <div key={idx} className="bg-black/20 backdrop-blur-xl hover:bg-black/20 backdrop-blur-xl transition-colors border border-white/20 p-5 rounded-2xl group flex flex-col justify-between">
                                 <div className="flex justify-between items-start gap-4 mb-2">
                                     <div>
+                                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                                            {p.classType === 2 ? (
+                                                <span className="text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+                                                    📝 Paper Class
+                                                </span>
+                                            ) : (
+                                                <span className="text-[10px] font-black uppercase tracking-wider bg-sky-500/20 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-md flex items-center gap-1 shadow-sm">
+                                                    📘 Theory Class
+                                                </span>
+                                            )}
+                                            {p.isInstallment && p.installmentNo && (
+                                                <span className="text-[9px] uppercase font-bold text-white/80 font-medium bg-black/20 backdrop-blur-xl px-2 py-0.5 rounded border border-white/20">
+                                                    Phase {p.installmentNo}
+                                                </span>
+                                            )}
+                                        </div>
                                         <h4 className="text-sm font-bold text-white mb-1 group-hover:text-red-400 transition-colors">{p.courseName}</h4>
-                                        {p.isInstallment && p.installmentNo && (
-                                            <span className="text-[9px] uppercase font-bold text-white/80 font-medium bg-black/20 backdrop-blur-xl px-2 py-0.5 rounded border border-white/20 mb-2 inline-block">
-                                                Phase {p.installmentNo}
-                                            </span>
-                                        )}
                                         <p className="text-[10px] text-white/70 font-medium font-medium flex items-center gap-1 mt-1"><CalendarDays size={10}/> {formatDate(p.createdDate)}</p>
                                     </div>
                                     <div className="text-right shrink-0">

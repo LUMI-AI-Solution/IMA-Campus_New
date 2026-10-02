@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import axios from '../../../api/axios';
-import { UploadCloud, CreditCard, ChevronRight, Wallet, ArrowLeft, CheckCircle, Tag, X, Info, Camera, Ban, Paperclip, User, BookOpen, MonitorPlay } from 'lucide-react';
+import { UploadCloud, CreditCard, ChevronRight, Wallet, ArrowLeft, CheckCircle, Tag, X, Info, Camera, Ban, Paperclip, User, BookOpen, MonitorPlay, FileSignature } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import correctCdmImg from '../../../assets/correct-cdm.jpg';
@@ -17,6 +17,7 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
   const [selectionLevel, setSelectionLevel] = useState(0);
   const [selectedBusiness, setSelectedBusiness] = useState(null);
   const [selectedBatch, setSelectedBatch] = useState(null);
+  const [selectedClassType, setSelectedClassType] = useState('theory'); // 'theory' | 'paper'
   const [paymentPlan, setPaymentPlan] = useState(null); 
 
   const [activeStream, setActiveStream] = useState('All');
@@ -122,6 +123,120 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
            .catch(e => console.error("Error fetching enrolled subjects"));
   }, []);
 
+  const parseStreams = (streamString) => streamString ? streamString.split(',').map(s => s.trim()).filter(s => s) : [];
+  
+  const getFilteredBatches = () => selectedBusiness?.batches || [];
+
+  const getBatchCourseCounts = (batch) => {
+    let theoryCount = 0;
+    let paperCount = 0;
+    const seenTheory = new Set();
+    const seenPaper = new Set();
+
+    (batch?.groups || []).forEach(g => {
+        const gClassType = parseInt(g.classType || 1, 10);
+        (g.courses || []).forEach(c => {
+            const cleanName = (c.name || '').trim().toLowerCase();
+            const cType = parseInt(c.courseType || gClassType || 1, 10);
+            if (cType === 2) {
+                if (!seenPaper.has(cleanName)) {
+                    seenPaper.add(cleanName);
+                    paperCount++;
+                }
+            } else {
+                if (!seenTheory.has(cleanName)) {
+                    seenTheory.add(cleanName);
+                    theoryCount++;
+                }
+            }
+        });
+    });
+
+    return { theoryCount, paperCount };
+  };
+
+  const proceedToPaymentOrSubjects = (batch, classType) => {
+    const targetType = classType === 'paper' ? 2 : 1;
+    const availableGroups = (batch?.groups || []).filter(g => {
+        const gClassType = parseInt(g.classType || 1, 10);
+        return gClassType === targetType;
+    });
+
+    const hasMonthly = availableGroups.some(g => g.type === 1);
+    const hasFull = availableGroups.some(g => g.type !== 1);
+
+    if (hasMonthly && !hasFull) {
+        setPaymentPlan('monthly');
+        const monthlyGroups = availableGroups.filter(g => g.type === 1).sort((a, b) => a.itemOrder - b.itemOrder);
+        setSelectedGroup(monthlyGroups[0] || null);
+        setSelectionLevel(4);
+    } else if (hasFull && !hasMonthly) {
+        setPaymentPlan('full');
+        const fullGroups = availableGroups.filter(g => g.type !== 1).sort((a, b) => a.itemOrder - b.itemOrder);
+        setSelectedGroup(fullGroups[0] || null);
+        setSelectionLevel(4);
+    } else if (hasMonthly && hasFull) {
+        setPaymentPlan(null);
+        setSelectedGroup(null);
+        setSelectionLevel(3); // Level 3: Select Payment Plan
+    } else {
+        // No groups configured yet for this class stream
+        setPaymentPlan(null);
+        setSelectedGroup(null);
+        setSelectionLevel(4); // Proceed to Level 4 to show empty state
+    }
+  };
+
+  const handleBatchSelect = (batch) => {
+    setSelectedBatch(batch);
+    const bType = parseInt(batch?.type || 1, 10);
+    const { theoryCount, paperCount } = getBatchCourseCounts(batch);
+    const hasPaperGroups = (batch?.groups || []).some(g => parseInt(g.classType || 1, 10) === 2);
+    const hasTheoryGroups = (batch?.groups || []).some(g => parseInt(g.classType || 1, 10) === 1);
+
+    const hasBothStreams = (bType === 3 || bType === 4) || 
+                           (paperCount > 0 && theoryCount > 0) || 
+                           (hasPaperGroups && hasTheoryGroups);
+
+    if (hasBothStreams) {
+        // Dual batch: Theory & Paper -> Select Class Stream
+        setSelectionLevel(2);
+    } else if (bType === 2 || (paperCount > 0 && theoryCount === 0) || (hasPaperGroups && !hasTheoryGroups)) {
+        // Paper only -> directly proceed
+        setSelectedClassType('paper');
+        proceedToPaymentOrSubjects(batch, 'paper');
+    } else {
+        // Theory only -> directly proceed
+        setSelectedClassType('theory');
+        proceedToPaymentOrSubjects(batch, 'theory');
+    }
+  };
+
+  const handleClassTypeSelect = (type) => {
+    setSelectedClassType(type);
+    proceedToPaymentOrSubjects(selectedBatch, type);
+  };
+  
+  const getFilteredGroups = () => {
+    if (!selectedBatch || !selectedBatch.groups) return [];
+    const targetType = selectedClassType === 'paper' ? 2 : 1;
+    let groups = [];
+    if (paymentPlan === 'monthly') {
+        groups = selectedBatch.groups.filter(g => g.type === 1);
+    } else if (paymentPlan === 'full') {
+        groups = selectedBatch.groups.filter(g => g.type !== 1);
+    } else {
+        return [];
+    }
+
+    const filtered = groups.filter(g => {
+        const gClassType = parseInt(g.classType || 1, 10);
+        return gClassType === targetType;
+    });
+
+    return filtered.sort((a, b) => a.itemOrder - b.itemOrder);
+  };
+
   useEffect(() => {
       if (location.state?.autoSelect && businesses.length > 0) {
           const { businessId, batchId, groupId, subjects } = location.state.autoSelect;
@@ -136,6 +251,8 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                   if (grp) {
                       setPaymentPlan(grp.type === 1 ? 'monthly' : 'full');
                       setSelectedGroup(grp);
+                      const hasPaper = grp.courses?.some(c => parseInt(c.courseType || 1) === 2);
+                      setSelectedClassType(hasPaper ? 'paper' : 'theory');
                       
                       if (subjects) {
                           try {
@@ -146,9 +263,9 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                           setSelectedSubjects([]);
                       }
                       
-                      setSelectionLevel(3); // Level 3 is the final step
+                      setSelectionLevel(4); // Level 4 is the final step
                   } else {
-                      setSelectionLevel(2);
+                      handleBatchSelect(bat);
                   }
               }
           }
@@ -156,6 +273,19 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
           navigate(location.pathname, { replace: true, state: {} });
       }
   }, [location.state, businesses, navigate]);
+
+  useEffect(() => {
+    if (selectionLevel === 4) {
+      const groups = getFilteredGroups();
+      if (groups.length > 0) {
+        if (!selectedGroup || !groups.some(g => g.id === selectedGroup.id)) {
+          setSelectedGroup(groups[0]);
+        }
+      } else {
+        setSelectedGroup(null);
+      }
+    }
+  }, [selectionLevel, paymentPlan, selectedClassType, selectedBatch]);
 
   const [upgradeTrack, setUpgradeTrack] = useState('monthly'); // 'monthly' or 'full'
   const [upgradeData, setUpgradeData] = useState(null);
@@ -196,21 +326,14 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
       }
   }, [showPaymentModal, showInstallmentPrompt]);
 
-  const parseStreams = (streamString) => streamString ? streamString.split(',').map(s => s.trim()).filter(s => s) : [];
-  
-  const getFilteredBatches = () => selectedBusiness?.batches || [];
-  
-  const getFilteredGroups = () => {
-    if (!selectedBatch) return [];
-    if (paymentPlan === 'monthly') return selectedBatch.groups.filter(g => g.type === 1).sort((a, b) => a.itemOrder - b.itemOrder);
-    if (paymentPlan === 'full') return selectedBatch.groups.filter(g => g.type !== 1).sort((a, b) => a.itemOrder - b.itemOrder);
-    return [];
-  };
-
   const getFilteredCourses = () => {
     if (!selectedGroup || !selectedGroup.courses) return [];
     let courses = selectedGroup.courses;
     
+    // Filter by selected class stream (Theory = 1, Paper = 2)
+    const targetType = selectedClassType === 'paper' ? 2 : 1;
+    courses = courses.filter(c => parseInt(c.courseType || selectedGroup.classType || 1, 10) === targetType);
+
     if (activeStream !== 'All') {
         courses = courses.filter(c => {
             let parsedStreams = [];
@@ -423,7 +546,7 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
               hash: hashRes.data.hash || "",
               first_name: "Student", 
               last_name: "Name",
-              email: "student@imacampus.lk",
+              email: "student@imacampus.online",
               phone: "0770000000",
               address: "Sri Lanka",
               city: "Colombo",
@@ -539,24 +662,77 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
 
   const handleBackNavigation = () => {
     if (selectionLevel > 0) {
-      if (selectionLevel === 3) {
-          const hasMonthly = selectedBatch?.groups?.some(g => g.type === 1) || false;
-          const hasFull = selectedBatch?.groups?.some(g => g.type !== 1) || false;
-          if ((hasMonthly && !hasFull) || (hasFull && !hasMonthly)) {
-              // Skipped Level 2, go straight back to Level 1
-              setSelectionLevel(1);
-              setSelectedBatch(null);
-              setPaymentPlan(null);
-              setSelectedGroup(null);
-              setSelectedSubjects([]);
-              setActiveStream('All');
-              return;
-          }
+      if (selectionLevel === 4) {
+        // Currently on Subjects & Checkout (Level 4)
+        const bType = parseInt(selectedBatch?.type || 1, 10);
+        const { theoryCount, paperCount } = getBatchCourseCounts(selectedBatch);
+        const hasPaperGroups = (selectedBatch?.groups || []).some(g => parseInt(g.classType || 1, 10) === 2);
+        const hasTheoryGroups = (selectedBatch?.groups || []).some(g => parseInt(g.classType || 1, 10) === 1);
+        const hasBothStreams = (bType === 3 || bType === 4) || 
+                               (paperCount > 0 && theoryCount > 0) || 
+                               (hasPaperGroups && hasTheoryGroups);
+
+        const targetType = selectedClassType === 'paper' ? 2 : 1;
+        const availableGroups = (selectedBatch?.groups || []).filter(g => {
+            const gClassType = parseInt(g.classType || 1, 10);
+            return gClassType === targetType;
+        });
+        const hasMonthly = availableGroups.some(g => g.type === 1);
+        const hasFull = availableGroups.some(g => g.type !== 1);
+        const hadPaymentPlanStep = hasMonthly && hasFull;
+
+        setPaymentPlan(null);
+        setSelectedGroup(null);
+        setSelectedSubjects([]);
+        setActiveStream('All');
+
+        if (hadPaymentPlanStep) {
+          setSelectionLevel(3);
+          return;
+        } else if (hasBothStreams) {
+          setSelectionLevel(2);
+          return;
+        } else {
+          setSelectionLevel(1);
+          setSelectedBatch(null);
+          return;
+        }
       }
-      setSelectionLevel(prev => prev - 1);
-      if (selectionLevel === 1) setSelectedBusiness(null);
-      if (selectionLevel === 2) setSelectedBatch(null);
-      if (selectionLevel === 3) { setPaymentPlan(null); setSelectedGroup(null); setSelectedSubjects([]); setActiveStream('All'); }
+
+      if (selectionLevel === 3) {
+        // Currently on Payment Plan Selection (Level 3)
+        const bType = parseInt(selectedBatch?.type || 1, 10);
+        const { theoryCount, paperCount } = getBatchCourseCounts(selectedBatch);
+        const hasPaperGroups = (selectedBatch?.groups || []).some(g => parseInt(g.classType || 1, 10) === 2);
+        const hasTheoryGroups = (selectedBatch?.groups || []).some(g => parseInt(g.classType || 1, 10) === 1);
+        const hasBothStreams = (bType === 3 || bType === 4) || 
+                               (paperCount > 0 && theoryCount > 0) || 
+                               (hasPaperGroups && hasTheoryGroups);
+
+        setPaymentPlan(null);
+        if (hasBothStreams) {
+          setSelectionLevel(2); // Go back to Class Stream Selection
+          return;
+        } else {
+          setSelectionLevel(1); // Go back to Batches
+          setSelectedBatch(null);
+          return;
+        }
+      }
+
+      if (selectionLevel === 2) {
+        // Currently on Class Stream Selection (Level 2)
+        setSelectionLevel(1);
+        setSelectedBatch(null);
+        return;
+      }
+
+      if (selectionLevel === 1) {
+        // Currently on Batches list (Level 1)
+        setSelectionLevel(0);
+        setSelectedBusiness(null);
+        return;
+      }
     }
   };
 
@@ -600,32 +776,44 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                 {/* LEVEL 1 */}
                 {selectionLevel === 1 && (
                     <div className="space-y-8 w-full animate-fade-in">
-                      <h3 className="text-2xl md:text-3xl font-extrabold text-white mb-8 text-center uppercase tracking-wide">Select A Batch</h3>
+                      <div className="text-center">
+                        <h3 className="text-2xl md:text-3xl font-extrabold text-white uppercase tracking-wide">Select A Batch</h3>
+                        <p className="text-sm text-white/70 font-medium mt-1">Choose your academic batch to explore classes and enroll</p>
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {getFilteredBatches().map(batch => {
-                          const hasMonthly = batch.groups?.some(g => g.type === 1) || false;
-                          const hasFull = batch.groups?.some(g => g.type !== 1) || false;
+                          const bType = parseInt(batch?.type || 1, 10);
+                          const { theoryCount, paperCount } = getBatchCourseCounts(batch);
                           
                           return (
-                          <div key={batch.id} onClick={() => { 
-                              setSelectedBatch(batch); 
-                              if (hasMonthly && !hasFull) {
-                                  setPaymentPlan('monthly');
-                                  setSelectionLevel(3);
-                              } else if (hasFull && !hasMonthly) {
-                                  setPaymentPlan('full');
-                                  setSelectionLevel(3);
-                              } else {
-                                  setSelectionLevel(2); 
-                              }
-                          }}
-                            className="cursor-pointer rounded-[2.5rem] bg-black/20 backdrop-blur-xl border border-white/20 hover:bg-black/20 backdrop-blur-xl hover:border-red-500/50 backdrop-blur-md shadow-xl transition-all duration-300 flex flex-col sm:flex-row items-center p-4 md:p-6 group">
-                            <div className="h-20 w-20 sm:h-28 sm:w-28 shrink-0 bg-black/20 backdrop-blur-xl rounded-2xl p-3 flex justify-center items-center border border-white/20 mx-auto sm:mx-0 mb-4 sm:mb-0">
+                          <div key={batch.id} onClick={() => handleBatchSelect(batch)}
+                            className="cursor-pointer rounded-[2.5rem] bg-black/20 backdrop-blur-xl border border-white/20 hover:bg-black/30 hover:border-red-500/50 backdrop-blur-md shadow-xl transition-all duration-300 flex flex-col sm:flex-row items-center p-5 md:p-6 group hover:-translate-y-1">
+                            <div className="h-20 w-20 sm:h-28 sm:w-28 shrink-0 bg-black/20 backdrop-blur-xl rounded-2xl p-3 flex justify-center items-center border border-white/20 mx-auto sm:mx-0 mb-4 sm:mb-0 group-hover:scale-105 transition-transform">
                               <img src={getImageUrl(batch.logo || selectedBusiness.logo)} className="max-w-full max-h-full object-contain drop-shadow-md" alt="" />
                             </div>
-                            <div className="p-2 sm:p-6 flex-1 flex flex-col justify-center items-center sm:items-start text-center sm:text-left">
+                            <div className="p-2 sm:p-5 flex-1 flex flex-col justify-center items-center sm:items-start text-center sm:text-left min-w-0">
+                              <div className="flex items-center gap-2 mb-2 flex-wrap justify-center sm:justify-start">
+                                {bType === 2 || (paperCount > 0 && theoryCount === 0) ? (
+                                  <span className="inline-flex items-center gap-1.5 text-[10px] uppercase font-black tracking-widest px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                    <FileSignature size={12} /> Paper Only
+                                  </span>
+                                ) : (bType === 3 || bType === 4 || (paperCount > 0 && theoryCount > 0)) ? (
+                                  <span className="inline-flex items-center gap-1.5 text-[10px] uppercase font-black tracking-widest px-3 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                    <BookOpen size={12} /> Theory & Paper
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 text-[10px] uppercase font-black tracking-widest px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                    <BookOpen size={12} /> Theory Only
+                                  </span>
+                                )}
+                                {(bType === 3 || bType === 4 || (paperCount > 0 && theoryCount > 0)) && (
+                                  <span className="text-[10px] text-white/60 font-semibold">
+                                    ({theoryCount} Theory • {paperCount} Paper)
+                                  </span>
+                                )}
+                              </div>
                               <h4 className="font-bold text-white text-lg md:text-2xl group-hover:text-red-400 transition-colors">{batch.name}</h4>
-                              {batch.description && <p className="text-xs sm:text-sm text-white/90 font-bold mt-2 font-medium">{batch.description}</p>}
+                              {batch.description && <p className="text-xs sm:text-sm text-white/90 font-medium mt-1.5 line-clamp-2">{batch.description}</p>}
                             </div>
                           </div>
                         )})}
@@ -633,33 +821,115 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                     </div>
                 )}
 
-                {/* LEVEL 2 */}
+                {/* LEVEL 2: Select Class Stream (Theory vs Paper - Only for Dual Batches) */}
                 {selectionLevel === 2 && (
                     <div className="space-y-8 w-full max-w-5xl mx-auto animate-fade-in">
-                      <h3 className="text-2xl md:text-3xl font-extrabold text-white mb-8 text-center uppercase tracking-wide">Select Payment Plan</h3>
+                      <div className="text-center">
+                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-black/30 backdrop-blur-md border border-white/20 text-xs font-black uppercase tracking-widest text-red-400 mb-3">
+                          {selectedBatch?.name}
+                        </div>
+                        <h3 className="text-2xl md:text-4xl font-black text-white uppercase tracking-wide">Select Class Stream</h3>
+                        <p className="text-sm md:text-base text-white/70 font-medium mt-2">Choose between Theory or Paper classes to continue</p>
+                      </div>
+
+                      {(() => {
+                        const counts = getBatchCourseCounts(selectedBatch);
+                        return (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
+                            {/* THEORY CLASS CARD */}
+                            <div 
+                              onClick={() => handleClassTypeSelect('theory')} 
+                              className="group cursor-pointer rounded-[2.5rem] p-8 md:p-12 text-center border transition-all duration-300 flex flex-col items-center justify-center bg-black/20 backdrop-blur-xl border-white/20 hover:border-blue-500/60 hover:bg-blue-950/20 hover:shadow-2xl hover:shadow-blue-500/10 hover:-translate-y-1.5"
+                            >
+                              <div className="p-6 rounded-3xl mb-5 transition-transform duration-300 group-hover:scale-110 bg-blue-500/20 text-blue-400 border border-blue-500/30 shadow-lg">
+                                <BookOpen size={52} strokeWidth={1.75} />
+                              </div>
+                              <span className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full bg-blue-500/20 text-blue-300 border border-blue-500/30 mb-3">
+                                {counts.theoryCount} Subjects Available
+                              </span>
+                              <h3 className="font-black text-2xl md:text-3xl text-white mb-2 group-hover:text-blue-300 transition-colors">
+                                Theory Class
+                              </h3>
+                              <p className="text-xs md:text-sm text-blue-200/70 font-medium mb-3">
+                                තියරි පන්තිය
+                              </p>
+                              <p className="text-sm text-white/80 font-medium max-w-sm">
+                                Comprehensive syllabus coverage, concept clarity, theory notes, and foundational academic learning.
+                              </p>
+                              <div className="mt-6 flex items-center gap-1.5 text-xs font-bold text-blue-400 uppercase tracking-wider group-hover:text-blue-300">
+                                <span>Continue to Theory</span>
+                                <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                              </div>
+                            </div>
+
+                            {/* PAPER CLASS CARD */}
+                            <div 
+                              onClick={() => handleClassTypeSelect('paper')} 
+                              className="group cursor-pointer rounded-[2.5rem] p-8 md:p-12 text-center border transition-all duration-300 flex flex-col items-center justify-center bg-black/20 backdrop-blur-xl border-white/20 hover:border-amber-500/60 hover:bg-amber-950/20 hover:shadow-2xl hover:shadow-amber-500/10 hover:-translate-y-1.5"
+                            >
+                              <div className="p-6 rounded-3xl mb-5 transition-transform duration-300 group-hover:scale-110 bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-lg">
+                                <FileSignature size={52} strokeWidth={1.75} />
+                              </div>
+                              <span className="text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 mb-3">
+                                {counts.paperCount} Subjects Available
+                              </span>
+                              <h3 className="font-black text-2xl md:text-3xl text-white mb-2 group-hover:text-amber-300 transition-colors">
+                                Paper Class
+                              </h3>
+                              <p className="text-xs md:text-sm text-amber-200/70 font-medium mb-3">
+                                පේපර් පන්තිය
+                              </p>
+                              <p className="text-sm text-white/80 font-medium max-w-sm">
+                                Model exam papers, structured past paper discussions, marking schemes, and time management coaching.
+                              </p>
+                              <div className="mt-6 flex items-center gap-1.5 text-xs font-bold text-amber-400 uppercase tracking-wider group-hover:text-amber-300">
+                                <span>Continue to Paper</span>
+                                <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                )}
+
+                {/* LEVEL 3: Select Payment Plan */}
+                {selectionLevel === 3 && (
+                    <div className="space-y-8 w-full max-w-5xl mx-auto animate-fade-in">
+                      <div className="text-center">
+                        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-black/30 backdrop-blur-md border border-white/20 text-xs font-black uppercase tracking-widest text-red-400 mb-3">
+                          <span>{selectedBatch?.name}</span>
+                          <span>•</span>
+                          <span className={selectedClassType === 'paper' ? 'text-amber-400' : 'text-blue-400'}>
+                            {selectedClassType === 'paper' ? 'Paper Class' : 'Theory Class'}
+                          </span>
+                        </div>
+                        <h3 className="text-2xl md:text-4xl font-black text-white uppercase tracking-wide">Select Payment Plan</h3>
+                        <p className="text-sm md:text-base text-white/70 font-medium mt-2">Choose between One-Time full payment or Monthly installments</p>
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
-                        <div onClick={() => { setPaymentPlan('full'); setSelectionLevel(3); }} 
-                             className={`cursor-pointer rounded-[2.5rem] p-8 md:p-14 text-center border transition-colors flex flex-col items-center justify-center ${paymentPlan === 'full' ? 'bg-red-600/20 border-red-500' : 'bg-black/20 backdrop-blur-xl border-white/20 hover:bg-black/20 backdrop-blur-xl hover:border-red-500/50'}`}>
-                          <div className={`p-5 rounded-3xl mb-4 transition-colors ${paymentPlan === 'full' ? 'bg-red-500/20 text-red-500' : 'bg-black/20 backdrop-blur-xl text-white/80 font-medium'}`}>
+                        <div onClick={() => { setPaymentPlan('full'); setSelectionLevel(4); }} 
+                             className={`group cursor-pointer rounded-[2.5rem] p-8 md:p-14 text-center border transition-all duration-300 flex flex-col items-center justify-center hover:-translate-y-1.5 ${paymentPlan === 'full' ? 'bg-red-600/20 border-red-500 shadow-2xl shadow-red-500/20' : 'bg-black/20 backdrop-blur-xl border-white/20 hover:bg-black/30 hover:border-red-500/50'}`}>
+                          <div className={`p-5 rounded-3xl mb-4 transition-transform duration-300 group-hover:scale-110 ${paymentPlan === 'full' ? 'bg-red-500/20 text-red-500' : 'bg-black/20 backdrop-blur-xl text-white/80 font-medium'}`}>
                             <Wallet size={48} strokeWidth={1.5} />
                           </div>
                           <h3 className="font-black text-xl md:text-3xl text-white mb-2">One-Time Payment</h3>
-                          <p className="text-sm md:text-base text-white/90 font-bold">Pay upfront and unlock bundle discounts.</p>
+                          <p className="text-sm md:text-base text-white/90 font-medium">Pay upfront and unlock bundle discounts.</p>
                         </div>
-                        <div onClick={() => { setPaymentPlan('monthly'); setSelectionLevel(3); }} 
-                             className={`cursor-pointer rounded-[2.5rem] p-8 md:p-14 text-center border transition-colors flex flex-col items-center justify-center ${paymentPlan === 'monthly' ? 'bg-red-600/20 border-red-500' : 'bg-black/20 backdrop-blur-xl border-white/20 hover:bg-black/20 backdrop-blur-xl hover:border-red-500/50'}`}>
-                          <div className={`p-5 rounded-3xl mb-4 transition-colors ${paymentPlan === 'monthly' ? 'bg-red-500/20 text-red-500' : 'bg-black/20 backdrop-blur-xl text-white/80 font-medium'}`}>
+                        <div onClick={() => { setPaymentPlan('monthly'); setSelectionLevel(4); }} 
+                             className={`group cursor-pointer rounded-[2.5rem] p-8 md:p-14 text-center border transition-all duration-300 flex flex-col items-center justify-center hover:-translate-y-1.5 ${paymentPlan === 'monthly' ? 'bg-red-600/20 border-red-500 shadow-2xl shadow-red-500/20' : 'bg-black/20 backdrop-blur-xl border-white/20 hover:bg-black/30 hover:border-red-500/50'}`}>
+                          <div className={`p-5 rounded-3xl mb-4 transition-transform duration-300 group-hover:scale-110 ${paymentPlan === 'monthly' ? 'bg-red-500/20 text-red-500' : 'bg-black/20 backdrop-blur-xl text-white/80 font-medium'}`}>
                             <CreditCard size={48} strokeWidth={1.5} />
                           </div>
                           <h3 className="font-black text-xl md:text-3xl text-white mb-2">Monthly Payment</h3>
-                          <p className="text-sm md:text-base text-white/90 font-bold">Pay your subject fees on a monthly basis.</p>
+                          <p className="text-sm md:text-base text-white/90 font-medium">Pay your subject fees on a monthly basis.</p>
                         </div>
                       </div>
                     </div>
                 )}
 
-                {/* LEVEL 3 */}
-                {selectionLevel === 3 && (
+                {/* LEVEL 4: Subjects & Checkout */}
+                {selectionLevel === 4 && (
                     <div className="w-full animate-fade-in relative flex flex-col lg:flex-row gap-6 items-start">
                       
                       <div className="flex-1 bg-black/20 backdrop-blur-xl border border-white/20 backdrop-blur-md shadow-xl rounded-[2.5rem] p-4 md:p-8 w-full overflow-hidden">
@@ -668,8 +938,19 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                                 {paymentPlan === 'monthly' ? <CreditCard size={20} /> : <Wallet size={20} />}
                               </div>
                               <div className="pr-3 min-w-0">
-                                  <h2 className="text-sm md:text-base font-extrabold text-white truncate">{selectedBatch.name}</h2>
-                                  <p className="text-red-400 mt-0.5 text-[10px] font-bold uppercase tracking-widest">{paymentPlan === 'full' ? 'One-Time Plan' : 'Monthly Plan'}</p>
+                                  <h2 className="text-sm md:text-base font-extrabold text-white truncate">{selectedBatch?.name}</h2>
+                                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                      <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full border ${
+                                          selectedClassType === 'paper' 
+                                          ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' 
+                                          : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                      }`}>
+                                          {selectedClassType === 'paper' ? '📝 Paper Class' : '📘 Theory Class'}
+                                      </span>
+                                      <span className="text-red-400 text-[10px] font-extrabold uppercase tracking-widest">
+                                          {paymentPlan === 'full' ? 'One-Time Plan' : 'Monthly Plan'}
+                                      </span>
+                                  </div>
                               </div>
                           </div>
 
@@ -691,31 +972,72 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                               </div>
                           )}
 
-                          {paymentPlan === 'monthly' && (
-                            <div className="mb-6">
-                              <h4 className="text-xs font-bold text-white/80 font-medium mb-3 uppercase tracking-wider">Select Month</h4>
-                              <div className="flex flex-wrap gap-2">
-                                {getFilteredGroups().map(group => (
-                                  <button key={group.id} onClick={() => { 
-                                    setSelectedGroup(group); 
-                                    setSelectedSubjects([]); 
-                                    setUpgradeTrack('monthly');
-                                  }}
-                                    className={`px-4 py-2 rounded-xl font-bold text-xs transition-colors ${
-                                      selectedGroup?.id === group.id 
-                                      ? 'bg-red-600 text-white border border-red-500' 
-                                      : 'bg-black/20 backdrop-blur-xl border border-white/20 text-white/90 font-bold hover:bg-black/20 backdrop-blur-xl hover:text-white'
-                                    }`}>
-                                    {group.name}
-                                  </button>
-                                ))}
+                          {getFilteredGroups().length === 0 ? (
+                            <div className="text-center py-16 px-6 bg-black/20 backdrop-blur-xl rounded-[2.5rem] border border-white/10 my-4 flex flex-col items-center justify-center">
+                              <div className={`w-20 h-20 rounded-3xl flex items-center justify-center border shadow-xl mb-5 ${
+                                selectedClassType === 'paper' ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-blue-500/10 text-blue-400 border-blue-500/30'
+                              }`}>
+                                {selectedClassType === 'paper' ? <FileSignature size={40} /> : <BookOpen size={40} />}
                               </div>
+                              <h3 className="text-xl md:text-2xl font-black text-white mb-2">
+                                No {selectedClassType === 'paper' ? 'Paper Class' : 'Theory Class'} {paymentPlan === 'monthly' ? 'Monthly' : paymentPlan === 'full' ? 'One-Time' : ''} Groups Configured Yet
+                              </h3>
+                              <p className="text-xs md:text-sm text-white/70 max-w-md mx-auto mb-6">
+                                Payment groups and subjects for {selectedClassType === 'paper' ? 'Paper Class' : 'Theory Class'} have not been published for this batch yet.
+                              </p>
+                              <button 
+                                onClick={handleBackNavigation}
+                                className="px-6 py-3 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs uppercase tracking-wider transition-all border border-white/20 inline-flex items-center gap-2 hover:scale-105"
+                              >
+                                <ArrowLeft size={16} /> Back
+                              </button>
                             </div>
-                          )}
+                          ) : (
+                            <>
+                              {paymentPlan === 'monthly' && (
+                                <div className="mb-6">
+                                  <h4 className="text-xs font-bold text-white/80 font-medium mb-3 uppercase tracking-wider">Select Month</h4>
+                                  <div className="flex flex-wrap gap-2">
+                                    {getFilteredGroups().map(group => (
+                                      <button key={group.id} onClick={() => { 
+                                        setSelectedGroup(group); 
+                                        setSelectedSubjects([]); 
+                                        setUpgradeTrack('monthly');
+                                      }}
+                                        className={`px-4 py-2 rounded-xl font-bold text-xs transition-colors ${
+                                          selectedGroup?.id === group.id 
+                                          ? 'bg-red-600 text-white border border-red-500' 
+                                          : 'bg-black/20 backdrop-blur-xl border border-white/20 text-white/90 font-bold hover:bg-black/20 backdrop-blur-xl hover:text-white'
+                                        }`}>
+                                        {group.name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
 
-                          {paymentPlan === 'full' && getFilteredGroups().length > 0 && !selectedGroup && setSelectedGroup(getFilteredGroups()[0])}
+                              {paymentPlan === 'full' && getFilteredGroups().length > 1 && (
+                                <div className="mb-6">
+                                  <h4 className="text-xs font-bold text-white/80 font-medium mb-3 uppercase tracking-wider">Select Package</h4>
+                                  <div className="flex flex-wrap gap-2">
+                                    {getFilteredGroups().map(group => (
+                                      <button key={group.id} onClick={() => { 
+                                        setSelectedGroup(group); 
+                                        setSelectedSubjects([]); 
+                                      }}
+                                        className={`px-4 py-2 rounded-xl font-bold text-xs transition-colors ${
+                                          selectedGroup?.id === group.id 
+                                          ? 'bg-red-600 text-white border border-red-500' 
+                                          : 'bg-black/20 backdrop-blur-xl border border-white/20 text-white/90 font-bold hover:bg-black/20 backdrop-blur-xl hover:text-white'
+                                        }`}>
+                                        {group.name}
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
 
-                          {selectedGroup && (
+                              {selectedGroup && (
                             <div className="space-y-4 pb-24 lg:pb-0 w-full"> 
                                <h4 className="text-xs font-bold text-white/80 font-medium mb-2 uppercase tracking-wider">Choose Subjects</h4>
                                
@@ -758,6 +1080,13 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                                               <div className="flex items-center gap-2 flex-wrap">
                                                   <span className="block font-black text-white text-xl truncate w-full md:w-auto md:max-w-[300px] drop-shadow-md" title={course.name}>{course.name}</span>
                                                   {course.code && <span className="text-[10px] text-red-400 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20 font-bold uppercase tracking-widest shrink-0 shadow-sm">{course.code}</span>}
+                                                  <span className={`text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded border shrink-0 ${
+                                                      parseInt(course.courseType || 1, 10) === 2
+                                                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                                      : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                                  }`}>
+                                                      {parseInt(course.courseType || 1, 10) === 2 ? 'Paper Class' : 'Theory Class'}
+                                                  </span>
                                               </div>
                                               {isAlreadyPaid && <span className="text-[10px] text-green-400 font-bold uppercase tracking-widest mt-1 flex items-center gap-1"><CheckCircle size={10}/> Already Paid</span>}
                                           </div>
@@ -812,15 +1141,28 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                                {getFilteredCourses().length === 0 && <div className="text-center py-10 bg-black/20 backdrop-blur-xl rounded-2xl border border-white/20"><p className="text-white/80 font-medium text-sm">No subjects available.</p></div>}
                             </div>
                           )}
+                          </>
+                          )}
                       </div>
 
                       {/* Sticky Order Summary Desktop */}
+                      {getFilteredGroups().length > 0 && (
                       <div className="fixed bottom-0 left-0 right-0 z-50 lg:sticky lg:top-6 lg:w-[320px] shrink-0 space-y-4">
                          <div className={`bg-black/20 backdrop-blur-2xl lg:bg-black/20 backdrop-blur-xl border-t lg:border border-white/20 lg:rounded-[2.5rem] p-4 lg:p-6 transition-opacity duration-200 ${calculateTotal() > 0 ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
                             
                             <div className="hidden lg:block">
                                 <h4 className="text-sm font-extrabold text-white mb-4 uppercase tracking-widest border-b border-white/20 pb-3 flex items-center gap-2"><Wallet size={16} className="text-red-500"/> Order Summary</h4>
                                 <div className="space-y-2 text-xs text-white/70 font-medium mb-5 font-medium">
+                                    <div className="flex justify-between items-center bg-black/20 backdrop-blur-xl p-2.5 rounded-xl border border-white/20">
+                                        <span>Class Stream:</span> 
+                                        <span className={`font-bold px-2 py-0.5 rounded text-xs border ${
+                                            selectedClassType === 'paper' 
+                                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' 
+                                            : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                        }`}>
+                                            {selectedClassType === 'paper' ? 'Paper Class' : 'Theory Class'}
+                                        </span>
+                                    </div>
                                     <div className="flex justify-between items-center bg-black/20 backdrop-blur-xl p-2.5 rounded-xl border border-white/20">
                                         <span>Plan:</span> 
                                         <span className="font-bold text-white bg-black/20 backdrop-blur-xl px-2 py-1 rounded">
@@ -871,6 +1213,7 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
                             </div>
                         </div>
                       </div>
+                      )}
                     </div>
                 )}
             </div>

@@ -40,16 +40,36 @@ admin.initializeApp({
 // ================= MIDDLEWARES =================
 
 const isAllowedOrigin = (origin) => {
-    if (!origin) return true;
-    if (origin.includes('72.62.249.211') || origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('imacampus.online')) return true;
-    if (origin.startsWith('http://10.') || origin.startsWith('http://192.168.') || origin.startsWith('http://172.')) return true;
-    if (origin.startsWith('chrome-extension://')) return true;
-    return true;
+    if (!origin) return true; // Mobile apps, Native clients, server-to-server have no Origin header
+    try {
+        const parsed = new URL(origin);
+        const host = parsed.hostname;
+        if (
+            host === 'imacampus.online' ||
+            host.endsWith('.imacampus.online') ||
+            host === 'localhost' ||
+            host === '127.0.0.1' ||
+            host === '72.62.249.211' ||
+            host.startsWith('192.168.') ||
+            host.startsWith('10.') ||
+            host.startsWith('172.')
+        ) {
+            return true;
+        }
+        if (origin.startsWith('chrome-extension://')) return true;
+    } catch (e) {
+        return false;
+    }
+    return false;
 };
 
 const corsOptions = {
     origin: function (origin, callback) {
-        callback(null, true);
+        if (isAllowedOrigin(origin)) {
+            callback(null, true);
+        } else {
+            callback(null, false);
+        }
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
     allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'Cache-Control', 'Pragma', 'Expires'],
@@ -62,11 +82,15 @@ app.use(cors(corsOptions));
 app.use((req, res, next) => {
     if (req.method === 'OPTIONS') {
         const origin = req.headers.origin;
-        res.header('Access-Control-Allow-Origin', origin || '*');
-        res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-        res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, Pragma, Expires');
-        res.header('Access-Control-Allow-Credentials', 'true');
-        return res.status(200).end();
+        if (isAllowedOrigin(origin)) {
+            res.header('Access-Control-Allow-Origin', origin);
+            res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+            res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, Cache-Control, Pragma, Expires');
+            res.header('Access-Control-Allow-Credentials', 'true');
+            return res.status(200).end();
+        } else {
+            return res.status(403).end();
+        }
     }
     next();
 });
@@ -94,22 +118,31 @@ const teamRoutes = require('./routes/teamRoutes');
 // Kalin thibuna routes (meka mehema thiyenna arinna wena ewata one wenna puluwan)
 app.use('/documents', express.static(path.join(__dirname, 'documents')));
 app.use('/api/documents', express.static(path.join(__dirname, 'documents')));
+const fs = require('fs');
+
+const serveDocumentWithFallback = (req, res, next) => {
+    const filePath = req.path;
+    const docPath = path.join(__dirname, 'storage/documents', filePath);
+    if (fs.existsSync(docPath)) return res.sendFile(docPath);
+    const iconPath = path.join(__dirname, 'storage/icons', filePath);
+    if (fs.existsSync(iconPath)) return res.sendFile(iconPath);
+    const postPath = path.join(__dirname, 'storage/posts', filePath);
+    if (fs.existsSync(postPath)) return res.sendFile(postPath);
+    const imgPath = path.join(__dirname, 'storage/images', filePath);
+    if (fs.existsSync(imgPath)) return res.sendFile(imgPath);
+    next();
+};
+
+app.use('/storage/documents', serveDocumentWithFallback, express.static(path.join(__dirname, 'storage/documents')));
+app.use('/api/storage/documents', serveDocumentWithFallback, express.static(path.join(__dirname, 'storage/documents')));
+app.use('/storage/tutes', serveDocumentWithFallback, express.static(path.join(__dirname, 'storage/documents')));
+app.use('/api/storage/tutes', serveDocumentWithFallback, express.static(path.join(__dirname, 'storage/documents')));
 app.use('/storage/icons', express.static(path.join(__dirname, 'storage/icons')));
 app.use('/storage/posts', express.static(path.join(__dirname, 'storage/posts')));
 app.use('/storage/images', express.static(path.join(__dirname, 'storage/images')));
 app.use('/api/storage/images', express.static(path.join(__dirname, 'storage/images')));
-app.use('/images', express.static(path.join(__dirname, 'storage/images')));
-app.use('/storage/documents', express.static(path.join(__dirname, 'storage/documents')));
-app.use('/storage/icons', express.static(path.join(__dirname, 'storage/icons')));
-app.use('/storage/posts', express.static(path.join(__dirname, 'storage/posts')));
-
-// 🔥 FIX: Mobile app & Web preview ekata /api/ url eken document ganna me routes tika add kala 🔥
-app.use('/api/storage/documents', express.static(path.join(__dirname, 'storage/documents')));
-app.use('/storage/tutes', express.static(path.join(__dirname, 'storage/documents')));
-app.use('/api/storage/tutes', express.static(path.join(__dirname, 'storage/documents')));
 app.use('/api/storage/icons', express.static(path.join(__dirname, 'storage/icons')));
 app.use('/api/storage/posts', express.static(path.join(__dirname, 'storage/posts')));
-app.use('/storage/images', express.static(path.join(__dirname, 'storage/images')));
 app.use('/storage/ringtone', express.static(path.join(__dirname, '../storage/ringtone')));
 app.use('/api/storage/ringtone', express.static(path.join(__dirname, '../storage/ringtone')));
 app.use('/storage/users', express.static(path.join(__dirname, 'storage/users')));
@@ -126,6 +159,8 @@ app.use('/api/uploads/library', express.static(path.join(__dirname, 'uploads/lib
 // Public Audio Route for WhatsApp Call recordings (bypass auth)
 app.get('/api/public/whatsapp-recording/:filename', require('./controllers/whatsappCallController').getRecording);
 
+// 🔥 SMART WHATSAPP ROTATOR & INSTANT QR REDIRECT 🔥
+app.use(require('./routes/whatsappRotatorRoutes'));
 
 // ================= GLOBAL AUDIT TRAIL =================
 const auditMiddleware = require('./middlewares/auditMiddleware');
@@ -171,6 +206,7 @@ app.use('/api/physical-finance', require('./routes/physicalFinanceRoutes'));
 
 app.use('/api/coordinator-crm', coordinatorCrmRoutes);
 app.use('/api/after-seminar-crm', afterSeminarCrmRoutes);
+app.use('/api/missed-call-tasks', require('./routes/missedCallTaskRoutes'));
 app.use('/api/team', teamRoutes);
 
 // 🔥🔥🔥 MOBILE APP ROUTES 🔥🔥🔥
@@ -183,6 +219,7 @@ app.use('/api/ai-verification', require('./routes/aiVerificationRoutes'));
 // AI Database Agent
 app.use('/api/admin/ai-agent', require('./routes/aiAgentRoutes'));
 app.use('/api/claude', require('./routes/claudeRoutes'));
+app.use('/api/ai-team', require('./routes/aiTeamRoutes'));
 app.use('/api/admin/test-injector', require('./routes/testRoutes'));
 app.use('/api/social-media', require('./routes/socialMediaRoutes'));
 app.use('/uploads', express.static(path.join(__dirname, 'public/uploads')));

@@ -346,7 +346,7 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
                         
                         {(() => {
                             const uniqueEnrollments = studentDetails.student.payments?.reduce((acc, p) => {
-                                const key = `${p.businessId}_${p.batchId}`;
+                                const key = `${p.businessId}_${p.batchId}_${p.classType || p.group?.classType || 1}`;
                                 if (!acc[key]) {
                                     acc[key] = { ...p, courses: p.courses ? [...p.courses] : [] };
                                 } else {
@@ -361,7 +361,14 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
                             return uniqueEnrollments ? Object.values(uniqueEnrollments).map((payment, idx) => (
                                 <div key={idx} className={idx > 0 ? "mt-4" : ""}>
                                     <div className="text-xs mt-3 pt-3 border-t border-slate-700">
-                                        <span className="text-slate-500 block mb-0.5"><FaGraduationCap className="inline mr-1"/> Enrollment</span>
+                                        <div className="flex items-center justify-between mb-0.5">
+                                            <span className="text-slate-500"><FaGraduationCap className="inline mr-1"/> Enrollment #{idx + 1}</span>
+                                            {payment.classType === 2 || payment.group?.classType === 2 ? (
+                                                <span className="text-[9px] bg-amber-950 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-bold">📝 Paper Class</span>
+                                            ) : (
+                                                <span className="text-[9px] bg-blue-950 text-blue-300 border border-blue-500/40 px-2 py-0.5 rounded-full font-bold">📘 Theory Class</span>
+                                            )}
+                                        </div>
                                         <span className="text-blue-300 font-bold block">{payment.business?.name}</span>
                                         <span className="text-slate-400 block">{payment.batch?.name}</span>
                                     </div>

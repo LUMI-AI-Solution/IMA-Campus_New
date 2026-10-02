@@ -5,6 +5,8 @@ import { Toaster } from 'react-hot-toast';
 // Layout & Pages
 import Home from './pages/web/pages/Home';
 import NewCampusLandingPage from './pages/web/pages/NewCampusLandingPage';
+import AcademyLandingPage from './pages/web/pages/AcademyLandingPage';
+import FastTrackLandingPage from './pages/web/pages/FastTrackLandingPage';
 import AboutUs from './pages/web/pages/AboutUs';
 import ContactUs from './pages/web/pages/ContactUs';
 import PrivacyPolicy from './pages/web/pages/PrivacyPolicy';
@@ -72,6 +74,7 @@ import CallCenterAgentDashboard from './pages/call_center/CallCenterAgentDashboa
 import PhysicalManagerDashboard from './pages/physical/PhysicalManagerDashboard';
 import StudentRegistration from './pages/PhysicalCRM/StudentRegistration';
 import ClassTeacherManagement from './pages/PhysicalCRM/ClassTeacherManagement';
+import EntranceGateScanner from './pages/PhysicalCRM/EntranceGateScanner';
 
 // Finance Dashboard Import
 import FinanceOverview from './pages/finance/FinanceOverview';
@@ -93,6 +96,8 @@ import VideoEditor from './pages/social_media/components/VideoEditor';
 import AIVideoGenerator from './pages/social_media/components/AIVideoGenerator';
 import AIImageGeneratorPage from './pages/admin/AIImageGeneratorPage';
 import ClaudeOpusStudio from './pages/admin/ClaudeOpusStudio';
+import AITeamHub from './pages/admin/AITeamHub';
+import SinhalaVoiceAgentTester from './pages/admin/SinhalaVoiceAgentTester';
 
 // 🔥 GHOST MODE BANNER COMPONENT 🔥
 const GhostModeBanner = () => {
@@ -129,7 +134,16 @@ export default function App() {
   useEffect(() => {
     const storedUser = localStorage.getItem('user');
     if (storedUser) {
-      setLoggedInUser(JSON.parse(storedUser));
+      try {
+        const u = JSON.parse(storedUser);
+        if (u.department === 'Physical' && u.role !== 'Staff') {
+          u.role = 'Staff';
+          localStorage.setItem('user', JSON.stringify(u));
+        }
+        setLoggedInUser(u);
+      } catch (e) {
+        setLoggedInUser(JSON.parse(storedUser));
+      }
     }
     setAuthChecked(true);
   }, []);
@@ -180,6 +194,17 @@ export default function App() {
 
   if (!authChecked) return <div className="min-h-screen bg-[#0a0f1c]"></div>;
 
+  // Subdomain detection for Meta Business Verification
+  const hostname = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
+  const isAcademySubdomain = hostname.startsWith('academy.') || hostname.includes('iddamalgoda');
+  const isFastTrackSubdomain = hostname.startsWith('fasttrack.') || hostname.startsWith('fast-track.');
+
+  const getPublicRootComponent = () => {
+    if (isAcademySubdomain) return <AcademyLandingPage />;
+    if (isFastTrackSubdomain) return <FastTrackLandingPage />;
+    return <NewCampusLandingPage loggedInUser={loggedInUser} />;
+  };
+
   return (
     <ThemeProvider>
       <CallProvider>
@@ -193,7 +218,12 @@ export default function App() {
 
           <Routes>
             {/* Public Routes */}
-            <Route path="/" element={<NewCampusLandingPage loggedInUser={loggedInUser} />} />
+            <Route path="/" element={getPublicRootComponent()} />
+            <Route path="/academy" element={<AcademyLandingPage />} />
+            <Route path="/iddamalgoda-media-academy" element={<AcademyLandingPage />} />
+            <Route path="/fasttrack" element={<FastTrackLandingPage />} />
+            <Route path="/fast-track" element={<FastTrackLandingPage />} />
+            <Route path="/ima-fast-track" element={<FastTrackLandingPage />} />
             <Route path="/old-home" element={<Home loggedInUser={loggedInUser} />} />
             <Route path="/landingpage-new" element={<NewCampusLandingPage loggedInUser={loggedInUser} />} />
             <Route path="/new-landing-page" element={<NewCampusLandingPage loggedInUser={loggedInUser} />} />
@@ -208,6 +238,7 @@ export default function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/test-youtube-player" element={<SecureYoutubePlayerTest />} />
             <Route path="/headless-ivr/:callId" element={<HeadlessIvrBot />} />
+            <Route path="/physical/entrance-gate" element={<EntranceGateScanner isStandalone={true} />} />
 
             {/* 🔥 NEW: Ghost Login Route 🔥 */}
             <Route path="/ghost-auth" element={<GhostAuth />} />
@@ -220,11 +251,16 @@ export default function App() {
             {/* ✅ ADMIN & STAFF ROUTES ✅ */}
             <Route element={loggedInUser && loggedInUser.role.toUpperCase() !== 'STUDENT' && loggedInUser.role.toUpperCase() !== 'USER' ? <MainLayout loggedInUser={loggedInUser} handleLogout={handleLogout} /> : <Navigate to="/login" />}>
               <Route path="/admin/dashboard" element={<AdminDashboard />} />
-              <Route path="/admin/pusthakalaya" element={<LibraryManager />} />
-              <Route path="/admin/library" element={<LibraryManager />} />
-              <Route path="/manager/pusthakalaya" element={<LibraryManager />} />
+              <Route path="/admin/pusthakalaya" element={<LibraryManager loggedInUser={loggedInUser} />} />
+              <Route path="/admin/library" element={<LibraryManager loggedInUser={loggedInUser} />} />
+              <Route path="/manager/pusthakalaya" element={<LibraryManager loggedInUser={loggedInUser} />} />
+              <Route path="/coordinator/pusthakalaya" element={<LibraryManager loggedInUser={loggedInUser} />} />
+              <Route path="/workspace/pusthakalaya" element={<LibraryManager loggedInUser={loggedInUser} />} />
               <Route path="/admin/stats-hub" element={<ExecutiveStatsHub loggedInUser={loggedInUser} />} />
               <Route path="/admin/claude-opus" element={<ClaudeOpusStudio loggedInUser={loggedInUser} />} />
+              <Route path="/admin/sinhala-voice-agent" element={<SinhalaVoiceAgentTester loggedInUser={loggedInUser} />} />
+              <Route path="/admin/ai-team" element={<AITeamHub loggedInUser={loggedInUser} />} />
+              <Route path="/workspace/ai-team" element={<AITeamHub loggedInUser={loggedInUser} />} />
               <Route path="/admin/system-tasks" element={<SystemTasksAdmin />} />
               <Route path="/manager/dashboard" element={<ManagerDashboard />} />
               <Route path="/manager/tute-stock" element={<LecturerTuteStockCalendar loggedInUser={loggedInUser} />} />

@@ -1571,11 +1571,18 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                                                     <span className="text-slate-500 text-xs font-semibold flex items-center gap-1">
                                                                         <FaGraduationCap className="text-slate-400"/> Enrollment #{idx + 1}
                                                                     </span>
-                                                                    {isThisBatch ? (
-                                                                        <span className="text-[9px] bg-emerald-950 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold">Current Batch</span>
-                                                                    ) : (
-                                                                        <span className="text-[9px] bg-sky-950 text-sky-300 border border-sky-500/40 px-2 py-0.5 rounded-full font-bold">Other Batch</span>
-                                                                    )}
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        {enr.classType === 2 ? (
+                                                                            <span className="text-[9px] bg-amber-950 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-bold">📝 Paper Class</span>
+                                                                        ) : (
+                                                                            <span className="text-[9px] bg-blue-950 text-blue-300 border border-blue-500/40 px-2 py-0.5 rounded-full font-bold">📘 Theory Class</span>
+                                                                        )}
+                                                                        {isThisBatch ? (
+                                                                            <span className="text-[9px] bg-emerald-950 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-bold">Current Batch</span>
+                                                                        ) : (
+                                                                            <span className="text-[9px] bg-sky-950 text-sky-300 border border-sky-500/40 px-2 py-0.5 rounded-full font-bold">Other Batch</span>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
                                                                 <span className="text-sky-300 font-black block">{enr.businessName || enr.business?.name}</span>
                                                                 <span className="text-slate-300 block text-xs mt-0.5 font-medium">{enr.batchName || enr.batch?.name}</span>

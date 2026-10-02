@@ -21,3 +21,6 @@ backend/gsheet-service-account.json
 backend/server.log
 *.log
 backend/uploads/
+restricted_backups/
+*.sql
+__pycache__/

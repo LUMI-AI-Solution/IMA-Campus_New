@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const esmsService = require('../services/esmsService');
+const { extractCallingName } = require('../utils/nameUtils');
 
 // Helper to sanitize & extract identifier from raw USB/Camera scanned QR codes
 const extractIdentifier = (rawInput) => {
@@ -569,5 +570,434 @@ exports.getStudentAttendanceHistory = async (req, res) => {
     } catch (error) {
         console.error('Error fetching attendance history:', error);
         res.status(500).json({ error: 'Failed to fetch history' });
+    }
+};
+
+// 6. Entrance Gate Scanner: Instant Access & Fee Verification
+exports.entranceScan = async (req, res) => {
+    try {
+        const { identifier, classId, gateMode } = req.body;
+        const rawCode = extractIdentifier(identifier);
+
+        if (!rawCode) {
+            return res.status(400).json({ 
+                success: false, 
+                status: 'INVALID_INPUT', 
+                message: 'No card code or student ID provided' 
+            });
+        }
+
+        const cleanNoPlus = rawCode.replace(/^\+/, '').trim();
+        const withPlus = rawCode.startsWith('+') ? rawCode : `+${cleanNoPlus}`;
+        const noPrefixPhy = rawCode.replace(/^PHY-STU-|^PHY-|^STU-/i, '').trim();
+        const phyStuPrefixed = rawCode.startsWith('PHY-STU-') ? rawCode : `PHY-STU-${cleanNoPlus || noPrefixPhy}`;
+        const intId = parseInt(cleanNoPlus || noPrefixPhy, 10);
+        const isValidIntId = !isNaN(intId) && (String(intId) === cleanNoPlus || String(intId) === noPrefixPhy);
+
+        const includeRelations = {
+            class: { include: { teachers: true } },
+            school: true,
+            enrollments: { include: { class: { include: { teachers: true } } } },
+            feePayments: { orderBy: { month: 'desc' } }
+        };
+
+        // STEP 1: Strict match: RFID
+        let student = await prisma.physicalStudent.findFirst({
+            where: {
+                OR: [
+                    { rfid: rawCode },
+                    { rfid: cleanNoPlus },
+                    { rfid: withPlus }
+                ]
+            },
+            include: includeRelations
+        });
+
+        // STEP 2: Exact Student ID or primary ID
+        if (!student) {
+            const exactIdMatches = [
+                { studentId: rawCode },
+                { studentId: cleanNoPlus },
+                { studentId: withPlus },
+                { studentId: phyStuPrefixed },
+                { studentId: `PHY-STU-${noPrefixPhy}` }
+            ];
+            if (isValidIntId) {
+                exactIdMatches.push({ id: intId });
+            }
+            student = await prisma.physicalStudent.findFirst({
+                where: { OR: exactIdMatches },
+                include: includeRelations
+            });
+        }
+
+        // STEP 3: Phone / Guardian Phone / NIC
+        if (!student) {
+            student = await prisma.physicalStudent.findFirst({
+                where: {
+                    OR: [
+                        { phone: rawCode },
+                        { phone: cleanNoPlus },
+                        { guardianPhone: rawCode },
+                        { guardianPhone: cleanNoPlus },
+                        { nic: rawCode },
+                        { nic: cleanNoPlus }
+                    ]
+                },
+                include: includeRelations
+            });
+        }
+
+        // STEP 4: Fallback fuzzy
+        if (!student) {
+            const candidateTerms = Array.from(new Set([
+                rawCode,
+                cleanNoPlus,
+                withPlus,
+                noPrefixPhy,
+                phyStuPrefixed
+            ])).filter(Boolean);
+
+            const fuzzyMatches = [];
+            candidateTerms.forEach(cand => {
+                fuzzyMatches.push(
+                    { studentName: { contains: cand } },
+                    { firstName: { contains: cand } },
+                    { lastName: { contains: cand } },
+                    { studentId: { contains: cand } },
+                    { rfid: { contains: cand } }
+                );
+            });
+
+            student = await prisma.physicalStudent.findFirst({
+                where: { OR: fuzzyMatches },
+                include: includeRelations
+            });
+        }
+
+        if (!student) {
+            return res.status(200).json({
+                success: false,
+                status: 'NOT_FOUND',
+                scannedCode: rawCode,
+                message: `No student found for card code: "${rawCode}". Please visit reception.`
+            });
+        }
+
+        // Collect all enrolled classes
+        const enrolledClassesMap = new Map();
+        if (student.class) {
+            enrolledClassesMap.set(student.class.id, student.class);
+        }
+        (student.enrollments || []).forEach(enr => {
+            if (enr.class) {
+                enrolledClassesMap.set(enr.class.id, enr.class);
+            }
+        });
+        const enrolledClasses = Array.from(enrolledClassesMap.values());
+
+        if (enrolledClasses.length === 0) {
+            return res.status(200).json({
+                success: false,
+                status: 'NO_CLASS',
+                student: {
+                    id: student.id,
+                    studentId: student.studentId,
+                    studentName: student.studentName || `${student.firstName || ''} ${student.lastName || ''}`.trim(),
+                    callingName: extractCallingName(student),
+                    phone: student.phone,
+                    grade: student.grade,
+                    school: student.school?.name,
+                    cardType: student.cardType || 'FULL'
+                },
+                message: 'Student is not enrolled in any physical classes. Please register at counter.'
+            });
+        }
+
+        // Determine target class
+        let targetClass = null;
+        const now = new Date();
+        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const todayDayName = days[now.getDay()];
+
+        if (classId) {
+            const requestedClassId = parseInt(classId);
+            targetClass = enrolledClasses.find(c => c.id === requestedClassId) || null;
+            if (!targetClass) {
+                // Not enrolled in this specific session
+                const classDetails = await prisma.physicalClass.findUnique({ where: { id: requestedClassId } });
+                return res.status(200).json({
+                    success: false,
+                    status: 'NOT_ENROLLED_IN_CLASS',
+                    student: {
+                        id: student.id,
+                        studentId: student.studentId,
+                        studentName: student.studentName || `${student.firstName || ''} ${student.lastName || ''}`.trim(),
+                        callingName: extractCallingName(student),
+                        phone: student.phone,
+                        grade: student.grade,
+                        school: student.school?.name,
+                        cardType: student.cardType || 'FULL'
+                    },
+                    class: classDetails,
+                    message: `Student is not enrolled in ${classDetails?.name || 'this class'}. Please check at counter.`
+                });
+            }
+        } else {
+            // AUTO detect based on Timetable for today!
+            const enrolledClassIds = enrolledClasses.map(c => c.id);
+            const todayTimetables = await prisma.physicalTimetable.findMany({
+                where: {
+                    classId: { in: enrolledClassIds },
+                    dayOfWeek: { in: [todayDayName, todayDayName.toLowerCase(), todayDayName.toUpperCase()] }
+                },
+                include: { class: true }
+            });
+
+            if (todayTimetables.length > 0) {
+                targetClass = todayTimetables[0].class || enrolledClasses.find(c => c.id === todayTimetables[0].classId);
+            } else {
+                // If no timetable entry today, default to primary class or first enrollment
+                targetClass = student.class || enrolledClasses[0];
+            }
+        }
+
+        if (!targetClass) {
+            targetClass = enrolledClasses[0];
+        }
+
+        // Current Month YYYY-MM
+        const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+        // Determine card type for this class
+        const enrollment = (student.enrollments || []).find(e => e.classId === targetClass.id);
+        const effectiveCardType = enrollment?.cardType || student.cardType || 'FULL';
+
+        // Calculate expected fee
+        let expectedFee = targetClass.monthlyFee || 0;
+        if (effectiveCardType === 'FREE') {
+            expectedFee = 0;
+        } else if (effectiveCardType === 'HALF') {
+            expectedFee = (targetClass.monthlyFee || 0) / 2;
+        }
+
+        // Check fee payment in database
+        let isPaid = false;
+        let feeStatus = 'UNPAID';
+        let paidAmount = 0;
+
+        if (effectiveCardType === 'FREE') {
+            isPaid = true;
+            feeStatus = 'FREE_CARD';
+        } else {
+            const paymentRecord = await prisma.physicalClassFeePayment.findUnique({
+                where: {
+                    studentId_classId_month: {
+                        studentId: student.id,
+                        classId: targetClass.id,
+                        month: currentMonth
+                    }
+                }
+            });
+
+            if (paymentRecord) {
+                paidAmount = paymentRecord.amount || 0;
+                if (paymentRecord.status === 'PAID' || paymentRecord.status === 'FREE_CARD') {
+                    isPaid = true;
+                    feeStatus = paymentRecord.status;
+                } else if (effectiveCardType === 'HALF' && paymentRecord.status === 'HALF_PAYMENT') {
+                    isPaid = true;
+                    feeStatus = 'HALF_PAYMENT';
+                } else if (paidAmount >= expectedFee && expectedFee > 0) {
+                    isPaid = true;
+                    feeStatus = 'PAID';
+                } else if (paymentRecord.status === 'PARTIAL' || paidAmount > 0) {
+                    isPaid = false;
+                    feeStatus = 'PARTIAL';
+                } else {
+                    isPaid = false;
+                    feeStatus = 'PENDING';
+                }
+            } else {
+                isPaid = false;
+                feeStatus = 'UNPAID';
+            }
+        }
+
+        const dueAmount = Math.max(0, expectedFee - paidAmount);
+
+        // Sanitize student payload
+        const sanitizedStudent = {
+            id: student.id,
+            studentId: student.studentId,
+            studentName: student.studentName || `${student.firstName || ''} ${student.lastName || ''}`.trim(),
+            firstName: student.firstName,
+            lastName: student.lastName,
+            callingName: extractCallingName(student),
+            phone: student.phone,
+            guardianPhone: student.guardianPhone,
+            grade: student.grade,
+            school: student.school?.name,
+            cardType: effectiveCardType
+        };
+
+        const targetClassInfo = {
+            id: targetClass.id,
+            name: targetClass.name,
+            grade: targetClass.grade,
+            subject: targetClass.subject,
+            monthlyFee: targetClass.monthlyFee || 0,
+            expectedFee,
+            teachers: (targetClass.teachers || []).map(t => ({ id: t.id, name: t.name }))
+        };
+
+        // IF NOT PAID -> ACCESS DENIED
+        if (!isPaid) {
+            return res.status(200).json({
+                success: false,
+                status: 'DENIED',
+                reason: 'FEES_UNPAID',
+                student: sanitizedStudent,
+                class: targetClassInfo,
+                feeStatus,
+                paidAmount,
+                dueAmount,
+                expectedFee,
+                month: currentMonth,
+                message: `Class fees for ${currentMonth} are unpaid. Please proceed to the cashier counter.`,
+                timestamp: new Date().toISOString()
+            });
+        }
+
+        // IF PAID -> ACCESS GRANTED!
+        // Check if already checked in today
+        const startOfDay = new Date();
+        startOfDay.setUTCHours(0, 0, 0, 0);
+        const endOfDay = new Date();
+        endOfDay.setUTCHours(23, 59, 59, 999);
+
+        let attendance = await prisma.physicalAttendance.findFirst({
+            where: {
+                studentId: student.id,
+                classId: targetClass.id,
+                date: {
+                    gte: startOfDay,
+                    lte: endOfDay
+                }
+            }
+        });
+
+        let isNewAttendance = false;
+        if (!attendance) {
+            attendance = await prisma.physicalAttendance.create({
+                data: {
+                    studentId: student.id,
+                    classId: targetClass.id,
+                    date: new Date(),
+                    status: 'PRESENT'
+                }
+            });
+            isNewAttendance = true;
+
+            // Trigger automated SMS alert
+            esmsService.triggerAttendanceSms({
+                student,
+                attendanceRecord: attendance,
+                classId: targetClass.id,
+                classObj: targetClass
+            }).catch(smsErr => {
+                console.error('[Entrance Gate SMS Error]:', smsErr.message);
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            status: isNewAttendance ? 'GRANTED' : 'ALREADY_CHECKED_IN',
+            isNewAttendance,
+            student: sanitizedStudent,
+            class: targetClassInfo,
+            attendance,
+            feeStatus,
+            month: currentMonth,
+            message: isNewAttendance 
+                ? `Access Granted! Welcome to ${targetClass.name}.`
+                : `Already Checked In! Attendance recorded for today.`,
+            timestamp: new Date().toISOString()
+        });
+
+    } catch (error) {
+        console.error('Error in entranceScan:', error);
+        res.status(500).json({ success: false, error: 'Entrance scan failed: ' + error.message });
+    }
+};
+
+// 7. Get Entrance Gate Stats & Live Feed
+exports.getEntranceStats = async (req, res) => {
+    try {
+        const startOfDay = new Date();
+        startOfDay.setUTCHours(0, 0, 0, 0);
+        const endOfDay = new Date();
+        endOfDay.setUTCHours(23, 59, 59, 999);
+
+        // Fetch today's attendances
+        const todayAttendances = await prisma.physicalAttendance.findMany({
+            where: {
+                date: { gte: startOfDay, lte: endOfDay }
+            },
+            include: {
+                student: {
+                    include: { school: true }
+                },
+                class: true
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 50
+        });
+
+        const totalToday = await prisma.physicalAttendance.count({
+            where: {
+                date: { gte: startOfDay, lte: endOfDay }
+            }
+        });
+
+        // Day of week
+        const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        const todayDayName = days[new Date().getDay()];
+
+        const scheduledClasses = await prisma.physicalTimetable.findMany({
+            where: {
+                dayOfWeek: { in: [todayDayName, todayDayName.toLowerCase(), todayDayName.toUpperCase()] }
+            },
+            include: {
+                class: { include: { teachers: true } },
+                hall: true
+            }
+        });
+
+        res.json({
+            totalToday,
+            recentScans: todayAttendances.map(att => ({
+                id: att.id,
+                status: 'GRANTED',
+                studentName: att.student?.studentName || `${att.student?.firstName || ''} ${att.student?.lastName || ''}`.trim(),
+                studentId: att.student?.studentId,
+                className: att.class?.name || 'General Class',
+                classId: att.classId,
+                time: att.createdAt || att.date
+            })),
+            todayDayName,
+            scheduledClasses: scheduledClasses.map(t => ({
+                id: t.id,
+                classId: t.classId,
+                className: t.class?.name,
+                startTime: t.startTime,
+                endTime: t.endTime,
+                hallName: t.hallName || t.hall?.name,
+                teachers: t.class?.teachers || []
+            }))
+        });
+    } catch (error) {
+        console.error('Error fetching entrance stats:', error);
+        res.status(500).json({ error: 'Failed to fetch entrance stats: ' + error.message });
     }
 };

@@ -9,13 +9,14 @@ import {
   Archive, HardDrive, CalendarDays, CalendarCheck, CheckSquare, History,
   Music, Palette, ChevronLeft, ChevronRight, Megaphone, X, BarChart, PieChart, Calendar, Menu,
   PhoneCall, UserPlus, Repeat, GraduationCap, TrendingUp, Box, Activity, ShieldCheck, RefreshCw, Layers, Mic, Upload, Video, Sun, Moon, Sparkles, Wand2, Send,
-  BrainCircuit, MessageSquareText, BookOpen
+  BrainCircuit, MessageSquareText, BookOpen, Bot
 } from 'lucide-react';
 
 export default function Sidebar({ userRole, loggedInUser, handleLogout, isSidebarOpen, setIsSidebarOpen, currentBg, setBgImage, isSpotifyOpen, setIsSpotifyOpen, isSocialMedia, isDarkMode, toggleThemeMode }) {
   const location = useLocation();
   const displayName = loggedInUser?.firstName || 'User';
-  const roleName = loggedInUser?.role || 'Staff';
+  const rawRole = loggedInUser?.role || 'Staff';
+  const roleName = loggedInUser?.department === 'Physical' ? 'Staff' : rawRole;
 
   const isSocialRoute = isSocialMedia || location.pathname.includes('/social-media') || location.pathname.includes('/workspace/social-media-delegation');
 
@@ -134,7 +135,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
         setLoadingClasses(false);
       }
     };
-    if (loggedInUser?.department === 'Physical' && (loggedInUser?.role === 'MANAGER' || loggedInUser?.role === 'Manager' || loggedInUser?.role === 'ASS MANAGER' || loggedInUser?.role === 'ASS_MANAGER')) {
+    if (loggedInUser?.department === 'Physical') {
       fetchTodayClasses();
     }
     
@@ -191,7 +192,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
 
   const isGeneralManager = isManager && !isCallCenterDept && !isSocialMediaManager && !isLectureOrGuider;
   const isClassCoordinatorManager = isManager && loggedInUser?.department === 'Class Coordination';
-  const isPhysicalManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'Ass Manager' || roleName === 'ASS_MANAGER') && isPhysicalDept;
+  const isPhysicalManager = isPhysicalDept;
   const isAnyManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'Ass Manager' || roleName === 'ASS_MANAGER') && !isCallCenterManager && !isSocialMediaManager && !isLectureOrGuider;
   const isHeadManager = (roleName === 'MANAGER' || roleName === 'Manager') && !isCallCenterManager && !isSocialMediaManager && !isPhysicalManager && !isLectureOrGuider;
   const isCaller = roleName === 'CALLER' || roleName === 'Caller';
@@ -264,6 +265,8 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/admin/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
             <NavLink to="/admin/stats-hub" className={getNavLinkClass}><BrainCircuit size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-cyan-300">LUMI AI Analyser</span>}</NavLink>
             <NavLink to="/admin/claude-opus" className={getNavLinkClass}><Sparkles size={18} className="text-amber-400 animate-pulse" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">Claude Opus 5 Studio 🔥</span>}</NavLink>
+            <NavLink to="/admin/sinhala-voice-agent" className={getNavLinkClass}><Mic size={18} className="text-emerald-400 animate-pulse" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-emerald-300">Sinhala AI Call Agent 🎙️</span>}</NavLink>
+            <NavLink to="/admin/ai-team" className={getNavLinkClass}><Bot size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-purple-300">AI Dev Squad 🤖</span>}</NavLink>
             <NavLink to="/admin/ai-image-generator" className={getNavLinkClass}><Palette size={18} className="text-rose-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-rose-300">LUMI Image Generator</span>}</NavLink>
             <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
             <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} className="text-yellow-400" /> {isSidebarOpen && <span className="truncate text-sm">Announcements & Events</span>}</NavLink>
@@ -295,9 +298,11 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Team Management</p>}
             <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
-            <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
             {!isDeliveryDept && (
-              <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
+              <>
+                <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
+                <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
+              </>
             )}
           </>
         )}
@@ -318,7 +323,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Delivery</p>}
             <NavLink to="/delivery/dashboard?tab=overview" className={() => getTabLinkClass('overview')}><Package size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
-            <NavLink to="/delivery/dashboard?tab=pending" className={() => getTabLinkClass('pending')}><Clock size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Pending & Holds</span>}</NavLink>
+            <NavLink to="/delivery/dashboard?tab=pending" onClick={() => window.dispatchEvent(new CustomEvent('reset-pending-holds'))} className={() => getTabLinkClass('pending')}><Clock size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Pending & Holds</span>}</NavLink>
             <NavLink to="/delivery/dashboard?tab=delivered" className={() => getTabLinkClass('delivered')}><CheckCircle size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Delivered</span>}</NavLink>
             <NavLink to="/delivery/dashboard?tab=history" className={() => getTabLinkClass('history')}><History size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">History</span>}</NavLink>
             <NavLink to="/delivery/dashboard?tab=payment_details" className={() => getTabLinkClass('payment_details')}><Wallet size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Payment Details</span>}</NavLink>
@@ -346,7 +351,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-4">Logistics & Tutes</p>}
             <NavLink to="/manager/tute-stock" className={getNavLinkClass}><Box size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">Tute Stock & Calendar 📦</span>}</NavLink>
-            <NavLink to="/delivery/dashboard?tab=pending" className={() => getTabLinkClass('pending')}><Clock size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Pending & Holds</span>}</NavLink>
+            <NavLink to="/delivery/dashboard?tab=pending" onClick={() => window.dispatchEvent(new CustomEvent('reset-pending-holds'))} className={() => getTabLinkClass('pending')}><Clock size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Pending & Holds</span>}</NavLink>
             <NavLink to="/delivery/dashboard?tab=delivered" className={() => getTabLinkClass('delivered')}><CheckCircle size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Delivered</span>}</NavLink>
             <NavLink to="/delivery/dashboard?tab=history" className={() => getTabLinkClass('history')}><Activity size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Delivery History</span>}</NavLink>
             <NavLink to="/delivery/dashboard?tab=payment_details" className={() => getTabLinkClass('payment_details')}><Wallet size={18} className="text-indigo-400" /> {isSidebarOpen && <span className="truncate text-sm">Payment Details</span>}</NavLink>
@@ -433,6 +438,9 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/workspace/timetable" className={getNavLinkClass}><CalendarDays size={18} /> {isSidebarOpen && <span className="truncate text-sm">Class Timetable</span>}</NavLink>
             <NavLink to="/workspace/tasks" className={getNavLinkClass}><CheckSquare size={18} /> {isSidebarOpen && <span className="truncate text-sm">Task Center</span>}</NavLink>
             <NavLink to="/workspace/roster" className={getNavLinkClass}><CalendarCheck size={18} className="text-pink-400" />{isSidebarOpen && <span className="truncate text-sm">My Roster</span>}</NavLink>
+            {(!isSystemAdmin && !isManager) && (
+              <NavLink to="/coordinator/pusthakalaya" className={getNavLinkClass}><BookOpen size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">IMA පුස්තකාලය</span>}</NavLink>
+            )}
 
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-emerald-400/80 uppercase tracking-wider mb-2 mt-4">Free Seminar</p>}
             <NavLink to="/workspace/crm" className={getNavLinkClass}><MessageCircle size={18} /> {isSidebarOpen && <span className="truncate text-sm">Free Seminar CRM</span>}</NavLink>

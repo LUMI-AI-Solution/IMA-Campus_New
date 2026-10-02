@@ -34,6 +34,7 @@ import StaffDashboardScreen from './src/screens/StaffDashboardScreen';
 import CommunityChatScreen from './src/screens/CommunityChatScreen'; 
 import SupportChatScreen from './src/screens/SupportChatScreen';
 import DeliveryScreen from './src/screens/DeliveryScreen';
+import MCQPaperScreen from './src/screens/MCQPaperScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -172,6 +173,7 @@ const AppNavigation = () => {
             <Stack.Screen name="CourseContent" component={CourseContentScreen} />
             <Stack.Screen name="PaymentMethod" component={PaymentMethodScreen} options={{ title: 'Select Payment Method' }} />
             <Stack.Screen name="Delivery" component={DeliveryScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="MCQPaper" component={MCQPaperScreen} options={{ headerShown: false }} />
           </>
         )}
       </Stack.Navigator>

@@ -21,7 +21,9 @@ export default defineConfig({
     allowedHosts: [
       'test.imacampus.online',
       'www.imacampus.online',
-      'imacampus.online'
+      'imacampus.online',
+      'academy.imacampus.online',
+      'fasttrack.imacampus.online'
     ]
   },
   server: {
@@ -32,7 +34,9 @@ export default defineConfig({
       'imacampus.online', 
       'www.imacampus.online', 
       'localhost',
-      'test.imacampus.online'
+      'test.imacampus.online',
+      'academy.imacampus.online',
+      'fasttrack.imacampus.online'
     ]
   }
 })

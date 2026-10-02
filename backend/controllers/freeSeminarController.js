@@ -661,6 +661,9 @@ exports.receiveMessage = async (req, res) => {
 
         if (body.object === "whatsapp_business_account" && body.entry?.[0]?.changes?.[0]?.value?.statuses?.[0]) {
             const statusData = body.entry[0].changes[0].value.statuses[0];
+            console.log("\n⚠️ ====== META STATUS WEBHOOK ======");
+            console.log(JSON.stringify(statusData, null, 2));
+            console.log("===================================\n");
             if (statusData.type === "call") {
                 const { getIo } = require('./chatController');
                 const io = getIo();
@@ -764,6 +767,15 @@ exports.receiveMessage = async (req, res) => {
 
                                 if (lead) {
                                     if (lead.name) leadName = lead.name;
+                                    if (!businessIdForLog && lead.batch?.businessId) {
+                                        businessIdForLog = lead.batch.businessId;
+                                    }
+                                    if (lead.batch?.business?.name) {
+                                        businessType = String(lead.batch.business.name).trim();
+                                        if (lead.batch.business.ringtone) {
+                                            businessRingtoneUrl = `/api/storage/ringtone/${lead.batch.business.ringtone}`;
+                                        }
+                                    }
                                     if (lead.assignedTo) {
                                         const staff = await prisma.user.findUnique({
                                             where: { id: lead.assignedTo },
@@ -771,7 +783,7 @@ exports.receiveMessage = async (req, res) => {
                                         });
                                         if (staff && staff.agentStatus === 'ACTIVE') {
                                             const roleUpper = staff.role ? String(staff.role).toUpperCase().replace(/ /g, '_') : "";
-                                            const isRestrictedRole = ['SYSTEM_ADMIN', 'DELIVERY', 'FINANCE'].some(r => roleUpper.includes(r));
+                                            const isRestrictedRole = ['STUDENT', 'GUEST', 'DELIVERY', 'FINANCE'].some(r => roleUpper.includes(r));
                                             
                                             if (!isRestrictedRole) {
                                                 const agentRoom = io.sockets.adapter.rooms.get(`user_${staff.id}`);
@@ -863,15 +875,15 @@ exports.receiveMessage = async (req, res) => {
                                 console.log(`[WA Call Routing] Routing EXCLUSIVELY to assigned active online agent: ${assignedTargetAgentId}`);
                                 io.to(`user_${assignedTargetAgentId}`).emit('incoming_wa_call', callPayload);
                             } else {
-                                if ((specificAgents && specificAgents.size > 0) || (allAgents && allAgents.size > 0)) {
+                                if (specificAgents && specificAgents.size > 0) {
                                     hasOnlineAgents = true;
-                                    console.log(`[WA Call Routing] Routing to business pool: ${roomName}`);
-                                    io.to(roomName).to(roomAll).emit('incoming_wa_call', callPayload);
+                                    console.log(`[WA Call Routing] Routing EXCLUSIVELY to business pool: ${roomName} (members: ${specificAgents.size})`);
+                                    io.to(roomName).emit('incoming_wa_call', callPayload);
                                 }
                             }
                             
                             if (!hasOnlineAgents) {
-                                console.log(`No idle agents available in ${roomName} or ${roomAll} to take the WhatsApp call! Triggering Headless IVR Bot.`);
+                                console.log(`No idle agents available in ${roomName} to take the WhatsApp call! Triggering Headless IVR Bot.`);
                                 io.to(`wa_call_headless_bot`).emit('incoming_wa_call', callPayload);
                                 const { launchIvrBot } = require('../services/ivrBot');
                                 launchIvrBot(callPayload);
@@ -1060,17 +1072,20 @@ exports.receiveMessage = async (req, res) => {
                 
                 // Fallback for older leads that might not have the _AS or _BATCH suffixes
                 if (!existingLeadCheck) {
-                    existingLeadCheck = await prisma.lead.findFirst({
+                    const rawDigits = (phone || '').replace(/[^0-9]/g, '');
+                    const phoneSuffix = rawDigits.length >= 9 ? rawDigits.slice(-9) : rawDigits;
+                    const exactBizRegex = new RegExp(`_BIZ_${settings.businessId}(_|$)`);
+
+                    const candidateLeads = await prisma.lead.findMany({
                         where: {
-                            OR: [
-                                { phone: `${phone}_BIZ_${settings.businessId}` },
-                                { phone: { startsWith: `${phone}_BIZ_${settings.businessId}_` } }
-                            ],
+                            phone: { contains: phoneSuffix },
                             campaignType: settings.campaignType,
                             status: { not: 'ARCHIVED' }
                         },
                         orderBy: { createdAt: 'desc' }
                     });
+
+                    existingLeadCheck = candidateLeads.find(l => exactBizRegex.test(l.phone)) || null;
                     if (existingLeadCheck) {
                         dbPhone = existingLeadCheck.phone;
                     }
@@ -1276,18 +1291,20 @@ exports.receiveMessage = async (req, res) => {
                 const msgLower = (messageText || "").toLowerCase().trim();
                 const isRestartCommand = ['hi', 'hello', 'hey', 'menu', 'start'].includes(msgLower);
 
+                const rawDigits = (phone || '').replace(/[^0-9]/g, '');
+                const phoneSuffix = rawDigits.length >= 9 ? rawDigits.slice(-9) : rawDigits;
+                const exactBizRegex = new RegExp(`_BIZ_${settings.businessId}(_|$)`);
+
                 // Find all matching leads for this phone+business (catches _BATCH_, _AS, etc.)
-                const allMatchingLeads = await prisma.lead.findMany({
+                const candidateMatchingLeads = await prisma.lead.findMany({
                     where: {
-                        OR: [
-                            { phone: `${phone}_BIZ_${settings.businessId}` },
-                            { phone: { startsWith: `${phone}_BIZ_${settings.businessId}_` } }
-                        ],
+                        phone: { contains: phoneSuffix },
                         campaignType: 'FREE_SEMINAR'
                     },
                     orderBy: { updatedAt: 'desc' }
                 });
 
+                const allMatchingLeads = candidateMatchingLeads.filter(l => exactBizRegex.test(l.phone));
                 let existingLeadCheck = allMatchingLeads.length > 0 ? allMatchingLeads[0] : null;
                 const timeSinceLastMsg = existingLeadCheck && existingLeadCheck.updatedAt ? new Date() - new Date(existingLeadCheck.updatedAt) : 10000;
 
@@ -1710,9 +1727,14 @@ exports.sendMessage = async (req, res) => {
                     await new Promise((resolve, reject) => {
                         ffmpeg(inputPath)
                             .audioCodec('libopus')
-                            .audioBitrate('16k')
+                            .audioBitrate('32k')
                             .audioChannels(1)
-                            .audioFrequency(16000)
+                            .audioFrequency(48000)
+                            .outputOptions([
+                                '-application voip',
+                                '-avoid_negative_ts make_zero',
+                                '-map_metadata -1'
+                            ])
                             .toFormat('ogg')
                             .on('end', () => resolve())
                             .on('error', (err) => reject(err))
@@ -2466,9 +2488,14 @@ exports.sendBroadcast = async (req, res) => {
                                 await new Promise((resolve, reject) => {
                                     ffmpeg(inputPath)
                                         .audioCodec('libopus')
-                                        .audioBitrate('16k')
+                                        .audioBitrate('32k')
                                         .audioChannels(1)
-                                        .audioFrequency(16000)
+                                        .audioFrequency(48000)
+                                        .outputOptions([
+                                            '-application voip',
+                                            '-avoid_negative_ts make_zero',
+                                            '-map_metadata -1'
+                                        ])
                                         .toFormat('ogg')
                                         .on('end', () => resolve())
                                         .on('error', (err) => reject(err))
@@ -2591,7 +2618,7 @@ exports.getLeadDetails = async (req, res) => {
                 OR: [{ phone: { contains: corePhone } }, { whatsapp: { contains: corePhone } }],
                 role: { in: ['Student', 'USER', 'user', 'student'] }
             },
-            include: { payments: { include: { business: true, batch: true }, orderBy: { created_at: 'desc' } } }
+            include: { payments: { include: { business: true, batch: true, group: true }, orderBy: { created_at: 'desc' } } }
         });
 
         if (!students || students.length === 0) return res.status(200).json({ isEnrolled: false });
@@ -2629,16 +2656,21 @@ exports.getLeadDetails = async (req, res) => {
         const hasPendingPayment = bestStudent.payments.some(p => p.status === 0 || p.status === 4);
         const latestPaymentStatus = bestStudent.payments[0]?.status ?? null;
 
-        // Group unique enrollments by business & batch
+        // Group unique enrollments by business, batch & classType
         const uniqueEnrollmentsMap = new Map();
         bestStudent.payments.forEach(p => {
-            const key = `${p.businessId}_${p.batchId || 'no_batch'}`;
+            const classType = p.group?.classType ? parseInt(p.group.classType) : (p.courses?.some(c => c.courseType === 2) ? 2 : 1);
+            const key = `${p.businessId}_${p.batchId || 'no_batch'}_class_${classType}`;
             if (!uniqueEnrollmentsMap.has(key)) {
                 uniqueEnrollmentsMap.set(key, {
                     businessId: p.businessId,
                     businessName: p.business?.name || 'N/A',
                     batchId: p.batchId,
                     batchName: p.batch?.name || 'N/A',
+                    groupId: p.groupId,
+                    groupName: p.group?.name || 'N/A',
+                    classType: classType,
+                    classTypeName: classType === 2 ? 'Paper Class' : 'Theory Class',
                     paymentType: p.payment_type,
                     method: p.method,
                     status: p.status,

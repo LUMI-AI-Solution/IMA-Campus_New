@@ -25,7 +25,7 @@ export default function PaymentManagement({ loggedInUser }) {
     const [approvedFilter, setApprovedFilter] = useState('All');
 
     const [filters, setFilters] = useState({
-        search: '', businessId: 'All', batchId: 'All', groupId: 'All', subjectId: 'All', dateFrom: '', dateTo: '', method: 'All'
+        search: '', businessId: 'All', batchId: 'All', groupId: 'All', classType: 'All', subjectId: [], dateFrom: '', dateTo: '', method: 'All'
     });
 
     const [currentPage, setCurrentPage] = useState(1);
@@ -166,7 +166,8 @@ export default function PaymentManagement({ loggedInUser }) {
             const uniqueGroups = Array.from(new Set(validPayments.map(p => {
                 const gId = p.groupId || p.group_id;
                 const gName = p.groupName || p.group || (gId ? `Group ${gId}` : 'Unknown');
-                return JSON.stringify({ id: gId, name: gName });
+                const gClassType = p.classType || 1;
+                return JSON.stringify({ id: gId, name: gName, classType: gClassType });
             }))).map(str => JSON.parse(str)).filter(g => g.id);
 
             extractedGroups = uniqueGroups;
@@ -208,25 +209,41 @@ export default function PaymentManagement({ loggedInUser }) {
         let matchesBiz = isAdmin ? (filters.businessId === 'All' || pBizId?.toString() === filters.businessId) : true;
         const matchesBatch = filters.batchId === 'All' || pBatchId?.toString() === filters.batchId;
         const matchesGroup = filters.groupId === 'All' || pGroupId?.toString() === filters.groupId;
+        const matchesClassType = !filters.classType || filters.classType === 'All' || p.classType?.toString() === filters.classType?.toString();
         const matchesMethod = filters.method === 'All' || p.method === filters.method;
 
-        let matchesSubject = filters.subjectId === 'All';
-        if (!matchesSubject) {
-            const subs = p.subjectsList || p.subjects || p.courses || [];
-            matchesSubject = subs.some(s => {
-                const sId = s.id || s.course_id || s.subject_id;
-                return sId?.toString() === filters.subjectId;
-            });
+        let matchesSubject = true;
+        if (filters.subjectId && filters.subjectId !== 'All') {
+            if (Array.isArray(filters.subjectId)) {
+                if (filters.subjectId.length > 0) {
+                    const subs = p.subjectsList || p.subjects || p.courses || [];
+                    matchesSubject = subs.some(s => {
+                        const sId = s.id || s.course_id || s.subject_id;
+                        return filters.subjectId.some(fId => String(fId) === String(sId));
+                    });
+                }
+            } else {
+                const subs = p.subjectsList || p.subjects || p.courses || [];
+                matchesSubject = subs.some(s => {
+                    const sId = s.id || s.course_id || s.subject_id;
+                    return String(sId) === String(filters.subjectId);
+                });
+            }
         }
 
         let matchesDate = true;
-        if (filters.dateFrom || filters.dateTo) {
-            const payDate = new Date(p.date);
-            if (filters.dateFrom && payDate < new Date(filters.dateFrom)) matchesDate = false;
-            if (filters.dateTo && payDate > new Date(filters.dateTo)) matchesDate = false;
+        const isExplicitSearchActive = filters.search && filters.search.trim() !== '';
+        if (!isExplicitSearchActive && (filters.dateFrom || filters.dateTo)) {
+            const pDate = p.date;
+            if (pDate && pDate !== '-') {
+                if (filters.dateFrom && pDate < filters.dateFrom) matchesDate = false;
+                if (filters.dateTo && pDate > filters.dateTo) matchesDate = false;
+            } else {
+                matchesDate = false;
+            }
         }
 
-        return matchesSearch && matchesBiz && matchesBatch && matchesGroup && matchesSubject && matchesDate && matchesMethod;
+        return matchesSearch && matchesBiz && matchesBatch && matchesGroup && matchesClassType && matchesSubject && matchesDate && matchesMethod;
     };
 
     // Calculate dynamic tab counts based on unique students for current filters
@@ -258,6 +275,8 @@ export default function PaymentManagement({ loggedInUser }) {
         } else if (isUpgrade) {
             mappedTab = 'Upgrade Slips';
             if (['Pending', 'Post Pay'].includes(p.status)) pendingUpgradeCount++;
+        } else if (p.status === 'Approved') {
+            mappedTab = 'Approved';
         } else if (p.type === 'Installment' || p.status === 'Upcoming') {
             mappedTab = 'Upcoming';
             if (['Pending', 'Post Pay'].includes(p.status)) pendingUpcomingCount++;
@@ -277,6 +296,8 @@ export default function PaymentManagement({ loggedInUser }) {
         return acc;
     }, {});
 
+    const isExplicitSearchActive = filters.search && filters.search.trim() !== '';
+
     const filteredPayments = payments.filter(p => {
         if (!matchesFiltersExcludingTab(p)) return false;
 
@@ -288,6 +309,8 @@ export default function PaymentManagement({ loggedInUser }) {
             mappedTab = 'Trash';
         } else if (isUpgrade) {
             mappedTab = 'Upgrade Slips';
+        } else if (p.status === 'Approved') {
+            mappedTab = 'Approved';
         } else if (p.type === 'Installment' || p.status === 'Upcoming') {
             mappedTab = 'Upcoming';
         } else if (p.status === 'Pending') {
@@ -296,7 +319,8 @@ export default function PaymentManagement({ loggedInUser }) {
             mappedTab = 'Adjusted';
         }
 
-        if (activeTab !== mappedTab) return false;
+        // Bypassing tab filtering if user is explicitly searching by phone/name/ID
+        if (!isExplicitSearchActive && activeTab !== mappedTab) return false;
 
         // Apply sub-filters for Upgrade, Upcoming, and Approved
         if (activeTab === 'Approved') {
@@ -781,6 +805,15 @@ export default function PaymentManagement({ loggedInUser }) {
                         <span className="text-blue-700 dark:text-blue-300 bg-blue-100 dark:bg-blue-500/20 border-2 border-blue-400 dark:border-blue-500 px-4 py-1.5 rounded-xl animate-pulse font-black shadow-md uppercase tracking-widest">
                             BATCH: {pay.batch}
                         </span>
+                        {pay.classType === 2 ? (
+                            <span className="text-amber-800 dark:text-amber-300 bg-amber-100 dark:bg-amber-500/20 px-4 py-1.5 rounded-xl border-2 border-amber-400 dark:border-amber-500 font-black uppercase tracking-widest shadow-md flex items-center gap-1.5 animate-pulse">
+                                📝 PAPER CLASS
+                            </span>
+                        ) : (
+                            <span className="text-sky-800 dark:text-sky-300 bg-sky-100 dark:bg-sky-500/20 px-4 py-1.5 rounded-xl border-2 border-sky-400 dark:border-sky-500 font-black uppercase tracking-widest shadow-md flex items-center gap-1.5 animate-pulse">
+                                📘 THEORY CLASS
+                            </span>
+                        )}
                         {pay.groupName && (
                             <span className="text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-500/20 px-4 py-1.5 rounded-xl border-2 border-purple-400 dark:border-purple-500 font-black uppercase tracking-widest shadow-md animate-pulse">
                                 GROUP: {pay.groupName}
@@ -818,7 +851,18 @@ export default function PaymentManagement({ loggedInUser }) {
                         {/* 1. Show Selected Subjects and Prices */}
                         {pay.subjectsList.map((sub, i) => (
                             <div key={i} className="flex justify-between items-center text-sm gap-4">
-                                <span className="text-gray-700 dark:text-slate-300 font-bold truncate">{sub.name} <span className="text-xs text-gray-400 dark:text-slate-500 ml-1">({sub.code})</span></span>
+                                <span className="text-gray-700 dark:text-slate-300 font-bold truncate flex items-center gap-2">
+                                    <span>{sub.name} <span className="text-xs text-gray-400 dark:text-slate-500 ml-1">({sub.code})</span></span>
+                                    {sub.courseType === 2 || pay.classType === 2 ? (
+                                        <span className="text-[10px] font-black uppercase tracking-wider bg-amber-500/15 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-md border border-amber-500/30">
+                                            Paper
+                                        </span>
+                                    ) : (
+                                        <span className="text-[10px] font-black uppercase tracking-wider bg-sky-500/15 text-sky-600 dark:text-sky-400 px-2 py-0.5 rounded-md border border-sky-500/30">
+                                            Theory
+                                        </span>
+                                    )}
+                                </span>
                                 <span className="text-emerald-600 dark:text-emerald-400 font-extrabold whitespace-nowrap">LKR {parseFloat(sub.price).toLocaleString()}</span>
                             </div>
                         ))}
@@ -1114,6 +1158,15 @@ export default function PaymentManagement({ loggedInUser }) {
                                                         <span className="text-emerald-400 font-extrabold bg-emerald-500/15 px-3 py-1 rounded-lg border border-emerald-500/20 shadow-sm">{latestPayment.date}</span>
                                                         <span className="truncate max-w-[150px] sm:max-w-[300px] text-slate-300 font-semibold">{latestPayment.business}</span>
                                                         <span className="truncate max-w-[100px] sm:max-w-[200px] text-slate-400 font-medium">({latestPayment.batch})</span>
+                                                        {latestPayment.classType === 2 ? (
+                                                            <span className="text-amber-400 font-black bg-amber-500/15 px-2.5 py-1 rounded-lg border border-amber-500/30 text-xs tracking-wider shadow-sm flex items-center gap-1">
+                                                                📝 Paper Class
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-sky-400 font-black bg-sky-500/15 px-2.5 py-1 rounded-lg border border-sky-500/30 text-xs tracking-wider shadow-sm flex items-center gap-1">
+                                                                📘 Theory Class
+                                                            </span>
+                                                        )}
                                                         {latestPayment.groupName && (
                                                             <span className="text-purple-400 font-extrabold bg-purple-500/10 px-2.5 py-1 rounded-lg border border-purple-500/20 text-xs tracking-wide shadow-sm">
                                                                 Group: {latestPayment.groupName}
@@ -1271,6 +1324,15 @@ export default function PaymentManagement({ loggedInUser }) {
                                                                         
                                                                         <div className="flex flex-wrap items-center gap-2 mt-1">
                                                                             <span className="text-red-500 text-[10px] font-mono font-black bg-red-50 dark:bg-red-500/10 border border-red-500/20 px-2 py-1 rounded-lg">ID: {hist.id}</span>
+                                                                            {hist.classType === 2 ? (
+                                                                                <span className="text-amber-700 dark:text-amber-300 bg-amber-100 dark:bg-amber-500/20 border border-amber-300 dark:border-amber-500/40 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm flex items-center gap-1">
+                                                                                    📝 Paper Class
+                                                                                </span>
+                                                                            ) : (
+                                                                                <span className="text-sky-700 dark:text-sky-300 bg-sky-100 dark:bg-sky-500/20 border border-sky-300 dark:border-sky-500/40 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm flex items-center gap-1">
+                                                                                    📘 Theory
+                                                                                </span>
+                                                                            )}
                                                                             <span className="text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/20 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest shadow-sm">
                                                                                 {hist.batch}
                                                                             </span>
@@ -1591,6 +1653,12 @@ export default function PaymentManagement({ loggedInUser }) {
                                     <span className="text-[10px] font-black text-emerald-500 uppercase tracking-wider">Batch</span>
                                     <span className="text-xs font-bold text-gray-700 dark:text-slate-200 max-w-[200px] truncate">{editModal.batch}</span>
                                 </div>
+                                {editModal && (
+                                    <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${editModal.classType === 2 ? 'bg-amber-500/10 border-amber-500/20 text-amber-500 dark:text-amber-400' : 'bg-sky-500/10 border-sky-500/20 text-sky-500 dark:text-sky-400'}`}>
+                                        <span className="text-[10px] font-black uppercase tracking-wider">Class</span>
+                                        <span className="text-xs font-bold">{editModal.classType === 2 ? '📝 Paper Class' : '📘 Theory Class'}</span>
+                                    </div>
+                                )}
                                 {editModal.business && (
                                     <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 rounded-xl border border-amber-500/20">
                                         <span className="text-[10px] font-black text-amber-500 uppercase tracking-wider">Business</span>

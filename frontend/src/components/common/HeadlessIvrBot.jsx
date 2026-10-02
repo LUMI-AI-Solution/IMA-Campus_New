@@ -115,8 +115,6 @@ export default function HeadlessIvrBot() {
                 sdp: answer.sdp,
                 businessType: payload.businessType,
                 receivingWaNumId: payload.receivingWaNumId
-            }, {
-                headers: { 'x-headless-bot-secret': 'ima-headless-bot-secret-2026' }
             });
             
             // Loop the audio continuously until the caller hangs up
@@ -158,8 +156,6 @@ export default function HeadlessIvrBot() {
                     isNewInquiry: payload.isNewInquiry,
                     businessId: payload.businessId,
                     duration: 30
-                }, {
-                    headers: { 'x-headless-bot-secret': 'ima-headless-bot-secret-2026' }
                 });
             } catch (err) {
                 // Ignore

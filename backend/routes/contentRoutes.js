@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const path = require('path');
-const verifyToken = require('../middlewares/authMiddleware');
+const { verifyToken, requireStaff, requireAdmin } = require('../middlewares/authMiddleware');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
@@ -30,37 +30,41 @@ const uploadPost = multer({ storage: postStorage });
 // ================= ROUTES =================
 
 // Content Hub
-router.post('/admin/manager/content-group/add', verifyToken, controller.addContentGroup);
-router.put('/admin/content-group/update', verifyToken, controller.updateContentGroup);
-router.delete('/admin/content-group/delete', verifyToken, controller.deleteContentGroup);
-router.post('/admin/manager/contents/mass-assign', verifyToken, uploadDoc.fields([
+router.post('/admin/manager/content-group/add', verifyToken, requireStaff, controller.addContentGroup);
+router.put('/admin/content-group/update', verifyToken, requireStaff, controller.updateContentGroup);
+router.delete('/admin/content-group/delete', verifyToken, requireStaff, controller.deleteContentGroup);
+router.post('/admin/manager/contents/mass-assign', verifyToken, requireStaff, uploadDoc.fields([
     { name: 'file', maxCount: 20 }, 
-    { name: 'thumbnail', maxCount: 1 }
+    { name: 'thumbnail', maxCount: 1 },
+    { name: 'mcqFile', maxCount: 1 },
+    { name: 'structuredFile', maxCount: 1 }
 ]), controller.addContentMassAssign);
 
-router.put('/admin/manager/contents/update', verifyToken, uploadDoc.fields([
+router.put('/admin/manager/contents/update', verifyToken, requireStaff, uploadDoc.fields([
     { name: 'file', maxCount: 20 }, 
-    { name: 'thumbnail', maxCount: 1 }
+    { name: 'thumbnail', maxCount: 1 },
+    { name: 'mcqFile', maxCount: 1 },
+    { name: 'structuredFile', maxCount: 1 }
 ]), controller.updateContentMassAssign);
-router.delete('/admin/content/delete', verifyToken, controller.deleteContent);
-router.get('/admin/manager/get-contents', verifyToken, controller.getContents); 
+router.delete('/admin/content/delete', verifyToken, requireStaff, controller.deleteContent);
+router.get('/admin/manager/get-contents', verifyToken, requireStaff, controller.getContents); 
 
 // Groups
-router.post('/course-setup/group', controller.createGroup);
-router.put('/course-setup/group/update', controller.updateGroup);
+router.post('/course-setup/group', verifyToken, requireStaff, controller.createGroup);
+router.put('/course-setup/group/update', verifyToken, requireStaff, controller.updateGroup);
 // 🔥 FIX: Group eka delete karana route eka 🔥
-router.delete('/course-setup/group', controller.deleteGroup); 
+router.delete('/course-setup/group', verifyToken, requireStaff, controller.deleteGroup); 
 
 // Posts 
-router.post('/admin/manager/post/create', verifyToken, uploadPost.single('image'), controller.createAdminPost);
-router.get('/admin/manager/posts', verifyToken, controller.getPosts);
-router.delete('/admin/manager/post/delete', verifyToken, controller.deletePost);
+router.post('/admin/manager/post/create', verifyToken, requireStaff, uploadPost.single('image'), controller.createAdminPost);
+router.get('/admin/manager/posts', verifyToken, requireStaff, controller.getPosts);
+router.delete('/admin/manager/post/delete', verifyToken, requireStaff, controller.deletePost);
 
 // Batches Data Load
-router.get('/admin/manager/batches-full', verifyToken, controller.getBatchesFull);
+router.get('/admin/manager/batches-full', verifyToken, requireStaff, controller.getBatchesFull);
 
 // Get Batches by Business ID
-router.get('/admin/batches/:bizId', async (req, res) => {
+router.get('/admin/batches/:bizId', verifyToken, requireStaff, async (req, res) => {
     try {
         const batches = await prisma.batch.findMany({
             where: { businessId: parseInt(req.params.bizId) },
@@ -79,32 +83,32 @@ router.get('/admin/batches/:bizId', async (req, res) => {
 });
 
 // Businesses Setup
-router.post('/course-setup/business', uploadIcon.single('logo'), controller.createBusiness);
-router.put('/admin/business/update', uploadIcon.single('logo'), controller.updateBusiness);
-router.delete('/admin/business/delete', controller.deleteBusiness); // 🔥 NEW
+router.post('/course-setup/business', verifyToken, requireStaff, uploadIcon.single('logo'), controller.createBusiness);
+router.put('/admin/business/update', verifyToken, requireStaff, uploadIcon.single('logo'), controller.updateBusiness);
+router.delete('/admin/business/delete', verifyToken, requireAdmin, controller.deleteBusiness); // 🔥 NEW
 
 // Batches Setup
-router.post('/course-setup/batch', uploadIcon.single('logo'), controller.createBatch);
-router.put('/admin/batch/update', uploadIcon.single('logo'), controller.updateBatch);
-router.delete('/admin/batch/delete', controller.deleteBatch);
-router.put('/admin/batch/lecturers', controller.updateBatchLecturers);
+router.post('/course-setup/batch', verifyToken, requireStaff, uploadIcon.single('logo'), controller.createBatch);
+router.put('/admin/batch/update', verifyToken, requireStaff, uploadIcon.single('logo'), controller.updateBatch);
+router.delete('/admin/batch/delete', verifyToken, requireAdmin, controller.deleteBatch);
+router.put('/admin/batch/lecturers', verifyToken, requireStaff, controller.updateBatchLecturers);
 
 // Subjects Setup (🔥 FIX: uploadIcon.any() damma images ganna puluwan wenna 🔥)
-router.post('/course-setup/subject', uploadIcon.any(), controller.createSubject);
-router.put('/admin/course/update', uploadIcon.any(), controller.updateSubject);
-router.delete('/admin/course/delete', controller.deleteSubject); 
-router.put('/admin/course/assign-lecturer', controller.assignLecturer); // 🔥 NEW LECTURER ROUTE 🔥
+router.post('/course-setup/subject', verifyToken, requireStaff, uploadIcon.any(), controller.createSubject);
+router.put('/admin/course/update', verifyToken, requireStaff, uploadIcon.any(), controller.updateSubject);
+router.delete('/admin/course/delete', verifyToken, requireAdmin, controller.deleteSubject); 
+router.put('/admin/course/assign-lecturer', verifyToken, requireStaff, controller.assignLecturer); // 🔥 NEW LECTURER ROUTE 🔥
 
 // Installments Setup
-router.post('/course-setup/installment', controller.createInstallment);
-router.get('/course-setup/installment/:batchId', controller.getInstallments);
-router.put('/course-setup/installment', controller.updateInstallment);
-router.delete('/course-setup/installment', controller.deleteInstallment);
+router.post('/course-setup/installment', verifyToken, requireStaff, controller.createInstallment);
+router.get('/course-setup/installment/:batchId', verifyToken, requireStaff, controller.getInstallments);
+router.put('/course-setup/installment', verifyToken, requireStaff, controller.updateInstallment);
+router.delete('/course-setup/installment', verifyToken, requireAdmin, controller.deleteInstallment);
 
 
 // Update these paths based on your actual route file structure
-router.put('/course-setup/business/toggle-status', controller.toggleBusinessStatus);
-router.put('/course-setup/batch/toggle-status', controller.toggleBatchStatus);
+router.put('/course-setup/business/toggle-status', verifyToken, requireStaff, controller.toggleBusinessStatus);
+router.put('/course-setup/batch/toggle-status', verifyToken, requireStaff, controller.toggleBatchStatus);
 
 // ================= ZOOM DYNAMIC DOWNLOAD ROUTE =================
 // 🔥 NEW: Zoom API එක හරහා fresh MP4 ලින්ක් එකක් අරන් App එකට JSON එකක් විදිහට දෙන Route එක 🔥
@@ -113,13 +117,13 @@ router.get('/zoom-direct-link/:contentId', controller.getZoomDirectLinkJson);
 
 // ================= APP EVENTS (ANIMATIONS) =================
 // 🔥 Admin Panel එකෙන් Animation එක Set කරන්න සහ බලන්න 🔥
-router.get('/admin/settings/app-event', controller.getAppEvent);
-router.put('/admin/settings/app-event', controller.setAppEvent);
+router.get('/admin/settings/app-event', verifyToken, requireStaff, controller.getAppEvent);
+router.put('/admin/settings/app-event', verifyToken, requireAdmin, controller.setAppEvent);
 
 // ================= SYSTEM MAINTENANCE MODE =================
 // 🔥 Admin Panel එකෙන් System Update Banner එක Set කරන්න සහ බලන්න 🔥
-router.get('/admin/settings/maintenance-mode', controller.getMaintenanceMode);
-router.put('/admin/settings/maintenance-mode', controller.setMaintenanceMode);
+router.get('/admin/settings/maintenance-mode', verifyToken, requireStaff, controller.getMaintenanceMode);
+router.put('/admin/settings/maintenance-mode', verifyToken, requireAdmin, controller.setMaintenanceMode);
 
 // 🔥 Mobile App එකෙන් Active Animation එක මොකක්ද කියලා අහන්න 🔥
 router.get('/mobile/app-event', controller.getAppEvent);

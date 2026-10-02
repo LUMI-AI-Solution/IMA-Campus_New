@@ -26,31 +26,60 @@ const storage = multer.diskStorage({
 
 const upload = multer({
     storage: storage,
+    limits: { fileSize: 35 * 1024 * 1024 } // 35MB max
+});
+
+// Storage Configuration for Question Images / Figures
+const questionImageStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        cb(null, 'question-fig-' + uniqueSuffix + ext);
+    }
+});
+
+const uploadQuestionImagesMulter = multer({
+    storage: questionImageStorage,
     limits: { fileSize: 25 * 1024 * 1024 } // 25MB max
 });
 
 // All paper routes require authentication
 router.use(verifyToken);
 
+// Upload Question Images / Figures (up to 10 images at once)
+router.post('/upload-question-images', uploadQuestionImagesMulter.array('images', 10), paperController.uploadQuestionImages);
+
 // 1. Get paper details by contentId
 router.get('/content/:contentId', paperController.getPaperByContentId);
 
-// 2. Save paper configuration (Timer mode, duration, pass marks, etc.)
+// 2. Student progress across tests
+router.get('/student/progress', paperController.getStudentPaperProgress);
+
+// 3. Marker queue (pending submissions to evaluate)
+router.get('/marker/queue', paperController.getMarkerSubmissionsList);
+
+// 4. Save paper configuration (Timer mode, duration, pass marks, etc.)
 router.post('/config', paperController.savePaperConfig);
 
-// 3. Save questions and options
+// 5. Save questions and options
 router.post('/questions', paperController.saveQuestions);
 
-// 4. Start paper session
+// 6. Start paper session
 router.post('/:paperId/start', paperController.startPaper);
 
-// 5. Submit paper (MCQ JSON answers or Structured multipart PDF)
-router.post('/:paperId/submit', upload.single('answerFile'), paperController.submitPaper);
+// 7. Submit paper (MCQ JSON answers or Structured multipart PDF / multiple images)
+router.post('/:paperId/submit', upload.any(), paperController.submitPaper);
 
-// 6. Get all submissions for a paper
+// 8. Get all submissions for a paper
 router.get('/:paperId/submissions', paperController.getPaperSubmissions);
 
-// 7. Grade a structured submission
+// 9. Get leaderboard for a paper
+router.get('/:paperId/leaderboard', paperController.getPaperLeaderboard);
+
+// 10. Grade a structured submission
 router.put('/submissions/:submissionId/grade', paperController.gradeStructuredSubmission);
 
 module.exports = router;

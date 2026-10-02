@@ -295,25 +295,37 @@ exports.getCourseModules = async (req, res) => {
 
         if (requestedCourse && requestedCourse.group?.batchId) {
             const batchId = requestedCourse.group.batchId;
+            const targetClassType = parseInt(requestedCourse.courseType || requestedCourse.group?.classType || 1, 10);
+
             const fullPayments = await prisma.payment.findMany({
                 where: {
                     studentId: parseInt(studentId),
                     batchId: batchId,
                     payment_type: { in: [2, 3] },
-                    status: { in: [1, 4] }
+                    status: { in: [1, 4] },
+                    group: { classType: targetClassType }
                 }
             });
 
             if (fullPayments.length > 0) {
-                // If Full Payment, fetch all courses in this batch with the same code OR same name
-                const similarCourses = await prisma.course.findMany({
+                // If Full Payment, fetch all courses in this batch with matching classType
+                const similarCoursesRaw = await prisma.course.findMany({
                     where: {
                         OR: [
                             requestedCourse.code ? { code: requestedCourse.code } : undefined,
                             { name: requestedCourse.name }
                         ].filter(Boolean),
-                        group: { batchId: batchId }
+                        group: { 
+                            batchId: batchId,
+                            classType: targetClassType
+                        },
+                        courseType: targetClassType
                     }
+                });
+
+                const similarCourses = similarCoursesRaw.filter(c => {
+                    const cClassType = parseInt(c.courseType || c.group?.classType || 1, 10);
+                    return cClassType === targetClassType;
                 });
                 
                 const similarCourseIds = similarCourses.map(c => parseInt(c.id));
@@ -342,7 +354,7 @@ exports.getCourseModules = async (req, res) => {
         
         const contentsRaw = await prisma.content.findMany({
             where: { id: { in: contentIds } },
-            include: { group: true },
+            include: { group: true, paper: true },
             orderBy: { createdAt: 'desc' }
         });
 
@@ -458,8 +470,8 @@ exports.getCourseModules = async (req, res) => {
                 }
             }
 
-            // Smart month matching fallback
-            if (!root) {
+            // Smart month matching fallback for cross-batch folders (only if contentGroupId is NOT null)
+            if (!root && c.contentGroupId) {
                 let targetMonthIdx = -1;
                 if (c.date) {
                     try {
@@ -520,19 +532,24 @@ exports.getCourseModules = async (req, res) => {
             });
         };
 
+        const processedContents = modifyLinks(contentsProcessed);
+
         // පරණ විදියටම ගන්නවා
-        const liveClasses = contentsProcessed.filter(c => c.contentType === 'live' || c.contentType === '1');
-        const recordings = contentsProcessed.filter(c => c.contentType === 'recording' || c.contentType === '2');
-        const documents = contentsProcessed.filter(c => c.contentType === 'document' || c.contentType === '3');
-        const sPapers = contentsProcessed.filter(c => c.contentType === 'sPaper' || c.contentType === '4');
-        const papers = contentsProcessed.filter(c => c.contentType === 'paper' || c.contentType === '5');
+        const liveClasses = processedContents.filter(c => c.contentType === 'live' || c.contentType === '1');
+        const recordings = processedContents.filter(c => c.contentType === 'recording' || c.contentType === '2');
+        const documents = processedContents.filter(c => c.contentType === 'document' || c.contentType === '3');
+        const sPapers = processedContents.filter(c => c.contentType === 'sPaper' || c.contentType === '4');
+        const papers = processedContents.filter(c => c.contentType === 'paper' || c.contentType === '5');
+        const rankingTests = processedContents.filter(c => ['testRanking', 'rankingTest', 'ranking_test', 'test', 'sPaper', 'paper', '4', '5'].includes(c.contentType));
 
         const safeData = JSON.parse(JSON.stringify({ 
+            course: requestedCourse,
             lessonGroups, 
-            contents: contentsProcessed,
+            contents: processedContents,
             liveClasses: liveClasses, 
             recordings: recordings, 
             documents, sPapers, papers,
+            rankingTests,
             paidStatus: paidStatus 
         }, (k, v) => typeof v === 'bigint' ? v.toString() : v));
         
@@ -752,6 +769,36 @@ exports.ytRedirect = (req, res) => {
     res.send(html);
 };
 
+// Helper for HTML escaping to prevent XSS
+// 🔥 LIVE CLASS PORTAL VIEW FOR MOBILE WEBVIEW -> REDIRECT TO DIRECT ZOOM LINK 🔥
+exports.getLivePortal = async (req, res) => {
+    try {
+        const id = parseInt(req.query.id, 10);
+        if (isNaN(id)) {
+            return res.status(400).send("Invalid Live Class ID");
+        }
+
+        const content = await prisma.content.findUnique({
+            where: { id: id },
+            include: { group: true }
+        });
+
+        if (!content || !content.link) {
+            return res.status(404).send("Live class not found or link is missing");
+        }
+
+        let targetUrl = content.link.trim();
+        if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+            targetUrl = 'https://' + targetUrl;
+        }
+
+        return res.redirect(302, targetUrl);
+    } catch (error) {
+        console.error("Live Portal Error:", error);
+        return res.status(500).send("Failed to redirect to live class");
+    }
+};
+
 exports.getActiveAppEvent = async (req, res) => {
     try {
         const setting = await prisma.appSetting.findUnique({ where: { key: 'ACTIVE_ANIMATION' } });
@@ -835,15 +882,23 @@ exports.getVideoToken = async (req, res) => {
 // 🔥 Update YouTube Cookies automatically from Admin Chrome Extension
 exports.updateYtCookies = async (req, res) => {
     try {
+        const userRole = String(req.user?.role || '').trim().toUpperCase();
+        const isAdmin = ['ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN'].includes(userRole);
+        if (!isAdmin) {
+            return res.status(403).json({ error: "Access denied. Admin authorization required." });
+        }
+
         const { cookies } = req.body;
-        if (!cookies) return res.status(400).json({ error: "No cookies provided" });
+        if (!cookies || typeof cookies !== 'string' || cookies.length > 500000) {
+            return res.status(400).json({ error: "Invalid cookie payload" });
+        }
         
         const fs = require('fs');
         const path = require('path');
         const cookiePath = path.join(__dirname, '../../../yt_cookies.txt');
         
         fs.writeFileSync(cookiePath, cookies, 'utf8');
-        console.log("✅ YouTube cookies updated automatically from Extension!");
+        console.log("✅ YouTube cookies updated securely from Admin Extension!");
         
         res.status(200).json({ message: "Cookies updated successfully" });
     } catch (error) {

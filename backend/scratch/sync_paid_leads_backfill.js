@@ -3,6 +3,8 @@ const prisma = new PrismaClient();
 // We can just fetch all ENROLLED leads in NEW_INQ, find their phone numbers, and create PAID_CAMP leads for them.
 
 async function backfillPaidLeads() {
+    console.log("⚠️ This backfill script is now ARCHIVED and disabled to prevent duplicate generation.");
+    return;
     try {
         console.log("Starting backfill for PAID_CAMP leads...");
 

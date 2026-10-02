@@ -9,8 +9,10 @@ export default function StudentDataCenter({ loggedInUser }) {
     const navigate = useNavigate();
     const userRole = loggedInUser?.role ? String(loggedInUser.role).toUpperCase().replace(/[\s_-]+/g, '_') : '';
     const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER_ADMIN', 'ADMIN'].includes(userRole);
-    const isManager = ['MANAGER', 'ASS_MANAGER', 'SUPER'].includes(userRole);
-    const canManageStudents = isAdmin || isManager;
+    const isManager = ['MANAGER', 'ASS_MANAGER', 'SUPER', 'HEAD_MANAGER'].includes(userRole) || userRole.includes('MANAGER');
+    const isCoordinator = ['COORDINATOR', 'CLASS_COORDINATOR', 'CALLER'].includes(userRole) || userRole.includes('COORDINATOR');
+    const canManageStudents = isAdmin || isManager || isCoordinator;
+    const canDeleteStudents = isAdmin || isManager || isCoordinator;
     
     const [loading, setLoading] = useState(true);
     const [students, setStudents] = useState([]);
@@ -582,7 +584,7 @@ const handleDeleteStudent = async (studentId, studentName) => {
                                 </button>
 
                                 {/* 🔥 DELETE BUTTON ADDED HERE 🔥 */}
-                                {canManageStudents && (
+                                {canDeleteStudents && (
                                     <button onClick={() => handleDeleteStudent(student.id, student.firstName)} className="flex items-center gap-2 bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white font-bold py-2.5 px-4 rounded-xl transition-all text-xs border border-red-500/20 shadow-sm outline-none">
                                         <Trash2 size={16}/> DELETE
                                     </button>

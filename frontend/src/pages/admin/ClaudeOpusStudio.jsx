@@ -70,11 +70,11 @@ const PROMPT_TEMPLATES = [
     prompt: 'Write a complete, single-file HTML5 Canvas interactive particle simulation / space arcade game with mouse gravitational physics, glowing neon particles, score counter, power-ups, and particle explosion effects. Make it fully playable inside the browser in one HTML code block.'
   },
   {
-    title: 'Photorealistic AI Image Prompts',
+    title: 'Generate AI Images & Artworks 🎨',
     icon: Palette,
-    category: 'Visual Synthesis',
+    category: 'AI Image Engine',
     color: 'from-rose-500/20 to-pink-600/20 text-rose-300 border-rose-500/30',
-    prompt: 'You are an elite Prompt Engineer for Midjourney v6 and FLUX.1. Create 3 photorealistic concept art prompts for a hyper-futuristic floating cybernetic city at dusk, with volumetric rain, architectural holographic billboards, ultra-realistic glass reflections, shot on 35mm Hasselblad 8k.'
+    prompt: 'Generate a photorealistic 8k Sri Lankan modern higher-education campus with futuristic glass architecture, students collaborating with AI holographic interfaces at golden hour sunset, cinematic lighting, ultra-high resolution.'
   },
   {
     title: 'Intricate Quantum Vector SVG',
@@ -91,6 +91,27 @@ const PROMPT_TEMPLATES = [
     prompt: 'Design a distributed rate-limiter and task queue system in Node.js / TypeScript. Provide formal architectural explanations, sliding window algorithms, Redis data structures, and production-grade code with error handling.'
   }
 ];
+
+const DEFAULT_OPUS_PROMPT = `You are Claude Opus 5, Anthropic's premier frontier AI model, operating as a World-Class Principal Frontend Architect, Creative UI/UX Designer, and Generative AI Creator.
+
+CORE CAPABILITIES:
+
+1. CODE & LIVE ARTIFACTS:
+- When asked to build websites, dashboards, landing pages, tools, or interactive web applications, ALWAYS deliver a SINGLE, SELF-CONTAINED, 100% COMPLETE RUNNABLE HTML FILE inside a single \`\`\`html ... \`\`\` block using Tailwind CSS, Chart.js, FontAwesome/Lucide icons, and full JavaScript interactivity.
+- Never use placeholders or incomplete code.
+
+2. AI IMAGE GENERATION (NATIVE & INTEGRATED):
+- You are directly connected to an elite, high-resolution AI Image Generation Engine (FLUX Pro & Google Imagen 3.0).
+- You CAN directly generate AI images, banners, posters, social media posts, UI mockups, illustrations, concept art, and graphics.
+- NEVER say "I am a text-based AI and cannot generate images" or "I cannot create images". You HAVE direct image generation capabilities!
+- When the user asks to generate, create, make, draw, or visualize an image, photo, banner, poster, or graphic (in English, Sinhala, or Singlish), you MUST output an image generation block in this format:
+:::image
+prompt: <Comprehensive, high-fidelity visual description in English. Detail the subject, background, lighting, camera angle, color scheme, artistic style, and mood. If Sinhala text or typography is requested, explicitly instruct: "featuring crisp, accurate, bold Sinhala typography reading '<Sinhala text>' with premium high-contrast styling">
+aspectRatio: 16:9 | 1:1 | 9:16
+style: photorealistic | cinematic | 3d-render | marketing-poster | anime | cyberpunk | minimalist
+caption: <Engaging descriptive title for the image in Sinhala or English>
+:::
+- Accompany the generated image with your insightful, friendly, and comprehensive explanation or creative copy in the requested language (Sinhala, English, or Singlish).`;
 
 export default function ClaudeOpusStudio() {
   const [sessions, setSessions] = useState(() => {
@@ -118,8 +139,14 @@ export default function ClaudeOpusStudio() {
   const [copiedIndex, setCopiedIndex] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // AI Image Generation Mode State
+  const [isImageMode, setIsImageMode] = useState(false);
+  const [imageAspectRatio, setImageAspectRatio] = useState('1:1');
+  const [imageStyle, setImageStyle] = useState('photorealistic');
+  const [showImageOptions, setShowImageOptions] = useState(false);
+
   // Artifact Canvas State
-  const [activeArtifact, setActiveArtifact] = useState(null); // { type: 'html' | 'svg' | 'react' | 'code', code: string, title: string }
+  const [activeArtifact, setActiveArtifact] = useState(null); // { type: 'html' | 'svg' | 'react' | 'code' | 'image', code: string, title: string }
   const [isArtifactOpen, setIsArtifactOpen] = useState(false);
   const [artifactTab, setArtifactTab] = useState('preview'); // 'preview' | 'code'
   const [viewportMode, setViewportMode] = useState('desktop'); // 'desktop' | 'tablet' | 'mobile'
@@ -128,7 +155,14 @@ export default function ClaudeOpusStudio() {
 
   // Configuration settings (Pure Claude defaults)
   const [showSettings, setShowSettings] = useState(false);
-  const [systemPrompt, setSystemPrompt] = useState(() => localStorage.getItem('claude_system_prompt') || 'You are Claude Opus 5, Anthropic\'s premier flagship model. You are a world-class Principal Software Engineer, UI/UX Architect, and Creative Technologist.\nALWAYS deliver complete, self-contained, responsive HTML/Tailwind/JS and SVG artifacts ready to render directly in a single ```html ``` block.');
+  const [systemPrompt, setSystemPrompt] = useState(() => {
+    const saved = localStorage.getItem('claude_system_prompt');
+    if (!saved || !saved.includes('IMAGE GENERATION')) {
+      localStorage.setItem('claude_system_prompt', DEFAULT_OPUS_PROMPT);
+      return DEFAULT_OPUS_PROMPT;
+    }
+    return saved;
+  });
   const [temperature, setTemperature] = useState(0.7);
   const [maxTokens, setMaxTokens] = useState(8192);
   const [region, setRegion] = useState('us-east5');
@@ -178,9 +212,37 @@ export default function ClaudeOpusStudio() {
 
   const activeSession = sessions.find(s => s.id === activeSessionId) || sessions[0];
 
+  // Image URL normalizer for Claude Opus Studio
+  const resolveStudioImageUrl = (url) => {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:')) return url;
+    if (url.startsWith('/uploads/social-media/generated-images/')) return url;
+    const clean = url.split('?')[0];
+    const filename = clean.split('/').pop();
+    if (filename && (filename.startsWith('gen_') || filename.endsWith('.jpg') || filename.endsWith('.png') || filename.endsWith('.jpeg') || filename.endsWith('.webp'))) {
+      return `/uploads/social-media/generated-images/${filename}`;
+    }
+    if (url.startsWith('/uploads/')) {
+      const stripped = url.replace('/uploads/generated/', '').replace('/uploads/', '');
+      return `/uploads/social-media/generated-images/${stripped}`;
+    }
+    if (url.startsWith('/')) return url;
+    return `/uploads/social-media/generated-images/${url}`;
+  };
+
   // Universal Robust Artifact Extractor
   const extractArtifactFromText = (text) => {
     if (!text) return null;
+
+    // 0. Check for Markdown Image (if no full HTML block is present)
+    const imgMatch = text.match(/!\[([^\]]*)\]\(([^)\s]+)\)/i);
+    if (imgMatch && !text.includes('```html') && !text.includes('<!DOCTYPE')) {
+      return {
+        type: 'image',
+        code: resolveStudioImageUrl(imgMatch[2]),
+        title: imgMatch[1] || 'Claude AI Visual Artwork'
+      };
+    }
 
     // 1. Check for standard ```html ... ```
     const htmlMatch = text.match(/```(?:html|htm)\s*[\r\n]([\s\S]*?)```/i);
@@ -240,6 +302,65 @@ export default function ClaudeOpusStudio() {
   // Compile Document for iframe sandbox with Babel Standalone, React 18, Tailwind, Lucide, FontAwesome & Chart.js
   const compiledIframeDoc = useMemo(() => {
     if (!activeArtifact || !activeArtifact.code) return '';
+
+    // Mode 0: AI Generated Image Canvas
+    if (activeArtifact.type === 'image') {
+      const imgUrl = resolveStudioImageUrl(activeArtifact.code);
+      return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <style>
+    body { margin: 0; background: #07090E; color: #f3f4f6; font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 1.5rem; }
+    .canvas-card { background: #0F121C; border: 1px solid rgba(255,255,255,0.12); border-radius: 1.25rem; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); overflow: hidden; max-width: 900px; width: 100%; }
+    .img-view { max-height: 65vh; width: 100%; object-fit: contain; background: #000; transition: filter 0.2s ease; }
+    .control-slider { accent-color: #f59e0b; }
+  </style>
+</head>
+<body>
+  <div class="canvas-card">
+    <div class="p-4 bg-[#141824] border-b border-white/10 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <span class="w-3 h-3 rounded-full bg-amber-500 animate-pulse"></span>
+        <span class="font-bold text-sm text-amber-300">Claude Studio Image Canvas 🎨</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="${imgUrl}" download="claude-artwork.jpg" target="_blank" class="px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all">
+          <i class="fa-solid fa-download"></i> Save Image
+        </a>
+      </div>
+    </div>
+    <div class="p-5 flex flex-col items-center">
+      <img id="mainImg" src="${imgUrl}" alt="AI Artwork" class="img-view rounded-xl shadow-2xl" />
+      <div class="w-full mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3 p-3.5 bg-[#121622] rounded-xl border border-white/5 text-xs text-gray-300">
+        <div>
+          <label class="flex justify-between mb-1"><span>Brightness</span><span id="brightVal">100%</span></label>
+          <input type="range" min="50" max="150" value="100" class="control-slider w-full" oninput="updateFilter('brightness', this.value, '%', 'brightVal')" />
+        </div>
+        <div>
+          <label class="flex justify-between mb-1"><span>Contrast</span><span id="contrastVal">100%</span></label>
+          <input type="range" min="50" max="150" value="100" class="control-slider w-full" oninput="updateFilter('contrast', this.value, '%', 'contrastVal')" />
+        </div>
+        <div>
+          <label class="flex justify-between mb-1"><span>Saturation</span><span id="saturateVal">100%</span></label>
+          <input type="range" min="0" max="200" value="100" class="control-slider w-full" oninput="updateFilter('saturate', this.value, '%', 'saturateVal')" />
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const filters = { brightness: 100, contrast: 100, saturate: 100 };
+    function updateFilter(name, val, unit, labelId) {
+      filters[name] = val;
+      document.getElementById(labelId).innerText = val + unit;
+      document.getElementById('mainImg').style.filter = 'brightness(' + filters.brightness + '%) contrast(' + filters.contrast + '%) saturate(' + filters.saturate + '%)';
+    }
+  </script>
+</body>
+</html>`;
+    }
 
     // Mode 1: SVG Graphic
     if (activeArtifact.type === 'svg') {
@@ -506,7 +627,12 @@ export default function ClaudeOpusStudio() {
         temperature,
         maxTokens,
         region,
-        anthropicApiKey: anthropicApiKey.trim()
+        anthropicApiKey: anthropicApiKey.trim(),
+        generateImage: isImageMode,
+        imageOptions: {
+          aspectRatio: imageAspectRatio,
+          style: imageStyle
+        }
       });
 
       if (res.data && res.data.success) {
@@ -519,6 +645,7 @@ export default function ClaudeOpusStudio() {
           provider: res.data.provider,
           notice: res.data.notice,
           usage: res.data.usage,
+          images: res.data.images || [],
           timestamp: Date.now()
         };
 
@@ -527,7 +654,7 @@ export default function ClaudeOpusStudio() {
           messages: [...updatedMessages, assistantMessage]
         } : s));
 
-        // Auto-detect artifact and open live canvas immediately
+        // Auto-detect artifact or image and open live canvas immediately
         const detectedArtifact = extractArtifactFromText(rawResponseText);
         if (detectedArtifact) {
           setActiveArtifact(detectedArtifact);
@@ -535,6 +662,17 @@ export default function ClaudeOpusStudio() {
           setArtifactTab('preview');
           setSandboxKey(prev => prev + 1);
           toast.success('Live Artifact Rendered in Canvas 🎨', { duration: 4000 });
+        } else if (res.data.images && res.data.images.length > 0) {
+          const img = res.data.images[0];
+          setActiveArtifact({
+            type: 'image',
+            code: img.imageUrl,
+            title: img.caption || 'Claude AI Image Studio'
+          });
+          setIsArtifactOpen(true);
+          setArtifactTab('preview');
+          setSandboxKey(prev => prev + 1);
+          toast.success('AI Image Loaded in Canvas 🎨', { duration: 4000 });
         }
 
         if (res.data.notice) {
@@ -582,6 +720,15 @@ export default function ClaudeOpusStudio() {
 
   const downloadArtifactFile = () => {
     if (!activeArtifact) return;
+    if (activeArtifact.type === 'image') {
+      const a = document.createElement('a');
+      a.href = activeArtifact.code;
+      a.download = `claude-image-${Date.now()}.jpg`;
+      a.target = '_blank';
+      a.click();
+      toast.success('Downloaded image!');
+      return;
+    }
     const extension = activeArtifact.type === 'svg' ? 'svg' : activeArtifact.type === 'html' ? 'html' : 'jsx';
     const blob = new Blob([activeArtifact.code], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -944,6 +1091,78 @@ export default function ClaudeOpusStudio() {
                                   );
                                 }
                                 return <code className="bg-white/10 px-1 py-0.5 rounded text-amber-300 font-mono text-xs" {...props}>{children}</code>;
+                              },
+                              img({ node, src, alt, ...props }) {
+                                const resolvedSrc = resolveStudioImageUrl(src);
+                                return (
+                                  <div className="my-4 rounded-2xl overflow-hidden border border-white/15 bg-[#090B10] shadow-2xl not-prose">
+                                    <div className="relative overflow-hidden bg-black/60 flex items-center justify-center p-1 min-h-[160px]">
+                                      <img
+                                        src={resolvedSrc}
+                                        alt={alt || 'AI Generated Image'}
+                                        onError={(e) => {
+                                          const fname = (src || '').split('/').pop();
+                                          if (fname && !e.target.dataset.tried) {
+                                            e.target.dataset.tried = 'true';
+                                            e.target.src = `/uploads/social-media/generated-images/${fname}`;
+                                          }
+                                        }}
+                                        className="w-full max-h-[480px] object-contain rounded-xl transition-all duration-300 hover:scale-[1.01]"
+                                      />
+                                      <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/80 backdrop-blur-md border border-white/20 text-[11px] font-bold text-amber-300 shadow-lg">
+                                        <Sparkles size={12} className="text-amber-400 animate-pulse" />
+                                        <span>Claude AI Visual</span>
+                                      </div>
+                                    </div>
+                                    <div className="px-3.5 py-2.5 bg-[#121520] border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
+                                      <span className="text-xs text-gray-300 font-medium truncate max-w-[200px] sm:max-w-xs">
+                                        {alt && alt !== 'AI Generated Image' ? alt : 'AI Generated Visual'}
+                                      </span>
+                                      <div className="flex items-center gap-1.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setActiveArtifact({
+                                              type: 'image',
+                                              code: resolvedSrc,
+                                              title: alt || 'Claude AI Image Studio'
+                                            });
+                                            setIsArtifactOpen(true);
+                                            setArtifactTab('preview');
+                                            setSandboxKey(k => k + 1);
+                                            toast.success('Loaded in Canvas Studio 🎨');
+                                          }}
+                                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-[11px] shadow-sm transition-all active:scale-95 cursor-pointer"
+                                        >
+                                          <Play size={11} />
+                                          <span>Open in Canvas 🎨</span>
+                                        </button>
+                                        <a
+                                          href={resolvedSrc}
+                                          download={`claude-opus-art-${Date.now()}.jpg`}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-gray-200 text-[11px] font-medium transition-all"
+                                          title="Download Image"
+                                        >
+                                          <Download size={12} />
+                                          <span>Download</span>
+                                        </a>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            navigator.clipboard.writeText(window.location.origin + src);
+                                            toast.success('Image link copied!');
+                                          }}
+                                          className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+                                          title="Copy Link"
+                                        >
+                                          <Copy size={13} />
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
                               }
                             }}
                           >
@@ -1020,17 +1239,78 @@ export default function ClaudeOpusStudio() {
                 </div>
               )}
 
+              {/* AI Image Generation Mode Options Drawer */}
+              {isImageMode && (
+                <div className="mb-2.5 p-2.5 bg-[#141824] border border-amber-500/30 rounded-xl flex flex-wrap items-center justify-between gap-2 shadow-lg animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-md bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-[11px] flex items-center gap-1">
+                      <Sparkles size={11} className="text-amber-400 animate-pulse" />
+                      AI Image Mode Active
+                    </span>
+
+                    {/* Aspect Ratio Selector */}
+                    <div className="flex items-center bg-black/40 p-0.5 rounded-lg border border-white/10 text-[11px]">
+                      {[
+                        { id: '1:1', label: '1:1 Square' },
+                        { id: '16:9', label: '16:9 Banner' },
+                        { id: '9:16', label: '9:16 Story' }
+                      ].map(r => (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => setImageAspectRatio(r.id)}
+                          className={`px-2 py-0.5 rounded cursor-pointer transition-colors ${
+                            imageAspectRatio === r.id ? 'bg-amber-600 text-white font-bold' : 'text-gray-400 hover:text-white'
+                          }`}
+                        >
+                          {r.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Style Preset Selector */}
+                    <select
+                      value={imageStyle}
+                      onChange={(e) => setImageStyle(e.target.value)}
+                      className="bg-black/40 border border-white/10 rounded-lg px-2 py-1 text-[11px] text-amber-200 focus:outline-none focus:border-amber-500/50 cursor-pointer"
+                    >
+                      <option value="photorealistic">Photorealistic</option>
+                      <option value="cinematic">Cinematic</option>
+                      <option value="3d-render">3D Render</option>
+                      <option value="marketing-poster">Marketing Poster</option>
+                      <option value="anime">Anime</option>
+                      <option value="cyberpunk">Cyberpunk</option>
+                    </select>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsImageMode(false)}
+                    className="text-gray-400 hover:text-red-400 p-1 transition-colors"
+                    title="Disable AI Image Mode"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
               {/* Text Input Box */}
-              <div className="relative rounded-2xl bg-[#161926] border border-white/15 focus-within:border-amber-500/50 shadow-xl transition-all">
+              <div className={`relative rounded-2xl bg-[#161926] border shadow-xl transition-all ${
+                isImageMode ? 'border-amber-500/50 shadow-amber-500/10' : 'border-white/15 focus-within:border-amber-500/50'
+              }`}>
                 
                 <textarea
                   ref={textareaRef}
                   value={inputMessage}
                   onChange={(e) => setInputMessage(e.target.value)}
                   onKeyDown={handleKeyDown}
-                  placeholder="Ask Claude Opus 5 to build UI, write code, or solve problems... (Shift+Enter for newline)"
+                  placeholder={
+                    isImageMode
+                      ? "Describe the AI image you want Claude Opus 5 to generate... (Sinhala / English)"
+                      : "Ask Claude Opus 5 to build UI, generate AI images, write code, or solve problems... (Shift+Enter for newline)"
+                  }
                   rows={2}
-                  className="w-full bg-transparent px-3.5 py-3 pr-24 text-xs md:text-sm text-gray-100 placeholder-gray-500 focus:outline-none resize-none custom-scrollbar"
+                  className="w-full bg-transparent px-3.5 py-3 pr-28 text-xs md:text-sm text-gray-100 placeholder-gray-500 focus:outline-none resize-none custom-scrollbar"
                 />
 
                 <div className="absolute right-2.5 bottom-2.5 flex items-center space-x-1.5">
@@ -1042,6 +1322,25 @@ export default function ClaudeOpusStudio() {
                     accept="image/*,.pdf,.txt,.json,.csv"
                     className="hidden"
                   />
+
+                  {/* AI Image Generation Mode Toggle Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsImageMode(!isImageMode);
+                      if (!isImageMode) {
+                        toast('🎨 AI Image Mode enabled! Describe any image you want.', { icon: '✨', duration: 3000 });
+                      }
+                    }}
+                    className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                      isImageMode
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm shadow-amber-500/30'
+                        : 'text-gray-400 hover:text-white hover:bg-white/10'
+                    }`}
+                    title={isImageMode ? 'AI Image Mode: ON' : 'Toggle AI Image Generation Mode'}
+                  >
+                    <ImageIcon size={16} className={isImageMode ? 'text-amber-400 animate-pulse' : ''} />
+                  </button>
                   
                   <button
                     type="button"

@@ -6,6 +6,7 @@ import { User, Search, GraduationCap, Users, Filter, Edit2, Trash2, X, FileSprea
 import toast from 'react-hot-toast';
 
 import { printThermalReceipt } from '../../utils/thermalReceiptPrinter';
+import { extractCallingName } from '../../utils/nameUtils';
 
 const initialFormData = {
   studentName: '',
@@ -440,12 +441,20 @@ export default function StudentRegistration() {
               {/* Student Name & ID Number */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="sm:col-span-2">
-                  <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">Student Name *</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider">Student Name *</label>
+                    {formData.studentName && formData.studentName.trim() && (
+                      <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <span>🗣️ Voice:</span>
+                        <strong className="text-emerald-300">{extractCallingName(formData.studentName)}</strong>
+                      </span>
+                    )}
+                  </div>
                   <input 
                     type="text" 
                     name="studentName" 
                     required 
-                    placeholder="Full Student Name"
+                    placeholder="Full Student Name (e.g. K.S. Saman or Saman Kumara)"
                     value={formData.studentName} 
                     onChange={handleInputChange} 
                     className={inputBaseClass} 
@@ -488,8 +497,8 @@ export default function StudentRegistration() {
                         return (
                           <span key={cId} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-gradient-to-r from-red-600/30 to-red-900/40 border border-red-500/40 text-white rounded-xl text-xs font-bold shadow-md animate-in fade-in">
                             <BookOpen size={13} className="text-amber-400 shrink-0" />
-                            <span className="truncate max-w-[180px]">{cls.name}</span>
-                            <span className="text-[10px] px-1.5 py-0.2 bg-white/10 rounded text-amber-200">
+                            <span className="break-words leading-tight" title={cls.name}>{cls.name}</span>
+                            <span className="text-[10px] px-1.5 py-0.2 bg-white/10 rounded text-amber-200 shrink-0">
                               {cls.grade}
                             </span>
                             {cls.monthlyFee > 0 && (
@@ -595,8 +604,8 @@ export default function StudentRegistration() {
                                 >
                                   <div className="min-w-0 flex-1 pr-2">
                                     <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="font-bold text-white truncate">{c.name}</span>
-                                      <span className="text-[10px] px-1.5 py-0.2 bg-white/10 rounded text-amber-200 font-normal">
+                                      <span className="font-bold text-white break-words leading-snug" title={c.name}>{c.name}</span>
+                                      <span className="text-[10px] px-1.5 py-0.2 bg-white/10 rounded text-amber-200 font-normal shrink-0">
                                         {c.grade}
                                       </span>
                                       {c.stream && (

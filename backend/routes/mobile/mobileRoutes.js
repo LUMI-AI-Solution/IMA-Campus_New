@@ -67,9 +67,9 @@ const verifyToken = async (req, res, next) => {
 router.get('/businesses', mobileStudentController.getMobileBusinesses);
 router.get('/installments/:batchId', mobileStudentController.getMobileInstallments);
 router.post('/verify-student', mobileStudentController.verifyStudent);
-router.post('/update-yt-cookies', mobileStudentController.updateYtCookies);
 
 // 🔒 Protected Routes (Requires Token)
+router.post('/update-yt-cookies', verifyToken, mobileStudentController.updateYtCookies);
 router.get('/my-payments', verifyToken, mobileStudentController.getMobilePayments);
 router.get('/classroom', verifyToken, mobileStudentController.getMobileClassroom);
 router.get('/module/:id', verifyToken, mobileStudentController.getCourseModules);
@@ -90,32 +90,7 @@ router.get('/proxy-stream', verifyToken, mobileStudentController.proxyStreamUrl)
 router.get('/staff/overview', verifyToken, mobileStaffController.getStaffOverview);
 
 router.get('/yt-redirect', mobileStudentController.ytRedirect);
+router.get('/live-portal', mobileStudentController.getLivePortal);
 router.get('/app-event', mobileStudentController.getActiveAppEvent);
 
 module.exports = router;
-
-
-// 🔥 ZOOM EXTRACT ROUTE FOR DIRECT DOWNLOAD 🔥
-const { exec } = require('child_process');
-router.get('/zoom-extract', (req, res) => {
-    const videoUrl = req.query.url;
-    if (!videoUrl) return res.status(400).json({ error: 'URL is required' });
-
-    exec(`yt-dlp -J "${videoUrl}"`, { maxBuffer: 1024 * 1024 * 5 }, (error, stdout, stderr) => {
-        if (error) {
-            console.error('yt-dlp error:', error);
-            return res.status(500).json({ error: 'Failed to extract video data' });
-        }
-        
-        try {
-            const data = JSON.parse(stdout);
-            res.json({
-                url: data.url,
-                cookies: data.cookies,
-                http_headers: data.http_headers
-            });
-        } catch (e) {
-            res.status(500).json({ error: 'Failed to parse yt-dlp output' });
-        }
-    });
-});

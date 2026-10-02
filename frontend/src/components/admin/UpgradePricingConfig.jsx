@@ -524,7 +524,12 @@ const UpgradePricingConfig = ({ activeBatch, uniqueSubjects }) => {
                             <div key={sub.id} className="bg-[#121124] border-2 border-white/10 p-6 rounded-[2rem] shadow-md flex flex-col justify-between gap-4">
                                 <div className="flex justify-between items-start gap-4">
                                     <div>
-                                        <h4 className="text-lg font-black text-white tracking-wide">{sub.name}</h4>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <h4 className="text-lg font-black text-white tracking-wide">{sub.name}</h4>
+                                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${parseInt(sub.courseType || 1, 10) === 2 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-blue-500/20 text-blue-300 border-blue-500/30'}`}>
+                                                {parseInt(sub.courseType || 1, 10) === 2 ? '📝 Paper Class' : '📘 Theory Class'}
+                                            </span>
+                                        </div>
                                         <p className="text-[10px] text-gray-500 font-extrabold uppercase tracking-wider mt-1">
                                             Code: {sub.code || 'N/A'} • Stream: {sub.stream || 'General'}
                                         </p>

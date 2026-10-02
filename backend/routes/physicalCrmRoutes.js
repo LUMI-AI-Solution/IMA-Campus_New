@@ -3,8 +3,12 @@ const router = express.Router();
 const physicalCrmController = require('../controllers/physicalCrmController');
 const physicalAttendanceController = require('../controllers/physicalAttendanceController');
 const physicalStudentReportController = require('../controllers/physicalStudentReportController');
+const { verifyToken, requireStaff } = require('../middlewares/authMiddleware');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
+
+router.use(verifyToken);
+router.use(requireStaff);
 
 // Schools
 router.get('/schools', physicalCrmController.getSchools);
@@ -60,10 +64,13 @@ router.post('/classes/bulk-fee-payment', physicalCrmController.bulkStudentFeePay
 // Teacher Reports & Invoices
 router.get('/teachers/:teacherId/reports', physicalCrmController.getTeacherReport);
 
-// Attendance Portal
+// Attendance Portal & Entrance Gate
 router.get('/students-search', physicalAttendanceController.searchStudents);
 router.get('/student-scan/:studentId', physicalAttendanceController.scanStudent);
 router.post('/attendance', physicalAttendanceController.markAttendance);
 router.post('/attendance/unmark', physicalAttendanceController.unmarkAttendance);
+router.post('/entrance/scan', physicalAttendanceController.entranceScan);
+router.get('/entrance/stats', physicalAttendanceController.getEntranceStats);
 
 module.exports = router;
+

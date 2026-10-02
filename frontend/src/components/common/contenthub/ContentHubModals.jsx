@@ -1,24 +1,357 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Send, UploadCloud, Users, UserPlus, CheckCircle, Plus, Edit3, Trash2, CreditCard, MessageSquare, MonitorPlay, ExternalLink, Ban, BookOpen, Building2, User, Layers, Save, FolderOpen, Clock } from 'lucide-react';
+import { X, Send, UploadCloud, Users, UserPlus, CheckCircle, Plus, Edit3, Trash2, CreditCard, MessageSquare, MonitorPlay, ExternalLink, Ban, BookOpen, Building2, User, Layers, Save, FolderOpen, Clock, Trophy, Sparkles, FileSignature, FileText, Download, Loader2, Search, ChevronDown, Check } from 'lucide-react';
 import api from '../../../api/axios'; 
+
+function LecturerSearchableSelect({ editData, editMode, setEditData, masterTutes }) {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const [selectedName, setSelectedName] = useState(editData?.lecturerName || '');
+    const dropdownRef = React.useRef(null);
+    const searchInputRef = React.useRef(null);
+    const hiddenSelectRef = React.useRef(null);
+
+    useEffect(() => {
+        setSelectedName(editData?.lecturerName || '');
+    }, [editData?.lecturerName]);
+
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+                setIsOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
+
+    useEffect(() => {
+        if (isOpen && searchInputRef.current) {
+            searchInputRef.current.focus();
+        }
+    }, [isOpen]);
+
+    const handleSelect = (name) => {
+        setSelectedName(name);
+        if (editMode && setEditData) {
+            setEditData(prev => ({ ...prev, lecturerName: name }));
+        }
+        if (hiddenSelectRef.current) {
+            hiddenSelectRef.current.value = name;
+            hiddenSelectRef.current.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        setIsOpen(false);
+        setSearch('');
+    };
+
+    const filtered = (masterTutes || []).filter(l => 
+        (l.name || '').toLowerCase().includes(search.toLowerCase())
+    );
+
+    const isLegacy = selectedName && !masterTutes?.some(l => l.name === selectedName);
+
+    return (
+        <div className="relative" ref={dropdownRef}>
+            {/* Hidden native select for FormData and querySelector compatibility */}
+            <select
+                ref={hiddenSelectRef}
+                name="lecturerName"
+                value={selectedName}
+                onChange={(e) => handleSelect(e.target.value)}
+                className="hidden"
+            >
+                <option value="">Select Lecturer</option>
+                {isLegacy && <option value={selectedName}>{selectedName} (Legacy)</option>}
+                {masterTutes?.map((lec, i) => (
+                    <option key={i} value={lec.name}>{lec.name}</option>
+                ))}
+            </select>
+
+            {/* Custom Interactive Trigger Button */}
+            <div
+                onClick={() => setIsOpen(!isOpen)}
+                className={`w-full bg-black/60 border rounded-xl p-3 text-sm text-white flex items-center justify-between gap-2 shadow-inner transition-all cursor-pointer ${
+                    isOpen ? 'border-amber-400 ring-1 ring-amber-400/30' : 'border-white/10 hover:border-white/20'
+                }`}
+            >
+                <div className="flex items-center gap-2 truncate">
+                    <User size={15} className={selectedName ? 'text-amber-400' : 'text-slate-500'} />
+                    <span className={`truncate font-medium ${selectedName ? 'text-white font-bold' : 'text-slate-400'}`}>
+                        {selectedName ? (isLegacy ? `${selectedName} (Legacy)` : selectedName) : 'Select Lecturer'}
+                    </span>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                    {selectedName && (
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelect('');
+                            }}
+                            className="p-1 rounded-md text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                            title="Clear selection"
+                        >
+                            <X size={13} />
+                        </button>
+                    )}
+                    <ChevronDown size={15} className={`text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180 text-amber-400' : ''}`} />
+                </div>
+            </div>
+
+            {/* Searchable Dropdown Popover */}
+            {isOpen && (
+                <div className="absolute top-full left-0 right-0 mt-1.5 z-50 bg-slate-900/95 backdrop-blur-xl border border-white/15 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in duration-150">
+                    {/* Search Bar at Top */}
+                    <div className="p-2.5 border-b border-white/10 bg-slate-950/70">
+                        <div className="relative">
+                            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-amber-400" />
+                            <input
+                                ref={searchInputRef}
+                                type="text"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                                placeholder="Search lecturer by name..."
+                                className="w-full bg-black/60 border border-white/10 rounded-xl pl-8 pr-7 py-2 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+                            />
+                            {search && (
+                                <button
+                                    type="button"
+                                    onClick={() => setSearch('')}
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                                >
+                                    <X size={12} />
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Options List */}
+                    <div className="max-h-56 overflow-y-auto custom-scrollbar p-1.5 space-y-0.5">
+                        {/* None / Reset Option */}
+                        <div
+                            onClick={() => handleSelect('')}
+                            className={`px-3 py-2 rounded-xl text-xs flex items-center justify-between cursor-pointer transition-colors ${
+                                !selectedName ? 'bg-amber-400/20 text-amber-300 font-bold' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
+                            }`}
+                        >
+                            <span>-- No Lecturer (Optional) --</span>
+                            {!selectedName && <Check size={13} className="text-amber-400" />}
+                        </div>
+
+                        {/* Legacy Option */}
+                        {isLegacy && (
+                            <div
+                                onClick={() => handleSelect(selectedName)}
+                                className="px-3 py-2 rounded-xl text-xs flex items-center justify-between cursor-pointer bg-yellow-500/10 text-yellow-300 font-bold hover:bg-yellow-500/20"
+                            >
+                                <span className="truncate">{selectedName} (Legacy)</span>
+                                <Check size={13} className="text-yellow-400" />
+                            </div>
+                        )}
+
+                        {/* Filtered Lecturer Items */}
+                        {filtered.length === 0 ? (
+                            <div className="px-3 py-4 text-center text-xs text-slate-400">
+                                No lecturers found matching "{search}"
+                            </div>
+                        ) : (
+                            filtered.map((lec, i) => {
+                                const isSelected = selectedName === lec.name;
+                                return (
+                                    <div
+                                        key={i}
+                                        onClick={() => handleSelect(lec.name)}
+                                        className={`px-3 py-2 rounded-xl text-xs flex items-center justify-between gap-2 cursor-pointer transition-colors ${
+                                            isSelected 
+                                                ? 'bg-amber-400 text-slate-950 font-black shadow-sm' 
+                                                : 'text-slate-200 hover:bg-white/10 hover:text-white'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2 truncate">
+                                            {lec.image ? (
+                                                <img src={lec.image} alt={lec.name} className="w-5 h-5 rounded-full object-cover shrink-0 border border-white/20" />
+                                            ) : (
+                                                <div className={`w-5 h-5 rounded-full flex items-center justify-center shrink-0 text-[10px] font-bold ${
+                                                    isSelected ? 'bg-slate-950 text-amber-400' : 'bg-white/10 text-slate-300'
+                                                }`}>
+                                                    {lec.name.charAt(0).toUpperCase()}
+                                                </div>
+                                            )}
+                                            <span className="truncate">{lec.name}</span>
+                                        </div>
+                                        {isSelected && <Check size={13} className="text-slate-950 shrink-0" />}
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+
+                    {/* Footer */}
+                    <div className="px-3 py-1.5 bg-black/40 border-t border-white/5 text-[10px] text-slate-400 flex items-center justify-between">
+                        <span>{masterTutes?.length || 0} lecturers available</span>
+                        {search && <span>{filtered.length} matching</span>}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
 
 export default function ContentHubModals({ state, actions }) {
     const [modalTimerMode, setModalTimerMode] = useState('FLEXIBLE');
+    const [modalPaperType, setModalPaperType] = useState('MCQ'); // 'MCQ' | 'STRUCTURED' | 'BOTH'
+    const [modalCategory, setModalCategory] = useState('WEEKLY'); // 'WEEKLY' | 'MONTHLY'
+    const [modalManualParticipantCount, setModalManualParticipantCount] = useState('');
+    const [modalBreakIntervalMinutes, setModalBreakIntervalMinutes] = useState('15');
+    const [modalStructuredUploadMinutes, setModalStructuredUploadMinutes] = useState('15');
+    const [modalDurationHours, setModalDurationHours] = useState('1');
+    const [modalDurationMinutes, setModalDurationMinutes] = useState('0');
+    
+    // Separate durations & marks for MCQ + Structured Both
+    const [modalMcqDurationHours, setModalMcqDurationHours] = useState('1');
+    const [modalMcqDurationMinutes, setModalMcqDurationMinutes] = useState('0');
+    const [modalStructuredDurationHours, setModalStructuredDurationHours] = useState('2');
+    const [modalStructuredDurationMinutes, setModalStructuredDurationMinutes] = useState('0');
+    const [modalMcqMarks, setModalMcqMarks] = useState('50');
+    const [modalStructuredMarks, setModalStructuredMarks] = useState('50');
+    const [modalTotalMarks, setModalTotalMarks] = useState('100');
+    const [modalCourseType, setModalCourseType] = useState('1');
+    const [modalGroupClassType, setModalGroupClassType] = useState('1');
+
+    const defaultGradingScale = [
+        { grade: 'A', min: 75, max: 100 },
+        { grade: 'B', min: 65, max: 74 },
+        { grade: 'C', min: 55, max: 64 },
+        { grade: 'S', min: 35, max: 54 },
+        { grade: 'F', min: 0, max: 34 }
+    ];
+    const [modalGradingScale, setModalGradingScale] = useState(defaultGradingScale);
+
+    const handleUpdateGradeTier = (index, field, value) => {
+        setModalGradingScale(prev => {
+            const updated = [...prev];
+            updated[index] = { 
+                ...updated[index], 
+                [field]: field === 'grade' ? value : (value === '' ? '' : parseFloat(value)) 
+            };
+            return updated;
+        });
+    };
+
+    const handleAddGradeTier = () => {
+        setModalGradingScale(prev => [
+            ...prev,
+            { grade: 'New', min: 0, max: 0 }
+        ]);
+    };
+
+    const handleRemoveGradeTier = (index) => {
+        setModalGradingScale(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleResetStandardGrade = () => {
+        setModalGradingScale(defaultGradingScale);
+    };
+
+    const getGradeBadgeStyle = (grade) => {
+        const g = (grade || '').trim().toUpperCase();
+        if (g.startsWith('A')) return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/40';
+        if (g.startsWith('B')) return 'bg-blue-500/20 text-blue-400 border-blue-500/40';
+        if (g.startsWith('C')) return 'bg-amber-500/20 text-amber-400 border-amber-500/40';
+        if (g.startsWith('S') || g.startsWith('D')) return 'bg-purple-500/20 text-purple-400 border-purple-500/40';
+        return 'bg-rose-500/20 text-rose-400 border-rose-500/40';
+    };
 
     const {
         isSystemAdmin, businesses, managersList, batches, lessonGroups, postsList, showBusinessModal, showAssignModal, showBatchModal, showGroupModal,
         showCourseModal, showLessonGroupModal, showContentModal, showPostModal, showManagePostsModal, previewData, editMode, editData, selectedLogoName,
         selectedGroupPrices, discountRules, contentType, prefilledFolder, selectedBatchesForContent, massAssignSubjects, postBizId, postBatches, showInstallmentModal,
         existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, activeBusiness, activeBatch, activeSubject, loading, showLecturerModal, masterTutes,
-        hubBatchConfigs, hubActiveBatchTab, parentFolderForSub, selectedFolderParentId
-    } = state;
+        hubBatchConfigs = {}, hubActiveBatchTab = null, parentFolderForSub = null, selectedFolderParentId = '',
+        selectedClassType, isSubmittingFolder, isSubmittingContent
+    } = state || {};
 
     useEffect(() => {
-        if (editData?.paper?.timerMode) {
-            setModalTimerMode(editData.paper.timerMode);
+        if (showCourseModal) {
+            if (editMode && editData?.courseType) {
+                setModalCourseType(String(editData.courseType));
+            } else {
+                setModalCourseType(selectedClassType === 'paper' ? '2' : '1');
+            }
+        }
+    }, [showCourseModal, editMode, editData, selectedClassType]);
+
+    useEffect(() => {
+        if (showGroupModal) {
+            if (editMode && editData?.classType) {
+                setModalGroupClassType(String(editData.classType));
+            } else {
+                setModalGroupClassType(selectedClassType === 'paper' ? '2' : '1');
+            }
+        }
+    }, [showGroupModal, editMode, editData, selectedClassType]);
+
+    useEffect(() => {
+        if (editData) {
+            setModalCategory(editData?.paper?.category || 'WEEKLY');
+            setModalManualParticipantCount(editData?.paper?.manualParticipantCount ? String(editData.paper.manualParticipantCount) : '');
+            setModalBreakIntervalMinutes(editData?.paper?.breakIntervalMinutes !== null && editData?.paper?.breakIntervalMinutes !== undefined ? String(editData.paper.breakIntervalMinutes) : '15');
+            setModalStructuredUploadMinutes(editData?.paper?.structuredUploadMinutes !== null && editData?.paper?.structuredUploadMinutes !== undefined ? String(editData.paper.structuredUploadMinutes) : '15');
+            setModalTimerMode(editData?.paper?.timerMode || 'FLEXIBLE');
+            const pType = editData?.paper?.paperType || (editData.contentType === 'sPaper' ? 'STRUCTURED' : (editData.contentType === 'paper' ? 'MCQ' : 'MCQ'));
+            setModalPaperType(pType);
+            const totalMins = editData?.paper?.durationMinutes || editData?.paperTime || 60;
+            setModalDurationHours(String(Math.floor(totalMins / 60)));
+            setModalDurationMinutes(String(totalMins % 60));
+
+            const mcqMins = editData?.paper?.mcqDurationMinutes ?? 60;
+            setModalMcqDurationHours(String(Math.floor(mcqMins / 60)));
+            setModalMcqDurationMinutes(String(mcqMins % 60));
+
+            const structMins = editData?.paper?.structuredDurationMinutes ?? 120;
+            setModalStructuredDurationHours(String(Math.floor(structMins / 60)));
+            setModalStructuredDurationMinutes(String(structMins % 60));
+
+            const mMarks = editData?.paper?.totalMcqMarks ?? 50;
+            const sMarks = editData?.paper?.totalStructuredMarks ?? 50;
+            const tMarks = editData?.paper?.totalMarks ?? (mMarks + sMarks);
+            setModalMcqMarks(String(mMarks));
+            setModalStructuredMarks(String(sMarks));
+            setModalTotalMarks(String(tMarks));
+
+            if (editData?.paper?.gradingScale) {
+                try {
+                    const parsed = typeof editData.paper.gradingScale === 'string'
+                        ? JSON.parse(editData.paper.gradingScale)
+                        : editData.paper.gradingScale;
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        setModalGradingScale(parsed);
+                    } else {
+                        setModalGradingScale(defaultGradingScale);
+                    }
+                } catch (e) {
+                    setModalGradingScale(defaultGradingScale);
+                }
+            } else {
+                setModalGradingScale(defaultGradingScale);
+            }
         } else {
+            setModalCategory('WEEKLY');
+            setModalManualParticipantCount('');
+            setModalBreakIntervalMinutes('15');
+            setModalStructuredUploadMinutes('15');
             setModalTimerMode('FLEXIBLE');
+            setModalPaperType('MCQ');
+            setModalDurationHours('1');
+            setModalDurationMinutes('0');
+            setModalMcqDurationHours('1');
+            setModalMcqDurationMinutes('0');
+            setModalStructuredDurationHours('2');
+            setModalStructuredDurationMinutes('0');
+            setModalMcqMarks('50');
+            setModalStructuredMarks('50');
+            setModalTotalMarks('100');
+            setModalGradingScale(defaultGradingScale);
         }
     }, [editData, showContentModal]);
 
@@ -79,11 +412,12 @@ export default function ContentHubModals({ state, actions }) {
     
     const handleHubSubjectToggle = (batchId, subjectId, courseCode) => {
         setHubBatchConfigs(prev => {
-            const batchConfig = prev[batchId] || {};
+            const safePrev = prev || {};
+            const batchConfig = safePrev[batchId] || {};
             const initialFolder = prefilledFolder ? String(prefilledFolder) : '';
             const subjectConfig = batchConfig[subjectId] || { isChecked: false, folderId: initialFolder, courseCode };
             return {
-                ...prev,
+                ...safePrev,
                 [batchId]: {
                     ...batchConfig,
                     [subjectId]: { 
@@ -99,10 +433,11 @@ export default function ContentHubModals({ state, actions }) {
 
     const handleHubFolderChange = (batchId, subjectId, folderId, courseCode) => {
         setHubBatchConfigs(prev => {
-            const batchConfig = prev[batchId] || {};
+            const safePrev = prev || {};
+            const batchConfig = safePrev[batchId] || {};
             const subjectConfig = batchConfig[subjectId] || { isChecked: true, folderId: '', courseCode };
             return {
-                ...prev,
+                ...safePrev,
                 [batchId]: {
                     ...batchConfig,
                     [subjectId]: { ...subjectConfig, isChecked: true, folderId, courseCode }
@@ -119,7 +454,7 @@ export default function ContentHubModals({ state, actions }) {
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-2xl sm:rounded-[2rem] w-full max-w-7xl max-h-[92vh] sm:max-h-[95vh] flex flex-col shadow-[0_10px_50px_rgba(0,0,0,0.8)] overflow-hidden backdrop-blur-3xl">
                         <div className="p-4 sm:p-6 md:p-8 border-b border-white/10 flex justify-between items-center bg-white/[0.02] rounded-t-2xl sm:rounded-t-[2rem]">
                             <h3 className="text-lg sm:text-2xl font-extrabold text-white flex items-center gap-2.5 sm:gap-3 drop-shadow-sm"><Plus className="text-green-400 w-6 h-6 sm:w-7 sm:h-7" /> {editMode ? 'Edit Content' : 'Add Content (Multi-Batch)'}</h3>
-                            <button onClick={() => { setShowContentModal(false); setContentType(''); setPrefilledFolder(''); setMassAssignSubjects([]); setSelectedBatchesForContent([]); }} className="text-gray-400 hover:text-white bg-white/5 border border-white/10 p-2 sm:p-2.5 rounded-xl transition-all hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={18}/></button>
+                            <button onClick={() => { setShowContentModal(false); setContentType(''); setPrefilledFolder(''); setMassAssignSubjects([]); setSelectedBatchesForContent([]); if (setHubBatchConfigs) setHubBatchConfigs({}); if (setHubActiveBatchTab) setHubActiveBatchTab(null); }} className="text-gray-400 hover:text-white bg-white/5 border border-white/10 p-2 sm:p-2.5 rounded-xl transition-all hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={18}/></button>
                         </div>
                         
                         <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 custom-scrollbar">
@@ -130,7 +465,11 @@ export default function ContentHubModals({ state, actions }) {
                                         <select value={contentType} onChange={e => setContentType(e.target.value)} disabled={editMode} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-white outline-none focus:border-green-500 disabled:opacity-50 shadow-inner cursor-pointer appearance-none">
                                             <option value="" disabled className="bg-slate-800 text-white">Select Type</option>
                                             <option value="live" className="bg-slate-800 text-white">Live Class</option><option value="recording" className="bg-slate-800 text-white">Recording</option>
-                                            <option value="document" className="bg-slate-800 text-white">Document / PDF</option><option value="sPaper" className="bg-slate-800 text-white">Structured Paper</option><option value="paper" className="bg-slate-800 text-white">MCQ Paper</option>
+                                            <option value="document" className="bg-slate-800 text-white">Document / PDF</option>
+                                            <option value="testRanking" className="bg-slate-800 text-white font-bold">🏆 Test Ranking</option>
+                                            {editMode && (contentType === 'paper' || contentType === 'sPaper') && (
+                                                <option value={contentType} className="bg-slate-800 text-white">Test Ranking (Legacy)</option>
+                                            )}
                                         </select>
                                     </div>
                                     
@@ -163,23 +502,45 @@ export default function ContentHubModals({ state, actions }) {
                                                 className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-white outline-none focus:border-green-500 shadow-inner cursor-pointer"
                                             >
                                                 <option value="" className="bg-slate-800 text-white">No Folder (Uncategorized)</option>
-                                                {lessonGroups
-                                                    .filter(g => parseInt(g.type) === getTypeInt(contentType) && !g.parentId)
-                                                    .map(rootFolder => {
-                                                        const subs = lessonGroups.filter(g => parseInt(g.type) === getTypeInt(contentType) && g.parentId === rootFolder.id);
+                                                {(() => {
+                                                    const rawRoots = (lessonGroups || []).filter(g => parseInt(g.type) === getTypeInt(contentType) && !g.parentId);
+                                                    const seenTitles = new Set();
+                                                    const uniqueRoots = [];
+                                                    rawRoots.forEach(rf => {
+                                                        const tKey = normalizeFolderTitle(rf.title || rf.name) || (rf.title || rf.name || '').trim().toLowerCase();
+                                                        if (!seenTitles.has(tKey)) {
+                                                            seenTitles.add(tKey);
+                                                            uniqueRoots.push(rf);
+                                                        }
+                                                    });
+
+                                                    return uniqueRoots.map(rootFolder => {
+                                                        const allIds = rootFolder.allIds || [rootFolder.id];
+                                                        const subs = (lessonGroups || []).filter(g => parseInt(g.type) === getTypeInt(contentType) && g.parentId && (allIds.includes(g.parentId) || String(g.parentId) === String(rootFolder.id)));
+                                                        const seenSubTitles = new Set();
+                                                        const uniqueSubs = [];
+                                                        subs.forEach(sf => {
+                                                            const stKey = normalizeFolderTitle(sf.title || sf.name) || (sf.title || sf.name || '').trim().toLowerCase();
+                                                            if (!seenSubTitles.has(stKey)) {
+                                                                seenSubTitles.add(stKey);
+                                                                uniqueSubs.push(sf);
+                                                            }
+                                                        });
+
                                                         return (
                                                             <React.Fragment key={rootFolder.id}>
                                                                 <option value={String(rootFolder.id)} className="bg-slate-800 text-white font-bold">
                                                                     📁 {rootFolder.title || rootFolder.name}
                                                                 </option>
-                                                                {subs.map(sub => (
+                                                                {uniqueSubs.map(sub => (
                                                                     <option key={sub.id} value={String(sub.id)} className="bg-slate-900 text-indigo-300 font-semibold">
                                                                         &nbsp;&nbsp;&nbsp;&nbsp;↳ 📂 {sub.title || sub.name} (Sub-folder)
                                                                     </option>
                                                                 ))}
                                                             </React.Fragment>
                                                         );
-                                                    })}
+                                                    });
+                                                })()}
                                             </select>
                                         </div>
                                     )}
@@ -221,23 +582,107 @@ export default function ContentHubModals({ state, actions }) {
                                                 </div>
                                             )}
 
-                                            {(contentType === 'live' || contentType === 'recording' || contentType === 'document' || contentType === 'sPaper' || contentType === 'paper') && (
+                                            {(contentType === 'live' || contentType === 'recording' || contentType === 'document' || contentType === 'testRanking' || contentType === 'sPaper' || contentType === 'paper') && (
                                                 <div className="md:col-span-4">
                                                     <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Thumbnail Image (Optional) {editMode && <span className="text-green-400 font-normal ml-2 normal-case">(Leave empty to keep existing)</span>}</label>
                                                     <input type="file" name="thumbnail" accept="image/*" className="w-full bg-black/60 border border-white/10 rounded-xl p-2.5 text-gray-400 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:bg-white/10 file:text-white shadow-inner cursor-pointer" />
                                                 </div>
                                             )}
 
-                                            {(contentType === 'document' || contentType === 'sPaper') && (
+                                            {/* Dedicated Test Ranking Paper Uploads */}
+                                            {contentType === 'testRanking' && modalPaperType === 'BOTH' && (
+                                                <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white/[0.02] border border-amber-500/20 rounded-2xl p-4 sm:p-5 shadow-inner">
+                                                    {/* Part 1: MCQ Question Paper */}
+                                                    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <label className="text-xs font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
+                                                                <CheckCircle size={15} /> Part 1: MCQ Question Paper (PDF)
+                                                            </label>
+                                                            {editMode && editData?.paper?.mcqPaperFile && (
+                                                                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md font-mono truncate max-w-[150px]">
+                                                                    {editData.paper.mcqPaperFile}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <input 
+                                                            type="file" 
+                                                            name="mcqFile" 
+                                                            accept=".pdf" 
+                                                            className="w-full bg-black/60 border border-emerald-500/30 rounded-xl p-2.5 text-gray-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-emerald-500/20 file:text-emerald-300 file:font-bold shadow-inner cursor-pointer text-xs" 
+                                                        />
+                                                        <p className="text-[11px] text-slate-400">
+                                                            Upload MCQ question paper PDF for Part 1. {editMode && editData?.paper?.mcqPaperFile && <span className="text-emerald-400">(Leave empty to keep existing)</span>}
+                                                        </p>
+                                                    </div>
+
+                                                    {/* Part 2: Structured Essay Question Paper */}
+                                                    <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4 space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <label className="text-xs font-bold text-purple-400 flex items-center gap-1.5 uppercase tracking-wider">
+                                                                <FileSignature size={15} /> Part 2: Structure Essay Paper (PDF) *
+                                                            </label>
+                                                            {editMode && (editData?.paper?.structuredPaperFile || editData?.fileName) && (
+                                                                <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-md font-mono truncate max-w-[150px]">
+                                                                    {editData?.paper?.structuredPaperFile || editData?.fileName}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        <input 
+                                                            type="file" 
+                                                            name="structuredFile" 
+                                                            accept=".pdf" 
+                                                            required={!editMode}
+                                                            className="w-full bg-black/60 border border-purple-500/30 rounded-xl p-2.5 text-gray-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-purple-500/20 file:text-purple-300 file:font-bold shadow-inner cursor-pointer text-xs" 
+                                                        />
+                                                        <p className="text-[11px] text-slate-400">
+                                                            Upload Structure/Essay master sheet PDF for Part 2. {editMode && (editData?.paper?.structuredPaperFile || editData?.fileName) && <span className="text-purple-400">(Leave empty to keep existing)</span>}
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {contentType === 'testRanking' && modalPaperType === 'MCQ' && (
+                                                <div className="md:col-span-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4 space-y-2 shadow-inner">
+                                                    <div className="flex items-center justify-between">
+                                                        <label className="text-xs font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
+                                                            <CheckCircle size={15} /> MCQ Question Paper (PDF) (Optional)
+                                                        </label>
+                                                        {editMode && editData?.paper?.mcqPaperFile && (
+                                                            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md font-mono truncate max-w-[200px]">
+                                                                {editData.paper.mcqPaperFile}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <input 
+                                                        type="file" 
+                                                        name="mcqFile" 
+                                                        accept=".pdf" 
+                                                        className="w-full bg-black/60 border border-emerald-500/30 rounded-xl p-2.5 text-gray-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-emerald-500/20 file:text-emerald-300 file:font-bold shadow-inner cursor-pointer text-xs" 
+                                                    />
+                                                    <p className="text-[11px] text-slate-400">Optional PDF question sheet for student offline reference or viewing alongside online quiz. {editMode && editData?.paper?.mcqPaperFile && <span className="text-emerald-400">(Leave empty to keep existing)</span>}</p>
+                                                </div>
+                                            )}
+
+                                            {(contentType === 'document' || contentType === 'sPaper' || (contentType === 'testRanking' && modalPaperType === 'STRUCTURED')) && (
                                                 <div className="md:col-span-4">
-                                                    <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">File Upload {editMode && <span className="text-green-400 font-normal ml-2 normal-case">(Leave empty to keep existing)</span>}</label>
-                                                    <input type="file" name="file" required={!editMode} className="w-full bg-black/60 border border-white/10 rounded-xl p-2.5 text-gray-400 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:bg-white/10 file:text-white shadow-inner cursor-pointer" />
+                                                    <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">
+                                                        {contentType === 'testRanking' ? 'Structure Essay Question Paper (PDF) *' : 'File Upload'} {editMode && <span className="text-green-400 font-normal ml-2 normal-case">(Leave empty to keep existing)</span>}
+                                                    </label>
+                                                    <input 
+                                                        type="file" 
+                                                        name="file" 
+                                                        required={!editMode && (contentType === 'document' || (contentType === 'testRanking' && modalPaperType === 'STRUCTURED'))} 
+                                                        className="w-full bg-black/60 border border-white/10 rounded-xl p-2.5 text-gray-400 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:bg-white/10 file:text-white shadow-inner cursor-pointer" 
+                                                    />
+                                                    {contentType === 'testRanking' && (
+                                                        <p className="text-[11px] text-slate-400 mt-1">Students will view or download this PDF master sheet to write their structured answers.</p>
+                                                    )}
                                                 </div>
                                             )}
 
                                             <div className="md:col-span-4">
                                                 <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">Date</label>
-                                                <input type={(contentType==='document'||contentType==='sPaper') ? "month":"date"} name="date" defaultValue={editData?.date ? ((contentType==='document'||contentType==='sPaper') ? editData.date.substring(0, 7) : editData.date.split('T')[0]) : ''} required className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner cursor-pointer transition-all appearance-none" />
+                                                <input type={contentType==='document' ? "month":"date"} name="date" defaultValue={editData?.date ? (contentType==='document' ? editData.date.substring(0, 7) : editData.date.split('T')[0]) : ''} required className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-4 text-white outline-none shadow-inner cursor-pointer transition-all appearance-none" />
                                             </div>
 
                                             {contentType === 'live' && (
@@ -260,26 +705,216 @@ export default function ContentHubModals({ state, actions }) {
                                                 </>
                                             )}
 
-                                            {contentType === 'paper' && (
-                                                <div className="md:col-span-4 bg-white/[0.03] border border-white/10 rounded-2xl p-4 sm:p-5 space-y-4 shadow-inner">
-                                                    <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                                                        <span className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-2">
-                                                            <Clock size={16} /> Exam Timer & Execution Rules
-                                                        </span>
-                                                        <span className="text-[11px] text-slate-400 font-semibold">How students take this paper</span>
+                                            {(contentType === 'testRanking' || contentType === 'paper' || contentType === 'sPaper') && (
+                                                <div className="md:col-span-4 bg-white/[0.03] border border-white/10 rounded-2xl sm:rounded-3xl p-5 sm:p-7 space-y-6 shadow-inner">
+                                                    <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                                                        <div className="flex items-center gap-2.5">
+                                                            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                                                                <Trophy size={18} />
+                                                            </div>
+                                                            <div>
+                                                                <span className="text-sm font-black uppercase tracking-wider text-white block">
+                                                                    Test Ranking Configuration
+                                                                </span>
+                                                                <span className="text-[11px] text-slate-400">Choose exam format, scheduling rules, and duration</span>
+                                                            </div>
+                                                        </div>
+                                                        <input type="hidden" name="paperType" value={modalPaperType} />
+                                                        <input type="hidden" name="category" value={modalCategory} />
+                                                        <input type="hidden" name="paperCategory" value={modalCategory} />
                                                     </div>
 
-                                                    {/* Timer Mode Selection */}
-                                                    <div className="space-y-2">
-                                                        <label className="text-xs font-bold text-gray-400 block uppercase tracking-wider">Timer Mode *</label>
+                                                    {/* 0. TEST CATEGORY SELECTOR (WEEKLY VS MONTHLY) */}
+                                                    <div className="space-y-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <label className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+                                                                <Sparkles size={14} className="text-amber-400" /> Test Category (Ranking Pool) *
+                                                            </label>
+                                                            <span className="text-[10px] text-slate-400">Determines separate leaderboard & student progress analytics</span>
+                                                        </div>
+                                                        
                                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                            
+                                                            {/* Weekly Test Card */}
+                                                            <div
+                                                                onClick={() => setModalCategory('WEEKLY')}
+                                                                className={`cursor-pointer p-4 rounded-2xl border transition-all flex items-start gap-3.5 ${
+                                                                    modalCategory === 'WEEKLY'
+                                                                        ? 'bg-amber-500/15 border-amber-500 ring-2 ring-amber-500/40 text-white shadow-lg shadow-amber-500/10'
+                                                                        : 'bg-black/40 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                                                                }`}
+                                                            >
+                                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg font-black shrink-0 ${
+                                                                    modalCategory === 'WEEKLY' ? 'bg-amber-500 text-black shadow' : 'bg-white/5 text-slate-400'
+                                                                }`}>
+                                                                    ⚡
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <p className="text-xs font-black text-white uppercase tracking-wider">Weekly Test</p>
+                                                                        {modalCategory === 'WEEKLY' && (
+                                                                            <span className="text-[9px] bg-amber-500 text-black font-extrabold px-2 py-0.5 rounded-full">
+                                                                                Active
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                                                                        Standard weekly syllabus assessment. Ranked in Weekly Test leaderboard & progress charts.
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Monthly Test Card */}
+                                                            <div
+                                                                onClick={() => setModalCategory('MONTHLY')}
+                                                                className={`cursor-pointer p-4 rounded-2xl border transition-all flex items-start gap-3.5 ${
+                                                                    modalCategory === 'MONTHLY'
+                                                                        ? 'bg-indigo-500/15 border-indigo-500 ring-2 ring-indigo-500/40 text-white shadow-lg shadow-indigo-500/10'
+                                                                        : 'bg-black/40 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                                                                }`}
+                                                            >
+                                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg font-black shrink-0 ${
+                                                                    modalCategory === 'MONTHLY' ? 'bg-indigo-500 text-white shadow' : 'bg-white/5 text-slate-400'
+                                                                }`}>
+                                                                    🏆
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <p className="text-xs font-black text-white uppercase tracking-wider">Monthly Test</p>
+                                                                        {modalCategory === 'MONTHLY' && (
+                                                                            <span className="text-[9px] bg-indigo-500 text-white font-extrabold px-2 py-0.5 rounded-full">
+                                                                                Active
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
+                                                                        Major monthly milestone examination. Ranked in Monthly Test leaderboard & progress charts.
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* OFFICIAL CANDIDATE COUNT OVERRIDE (STAFF COUNT) */}
+                                                    <div className="bg-black/40 border border-white/10 rounded-2xl p-4 space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <label className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+                                                                <Users size={14} className="text-emerald-400" /> Total Official Candidates (Staff Count)
+                                                            </label>
+                                                            <span className="text-[10px] text-slate-400">Optional</span>
+                                                        </div>
+                                                        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                                            <input
+                                                                type="number"
+                                                                name="manualParticipantCount"
+                                                                value={modalManualParticipantCount}
+                                                                onChange={(e) => setModalManualParticipantCount(e.target.value)}
+                                                                placeholder="e.g. 120 (Official total test-takers across all batches)"
+                                                                className="flex-1 bg-black/60 border border-white/10 focus:border-amber-500 focus:bg-black/80 rounded-xl p-3 text-xs text-white outline-none shadow-inner"
+                                                            />
+                                                            <div className="text-[11px] text-slate-400 leading-tight">
+                                                                If entered, students see: <span className="text-amber-400 font-bold">Rank #X of {modalManualParticipantCount || '120'} Candidates</span>.
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* 1. TEST FORMAT SELECTOR (3 OPTIONS) */}
+                                                    <div className="space-y-3">
+                                                        <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">
+                                                            Test Format *
+                                                        </label>
+                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                            {/* Format 1: MCQ only */}
+                                                            <label 
+                                                                onClick={() => setModalPaperType('MCQ')}
+                                                                className={`cursor-pointer border rounded-2xl p-4 flex flex-col gap-2 transition-all ${
+                                                                    modalPaperType === 'MCQ'
+                                                                        ? 'bg-emerald-500/20 border-emerald-500 ring-2 ring-emerald-500/50 shadow-lg shadow-emerald-500/10'
+                                                                        : 'bg-black/40 border-white/10 hover:border-white/20'
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center justify-between">
+                                                                    <div className="flex items-center gap-2 font-black text-sm text-white">
+                                                                        <CheckCircle size={16} className="text-emerald-400" /> MCQ Only
+                                                                    </div>
+                                                                    <input 
+                                                                        type="radio" 
+                                                                        name="paperTypeRadio" 
+                                                                        checked={modalPaperType === 'MCQ'} 
+                                                                        onChange={() => setModalPaperType('MCQ')} 
+                                                                        className="accent-emerald-500" 
+                                                                    />
+                                                                </div>
+                                                                <p className="text-[11px] text-slate-400 leading-relaxed">
+                                                                    Interactive online questions with option choices. Automatically marked upon submission.
+                                                                </p>
+                                                            </label>
+
+                                                            {/* Format 2: Structure essay only */}
+                                                            <label 
+                                                                onClick={() => setModalPaperType('STRUCTURED')}
+                                                                className={`cursor-pointer border rounded-2xl p-4 flex flex-col gap-2 transition-all ${
+                                                                    modalPaperType === 'STRUCTURED'
+                                                                        ? 'bg-purple-500/20 border-purple-500 ring-2 ring-purple-500/50 shadow-lg shadow-purple-500/10'
+                                                                        : 'bg-black/40 border-white/10 hover:border-white/20'
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center justify-between">
+                                                                    <div className="flex items-center gap-2 font-black text-sm text-white">
+                                                                        <FileSignature size={16} className="text-purple-400" /> Structure Essay Only
+                                                                    </div>
+                                                                    <input 
+                                                                        type="radio" 
+                                                                        name="paperTypeRadio" 
+                                                                        checked={modalPaperType === 'STRUCTURED'} 
+                                                                        onChange={() => setModalPaperType('STRUCTURED')} 
+                                                                        className="accent-purple-500" 
+                                                                    />
+                                                                </div>
+                                                                <p className="text-[11px] text-slate-400 leading-relaxed">
+                                                                    Download question PDF, write answers on paper, and upload answer sheets for lecturer evaluation.
+                                                                </p>
+                                                            </label>
+
+                                                            {/* Format 3: MCQ + structured both */}
+                                                            <label 
+                                                                onClick={() => setModalPaperType('BOTH')}
+                                                                className={`cursor-pointer border rounded-2xl p-4 flex flex-col gap-2 transition-all ${
+                                                                    modalPaperType === 'BOTH'
+                                                                        ? 'bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/50 shadow-lg shadow-amber-500/10'
+                                                                        : 'bg-black/40 border-white/10 hover:border-white/20'
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center justify-between">
+                                                                    <div className="flex items-center gap-2 font-black text-sm text-white">
+                                                                        <Sparkles size={16} className="text-amber-400" /> MCQ + Structured Both
+                                                                    </div>
+                                                                    <input 
+                                                                        type="radio" 
+                                                                        name="paperTypeRadio" 
+                                                                        checked={modalPaperType === 'BOTH'} 
+                                                                        onChange={() => setModalPaperType('BOTH')} 
+                                                                        className="accent-amber-500" 
+                                                                    />
+                                                                </div>
+                                                                <p className="text-[11px] text-slate-400 leading-relaxed">
+                                                                    Complete paper with Part 1 (MCQs) and Part 2 (Structured Essay PDF). Auto-scored + Marker evaluation combined.
+                                                                </p>
+                                                            </label>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* 2. TIMER & SCHEDULE RULES */}
+                                                    <div className="space-y-3 pt-2 border-t border-white/5">
+                                                        <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">
+                                                            Execution Schedule & Timer Mode *
+                                                        </label>
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                                             {/* Flexible Start Option */}
                                                             <label 
                                                                 onClick={() => setModalTimerMode('FLEXIBLE')}
-                                                                className={`cursor-pointer border rounded-xl p-3.5 flex items-start gap-3 transition-all ${
+                                                                className={`cursor-pointer border rounded-2xl p-4 flex items-start gap-3 transition-all ${
                                                                     modalTimerMode === 'FLEXIBLE' 
-                                                                        ? 'bg-brand-accent/20 border-brand-accent ring-1 ring-brand-accent text-white' 
+                                                                        ? 'bg-blue-500/20 border-blue-500 ring-1 ring-blue-500 text-white' 
                                                                         : 'bg-black/40 border-white/10 text-slate-400 hover:border-white/20'
                                                                 }`}
                                                             >
@@ -289,12 +924,14 @@ export default function ContentHubModals({ state, actions }) {
                                                                     value="FLEXIBLE" 
                                                                     checked={modalTimerMode === 'FLEXIBLE'} 
                                                                     onChange={() => setModalTimerMode('FLEXIBLE')} 
-                                                                    className="mt-1 accent-rose-600" 
+                                                                    className="mt-1 accent-blue-500" 
                                                                 />
                                                                 <div>
-                                                                    <p className="text-xs font-extrabold text-white">Flexible Start (Individual Countdown)</p>
+                                                                    <p className="text-xs font-extrabold text-white flex items-center gap-1.5">
+                                                                        <Sparkles size={14} className="text-blue-400" /> Flexible Start (Individual Countdown)
+                                                                    </p>
                                                                     <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
-                                                                        Countdown begins as soon as the student clicks 'Start Exam'.
+                                                                        Students can start at any convenient time. Countdown starts immediately when they click 'Start Exam'.
                                                                     </p>
                                                                 </div>
                                                             </label>
@@ -302,7 +939,7 @@ export default function ContentHubModals({ state, actions }) {
                                                             {/* Scheduled Start Option */}
                                                             <label 
                                                                 onClick={() => setModalTimerMode('SCHEDULED')}
-                                                                className={`cursor-pointer border rounded-xl p-3.5 flex items-start gap-3 transition-all ${
+                                                                className={`cursor-pointer border rounded-2xl p-4 flex items-start gap-3 transition-all ${
                                                                     modalTimerMode === 'SCHEDULED' 
                                                                         ? 'bg-amber-500/20 border-amber-500 ring-1 ring-amber-500 text-white' 
                                                                         : 'bg-black/40 border-white/10 text-slate-400 hover:border-white/20'
@@ -317,9 +954,11 @@ export default function ContentHubModals({ state, actions }) {
                                                                     className="mt-1 accent-amber-500" 
                                                                 />
                                                                 <div>
-                                                                    <p className="text-xs font-extrabold text-white">Scheduled Start (Synchronized Time)</p>
+                                                                    <p className="text-xs font-extrabold text-white flex items-center gap-1.5">
+                                                                        <Clock size={14} className="text-amber-400" /> Scheduled Start (Synchronized Time)
+                                                                    </p>
                                                                     <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
-                                                                        Synchronized countdown to an exact scheduled date and time.
+                                                                        Synchronized countdown to exact date & time. Everyone starts at the exact same moment.
                                                                     </p>
                                                                 </div>
                                                             </label>
@@ -328,7 +967,7 @@ export default function ContentHubModals({ state, actions }) {
 
                                                     {/* If Scheduled Mode: Show Scheduled Start Time picker */}
                                                     {modalTimerMode === 'SCHEDULED' && (
-                                                        <div className="animate-in fade-in space-y-1.5 pt-1">
+                                                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 space-y-2 animate-in fade-in">
                                                             <label className="text-xs font-bold text-amber-400 block uppercase tracking-wider">Scheduled Start Time *</label>
                                                             <input 
                                                                 type="time" 
@@ -337,44 +976,471 @@ export default function ContentHubModals({ state, actions }) {
                                                                 required={modalTimerMode === 'SCHEDULED'}
                                                                 className="w-full bg-black/60 border border-amber-500/40 focus:border-amber-400 focus:bg-black/80 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold cursor-pointer" 
                                                             />
-                                                            <p className="text-[11px] text-slate-400 italic">Starts on the Date selected above.</p>
+                                                            <p className="text-[11px] text-slate-400 italic">Scheduled to start on the Date selected in the field above.</p>
                                                         </div>
                                                     )}
 
-                                                    {/* Duration & Pass Marks Inputs */}
-                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                                                        <div>
-                                                            <label className="text-xs font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Exam Duration (Minutes) *</label>
+                                                    {/* 3. EXAM DURATION (HOURS & MINUTES) */}
+                                                    {modalPaperType === 'BOTH' ? (
+                                                        <div className="space-y-4 pt-2 border-t border-white/5">
+                                                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                                                                <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">
+                                                                    Exam Durations (Part 1 & Part 2) *
+                                                                </label>
+                                                                {(() => {
+                                                                    const mcqMins = (parseInt(modalMcqDurationHours || 0) * 60) + parseInt(modalMcqDurationMinutes || 0);
+                                                                    const structMins = (parseInt(modalStructuredDurationHours || 0) * 60) + parseInt(modalStructuredDurationMinutes || 0);
+                                                                    const totalMins = mcqMins + structMins;
+                                                                    return (
+                                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                                            <span className="text-[11px] font-bold text-slate-300 bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg">
+                                                                                MCQ: {modalMcqDurationHours || 0}h {modalMcqDurationMinutes || 0}m + Essay: {modalStructuredDurationHours || 0}h {modalStructuredDurationMinutes || 0}m
+                                                                            </span>
+                                                                            <span className="text-xs font-black text-amber-400 bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-lg shadow-sm">
+                                                                                Total: {Math.floor(totalMins / 60)} Hours {totalMins % 60} Mins ({totalMins} Minutes)
+                                                                            </span>
+                                                                        </div>
+                                                                    );
+                                                                })()}
+                                                            </div>
+
+                                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                                {/* Part 1 MCQ Duration Card */}
+                                                                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4 space-y-3 shadow-inner">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-xs font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                                                                            <CheckCircle size={14} /> Part 1 (MCQ) Duration
+                                                                        </span>
+                                                                        <span className="text-[11px] font-extrabold text-emerald-300 bg-emerald-500/20 px-2.5 py-0.5 rounded-md">
+                                                                            {(parseInt(modalMcqDurationHours || 0) * 60) + parseInt(modalMcqDurationMinutes || 0)} Mins
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-2 gap-2.5">
+                                                                        <div>
+                                                                            <label className="text-[10px] font-bold text-slate-400 mb-1 block">Hours</label>
+                                                                            <div className="relative">
+                                                                                <input 
+                                                                                    type="number" 
+                                                                                    min="0" 
+                                                                                    max="24" 
+                                                                                    step="1" 
+                                                                                    value={modalMcqDurationHours} 
+                                                                                    onChange={(e) => setModalMcqDurationHours(e.target.value)} 
+                                                                                    className="w-full bg-black/60 border border-emerald-500/30 focus:border-emerald-400 rounded-xl p-3 text-white outline-none text-xs font-bold" 
+                                                                                />
+                                                                                <span className="absolute right-3 top-3 text-[10px] text-slate-500 font-bold">Hrs</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="text-[10px] font-bold text-slate-400 mb-1 block">Minutes</label>
+                                                                            <div className="relative">
+                                                                                <input 
+                                                                                    type="number" 
+                                                                                    min="0" 
+                                                                                    max="59" 
+                                                                                    step="5" 
+                                                                                    value={modalMcqDurationMinutes} 
+                                                                                    onChange={(e) => setModalMcqDurationMinutes(e.target.value)} 
+                                                                                    className="w-full bg-black/60 border border-emerald-500/30 focus:border-emerald-400 rounded-xl p-3 text-white outline-none text-xs font-bold" 
+                                                                                />
+                                                                                <span className="absolute right-3 top-3 text-[10px] text-slate-500 font-bold">Mins</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Part 2 Structured Duration Card */}
+                                                                <div className="bg-purple-500/5 border border-purple-500/20 rounded-2xl p-4 space-y-3 shadow-inner">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-xs font-black text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
+                                                                            <FileSignature size={14} /> Part 2 (Structured) Duration
+                                                                        </span>
+                                                                        <span className="text-[11px] font-extrabold text-purple-300 bg-purple-500/20 px-2.5 py-0.5 rounded-md">
+                                                                            {(parseInt(modalStructuredDurationHours || 0) * 60) + parseInt(modalStructuredDurationMinutes || 0)} Mins
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="grid grid-cols-2 gap-2.5">
+                                                                        <div>
+                                                                            <label className="text-[10px] font-bold text-slate-400 mb-1 block">Hours</label>
+                                                                            <div className="relative">
+                                                                                <input 
+                                                                                    type="number" 
+                                                                                    min="0" 
+                                                                                    max="24" 
+                                                                                    step="1" 
+                                                                                    value={modalStructuredDurationHours} 
+                                                                                    onChange={(e) => setModalStructuredDurationHours(e.target.value)} 
+                                                                                    className="w-full bg-black/60 border border-purple-500/30 focus:border-purple-400 rounded-xl p-3 text-white outline-none text-xs font-bold" 
+                                                                                />
+                                                                                <span className="absolute right-3 top-3 text-[10px] text-slate-500 font-bold">Hrs</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div>
+                                                                            <label className="text-[10px] font-bold text-slate-400 mb-1 block">Minutes</label>
+                                                                            <div className="relative">
+                                                                                <input 
+                                                                                    type="number" 
+                                                                                    min="0" 
+                                                                                    max="59" 
+                                                                                    step="5" 
+                                                                                    value={modalStructuredDurationMinutes} 
+                                                                                    onChange={(e) => setModalStructuredDurationMinutes(e.target.value)} 
+                                                                                    className="w-full bg-black/60 border border-purple-500/30 focus:border-purple-400 rounded-xl p-3 text-white outline-none text-xs font-bold" 
+                                                                                />
+                                                                                <span className="absolute right-3 top-3 text-[10px] text-slate-500 font-bold">Mins</span>
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* --- INTERMISSION / BREAK INTERVAL & STRUCTURED UPLOAD WINDOW --- */}
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
+                                                                {/* Intermission Break Card */}
+                                                                <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl p-4 space-y-2">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-xs font-black text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+                                                                            ☕ Break / Interval (Between MCQ & Essay) *
+                                                                        </span>
+                                                                        <span className="text-[11px] font-extrabold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-md">
+                                                                            {modalBreakIntervalMinutes || 15} Mins
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="text-[11px] text-slate-400 leading-snug">
+                                                                        Rest interval given to students after submitting Part 1 (MCQ) before Part 2 (Essay) starts.
+                                                                    </p>
+                                                                    <div className="relative pt-1">
+                                                                        <input 
+                                                                            type="number" 
+                                                                            min="0" 
+                                                                            max="180" 
+                                                                            step="5" 
+                                                                            name="breakIntervalMinutes"
+                                                                            value={modalBreakIntervalMinutes} 
+                                                                            onChange={(e) => setModalBreakIntervalMinutes(e.target.value)} 
+                                                                            className="w-full bg-black/60 border border-indigo-500/40 focus:border-indigo-400 rounded-xl p-3 text-white outline-none text-xs font-bold pr-14" 
+                                                                        />
+                                                                        <span className="absolute right-3.5 top-4 text-[11px] text-slate-400 font-bold">Mins Break</span>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Dedicated Upload Window Card */}
+                                                                <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 space-y-2">
+                                                                    <div className="flex items-center justify-between">
+                                                                        <span className="text-xs font-black text-rose-300 uppercase tracking-wider flex items-center gap-1.5">
+                                                                            📤 Dedicated Upload Window (Part 2) *
+                                                                        </span>
+                                                                        <span className="text-[11px] font-extrabold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded-md">
+                                                                            {modalStructuredUploadMinutes || 15} Mins
+                                                                        </span>
+                                                                    </div>
+                                                                    <p className="text-[11px] text-slate-400 leading-snug">
+                                                                        Dedicated buffer window for photographing and uploading answer sheets after writing time finishes.
+                                                                    </p>
+                                                                    <div className="relative pt-1">
+                                                                        <input 
+                                                                            type="number" 
+                                                                            min="5" 
+                                                                            max="120" 
+                                                                            step="5" 
+                                                                            name="structuredUploadMinutes"
+                                                                            value={modalStructuredUploadMinutes} 
+                                                                            onChange={(e) => setModalStructuredUploadMinutes(e.target.value)} 
+                                                                            className="w-full bg-black/60 border border-rose-500/40 focus:border-rose-400 rounded-xl p-3 text-white outline-none text-xs font-bold pr-14" 
+                                                                        />
+                                                                        <span className="absolute right-3.5 top-4 text-[11px] text-slate-400 font-bold">Mins Upload</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
                                                             <input 
-                                                                type="number" 
+                                                                type="hidden" 
+                                                                name="mcqDurationMinutes" 
+                                                                value={(parseInt(modalMcqDurationHours || 0) * 60) + parseInt(modalMcqDurationMinutes || 0)} 
+                                                            />
+                                                            <input 
+                                                                type="hidden" 
+                                                                name="structuredDurationMinutes" 
+                                                                value={(parseInt(modalStructuredDurationHours || 0) * 60) + parseInt(modalStructuredDurationMinutes || 0)} 
+                                                            />
+                                                            <input 
+                                                                type="hidden" 
                                                                 name="paperTime" 
-                                                                defaultValue={editData?.paperTime || editData?.paper?.durationMinutes || 60} 
-                                                                placeholder="e.g. 60" 
-                                                                required 
-                                                                className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-3.5 text-white outline-none shadow-inner transition-all text-sm font-bold" 
+                                                                value={Math.max(1, ((parseInt(modalMcqDurationHours || 0) * 60) + parseInt(modalMcqDurationMinutes || 0)) + ((parseInt(modalStructuredDurationHours || 0) * 60) + parseInt(modalStructuredDurationMinutes || 0)))} 
                                                             />
                                                         </div>
-                                                        <div>
-                                                            <label className="text-xs font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Pass Marks (%)</label>
+                                                    ) : (
+                                                        <div className="space-y-2 pt-2 border-t border-white/5">
+                                                            <div className="flex items-center justify-between">
+                                                                <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">
+                                                                    Exam Duration *
+                                                                </label>
+                                                                <span className="text-xs font-extrabold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-lg">
+                                                                    Total: {modalDurationHours || 0} Hours {modalDurationMinutes || 0} Mins ({(parseInt(modalDurationHours || 0) * 60) + parseInt(modalDurationMinutes || 0)} Minutes)
+                                                                </span>
+                                                            </div>
+
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                                <div>
+                                                                    <label className="text-[11px] font-bold text-slate-400 mb-1 block">Hours</label>
+                                                                    <div className="relative">
+                                                                        <input 
+                                                                            type="number" 
+                                                                            min="0"
+                                                                            max="24"
+                                                                            step="1"
+                                                                            value={modalDurationHours}
+                                                                            onChange={(e) => setModalDurationHours(e.target.value)}
+                                                                            placeholder="Hours (e.g. 2)" 
+                                                                            required
+                                                                            className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                        />
+                                                                        <span className="absolute right-4 top-3.5 text-xs text-slate-500 font-bold">Hours</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="text-[11px] font-bold text-slate-400 mb-1 block">Minutes</label>
+                                                                    <div className="relative">
+                                                                        <input 
+                                                                            type="number" 
+                                                                            min="0"
+                                                                            max="59"
+                                                                            step="5"
+                                                                            value={modalDurationMinutes}
+                                                                            onChange={(e) => setModalDurationMinutes(e.target.value)}
+                                                                            placeholder="Minutes (e.g. 0)" 
+                                                                            required
+                                                                            className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                        />
+                                                                        <span className="absolute right-4 top-3.5 text-xs text-slate-500 font-bold">Mins</span>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
                                                             <input 
-                                                                type="number" 
-                                                                name="passMarks" 
-                                                                defaultValue={editData?.paper?.passMarks || 40} 
-                                                                placeholder="e.g. 40" 
-                                                                className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-3.5 text-white outline-none shadow-inner transition-all text-sm font-bold" 
+                                                                type="hidden" 
+                                                                name="paperTime" 
+                                                                value={Math.max(1, (parseInt(modalDurationHours || 0) * 60) + parseInt(modalDurationMinutes || 0))} 
                                                             />
                                                         </div>
+                                                    )}
+
+                                                    {/* 4. MARKS & INSTRUCTIONS */}
+                                                    {modalPaperType === 'BOTH' ? (
+                                                        <div className="space-y-3 pt-2 border-t border-white/5">
+                                                            <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">
+                                                                Marks Configuration (Part 1 & Part 2 Breakdown) *
+                                                            </label>
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                                                                {/* MCQ Marks */}
+                                                                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3.5 space-y-1">
+                                                                    <label className="text-[11px] font-bold text-emerald-400 block flex items-center gap-1 uppercase tracking-wider">
+                                                                        <CheckCircle size={12} /> Part 1 (MCQ) Marks
+                                                                    </label>
+                                                                    <input 
+                                                                        type="number" 
+                                                                        name="totalMcqMarks" 
+                                                                        value={modalMcqMarks} 
+                                                                        onChange={(e) => {
+                                                                            setModalMcqMarks(e.target.value);
+                                                                            const nT = (parseFloat(e.target.value || 0) + parseFloat(modalStructuredMarks || 0));
+                                                                            setModalTotalMarks(String(nT));
+                                                                        }}
+                                                                        placeholder="e.g. 50" 
+                                                                        className="w-full bg-black/60 border border-emerald-500/30 focus:border-emerald-400 rounded-xl p-3 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                    />
+                                                                </div>
+
+                                                                {/* Structured Marks */}
+                                                                <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-3.5 space-y-1">
+                                                                    <label className="text-[11px] font-bold text-purple-400 block flex items-center gap-1 uppercase tracking-wider">
+                                                                        <FileSignature size={12} /> Part 2 (Essay) Marks
+                                                                    </label>
+                                                                    <input 
+                                                                        type="number" 
+                                                                        name="totalStructuredMarks" 
+                                                                        value={modalStructuredMarks} 
+                                                                        onChange={(e) => {
+                                                                            setModalStructuredMarks(e.target.value);
+                                                                            const nT = (parseFloat(modalMcqMarks || 0) + parseFloat(e.target.value || 0));
+                                                                            setModalTotalMarks(String(nT));
+                                                                        }}
+                                                                        placeholder="e.g. 50" 
+                                                                        className="w-full bg-black/60 border border-purple-500/30 focus:border-purple-400 rounded-xl p-3 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                    />
+                                                                </div>
+
+                                                                {/* Total Paper Marks */}
+                                                                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3.5 space-y-1">
+                                                                    <label className="text-[11px] font-bold text-amber-400 block uppercase tracking-wider">
+                                                                        Total Combined Marks
+                                                                    </label>
+                                                                    <input 
+                                                                        type="number" 
+                                                                        name="totalMarks" 
+                                                                        value={modalTotalMarks} 
+                                                                        onChange={(e) => setModalTotalMarks(e.target.value)}
+                                                                        placeholder="e.g. 100" 
+                                                                        className="w-full bg-black/60 border border-amber-500/30 focus:border-amber-400 rounded-xl p-3 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                    />
+                                                                </div>
+
+                                                                {/* Pass Marks */}
+                                                                <div className="bg-white/5 border border-white/10 rounded-xl p-3.5 space-y-1">
+                                                                    <label className="text-[11px] font-bold text-slate-300 block uppercase tracking-wider">
+                                                                        Pass Marks (%)
+                                                                    </label>
+                                                                    <input 
+                                                                        type="number" 
+                                                                        name="passMarks" 
+                                                                        defaultValue={editData?.paper?.passMarks || 40} 
+                                                                        placeholder="e.g. 40" 
+                                                                        className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-white/5">
+                                                            <div>
+                                                                <label className="text-xs font-bold text-gray-300 mb-1.5 block uppercase tracking-wider">Pass Marks (%)</label>
+                                                                <input 
+                                                                    type="number" 
+                                                                    name="passMarks" 
+                                                                    defaultValue={editData?.paper?.passMarks || 40} 
+                                                                    placeholder="e.g. 40" 
+                                                                    className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-xs font-bold text-gray-300 mb-1.5 block uppercase tracking-wider">Total Paper Marks</label>
+                                                                <input 
+                                                                    type="number" 
+                                                                    name="totalMarks" 
+                                                                    defaultValue={editData?.paper?.totalMarks || 100} 
+                                                                    placeholder="e.g. 100" 
+                                                                    className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Grade Boundaries / Grading Scale */}
+                                                    <div className="bg-gradient-to-br from-indigo-950/30 via-slate-900/60 to-purple-950/20 border border-indigo-500/20 rounded-2xl p-4 space-y-3.5 shadow-lg">
+                                                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-500/10 pb-2.5">
+                                                            <div className="flex items-center gap-2.5">
+                                                                <div className="w-7 h-7 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                                                                    <Trophy size={15} />
+                                                                </div>
+                                                                <div>
+                                                                    <h4 className="text-xs font-bold text-indigo-200 tracking-wide uppercase flex items-center gap-2">
+                                                                        Grade Boundaries & Grading Scale
+                                                                        <span className="text-[10px] font-semibold normal-case text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">
+                                                                            Score % Ranges
+                                                                        </span>
+                                                                    </h4>
+                                                                    <p className="text-[11px] text-slate-400">
+                                                                        Define student grade badges according to marks / percentage thresholds (e.g. A: 75–100, B: 65–74)
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={handleResetStandardGrade}
+                                                                    className="text-[11px] font-semibold text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                                                                    title="Reset to default A, B, C, S, F"
+                                                                >
+                                                                    Reset Default
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={handleAddGradeTier}
+                                                                    className="text-[11px] font-semibold text-indigo-300 hover:text-white px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 transition-colors flex items-center gap-1 shadow-sm"
+                                                                >
+                                                                    <Plus size={13} /> Add Grade
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Grade Tiers Grid */}
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2.5">
+                                                            {modalGradingScale.map((tier, idx) => {
+                                                                const badgeStyle = getGradeBadgeStyle(tier.grade);
+                                                                return (
+                                                                    <div 
+                                                                        key={idx} 
+                                                                        className="relative bg-black/40 border border-white/10 hover:border-indigo-500/30 rounded-xl p-3 flex flex-col justify-between transition-all group"
+                                                                    >
+                                                                        <div className="flex items-center justify-between gap-1.5 mb-2">
+                                                                            <div className="flex items-center gap-1.5 flex-1">
+                                                                                <span className={`px-2 py-0.5 rounded-md text-xs font-black border ${badgeStyle} shadow-sm min-w-[28px] text-center`}>
+                                                                                    {tier.grade || '?'}
+                                                                                </span>
+                                                                                <input
+                                                                                    type="text"
+                                                                                    value={tier.grade}
+                                                                                    onChange={(e) => handleUpdateGradeTier(idx, 'grade', e.target.value)}
+                                                                                    placeholder="Grade"
+                                                                                    className="w-full bg-white/5 border border-white/10 focus:border-indigo-400 rounded-lg px-2 py-1 text-white font-bold text-xs uppercase outline-none"
+                                                                                />
+                                                                            </div>
+                                                                            {modalGradingScale.length > 1 && (
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => handleRemoveGradeTier(idx)}
+                                                                                    className="text-slate-500 hover:text-rose-400 p-1 rounded transition-colors"
+                                                                                    title="Remove grade tier"
+                                                                                >
+                                                                                    <Trash2 size={13} />
+                                                                                </button>
+                                                                            )}
+                                                                        </div>
+
+                                                                        <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                                                                            <div className="flex-1 space-y-0.5">
+                                                                                <span className="text-[10px] text-slate-500 block uppercase font-medium">Min %</span>
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="0"
+                                                                                    max="100"
+                                                                                    value={tier.min}
+                                                                                    onChange={(e) => handleUpdateGradeTier(idx, 'min', e.target.value)}
+                                                                                    placeholder="0"
+                                                                                    className="w-full bg-black/50 border border-white/10 focus:border-indigo-400 rounded-md px-2 py-1 text-white font-semibold text-xs outline-none"
+                                                                                />
+                                                                            </div>
+                                                                            <span className="text-slate-500 pt-3 font-bold">-</span>
+                                                                            <div className="flex-1 space-y-0.5">
+                                                                                <span className="text-[10px] text-slate-500 block uppercase font-medium">Max %</span>
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="0"
+                                                                                    max="100"
+                                                                                    value={tier.max}
+                                                                                    onChange={(e) => handleUpdateGradeTier(idx, 'max', e.target.value)}
+                                                                                    placeholder="100"
+                                                                                    className="w-full bg-black/50 border border-white/10 focus:border-indigo-400 rounded-md px-2 py-1 text-white font-semibold text-xs outline-none"
+                                                                                />
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+
+                                                        {/* Hidden input to pass to FormData */}
+                                                        <input type="hidden" name="gradingScale" value={JSON.stringify(modalGradingScale)} />
                                                     </div>
 
-                                                    {/* Optional Student Instructions */}
+                                                    {/* Instructions */}
                                                     <div>
-                                                        <label className="text-xs font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Instructions for Students (Optional)</label>
+                                                        <label className="text-xs font-bold text-gray-300 mb-1.5 block uppercase tracking-wider">Instructions for Students (Optional)</label>
                                                         <textarea 
                                                             name="instructions" 
                                                             rows="2" 
                                                             defaultValue={editData?.paper?.instructions || ''} 
-                                                            placeholder="e.g. You have 60 minutes to complete all questions. Once submitted, answers cannot be changed." 
-                                                            className="w-full bg-black/60 border border-white/10 focus:border-green-500 focus:bg-black/80 rounded-xl p-3 text-white outline-none shadow-inner text-xs"
+                                                            placeholder="e.g. Read each question carefully. Countdown begins once started. Submit your answers before time expires." 
+                                                            className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3 text-white outline-none shadow-inner text-xs"
                                                         />
                                                     </div>
                                                 </div>
@@ -430,7 +1496,13 @@ export default function ContentHubModals({ state, actions }) {
 
                                                                 {selectedBatch.groups?.map((group, gIdx) => (
                                                                     <div key={`g-assign-${gIdx}`} className="mb-8 ml-2 md:ml-6">
-                                                                        <h5 className="text-lg font-bold text-slate-200 mb-4">{group.name} <span className="text-[10px] font-bold text-slate-400 bg-white/10 px-3 py-1 rounded-lg ml-3 border border-white/10 uppercase tracking-wider shadow-inner">{group.type === 1 ? 'Monthly' : 'Full'}</span></h5>
+                                                                        <h5 className="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2 flex-wrap">
+                                                                            <span>{group.name}</span>
+                                                                            <span className="text-[10px] font-bold text-slate-400 bg-white/10 px-3 py-1 rounded-lg border border-white/10 uppercase tracking-wider shadow-inner">{group.type === 1 ? 'Monthly' : 'Full'}</span>
+                                                                            <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded border ${parseInt(group.classType || 1, 10) === 2 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-blue-500/20 text-blue-300 border-blue-500/30'}`}>
+                                                                                {parseInt(group.classType || 1, 10) === 2 ? '📝 Paper Group' : '📘 Theory Group'}
+                                                                            </span>
+                                                                        </h5>
                                                                         
                                                                         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                                                                             {group.courses?.map((course, cIdx) => (
@@ -439,7 +1511,10 @@ export default function ContentHubModals({ state, actions }) {
                                                                                         <input type="checkbox" checked={massAssignSubjects.includes(course.id)} onChange={() => toggleMassAssignSubject(course.id)} className="peer w-6 h-6 appearance-none bg-black/60 border-2 border-slate-500 rounded-lg checked:bg-blue-500 checked:border-blue-500 transition-colors" />
                                                                                         <CheckCircle size={16} className="text-white absolute opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"/>
                                                                                     </div>
-                                                                                    <span className={`text-sm font-bold truncate transition-colors ${massAssignSubjects.includes(course.id) ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>{course.name}</span>
+                                                                                    <span className={`text-sm font-bold truncate transition-colors flex-1 ${massAssignSubjects.includes(course.id) ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>{course.name}</span>
+                                                                                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border shrink-0 ${parseInt(course.courseType || 1, 10) === 2 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-blue-500/20 text-blue-300 border-blue-500/30'}`}>
+                                                                                        {parseInt(course.courseType || 1, 10) === 2 ? 'Paper' : 'Theory'}
+                                                                                    </span>
                                                                                 </label>
                                                                             ))}
                                                                             {group.courses?.length === 0 && <p className="text-xs text-slate-500 font-medium">No subjects in this group.</p>}
@@ -470,7 +1545,7 @@ export default function ContentHubModals({ state, actions }) {
                                                     {batches.map(batch => {
                                                         if(batch.id !== activeHubBatch) return null;
                                                         
-                                                        const bConfig = hubBatchConfigs[batch.id] || {};
+                                                        const bConfig = (hubBatchConfigs && hubBatchConfigs[batch.id]) || {};
 
                                                         return (
                                                             <div key={`hub-batch-view-${batch.id}`} className="space-y-6">
@@ -478,9 +1553,12 @@ export default function ContentHubModals({ state, actions }) {
 
                                                                 {batch.groups?.map(group => (
                                                                     <div key={`hub-group-${group.id}`} className="bg-white/5 border border-white/10 rounded-[1.5rem] p-5 shadow-sm">
-                                                                        <h5 className="text-lg font-bold text-white mb-4 flex items-center gap-3">
-                                                                            {group.name} 
+                                                                        <h5 className="text-lg font-bold text-white mb-4 flex items-center gap-3 flex-wrap">
+                                                                            <span>{group.name}</span> 
                                                                             <span className="text-[10px] font-bold text-slate-400 bg-black/60 px-3 py-1 rounded-lg border border-white/10 uppercase tracking-wider">{group.type === 1 ? 'Monthly' : 'Full'}</span>
+                                                                            <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded border ${parseInt(group.classType || 1, 10) === 2 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-blue-500/20 text-blue-300 border-blue-500/30'}`}>
+                                                                                {parseInt(group.classType || 1, 10) === 2 ? '📝 Paper Group' : '📘 Theory Group'}
+                                                                            </span>
                                                                         </h5>
                                                                         
                                                                         <div className="space-y-4">
@@ -505,7 +1583,10 @@ export default function ContentHubModals({ state, actions }) {
                                                                                                 />
                                                                                                 <CheckCircle size={16} className="text-white absolute opacity-0 peer-checked:opacity-100 pointer-events-none transition-opacity"/>
                                                                                             </div>
-                                                                                            <span className={`text-sm font-bold truncate transition-colors ${subjectConfig.isChecked ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>{course.name}</span>
+                                                                                            <span className={`text-sm font-bold truncate transition-colors flex-1 ${subjectConfig.isChecked ? 'text-white' : 'text-slate-300 group-hover:text-white'}`}>{course.name}</span>
+                                                                                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border shrink-0 ${parseInt(course.courseType || 1, 10) === 2 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-blue-500/20 text-blue-300 border-blue-500/30'}`}>
+                                                                                                {parseInt(course.courseType || 1, 10) === 2 ? 'Paper' : 'Theory'}
+                                                                                            </span>
                                                                                         </label>
 
                                                                                         {subjectConfig.isChecked && (
@@ -517,21 +1598,43 @@ export default function ContentHubModals({ state, actions }) {
                                                                                                 >
                                                                                                     <option value="" className="bg-slate-900">Select Folder</option>
                                                                                                     <option value="uncategorized" className="bg-slate-900 text-yellow-400 font-bold">No Folder (Uncategorized)</option>
-                                                                                                    {availableFolders
-                                                                                                        .filter(f => !f.parentId)
-                                                                                                        .map(rf => {
-                                                                                                            const sfs = availableFolders.filter(f => f.parentId === rf.id);
+                                                                                                    {(() => {
+                                                                                                        const rawRfs = availableFolders.filter(f => !f.parentId);
+                                                                                                        const seenTitles = new Set();
+                                                                                                        const uniqueRfs = [];
+                                                                                                        rawRfs.forEach(rf => {
+                                                                                                            const tKey = normalizeFolderTitle(rf.title || rf.name) || (rf.title || rf.name || '').trim().toLowerCase();
+                                                                                                            if (!seenTitles.has(tKey)) {
+                                                                                                                seenTitles.add(tKey);
+                                                                                                                uniqueRfs.push(rf);
+                                                                                                            }
+                                                                                                        });
+
+                                                                                                        return uniqueRfs.map(rf => {
+                                                                                                            const allIds = rf.allIds || [rf.id];
+                                                                                                            const sfs = availableFolders.filter(f => f.parentId && (allIds.includes(f.parentId) || String(f.parentId) === String(rf.id)));
+                                                                                                            const seenSubTitles = new Set();
+                                                                                                            const uniqueSubs = [];
+                                                                                                            sfs.forEach(sf => {
+                                                                                                                const stKey = normalizeFolderTitle(sf.title || sf.name) || (sf.title || sf.name || '').trim().toLowerCase();
+                                                                                                                if (!seenSubTitles.has(stKey)) {
+                                                                                                                    seenSubTitles.add(stKey);
+                                                                                                                    uniqueSubs.push(sf);
+                                                                                                                }
+                                                                                                            });
+
                                                                                                             return (
                                                                                                                 <React.Fragment key={`hf-${rf.id}`}>
                                                                                                                     <option value={rf.id} className="bg-slate-900 font-bold">📁 {rf.name || rf.title}</option>
-                                                                                                                    {sfs.map(sf => (
+                                                                                                                    {uniqueSubs.map(sf => (
                                                                                                                         <option key={`hf-sub-${sf.id}`} value={sf.id} className="bg-slate-950 text-indigo-300">
                                                                                                                             &nbsp;&nbsp;&nbsp;&nbsp;↳ 📂 {sf.name || sf.title}
                                                                                                                         </option>
                                                                                                                     ))}
                                                                                                                 </React.Fragment>
                                                                                                             );
-                                                                                                        })}
+                                                                                                        });
+                                                                                                    })()}
                                                                                                 </select>
                                                                                                 <button type="button" onClick={() => { setShowLessonGroupModal(true); setPrefilledFolder(courseCode); }} className="flex-shrink-0 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors border border-white/10 flex items-center gap-2 outline-none">
                                                                                                     <Plus size={16}/> New
@@ -552,8 +1655,19 @@ export default function ContentHubModals({ state, actions }) {
                                         </div>
 
                                         <div className="pt-6 pb-4">
-                                            <button type="submit" className="w-full bg-green-600/90 hover:bg-green-500 text-white font-extrabold text-lg py-4 rounded-2xl shadow-[0_4px_15px_rgba(22,163,74,0.4)] mt-4 transition-transform hover:scale-[1.01] outline-none tracking-wide uppercase border border-transparent">
-                                                {editMode ? 'Update Content' : 'Publish Content'}
+                                            <button 
+                                                type="submit" 
+                                                disabled={isSubmittingContent}
+                                                className="w-full bg-green-600/90 hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold text-lg py-4 rounded-2xl shadow-[0_4px_15px_rgba(22,163,74,0.4)] mt-4 transition-transform hover:scale-[1.01] outline-none tracking-wide uppercase border border-transparent flex items-center justify-center gap-2"
+                                            >
+                                                {isSubmittingContent ? (
+                                                    <>
+                                                        <Loader2 size={20} className="animate-spin" />
+                                                        <span>Saving Content...</span>
+                                                    </>
+                                                ) : (
+                                                    <span>{editMode ? 'Update Content' : 'Publish Content'}</span>
+                                                )}
                                             </button>
                                         </div>
                                     </>
@@ -712,8 +1826,11 @@ export default function ContentHubModals({ state, actions }) {
                                 </div>
                                 <div>
                                     <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Batch Type *</label>
-                                    <select name="type" defaultValue={editData?.type || "1"} required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent shadow-inner cursor-pointer appearance-none transition-all">
-                                        <option value="1" className="bg-slate-800 text-white">Theory only</option><option value="2" className="bg-slate-800 text-white">Paper only</option><option value="3" className="bg-slate-800 text-white">Theory and Paper</option><option value="4" className="bg-slate-800 text-white">Others</option>
+                                    <select name="type" defaultValue={editData?.type ? String(editData.type) : "3"} required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent shadow-inner cursor-pointer appearance-none transition-all">
+                                        <option value="3" className="bg-slate-800 text-white">Theory and Paper (All-in-One)</option>
+                                        <option value="1" className="bg-slate-800 text-white">Theory only</option>
+                                        <option value="2" className="bg-slate-800 text-white">Paper only</option>
+                                        <option value="4" className="bg-slate-800 text-white">Others</option>
                                     </select>
                                 </div>
                                 <div><label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Display Order</label><input type="number" name="itemOrder" defaultValue={editData?.itemOrder || "1"} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" /></div>
@@ -751,24 +1868,64 @@ export default function ContentHubModals({ state, actions }) {
                 <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-6 md:p-8 w-full max-w-5xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] max-h-[90vh] overflow-y-auto custom-scrollbar flex flex-col backdrop-blur-3xl">
                         <div className="flex justify-between items-center mb-8 border-b border-white/10 pb-4 shrink-0">
-                            <h3 className="text-2xl font-extrabold text-white flex items-center gap-3 drop-shadow-sm"><Layers className="text-blue-400"/> {editMode ? 'Edit Payment Group' : 'New Payment Group'}</h3>
+                            <h3 className="text-2xl font-extrabold text-white flex items-center gap-3 drop-shadow-sm">
+                                <Layers className={modalGroupClassType === '2' ? 'text-amber-400' : 'text-blue-400'}/> 
+                                {editMode ? `Edit ${modalGroupClassType === '2' ? 'Paper' : 'Theory'} Payment Group` : (modalGroupClassType === '2' ? 'New Paper Class Payment Group' : 'New Theory Class Payment Group')}
+                            </h3>
                             <button onClick={() => setShowGroupModal(false)} className="text-gray-400 hover:text-white bg-white/5 p-2.5 rounded-xl border border-white/10 transition-colors hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={20}/></button>
                         </div>
                         <form onSubmit={handleGroupSubmit} className="space-y-8 flex-1">
+                            <input type="hidden" name="classType" value={modalGroupClassType} />
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                <div><label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Group Name *</label><input type="text" name="name" defaultValue={editData?.name} placeholder="e.g. 2026 Monthly Jan" required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" /></div>
+                                <div><label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Group Name *</label><input type="text" name="name" defaultValue={editData?.name} placeholder={modalGroupClassType === '2' ? "e.g. 2026 Paper Class Monthly Jan" : "e.g. 2026 Monthly Jan"} required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" /></div>
                                 <div><label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Order Number</label><input type="number" name="itemOrder" defaultValue={editData?.itemOrder || "1"} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" /></div>
-                                <div className="md:col-span-2">
+                                <div>
                                     <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Payment Type *</label>
-                                    <select name="paymentType" defaultValue={editData?.type === 1 ? "Monthly" : "Full Payment"} required onChange={(e) => { document.getElementById('discountRulesSection').style.display = e.target.value === 'Full Payment' ? 'block' : 'none'; }} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent cursor-pointer shadow-inner appearance-none transition-all">
+                                    <select name="paymentType" defaultValue={editData?.type === 1 ? "Monthly" : "Full Payment"} required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent cursor-pointer shadow-inner appearance-none transition-all">
                                         <option value="Monthly" className="bg-slate-800 text-white">Monthly Payment</option><option value="Full Payment" className="bg-slate-800 text-white">Full Payment</option>
                                     </select>
                                 </div>
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <label className="text-xs font-bold text-slate-300 block uppercase tracking-wider">Class Stream / Type *</label>
+                                        <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded border ${
+                                            modalGroupClassType === '2' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' : 'bg-blue-500/10 text-blue-300 border-blue-500/30'
+                                        }`}>
+                                            {modalGroupClassType === '2' ? '📝 Paper Group' : '📘 Theory Group'}
+                                        </span>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => setModalGroupClassType('1')}
+                                            className={`p-3.5 rounded-xl border font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all outline-none ${
+                                                modalGroupClassType === '1'
+                                                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-400/50 shadow-[0_4px_15px_rgba(37,99,235,0.4)]'
+                                                    : 'bg-black/40 border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
+                                            }`}
+                                        >
+                                            <BookOpen size={16} className={modalGroupClassType === '1' ? 'text-blue-200' : ''}/>
+                                            <span>📘 Theory Class</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setModalGroupClassType('2')}
+                                            className={`p-3.5 rounded-xl border font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all outline-none ${
+                                                modalGroupClassType === '2'
+                                                    ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white border-amber-400/50 shadow-[0_4px_15px_rgba(245,158,11,0.4)]'
+                                                    : 'bg-black/40 border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
+                                            }`}
+                                        >
+                                            <FileSignature size={16} className={modalGroupClassType === '2' ? 'text-amber-200' : ''}/>
+                                            <span>📝 Paper Class</span>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
 
-                            <div id="discountRulesSection" style={{display: (editData?.type === 2 || !editMode) ? 'block' : 'none'}} className="bg-blue-500/10 border border-blue-500/20 p-6 md:p-8 rounded-[2rem] shadow-inner">
+                            <div id="discountRulesSection" className="bg-blue-500/10 border border-blue-500/20 p-6 md:p-8 rounded-[2rem] shadow-inner">
                                 <div className="flex justify-between items-center mb-6">
-                                    <div><h4 className="text-lg font-extrabold text-blue-400 uppercase tracking-widest drop-shadow-sm">Bundle Discount Rules</h4></div>
+                                    <div><h4 className="text-lg font-extrabold text-blue-400 uppercase tracking-widest drop-shadow-sm">Bundle Discount Rules {modalGroupClassType === '2' ? '(Paper Class)' : '(Theory Class)'}</h4></div>
                                     <button type="button" onClick={addDiscountRule} className="bg-blue-600/90 hover:bg-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold flex items-center gap-2 outline-none shadow-sm border border-transparent"><Plus size={18}/> Add Rule</button>
                                 </div>
                                 <div className="space-y-4">
@@ -784,7 +1941,7 @@ export default function ContentHubModals({ state, actions }) {
                                 </div>
                             </div>
                             <div className="pt-4 mt-6 shrink-0">
-                                <button type="submit" className="w-full bg-brand-accent/90 hover:bg-brand-accent text-white font-extrabold py-4 text-lg rounded-2xl shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none transition-transform hover:scale-[1.01] uppercase tracking-wide border border-transparent">{editMode ? 'Update Group' : 'Create Group'}</button>
+                                <button type="submit" className={`w-full ${modalGroupClassType === '2' ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 shadow-[0_4px_15px_rgba(245,158,11,0.4)]' : 'bg-brand-accent/90 hover:bg-brand-accent shadow-[0_4px_15px_rgba(225,29,72,0.4)]'} text-white font-extrabold py-4 text-lg rounded-2xl outline-none transition-transform hover:scale-[1.01] uppercase tracking-wide border border-transparent`}>{editMode ? 'Update Group' : (modalGroupClassType === '2' ? 'Create Paper Class Group' : 'Create Theory Class Group')}</button>
                             </div>
                         </form>
                     </div>
@@ -893,10 +2050,52 @@ export default function ContentHubModals({ state, actions }) {
             {showCourseModal && (
                 <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-3 sm:p-4 animate-in fade-in duration-200">
                     <div className="bg-[#090E17]/95 border border-white/10 rounded-3xl p-5 sm:p-6 md:p-8 w-full max-w-7xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] max-h-[95vh] overflow-y-auto custom-scrollbar flex flex-col backdrop-blur-3xl">
-                        <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4 shrink-0"><h3 className="text-xl sm:text-2xl font-extrabold text-white drop-shadow-sm">{editMode ? 'Edit Subject' : 'New Subject'}</h3><button onClick={() => setShowCourseModal(false)} className="text-gray-400 hover:text-white bg-white/5 p-2 rounded-xl border border-white/10 transition-colors hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={20}/></button></div>
+                        <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4 shrink-0"><h3 className="text-xl sm:text-2xl font-extrabold text-white drop-shadow-sm">{editMode ? (modalCourseType === '2' ? 'Edit Paper Subject' : 'Edit Theory Subject') : (modalCourseType === '2' ? 'New Paper Subject' : 'New Theory Subject')}</h3><button onClick={() => setShowCourseModal(false)} className="text-gray-400 hover:text-white bg-white/5 p-2 rounded-xl border border-white/10 transition-colors hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={20}/></button></div>
                         <form onSubmit={handleCourseSubmit} className="space-y-6 flex-1">
+                            <input type="hidden" name="courseType" value={modalCourseType} />
                             <div className="flex flex-col xl:flex-row gap-6 xl:gap-8">
                                 <div className="w-full xl:w-[45%] space-y-5">
+                                    {/* Class Stream (Theory / Paper) Selector */}
+                                    <div className="bg-white/[0.04] border border-white/10 p-4 sm:p-5 rounded-2xl shadow-inner">
+                                        <div className="flex items-center justify-between mb-3">
+                                            <label className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                                                <span className="w-2 h-2 rounded-full bg-brand-accent animate-pulse"></span>
+                                                Class Stream / Type *
+                                            </label>
+                                            <span className={`text-[10px] font-extrabold uppercase px-2.5 py-0.5 rounded border ${
+                                                modalCourseType === '2' ? 'bg-amber-500/10 text-amber-300 border-amber-500/30' : 'bg-blue-500/10 text-blue-300 border-blue-500/30'
+                                            }`}>
+                                                {modalCourseType === '2' ? '📝 Paper Class' : '📘 Theory Class'}
+                                            </span>
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => setModalCourseType('1')}
+                                                className={`p-3.5 rounded-xl border font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all outline-none ${
+                                                    modalCourseType === '1'
+                                                        ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-400/50 shadow-[0_4px_15px_rgba(37,99,235,0.4)]'
+                                                        : 'bg-black/40 border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
+                                                }`}
+                                            >
+                                                <BookOpen size={16} className={modalCourseType === '1' ? 'text-blue-200' : ''}/>
+                                                <span>📘 Theory Class</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setModalCourseType('2')}
+                                                className={`p-3.5 rounded-xl border font-black text-xs sm:text-sm flex items-center justify-center gap-2 transition-all outline-none ${
+                                                    modalCourseType === '2'
+                                                        ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white border-amber-400/50 shadow-[0_4px_15px_rgba(245,158,11,0.4)]'
+                                                        : 'bg-black/40 border-white/10 text-gray-400 hover:text-white hover:bg-white/10'
+                                                }`}
+                                            >
+                                                <FileSignature size={16} className={modalCourseType === '2' ? 'text-amber-200' : ''}/>
+                                                <span>📝 Paper Class</span>
+                                            </button>
+                                        </div>
+                                    </div>
                                     {(activeBusiness?.category === 'Advance Level' || activeBusiness?.category === 'AL') && (
                                         <div className="bg-blue-500/10 border border-blue-500/20 p-5 rounded-3xl shadow-inner">
                                             <label className="text-xs font-bold text-blue-300 mb-4 block uppercase tracking-widest drop-shadow-sm">Select A/L Streams (Can select multiple) *</label>
@@ -949,19 +2148,12 @@ export default function ContentHubModals({ state, actions }) {
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 bg-black/40 p-5 rounded-3xl border border-white/5 shadow-inner">
                                         <div>
                                             <label className="text-xs font-bold text-slate-300 mb-1.5 block uppercase tracking-wider">Lecturer Name (Optional)</label>
-                                            <select name="lecturerName" defaultValue={editData?.lecturerName || ''} onChange={(e) => {
-                                                if (editMode) {
-                                                    setEditData(prev => ({ ...prev, lecturerName: e.target.value }));
-                                                }
-                                            }} className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 text-sm text-white outline-none focus:border-brand-accent shadow-inner transition-all cursor-pointer">
-                                                <option value="" className="bg-slate-800 text-white">Select Lecturer</option>
-                                                {editData?.lecturerName && !masterTutes?.some(l => l.name === editData.lecturerName) && (
-                                                    <option value={editData.lecturerName} className="bg-slate-800 text-yellow-400">{editData.lecturerName} (Legacy)</option>
-                                                )}
-                                                {masterTutes?.map((lec, i) => (
-                                                    <option key={i} value={lec.name} className="bg-slate-800 text-white">{lec.name}</option>
-                                                ))}
-                                            </select>
+                                            <LecturerSearchableSelect 
+                                                editData={editData} 
+                                                editMode={editMode} 
+                                                setEditData={setEditData} 
+                                                masterTutes={masterTutes} 
+                                            />
                                         </div>
                                         <div>
                                             <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Lecturer Image (Optional)</label>
@@ -979,10 +2171,47 @@ export default function ContentHubModals({ state, actions }) {
                                     </div>
 
                                     <div className="bg-black/30 p-5 rounded-3xl border border-white/10 shadow-inner">
-                                        <h4 className="text-base font-extrabold text-slate-200 mb-4 uppercase tracking-wider drop-shadow-sm">Assign to Groups & Pricing *</h4>
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                                            <h4 className="text-base font-extrabold text-slate-200 uppercase tracking-wider drop-shadow-sm">Assign to Groups & Pricing *</h4>
+                                            <span className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full border w-max ${modalCourseType === '2' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-blue-500/20 text-blue-300 border-blue-500/30'}`}>
+                                                {modalCourseType === '2' ? 'Showing Paper Groups' : 'Showing Theory Groups'}
+                                            </span>
+                                        </div>
                                         <div className="space-y-4">
-                                            {activeBatch?.groups?.length === 0 ? <p className="text-red-400 text-sm font-bold bg-red-500/10 p-4 rounded-xl border border-red-500/20 shadow-sm drop-shadow-sm">Create Groups first!</p> : 
-                                            activeBatch?.groups?.map(g => (
+                                            {(() => {
+                                                const targetClass = parseInt(modalCourseType || 1, 10);
+                                                const matchingGroups = (activeBatch?.groups || []).filter(g => parseInt(g.classType || 1, 10) === targetClass);
+
+                                                if (matchingGroups.length === 0) {
+                                                    return (
+                                                        <div className="text-center py-6 bg-amber-500/10 rounded-2xl border border-amber-500/20 p-5">
+                                                            <p className="text-amber-300 text-sm font-bold">
+                                                                No {targetClass === 2 ? 'Paper Class' : 'Theory Class'} payment groups found!
+                                                            </p>
+                                                            <p className="text-xs text-slate-400 mt-1 mb-4">
+                                                                Please create a {targetClass === 2 ? 'Paper Class' : 'Theory Class'} payment group first to assign pricing and tutes for this subject.
+                                                            </p>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setShowCourseModal(false);
+                                                                    setEditData(null);
+                                                                    setSelectedClassType(targetClass === 2 ? 'paper' : 'theory');
+                                                                    setShowGroupModal(true);
+                                                                }}
+                                                                className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider text-white transition-all shadow-md ${
+                                                                    targetClass === 2
+                                                                        ? 'bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700'
+                                                                        : 'bg-blue-600 hover:bg-blue-500'
+                                                                }`}
+                                                            >
+                                                                + Create First {targetClass === 2 ? 'Paper' : 'Theory'} Payment Group
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                }
+
+                                                return matchingGroups.map(g => (
                                                 <div key={g.id} className={`flex flex-col p-4 sm:p-5 rounded-2xl border transition-all shadow-sm ${selectedGroupPrices[g.id] !== undefined ? 'bg-blue-500/10 border-blue-500/40' : 'bg-black/40 border-white/5 hover:border-white/20'}`}>
                                                     <div className="flex flex-col xl:flex-row items-start xl:items-center justify-between gap-4 w-full">
                                                         <label className="flex items-center gap-3 cursor-pointer min-w-[200px] group">
@@ -1139,7 +2368,8 @@ export default function ContentHubModals({ state, actions }) {
                                                         </div>
                                                     )}
                                                 </div>
-                                            ))}
+                                            ));
+                                        })()}
                                         </div>
                                     </div>
                                 </div>
@@ -1230,8 +2460,19 @@ export default function ContentHubModals({ state, actions }) {
                                     {batches.filter(b => b.id !== activeBatch?.id).length === 0 && <span className="text-xs text-gray-500">No other batches available</span>}
                                 </div>
                             </div>
-                            <button type="submit" className="w-full bg-brand-accent/90 hover:bg-brand-accent text-white font-extrabold py-4 text-lg rounded-2xl shadow-[0_4px_15px_rgba(225,29,72,0.4)] mt-6 outline-none transition-transform hover:scale-[1.01] uppercase tracking-wide border border-transparent">
-                                {editMode ? (selectedFolderParentId ? 'Update Sub-folder' : 'Update Folder') : (selectedFolderParentId ? 'Create Sub-folder' : 'Create Folder')}
+                            <button 
+                                type="submit" 
+                                disabled={isSubmittingFolder}
+                                className="w-full bg-brand-accent/90 hover:bg-brand-accent disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold py-4 text-lg rounded-2xl shadow-[0_4px_15px_rgba(225,29,72,0.4)] mt-6 outline-none transition-transform hover:scale-[1.01] uppercase tracking-wide border border-transparent flex items-center justify-center gap-2"
+                            >
+                                {isSubmittingFolder ? (
+                                    <>
+                                        <Loader2 size={20} className="animate-spin" />
+                                        <span>Saving Folder...</span>
+                                    </>
+                                ) : (
+                                    <span>{editMode ? (selectedFolderParentId ? 'Update Sub-folder' : 'Update Folder') : (selectedFolderParentId ? 'Create Sub-folder' : 'Create Folder')}</span>
+                                )}
                             </button>
                         </form>
                     </div>

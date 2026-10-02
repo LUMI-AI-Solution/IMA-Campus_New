@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const upgradePricingController = require('../controllers/upgradePricingController');
-const verifyToken = require('../middlewares/authMiddleware');
+const { verifyToken, requireStaff } = require('../middlewares/authMiddleware');
 
 // Multer Storage Configuration for Upgrade Banner Images
 const bannerStorage = multer.diskStorage({
@@ -40,18 +40,18 @@ router.use(verifyToken);
 router.get('/calculate', upgradePricingController.calculateUpgrade);
 
 // 2. Fetch manager-configured upgrade prices
-router.get('/admin/prices', upgradePricingController.getAdminPrices);
+router.get('/admin/prices', requireStaff, upgradePricingController.getAdminPrices);
 
 // 3. Save / Update upgrade prices in bulk
-router.post('/admin/set-prices', upgradePricingController.setAdminPrices);
+router.post('/admin/set-prices', requireStaff, upgradePricingController.setAdminPrices);
 
 // 4. Get visibility toggle status
 router.get('/toggle-status', upgradePricingController.getUpgradeOfferToggle);
 
 // 5. Save visibility toggle status
-router.post('/toggle-status', upgradePricingController.setUpgradeOfferToggle);
+router.post('/toggle-status', requireStaff, upgradePricingController.setUpgradeOfferToggle);
 
 // 6. Secure banner upload for special upgrade widget
-router.post('/admin/upload-banner', uploadBanner.single('banner'), upgradePricingController.uploadBanner);
+router.post('/admin/upload-banner', requireStaff, uploadBanner.single('banner'), upgradePricingController.uploadBanner);
 
 module.exports = router;
