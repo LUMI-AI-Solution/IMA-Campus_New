@@ -6,23 +6,37 @@ const resolveTutesForDeliveryItem = (item, d, courses, allGroups = []) => {
     const course = courses.find(c => c.id === item.courseId);
     let lecturerName = course?.lecturerName || 'Lecturer';
     let lecturerImage = 'default.png';
-    let tuteCover = item.tuteImage || 'default-tute.png';
+    let tuteCover = item.tuteImage || null;
     let actualTuteName = item.tuteName; 
     let tutesList = [];
+
+    const isMonthly = d.paymentType === 'Monthly';
+    const isFull = d.paymentType === 'Full' || d.paymentType === 'Installment';
 
     if (course && course.groupPrices) {
         try {
             const gpArr = JSON.parse(course.groupPrices);
             let matchedGp;
             
-            if (d.paymentType === 'Full') {
-                const fullGrp = allGroups.find(g => g.batchId === d.payment?.batchId && g.name.toLowerCase().includes('full'));
+            if (isFull) {
+                const fullGrp = allGroups.find(g => g.batchId === d.payment?.batchId && (g.name.toLowerCase().includes('full') || g.type === 2));
                 if (fullGrp) matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(fullGrp.id));
-            }
-            if (!matchedGp && d.payment?.groupId) {
+                if (!matchedGp) matchedGp = gpArr.find(g => {
+                    const grp = allGroups.find(ag => ag.id === parseInt(g.groupId));
+                    return grp && (grp.type === 2 || grp.name.toLowerCase().includes('full'));
+                });
+            } else if (isMonthly && d.payment?.groupId) {
                 matchedGp = gpArr.find(g => parseInt(g.groupId) === parseInt(d.payment.groupId));
             }
-            if (!matchedGp) matchedGp = gpArr.find(g => g.tuteName === item.tuteName) || gpArr[0];
+
+            if (!matchedGp && item.tuteName) {
+                matchedGp = gpArr.find(g => g.tuteName === item.tuteName || (g.tutes && g.tutes.some(t => t.name === item.tuteName)));
+            }
+
+            // Only fallback to gpArr[0] if isFull, NEVER for monthly!
+            if (!matchedGp && isFull && gpArr.length > 0) {
+                matchedGp = gpArr[0];
+            }
 
             if (matchedGp) {
                 if (matchedGp.lecturerImage) lecturerImage = matchedGp.lecturerImage;
@@ -31,23 +45,23 @@ const resolveTutesForDeliveryItem = (item, d, courses, allGroups = []) => {
                     if (fallbackLec) lecturerImage = fallbackLec;
                 }
 
-                if (matchedGp.tutes && matchedGp.tutes.length > 0) {
+                if (matchedGp.tutes && Array.isArray(matchedGp.tutes) && matchedGp.tutes.length > 0) {
                     tutesList = matchedGp.tutes;
                 } else {
                     if (matchedGp.tuteCover) tuteCover = matchedGp.tuteCover;
-                    else {
+                    else if (isFull) {
                         const fallbackCover = gpArr.find(g => g.tuteCover)?.tuteCover;
                         if (fallbackCover) tuteCover = fallbackCover;
                     }
                     if (matchedGp.tuteName) actualTuteName = matchedGp.tuteName;
-                    tutesList = [{ name: actualTuteName || item.tuteName, cover: tuteCover }];
+                    tutesList = [{ name: actualTuteName || item.tuteName, cover: tuteCover || item.tuteImage || 'default-tute.png' }];
                 }
             }
         } catch (e) {}
     }
 
     if (tutesList.length === 0) {
-        tutesList = [{ name: actualTuteName || item.tuteName || 'Unknown', cover: tuteCover }];
+        tutesList = [{ name: actualTuteName || item.tuteName || 'Unknown', cover: tuteCover || item.tuteImage || 'default-tute.png' }];
     }
 
     return tutesList.map(tute => ({
@@ -56,8 +70,8 @@ const resolveTutesForDeliveryItem = (item, d, courses, allGroups = []) => {
         courseName: course?.name || 'Subject',
         lecturerName,
         lecturerImage,
-        tuteCover: tute.cover,
-        tuteImage: tute.cover
+        tuteCover: tute.cover || item.tuteImage || 'default-tute.png',
+        tuteImage: tute.cover || item.tuteImage || 'default-tute.png'
     }));
 };
 

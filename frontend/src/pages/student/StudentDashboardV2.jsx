@@ -56,6 +56,33 @@ const StudentDashboardV2 = () => {
   
   const [activeTab, setActiveTab] = useState(location.state?.activeTab || 'home'); 
   
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem('user') || '{}') || {};
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    const handleUserUpdate = () => {
+      try {
+        setCurrentUser(JSON.parse(localStorage.getItem('user') || '{}') || {});
+      } catch (e) {}
+    };
+    window.addEventListener('user-updated', handleUserUpdate);
+    window.addEventListener('storage', handleUserUpdate);
+    return () => {
+      window.removeEventListener('user-updated', handleUserUpdate);
+      window.removeEventListener('storage', handleUserUpdate);
+    };
+  }, []);
+
+  const backendBaseUrl = axios.defaults.baseURL ? axios.defaults.baseURL.replace('/api', '') : 'https://imacampus.online';
+  const headerProfilePic = currentUser.image && currentUser.image !== 'default.png' && currentUser.image !== 'null'
+      ? `${backendBaseUrl}/storage/images/${currentUser.image}`
+      : null;
+
   useEffect(() => {
       if (location.state?.activeTab) {
           setActiveTab(location.state.activeTab);
@@ -152,13 +179,25 @@ const StudentDashboardV2 = () => {
                   <div className="h-10 w-px bg-white/10 hidden sm:block"></div>
 
                   {/* Profile Summary */}
-                  <div className="flex items-center gap-4">
+                  <div 
+                      onClick={() => setActiveTab('profile')}
+                      className="flex items-center gap-4 cursor-pointer hover:opacity-90 transition-opacity"
+                      title="View Profile Settings"
+                  >
                       <div className="hidden sm:block text-right">
-                          <p className="text-base font-bold text-white drop-shadow-sm">Student Portal</p>
+                          <p className="text-base font-bold text-white drop-shadow-sm">{currentUser.fName ? `${currentUser.fName} ${currentUser.lName || ''}`.trim() : 'Student Portal'}</p>
                           <p className="text-[11px] text-white/70 uppercase tracking-[0.15em] font-semibold">IMA Campus</p>
                       </div>
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center shadow-lg border-2 border-white/20">
-                          <span className="text-white font-bold text-lg">ST</span>
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-500 p-[2px] shadow-lg">
+                          <div className="w-full h-full rounded-full bg-[#0a0f1d] flex items-center justify-center overflow-hidden">
+                              {headerProfilePic ? (
+                                  <img src={headerProfilePic} alt="Profile" className="w-full h-full object-cover" />
+                              ) : (
+                                  <span className="text-white font-bold text-lg">
+                                      {currentUser.fName ? currentUser.fName.substring(0, 2).toUpperCase() : 'ST'}
+                                  </span>
+                              )}
+                          </div>
                       </div>
                   </div>
               </div>
@@ -193,7 +232,7 @@ const StudentDashboardV2 = () => {
                 <div className="w-full min-h-full relative">
                     
                     <div className={`transition-all duration-500 ease-in-out ${activeTab === 'home' ? 'opacity-100 translate-y-0 visible' : 'opacity-0 translate-y-4 invisible h-0 overflow-hidden absolute'}`}>
-                        <StudentOverview />
+                        <StudentOverview setActiveTab={setActiveTab} />
                     </div>
 
                     <div className={`transition-all duration-500 ease-in-out ${activeTab === 'courses' ? 'opacity-100 translate-y-0 visible' : 'opacity-0 translate-y-4 invisible h-0 overflow-hidden absolute'}`}>

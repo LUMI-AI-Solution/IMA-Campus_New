@@ -6,11 +6,14 @@ import UpgradePricingConfig from '../../admin/UpgradePricingConfig';
 
 export default function ContentHubViews({ state, actions }) {
     const {
-        isSystemAdmin, canManageBusiness, canManageBatches, canManageGroupsAndSubjects, canManageContent,
+        isSystemAdmin, canManageBusiness, canManageBatches, canManageGroupsAndSubjects, canManageContent, isPaperMarkerOrGuider,
         viewLevel, activeBusiness, activeBatch, batchTab, activeSubject, contentTab, businesses, batches, uniqueSubjects,
         lessonGroups, subjectContents, editMode, openFolders, groupedSubjects, parentFolderForSub, selectedFolderParentId,
         selectedClassType, setSelectedClassType, theoryCount, paperCount
     } = state;
+
+    const effectiveBatchTab = isPaperMarkerOrGuider ? 'subjects' : batchTab;
+    const effectiveContentTab = isPaperMarkerOrGuider ? 'testRanking' : contentTab;
 
     const {
         openBusinessDetails, openBatchDetails, openContentsView, getImageUrl, getManagerName, toggleBusinessStatus, toggleBatchStatus, deleteItem,
@@ -287,7 +290,7 @@ export default function ContentHubViews({ state, actions }) {
                                             <button onClick={() => deleteItem('/admin/batch/delete', { batch_id: batch.id }, "Batch Deleted")} className="text-red-400 bg-red-500/10 border border-transparent hover:border-red-500/50 hover:bg-red-500 hover:text-white p-3 rounded-xl transition-colors outline-none shadow-sm"><Trash2 size={18}/></button>
                                         </>
                                     )}
-                                    <button onClick={() => openBatchDetails(batch)} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-5 sm:px-6 py-3 sm:py-3.5 rounded-xl text-xs sm:text-sm font-extrabold flex justify-center items-center gap-2 transition-transform hover:scale-[1.02] sm:ml-2 shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none uppercase tracking-wide border border-transparent">Manage <ChevronRight size={18}/></button>
+                                    <button onClick={() => openBatchDetails(batch)} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-5 sm:px-6 py-3 sm:py-3.5 rounded-xl text-xs sm:text-sm font-extrabold flex justify-center items-center gap-2 transition-transform hover:scale-[1.02] sm:ml-2 shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none uppercase tracking-wide border border-transparent">{isPaperMarkerOrGuider ? 'View Subjects' : 'Manage'} <ChevronRight size={18}/></button>
                                 </div>
                             </div>
                         ))}
@@ -301,12 +304,14 @@ export default function ContentHubViews({ state, actions }) {
                 <div className="flex flex-col h-full animate-fade-in relative z-10">
                     
                     {/* TABS (Mobile Horizontal Scrollable) */}
-                    <div className="flex overflow-x-auto custom-scrollbar gap-2 md:gap-3 mb-6 md:mb-8 bg-white/[0.05] backdrop-blur-2xl p-2 sm:p-2.5 rounded-2xl sm:rounded-[1.5rem] w-full md:w-max border border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.2)] shrink-0 whitespace-nowrap">
-                        <button onClick={() => setBatchTab('groups')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${batchTab === 'groups' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><Layers size={16} className="sm:w-4 sm:h-4"/> Groups</button>
-                        <button onClick={() => setBatchTab('subjects')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${batchTab === 'subjects' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><BookOpen size={16} className="sm:w-4 sm:h-4"/> Subjects</button>
-                        <button onClick={() => setBatchTab('lecturers')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${batchTab === 'lecturers' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><Users size={16} className="sm:w-4 sm:h-4"/> Lecturers</button>
-                        <button onClick={() => setBatchTab('upgrade-pricing')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${batchTab === 'upgrade-pricing' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><TrendingUp size={16} className="sm:w-4 sm:h-4"/> Upgrade Prices</button>
-                    </div>
+                    {!isPaperMarkerOrGuider && (
+                        <div className="flex overflow-x-auto custom-scrollbar gap-2 md:gap-3 mb-6 md:mb-8 bg-white/[0.05] backdrop-blur-2xl p-2 sm:p-2.5 rounded-2xl sm:rounded-[1.5rem] w-full md:w-max border border-white/10 shadow-[0_4px_20px_rgba(0,0,0,0.2)] shrink-0 whitespace-nowrap">
+                            <button onClick={() => setBatchTab('groups')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${effectiveBatchTab === 'groups' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><Layers size={16} className="sm:w-4 sm:h-4"/> Groups</button>
+                            <button onClick={() => setBatchTab('subjects')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${effectiveBatchTab === 'subjects' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><BookOpen size={16} className="sm:w-4 sm:h-4"/> Subjects</button>
+                            <button onClick={() => setBatchTab('lecturers')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${effectiveBatchTab === 'lecturers' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><Users size={16} className="sm:w-4 sm:h-4"/> Lecturers</button>
+                            <button onClick={() => setBatchTab('upgrade-pricing')} className={`px-4 md:px-6 py-2.5 md:py-3 rounded-xl font-extrabold text-xs md:text-sm uppercase tracking-wide flex items-center gap-2 transition-all outline-none border border-transparent shrink-0 ${effectiveBatchTab === 'upgrade-pricing' ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'text-gray-400 hover:text-white hover:bg-white/10'}`}><TrendingUp size={16} className="sm:w-4 sm:h-4"/> Upgrade Prices</button>
+                        </div>
+                    )}
 
                     {/* CLASS MODE SWITCHER BAR (Theory Class / Paper Class) - Available for both Groups and Subjects */}
                     {(() => {
@@ -316,7 +321,7 @@ export default function ContentHubViews({ state, actions }) {
                         const theoryGroupsCount = (activeBatch?.groups || []).filter(g => parseInt(g.classType || 1, 10) === 1).length;
                         const paperGroupsCount = (activeBatch?.groups || []).filter(g => parseInt(g.classType || 1, 10) === 2).length;
 
-                        if ((batchTab === 'groups' || batchTab === 'subjects')) {
+                        if ((effectiveBatchTab === 'groups' || effectiveBatchTab === 'subjects')) {
                             return (
                                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 p-3 sm:p-4 rounded-2xl bg-white/[0.04] backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.25)] mb-6">
                                     <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
@@ -337,7 +342,7 @@ export default function ContentHubViews({ state, actions }) {
                                                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
                                                         selectedClassType === 'theory' ? 'bg-white/20 text-white' : 'bg-white/10 text-gray-400'
                                                     }`}>
-                                                        {batchTab === 'groups' ? `${theoryGroupsCount} Groups` : `${theoryCount} Subjects`}
+                                                        {effectiveBatchTab === 'groups' ? `${theoryGroupsCount} Groups` : `${theoryCount} Subjects`}
                                                     </span>
                                                 </button>
                                             )}
@@ -356,7 +361,7 @@ export default function ContentHubViews({ state, actions }) {
                                                     <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
                                                         selectedClassType === 'paper' ? 'bg-white/20 text-white' : 'bg-white/10 text-gray-400'
                                                     }`}>
-                                                        {batchTab === 'groups' ? `${paperGroupsCount} Groups` : `${paperCount} Subjects`}
+                                                        {effectiveBatchTab === 'groups' ? `${paperGroupsCount} Groups` : `${paperCount} Subjects`}
                                                     </span>
                                                 </button>
                                             )}
@@ -383,7 +388,7 @@ export default function ContentHubViews({ state, actions }) {
                     <div className="space-y-6">
                         
                         {/* GROUPS TAB */}
-                        {batchTab === 'groups' && (() => {
+                        {effectiveBatchTab === 'groups' && (() => {
                             const targetClass = selectedClassType === 'paper' ? 2 : 1;
                             const currentGroups = (activeBatch?.groups || []).filter(g => parseInt(g.classType || 1, 10) === targetClass);
 
@@ -486,7 +491,7 @@ export default function ContentHubViews({ state, actions }) {
                         })()}
 
                         {/* LECTURERS TAB */}
-                        {batchTab === 'lecturers' && (
+                        {effectiveBatchTab === 'lecturers' && (
                             (!activeBatch?.lecturers || JSON.parse(activeBatch.lecturers).length === 0) ? <p className="text-center text-gray-400 py-16 bg-white/[0.02] backdrop-blur-xl rounded-3xl border border-white/10 shadow-sm text-lg font-bold">No lecturers added for this batch.</p> : 
                             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
                                 {JSON.parse(activeBatch.lecturers).map((lecturer, idx) => (
@@ -512,7 +517,7 @@ export default function ContentHubViews({ state, actions }) {
                         )}
 
                         {/* SUBJECTS TAB */}
-                        {batchTab === 'subjects' && (() => {
+                        {effectiveBatchTab === 'subjects' && (() => {
                             return (
                                 <div className="space-y-6">
 
@@ -645,7 +650,7 @@ export default function ContentHubViews({ state, actions }) {
                         })()}
 
                         {/* UPGRADE PRICING TAB */}
-                        {batchTab === 'upgrade-pricing' && (
+                        {effectiveBatchTab === 'upgrade-pricing' && (
                             <UpgradePricingConfig activeBatch={activeBatch} uniqueSubjects={uniqueSubjects} />
                         )}
                     </div>
@@ -658,16 +663,20 @@ export default function ContentHubViews({ state, actions }) {
                     
                     {/* Content Tabs Header */}
                     <div className="flex overflow-x-auto custom-scrollbar border-b border-white/10 bg-black/20 p-2.5 sm:p-4 gap-2 sm:gap-3 shrink-0">
-                        {[ { id: 'live', label: 'Live Classes', icon: Video }, { id: 'recording', label: 'Recordings', icon: MonitorPlay },
-                           { id: 'document', label: 'Documents', icon: FileText }, { id: 'testRanking', label: 'Test Ranking', icon: Trophy }
-                        ].map(tab => (
-                            <button key={tab.id} onClick={() => setContentTab(tab.id)} className={`flex items-center gap-2 sm:gap-3 px-3.5 sm:px-6 py-2.5 sm:py-3.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all whitespace-nowrap uppercase tracking-wider outline-none border border-transparent shrink-0 ${contentTab === tab.id ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white border-white/10'}`}>
+                        {(isPaperMarkerOrGuider 
+                            ? [{ id: 'testRanking', label: 'Test Ranking', icon: Trophy }]
+                            : [ { id: 'live', label: 'Live Classes', icon: Video }, { id: 'recording', label: 'Recordings', icon: MonitorPlay },
+                                { id: 'document', label: 'Documents', icon: FileText }, { id: 'testRanking', label: 'Test Ranking', icon: Trophy }
+                              ]
+                        ).map(tab => (
+                            <button key={tab.id} onClick={() => setContentTab(tab.id)} className={`flex items-center gap-2 sm:gap-3 px-3.5 sm:px-6 py-2.5 sm:py-3.5 rounded-xl text-xs sm:text-sm font-extrabold transition-all whitespace-nowrap uppercase tracking-wider outline-none border border-transparent shrink-0 ${effectiveContentTab === tab.id ? 'bg-brand-accent/90 text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]' : 'bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white border-white/10'}`}>
                                 <tab.icon size={16} className="sm:w-[18px] sm:h-[18px]"/> {tab.label}
                             </button>
                         ))}
                     </div>
 
                     {/* 🔥 STATS WIDGET: Display content allocation counts by Payment Group */}
+                    {!isPaperMarkerOrGuider && (
                     <div className="bg-black/30 border-b border-white/5 p-3 sm:p-4 flex flex-wrap gap-2 sm:gap-4 items-center text-xs">
                         <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 mr-1 flex items-center gap-1.5"><Layers size={13} className="text-brand-accent"/> Allocation Stats:</span>
                         {activeSubject?.groupPrices?.map((gp, idx) => {
@@ -681,6 +690,7 @@ export default function ContentHubViews({ state, actions }) {
                             );
                         })}
                     </div>
+                    )}
                     
                     <div className="p-3.5 sm:p-6 md:p-8 space-y-6 sm:space-y-10 overflow-y-auto custom-scrollbar">
                         
@@ -774,10 +784,10 @@ export default function ContentHubViews({ state, actions }) {
                                                 </h4>
                                                 
                                                 {/* Test Badges and Info */}
-                                                {isTestType(contentTab, content) && renderTestBadges(content)}
+                                                {isTestType(effectiveContentTab, content) && renderTestBadges(content)}
 
                                                 {/* Action Buttons */}
-                                                {isTestType(contentTab, content) && (
+                                                {isTestType(effectiveContentTab, content) && (
                                                     <button 
                                                         onClick={() => openPaperBuilder(content)} 
                                                         className="w-full bg-gradient-to-r from-brand-accent/20 to-amber-500/20 hover:from-brand-accent hover:to-amber-600 border border-brand-accent/40 text-white font-extrabold py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2 mb-2 mt-auto active:scale-95 group/btn"
@@ -1011,10 +1021,10 @@ export default function ContentHubViews({ state, actions }) {
                                                 </h4>
                                                 
                                                 {/* Test Badges and Info */}
-                                                {isTestType(contentTab, content) && renderTestBadges(content)}
+                                                {isTestType(effectiveContentTab, content) && renderTestBadges(content)}
 
                                                 {/* Action Buttons */}
-                                                {isTestType(contentTab, content) && (
+                                                {isTestType(effectiveContentTab, content) && (
                                                     <button 
                                                         onClick={() => openPaperBuilder(content)} 
                                                         className="w-full bg-gradient-to-r from-brand-accent/20 to-amber-500/20 hover:from-brand-accent hover:to-amber-600 border border-brand-accent/40 text-white font-extrabold py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2 mb-2 mt-auto active:scale-95 group/btn"

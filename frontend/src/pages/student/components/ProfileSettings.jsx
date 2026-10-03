@@ -85,6 +85,7 @@ export default function ProfileSettings() {
             if (res.data.image) updatedUser.image = res.data.image; 
             
             localStorage.setItem('user', JSON.stringify(updatedUser));
+            window.dispatchEvent(new Event('user-updated'));
             toast.success("Profile updated successfully!");
             
             // Reload window to update the sidebar image instantly

@@ -217,6 +217,9 @@ export default function ContentHubModals({ state, actions }) {
     const [modalTotalMarks, setModalTotalMarks] = useState('100');
     const [modalCourseType, setModalCourseType] = useState('1');
     const [modalGroupClassType, setModalGroupClassType] = useState('1');
+    const [folderTitleValue, setFolderTitleValue] = useState('');
+    const [folderApplyAllSubjects, setFolderApplyAllSubjects] = useState(true);
+    const [folderApplyBothTypes, setFolderApplyBothTypes] = useState(true);
 
     const defaultGradingScale = [
         { grade: 'A', min: 75, max: 100 },
@@ -268,8 +271,21 @@ export default function ContentHubModals({ state, actions }) {
         selectedGroupPrices, discountRules, contentType, prefilledFolder, selectedBatchesForContent, massAssignSubjects, postBizId, postBatches, showInstallmentModal,
         existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, activeBusiness, activeBatch, activeSubject, loading, showLecturerModal, masterTutes,
         hubBatchConfigs = {}, hubActiveBatchTab = null, parentFolderForSub = null, selectedFolderParentId = '',
-        selectedClassType, isSubmittingFolder, isSubmittingContent
+        selectedClassType, isSubmittingFolder, isSubmittingContent, contentTab
     } = state || {};
+
+    useEffect(() => {
+        if (showLessonGroupModal) {
+            setFolderTitleValue(editData?.title || editData?.name || '');
+            if (editMode || selectedFolderParentId) {
+                setFolderApplyAllSubjects(false);
+                setFolderApplyBothTypes(false);
+            } else {
+                setFolderApplyAllSubjects(true);
+                setFolderApplyBothTypes(true);
+            }
+        }
+    }, [showLessonGroupModal, editData, editMode, selectedFolderParentId]);
 
     useEffect(() => {
         if (showCourseModal) {
@@ -363,7 +379,7 @@ export default function ContentHubModals({ state, actions }) {
         toggleGroupPrice, updateGroupData, toggleMassAssignSubject, getTypeInt, setPrefilledFolder, setSelectedBatchesForContent, setMassAssignSubjects,
         setShowInstallmentModal, handleEditInstallment, handleDeleteInstallment, handleInstallmentSubmit, setInstallmentSubjectCount, setInstallmentSteps, setEditInstallmentId, getBatchStreams,
         setEditData, setDiscountRules, setSelectedGroupPrices, setShowLecturerModal, handleLecturerSubmit, setHubBatchConfigs, setHubActiveBatchTab,
-        setSelectedFolderParentId
+        setSelectedFolderParentId, setEditMode, setParentFolderForSub
     } = actions;
 
     const getBaseUrl = () => {
@@ -2387,7 +2403,7 @@ export default function ContentHubModals({ state, actions }) {
             {/* ADD/EDIT FOLDER MODAL */}
             {showLessonGroupModal && (
                 <div className="fixed inset-0 z-[999999] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-                    <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-8 w-full max-w-2xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] flex flex-col backdrop-blur-3xl">
+                    <div className="bg-[#090E17]/95 border border-white/10 rounded-[2rem] p-6 sm:p-8 w-full max-w-2xl shadow-[0_10px_50px_rgba(0,0,0,0.8)] flex flex-col backdrop-blur-3xl max-h-[92vh] overflow-y-auto custom-scrollbar">
                         <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
                             <div>
                                 <h3 className="text-2xl font-extrabold text-white drop-shadow-sm flex items-center gap-2.5">
@@ -2400,9 +2416,21 @@ export default function ContentHubModals({ state, actions }) {
                                     </p>
                                 )}
                             </div>
-                            <button onClick={() => setShowLessonGroupModal(false)} className="text-gray-400 hover:text-white bg-white/5 p-2.5 rounded-xl border border-white/10 transition-colors hover:bg-red-500/20 hover:border-red-500/30 outline-none"><X size={20}/></button>
+                            <button 
+                                type="button"
+                                onClick={() => {
+                                    setShowLessonGroupModal(false);
+                                    if (setEditMode) setEditMode(false);
+                                    if (setEditData) setEditData(null);
+                                    if (setParentFolderForSub) setParentFolderForSub(null);
+                                    if (setSelectedFolderParentId) setSelectedFolderParentId('');
+                                }} 
+                                className="text-gray-400 hover:text-white bg-white/5 p-2.5 rounded-xl border border-white/10 transition-colors hover:bg-red-500/20 hover:border-red-500/30 outline-none"
+                            >
+                                <X size={20}/>
+                            </button>
                         </div>
-                        <form onSubmit={handleLessonGroupSubmit} className="space-y-6">
+                        <form onSubmit={handleLessonGroupSubmit} className="space-y-5">
                             <div>
                                 <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">
                                     Folder Location / Parent Folder
@@ -2411,13 +2439,13 @@ export default function ContentHubModals({ state, actions }) {
                                     name="parentId" 
                                     value={selectedFolderParentId ? String(selectedFolderParentId) : ''} 
                                     onChange={(e) => setSelectedFolderParentId(e.target.value)} 
-                                    className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner cursor-pointer"
+                                    className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 sm:p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner cursor-pointer"
                                 >
                                     <option value="" className="bg-slate-900 text-white font-bold">
                                         📁 Root Folder (Main Level)
                                     </option>
                                     {lessonGroups
-                                        .filter(g => parseInt(g.type) === getTypeInt(contentType || 'recording') && !g.parentId && (!editData || g.id !== editData.id))
+                                        .filter(g => parseInt(g.type) === getTypeInt(contentTab || contentType || 'recording') && !g.parentId && (!editData || g.id !== editData.id))
                                         .map(root => (
                                             <option key={root.id} value={String(root.id)} className="bg-slate-900 text-indigo-300 font-semibold">
                                                 ↳ 📂 Inside Sub-folder of: {root.title || root.name}
@@ -2430,19 +2458,93 @@ export default function ContentHubModals({ state, actions }) {
                             </div>
 
                             <div>
-                                <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">
-                                    {selectedFolderParentId ? 'Sub-folder Title *' : 'Folder Title *'}
-                                </label>
-                                <input type="text" name="title" defaultValue={editData?.title || editData?.name} placeholder={selectedFolderParentId ? "e.g. Unit 01 Discussions" : "e.g. June Theory"} required className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" />
+                                <div className="flex justify-between items-center mb-2">
+                                    <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                                        {selectedFolderParentId ? 'Sub-folder Title *' : 'Folder Title *'}
+                                    </label>
+                                    <span className="text-[10px] text-gray-400 font-medium">Click quick suggestion or type</span>
+                                </div>
+                                <input 
+                                    type="text" 
+                                    name="title" 
+                                    value={folderTitleValue} 
+                                    onChange={(e) => setFolderTitleValue(e.target.value)}
+                                    placeholder={selectedFolderParentId ? "e.g. Unit 01 Discussions" : "e.g. OCTOBER MONTH"} 
+                                    required 
+                                    className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 sm:p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all font-semibold" 
+                                />
+                                
+                                {/* Quick suggestion chips */}
+                                <div className="flex flex-wrap gap-1.5 mt-2">
+                                    {[
+                                        "OCTOBER MONTH", "NOVEMBER MONTH", "DECEMBER MONTH",
+                                        "JANUARY MONTH", "FEBRUARY MONTH", "Unit 01", "Unit 02", "Past Papers", "Discussion"
+                                    ].map((chip) => (
+                                        <button
+                                            key={chip}
+                                            type="button"
+                                            onClick={() => setFolderTitleValue(chip)}
+                                            className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white/5 hover:bg-brand-accent/20 text-slate-300 hover:text-white border border-white/10 hover:border-brand-accent/30 transition-all cursor-pointer"
+                                        >
+                                            + {chip}
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
+
                             <div>
                                 <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Display Order</label>
-                                <input type="number" name="order" defaultValue={editData?.itemOrder || "1"} className="w-full bg-black/60 border border-white/10 rounded-xl p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" />
+                                <input type="number" name="order" defaultValue={editData?.itemOrder || "1"} className="w-full bg-black/60 border border-white/10 rounded-xl p-3.5 sm:p-4 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/80 shadow-inner transition-all" />
                             </div>
+
+                            {/* Automation Toggles (Only for New Root Folders) */}
+                            {!selectedFolderParentId && !editMode && (
+                                <div className="bg-white/[0.03] border border-white/10 rounded-2xl p-4 space-y-3.5 shadow-sm">
+                                    <span className="text-[10px] font-black uppercase tracking-widest text-brand-accent flex items-center gap-1.5">
+                                        ⚡ Quick Automation & Sync
+                                    </span>
+                                    
+                                    <label className="flex items-start gap-3 cursor-pointer group">
+                                        <input 
+                                            type="checkbox" 
+                                            name="applyToAllSubjects"
+                                            checked={folderApplyAllSubjects} 
+                                            onChange={(e) => setFolderApplyAllSubjects(e.target.checked)} 
+                                            className="w-4 h-4 mt-0.5 rounded text-brand-accent bg-black/60 border-white/20 focus:ring-0 cursor-pointer shrink-0"
+                                        />
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-bold text-white group-hover:text-brand-accent transition-colors">
+                                                Available in all subjects of this batch
+                                            </span>
+                                            <span className="text-[11px] text-gray-400">
+                                                Creates once for the whole batch so all subjects (Media, Econ, ICT, etc.) see this folder immediately.
+                                            </span>
+                                        </div>
+                                    </label>
+
+                                    <label className="flex items-start gap-3 cursor-pointer group">
+                                        <input 
+                                            type="checkbox" 
+                                            name="applyToBothTypes"
+                                            checked={folderApplyBothTypes} 
+                                            onChange={(e) => setFolderApplyBothTypes(e.target.checked)} 
+                                            className="w-4 h-4 mt-0.5 rounded text-brand-accent bg-black/60 border-white/20 focus:ring-0 cursor-pointer shrink-0"
+                                        />
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-bold text-white group-hover:text-brand-accent transition-colors">
+                                                Create in both Recordings & Documents tabs
+                                            </span>
+                                            <span className="text-[11px] text-gray-400">
+                                                Saves time by automatically creating this folder in both video recordings and document notes.
+                                            </span>
+                                        </div>
+                                    </label>
+                                </div>
+                            )}
                             
                             <div>
                                 <label className="text-xs font-bold text-slate-300 mb-2 block uppercase tracking-wider">Share with other Batches (Optional)</label>
-                                <div className="space-y-2 max-h-40 overflow-y-auto custom-scrollbar p-3 bg-black/40 border border-white/5 rounded-xl">
+                                <div className="space-y-2 max-h-36 overflow-y-auto custom-scrollbar p-3 bg-black/40 border border-white/5 rounded-xl">
                                     {batches.filter(b => b.id !== activeBatch?.id).map(b => (
                                         <label key={`share-folder-b-${b.id}`} className="flex items-center gap-3 p-2 rounded-lg cursor-pointer hover:bg-white/5 transition-colors">
                                             <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-colors ${selectedBatchesForContent.includes(b.id) ? 'bg-brand-accent border-brand-accent' : 'border-slate-500'}`}>
@@ -2463,7 +2565,7 @@ export default function ContentHubModals({ state, actions }) {
                             <button 
                                 type="submit" 
                                 disabled={isSubmittingFolder}
-                                className="w-full bg-brand-accent/90 hover:bg-brand-accent disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold py-4 text-lg rounded-2xl shadow-[0_4px_15px_rgba(225,29,72,0.4)] mt-6 outline-none transition-transform hover:scale-[1.01] uppercase tracking-wide border border-transparent flex items-center justify-center gap-2"
+                                className="w-full bg-brand-accent/90 hover:bg-brand-accent disabled:opacity-50 disabled:cursor-not-allowed text-white font-extrabold py-4 text-base sm:text-lg rounded-2xl shadow-[0_4px_15px_rgba(225,29,72,0.4)] mt-4 outline-none transition-transform hover:scale-[1.01] uppercase tracking-wide border border-transparent flex items-center justify-center gap-2"
                             >
                                 {isSubmittingFolder ? (
                                     <>

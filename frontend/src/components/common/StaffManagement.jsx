@@ -31,7 +31,7 @@ export default function StaffManagement({ loggedInUser }) {
   const allDepts = ['Class Coordination', 'Academic', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media'];
   const staffDepts = ['Academic', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media']; 
   
-  const allRoles = ['System Admin', 'Director', 'Manager', 'Ass Manager', 'Coordinator', 'Lecture', 'Paper Guider', 'Caller', 'Call Center Agent', 'Staff', 'Social Media Manager', 'Social Media Staff'];
+  const allRoles = ['System Admin', 'Director', 'Manager', 'Ass Manager', 'Coordinator', 'Paper Marker', 'Lecture', 'Paper Guider', 'Caller', 'Call Center Agent', 'Staff', 'Social Media Manager', 'Social Media Staff'];
   
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', phone: '', nic: '', password: '', 
@@ -93,7 +93,7 @@ export default function StaffManagement({ loggedInUser }) {
     let newDept = formData.department;
     if (newRole === 'System Admin' || newRole === 'Director') {
         newDept = ''; 
-    } else if (newRole === 'Coordinator') {
+    } else if (newRole === 'Coordinator' || newRole === 'Paper Marker') {
         newDept = 'Class Coordination';
     } else if (newRole === 'Lecture' || newRole === 'Paper Guider') {
         newDept = 'Academic';
@@ -147,7 +147,7 @@ export default function StaffManagement({ loggedInUser }) {
     setSaving(true);
     try {
       const payload = { ...formData };
-      if (payload.department !== 'Class Coordination' && payload.role !== 'Lecture' && payload.role !== 'Paper Guider' && payload.department !== 'Academic') {
+      if (payload.department !== 'Class Coordination' && payload.role !== 'Lecture' && payload.role !== 'Paper Guider' && payload.role !== 'Paper Marker' && payload.department !== 'Academic') {
           payload.businessType = '';
       }
       
@@ -437,7 +437,7 @@ export default function StaffManagement({ loggedInUser }) {
                 <div className={(formData.role === 'System Admin' || formData.role === 'Director') ? 'col-span-2' : 'col-span-1'}>
                   <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Role</label>
                   <select disabled={!canManageStaff} value={formData.role} onChange={e => handleRoleChange(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
-                    {canManageStaff ? allRoles.filter(r => isAdmin ? ((r !== 'Caller' && r !== 'Call Center Agent') || r === formData.role) : (['Manager', 'Ass Manager', 'Coordinator', 'Caller', 'Call Center Agent', 'Staff', 'Social Media Staff'].includes(r) || r === formData.role)).map(r => <option key={r} value={r} className="bg-slate-800 text-white">{r}</option>) : <option value={formData.role} className="bg-slate-800 text-white">{formData.role}</option>}
+                    {canManageStaff ? allRoles.filter(r => isAdmin ? ((r !== 'Caller' && r !== 'Call Center Agent') || r === formData.role) : (['Manager', 'Ass Manager', 'Coordinator', 'Paper Marker', 'Caller', 'Call Center Agent', 'Staff', 'Social Media Staff'].includes(r) || r === formData.role)).map(r => <option key={r} value={r} className="bg-slate-800 text-white">{r}</option>) : <option value={formData.role} className="bg-slate-800 text-white">{formData.role}</option>}
                   </select>
                 </div>
 
@@ -502,22 +502,26 @@ export default function StaffManagement({ loggedInUser }) {
 
 // Glassmorphism Staff Card Component
 function MinimalStaffCard({ staff, openEditModal, handleDelete, handleGhostLogin, color, canEdit }) {
+  const isPaperMarker = staff.role === 'Paper Marker';
+  const resolvedColor = isPaperMarker ? 'amber' : color;
+
   // Pure Glassmorphism Badges
   const roleBadgeColors = {
     purple: 'bg-purple-500/10 text-purple-300 border-purple-500/30',
     blue: 'bg-blue-500/10 text-blue-300 border-blue-500/30',
     emerald: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
+    amber: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
   };
 
   return (
     <div className="relative bg-[#0F172A]/40 hover:bg-[#0F172A]/80 border border-white/5 hover:border-white/20 rounded-3xl p-6 transition-all duration-500 flex flex-col h-full group overflow-hidden shadow-lg hover:shadow-2xl hover:-translate-y-1 backdrop-blur-sm">
       
       {/* Ghost Background Accent - Subtle glow */}
-      <div className={`absolute -top-10 -right-10 w-32 h-32 blur-[60px] opacity-20 group-hover:opacity-40 transition-opacity duration-500 pointer-events-none rounded-full ${color === 'purple' ? 'bg-purple-500' : color === 'blue' ? 'bg-blue-500' : 'bg-emerald-500'}`}></div>
+      <div className={`absolute -top-10 -right-10 w-32 h-32 blur-[60px] opacity-20 group-hover:opacity-40 transition-opacity duration-500 pointer-events-none rounded-full ${resolvedColor === 'purple' ? 'bg-purple-500' : resolvedColor === 'blue' ? 'bg-blue-500' : resolvedColor === 'amber' ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
 
       <div className="flex justify-between items-start mb-5 relative z-10">
         <div className="flex items-center gap-3">
-          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-inner font-black text-lg ${color === 'purple' ? 'bg-gradient-to-br from-purple-500/80 to-indigo-600/80 shadow-purple-500/20' : color === 'blue' ? 'bg-gradient-to-br from-blue-500/80 to-cyan-600/80 shadow-blue-500/20' : 'bg-gradient-to-br from-emerald-500/80 to-teal-600/80 shadow-emerald-500/20'}`}>
+          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-inner font-black text-lg ${resolvedColor === 'purple' ? 'bg-gradient-to-br from-purple-500/80 to-indigo-600/80 shadow-purple-500/20' : resolvedColor === 'blue' ? 'bg-gradient-to-br from-blue-500/80 to-cyan-600/80 shadow-blue-500/20' : resolvedColor === 'amber' ? 'bg-gradient-to-br from-amber-500/80 to-orange-600/80 shadow-amber-500/20' : 'bg-gradient-to-br from-emerald-500/80 to-teal-600/80 shadow-emerald-500/20'}`}>
             {staff.firstName.charAt(0)}{staff.lastName.charAt(0)}
           </div>
           <div>
@@ -535,7 +539,7 @@ function MinimalStaffCard({ staff, openEditModal, handleDelete, handleGhostLogin
       <div className="mb-6 relative z-10 space-y-2">
          <div className="flex items-center justify-between">
            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Position</span>
-           <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-wider border ${roleBadgeColors[color]}`}>
+           <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-wider border ${roleBadgeColors[resolvedColor] || roleBadgeColors.blue}`}>
              {staff.role}
            </span>
          </div>

@@ -219,6 +219,7 @@ app.use('/api/ai-verification', require('./routes/aiVerificationRoutes'));
 // AI Database Agent
 app.use('/api/admin/ai-agent', require('./routes/aiAgentRoutes'));
 app.use('/api/claude', require('./routes/claudeRoutes'));
+app.use('/api/youtube-transcribe', require('./routes/youtubeTranscribeRoutes'));
 app.use('/api/ai-team', require('./routes/aiTeamRoutes'));
 app.use('/api/admin/test-injector', require('./routes/testRoutes'));
 app.use('/api/social-media', require('./routes/socialMediaRoutes'));

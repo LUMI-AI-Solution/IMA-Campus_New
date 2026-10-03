@@ -271,7 +271,7 @@ exports.createStaff = async (req, res) => {
         
         const isTopLevel = checkIsTopLevel(role);
 
-        let finalDepartment = isTopLevel ? null : ((role === 'Coordinator' ? 'Class Coordination' : (role === 'Caller' ? 'Call Center' : department)));
+        let finalDepartment = isTopLevel ? null : ((role === 'Coordinator' || role === 'Paper Marker' ? 'Class Coordination' : (role === 'Caller' ? 'Call Center' : department)));
         const finalBusiness = (!isTopLevel) ? businessType : null;
 
         // Force department to Social Media if role is Social Media Manager or Staff
@@ -296,7 +296,7 @@ exports.updateStaff = async (req, res) => {
         
         const isTopLevel = checkIsTopLevel(role);
 
-        let finalDepartment = isTopLevel ? null : ((role === 'Coordinator' ? 'Class Coordination' : (role === 'Caller' ? 'Call Center' : department)));
+        let finalDepartment = isTopLevel ? null : ((role === 'Coordinator' || role === 'Paper Marker' ? 'Class Coordination' : (role === 'Caller' ? 'Call Center' : department)));
         
         if (role === 'Social Media Manager' || role === 'Social Media Staff') {
             finalDepartment = 'Social Media';

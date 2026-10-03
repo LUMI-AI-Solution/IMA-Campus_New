@@ -24,3 +24,6 @@ backend/uploads/
 restricted_backups/
 *.sql
 __pycache__/
+
+deno.lock
+*.bak

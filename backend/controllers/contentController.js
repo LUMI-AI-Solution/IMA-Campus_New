@@ -301,15 +301,9 @@ exports.createSubject = async (req, res) => {
             });
         }
 
-        // 🔥 NEW FIX: Tute Cover එකයි Name එකයි අනිත් Groups වලටත් Share කරනවා (Monthly/Full දෙකටම)
-        const commonCover = parsedPrices.find(gp => gp.tuteCover)?.tuteCover;
-        const commonTuteName = parsedPrices.find(gp => gp.tuteName)?.tuteName;
-        const commonTutes = parsedPrices.find(gp => gp.tutes && gp.tutes.length > 0)?.tutes;
-
+        // Keep group-specific tute covers and names as explicitly configured (never overwrite monthly with full)
         parsedPrices.forEach(gp => {
-            if (!gp.tuteCover && commonCover) gp.tuteCover = commonCover;
-            if (!gp.tuteName && commonTuteName) gp.tuteName = commonTuteName;
-            if ((!gp.tutes || gp.tutes.length === 0) && commonTutes) gp.tutes = commonTutes;
+            gp.tutes = Array.isArray(gp.tutes) ? gp.tutes : [];
         });
         console.log("START MONTH IN REQ:", req.body.startMonth, "END MONTH IN REQ:", req.body.endMonth);
         console.log("UPDATE SUBJECT RECEIVED START MONTH:", req.body.startMonth, "END MONTH:", req.body.endMonth);
@@ -426,15 +420,9 @@ exports.updateSubject = async (req, res) => {
             gp._existingCourse = existingCourse;
         }
 
-        // 🔥 NEW FIX: Update කරද්දීත් Tute Cover එකයි Name එකයි Share කරනවා
-        const commonCover = parsedPrices.find(gp => gp.tuteCover)?.tuteCover;
-        const commonTuteName = parsedPrices.find(gp => gp.tuteName)?.tuteName;
-        const commonTutes = parsedPrices.find(gp => gp.tutes && gp.tutes.length > 0)?.tutes;
-
+        // Keep group-specific tute covers and names as explicitly configured (never overwrite monthly with full)
         parsedPrices.forEach(gp => {
-            if (!gp.tuteCover && commonCover) gp.tuteCover = commonCover;
-            if (!gp.tuteName && commonTuteName) gp.tuteName = commonTuteName;
-            if ((!gp.tutes || gp.tutes.length === 0) && commonTutes) gp.tutes = commonTutes;
+            gp.tutes = Array.isArray(gp.tutes) ? gp.tutes : [];
         });
 
         const finalGroupPricesStr = JSON.stringify(parsedPrices.map(gp => {
@@ -649,7 +637,11 @@ exports.updateInstallment = async (req, res) => {
 // ================= FOLDERS (CONTENT GROUPS) =================
 exports.addContentGroup = async (req, res) => {
     try {
-        const { title, type, order, batch_id, batchId, course_code, parentId, parent_id, selectedBatches } = req.body;
+        const { 
+            title, type, types, order, batch_id, batchId, 
+            course_code, courseCode, parentId, parent_id, 
+            selectedBatches, applyToAllSubjects, applyToAllTypes 
+        } = req.body;
         
         const rawBatchId = batch_id !== undefined && batch_id !== null ? batch_id : batchId;
         const parsedBatchId = parseInt(rawBatchId);
@@ -687,63 +679,96 @@ exports.addContentGroup = async (req, res) => {
         }
 
         const trimmedTitle = (title || '').trim();
-        const resolvedCourseCode = (course_code === 'NULL' || !course_code) ? null : course_code;
+        
+        // If applyToAllSubjects is true, courseCode is null so it applies across all subjects in the batch!
+        const isAllSubjects = applyToAllSubjects === true || applyToAllSubjects === 'true';
+        const rawCode = course_code !== undefined ? course_code : courseCode;
+        const resolvedCourseCode = isAllSubjects 
+            ? null 
+            : ((rawCode === 'NULL' || !rawCode) ? null : rawCode);
 
-        // Prevent duplicate folders: check if a folder with same batchId, type, parentId, and title already exists
-        const existingFolder = await prisma.contentGroup.findFirst({
-            where: {
-                batchId: parsedBatchId,
-                type: parsedType,
-                parentId: safeParentId,
-                title: trimmedTitle
-            },
-            include: {
-                parent: true,
-                subFolders: true
+        // Determine target folder types:
+        // For sub-folders, only use the parent's type (parsedType).
+        // For root folders, if applyToAllTypes or types array is passed:
+        let targetTypes = [parsedType];
+        if (!safeParentId) {
+            if (Array.isArray(types) && types.length > 0) {
+                targetTypes = [...new Set(types.map(t => parseInt(t)).filter(t => !isNaN(t)))];
+            } else if (applyToAllTypes === true || applyToAllTypes === 'true') {
+                targetTypes = [2, 3]; // Default Recordings (2) & Documents (3)
+                if (parsedType && !targetTypes.includes(parsedType)) targetTypes.push(parsedType);
             }
-        });
-
-        if (existingFolder) {
-            let needsUpdate = false;
-            let updatePayload = {};
-            if (additionalBatchStr && existingFolder.additionalBatchIds !== additionalBatchStr) {
-                const currentBatches = (existingFolder.additionalBatchIds || '').split(',').filter(Boolean);
-                const newBatches = additionalBatchStr.split(',').filter(Boolean);
-                const merged = [...new Set([...currentBatches, ...newBatches])];
-                updatePayload.additionalBatchIds = merged.length > 0 ? `,${merged.join(',')},` : null;
-                needsUpdate = true;
-            }
-            if (!existingFolder.courseCode && resolvedCourseCode) {
-                updatePayload.courseCode = resolvedCourseCode;
-                needsUpdate = true;
-            }
-            if (needsUpdate) {
-                const updated = await prisma.contentGroup.update({
-                    where: { id: existingFolder.id },
-                    data: updatePayload,
-                    include: { parent: true, subFolders: true }
-                });
-                return res.status(200).json({ message: "Folder updated", data: updated });
-            }
-            return res.status(200).json({ message: "Folder already exists", data: existingFolder });
         }
 
-        const newFolder = await prisma.contentGroup.create({
-            data: { 
-                title: trimmedTitle, 
-                type: parsedType, 
-                itemOrder: parseInt(order) || 1, 
-                batchId: parsedBatchId, 
-                courseCode: resolvedCourseCode,
+        let primaryFolder = null;
+
+        for (const tType of targetTypes) {
+            const duplicateWhere = {
+                batchId: parsedBatchId,
+                type: tType,
                 parentId: safeParentId,
-                additionalBatchIds: additionalBatchStr
-            },
-            include: {
-                parent: true,
-                subFolders: true
+                title: trimmedTitle
+            };
+
+            if (resolvedCourseCode) {
+                duplicateWhere.courseCode = resolvedCourseCode;
+            } else {
+                duplicateWhere.OR = [
+                    { courseCode: null },
+                    { courseCode: '' }
+                ];
             }
-        });
-        res.status(201).json({ message: "Folder Created", data: newFolder });
+
+            const existingFolder = await prisma.contentGroup.findFirst({
+                where: duplicateWhere,
+                include: { parent: true, subFolders: true }
+            });
+
+            if (existingFolder) {
+                let needsUpdate = false;
+                let updatePayload = {};
+                if (additionalBatchStr && existingFolder.additionalBatchIds !== additionalBatchStr) {
+                    const currentBatches = (existingFolder.additionalBatchIds || '').split(',').filter(Boolean);
+                    const newBatches = additionalBatchStr.split(',').filter(Boolean);
+                    const merged = [...new Set([...currentBatches, ...newBatches])];
+                    updatePayload.additionalBatchIds = merged.length > 0 ? `,${merged.join(',')},` : null;
+                    needsUpdate = true;
+                }
+                if (!existingFolder.courseCode && resolvedCourseCode) {
+                    updatePayload.courseCode = resolvedCourseCode;
+                    needsUpdate = true;
+                }
+                if (needsUpdate) {
+                    const updated = await prisma.contentGroup.update({
+                        where: { id: existingFolder.id },
+                        data: updatePayload,
+                        include: { parent: true, subFolders: true }
+                    });
+                    if (!primaryFolder) primaryFolder = updated;
+                } else {
+                    if (!primaryFolder) primaryFolder = existingFolder;
+                }
+            } else {
+                const created = await prisma.contentGroup.create({
+                    data: { 
+                        title: trimmedTitle, 
+                        type: tType, 
+                        itemOrder: parseInt(order) || 1, 
+                        batchId: parsedBatchId, 
+                        courseCode: resolvedCourseCode,
+                        parentId: safeParentId,
+                        additionalBatchIds: additionalBatchStr
+                    },
+                    include: {
+                        parent: true,
+                        subFolders: true
+                    }
+                });
+                if (!primaryFolder) primaryFolder = created;
+            }
+        }
+
+        res.status(201).json({ message: "Folder Created", data: primaryFolder });
     } catch (e) { 
         console.error("[addContentGroup] Add Folder Error:", e);
         res.status(500).json({ error: e.message || "Failed to create folder" }); 

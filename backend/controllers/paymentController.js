@@ -158,6 +158,12 @@ const normalizeTuteText = (txt = '') => {
         .trim();
 };
 
+const getBaseSubjectName = (txt = '') => {
+    let clean = String(txt || '').toLowerCase().trim();
+    clean = clean.replace(/\b(full\s*payment|full\s*set|full|theory|revision|paper\s*class|paper|class|tute|tutes|book|lesson|\d+)\b/gi, '').trim();
+    return normalizeTuteText(clean);
+};
+
 // Helper: Deduce deliverable tutes for a payment based on Content Hub groupPrices rules.
 // Content Hub (groupPrices) is the single source of truth.
 // If deliverTute is true, the tutes are delivered regardless of whether it is a theory, revision, or paper class.
@@ -276,44 +282,50 @@ const createAutoDeliveryForPayment = async (payment, isSelfPicked = false) => {
         const pType = parseInt(payment.payment_type !== undefined ? payment.payment_type : payment.paymentType, 10);
         const paymentTypeStr = pType === 1 ? 'Monthly' : (pType === 2 ? 'Installment' : 'Full');
 
-        // 4. Scoped deduplication check (matching Slip Approval logic):
-        // - Monthly: Scoped to studentId + groupId (September deliveries never block October deliveries!)
-        // - Full/Installment: Scoped to studentId + batchId (prevents duplicate delivery if student already received batch tutes)
+        // 4. Scoped deduplication check:
+        // - Fetch student's prior deliveries in this batch (or scope)
         let existingDeliveries = [];
-        if (pType === 1 && payment.groupId) {
+        if (payment.batchId) {
             existingDeliveries = await prisma.delivery.findMany({
                 where: {
                     studentId: payment.studentId.toString(),
-                    paymentType: 'Monthly',
-                    payment: { groupId: parseInt(payment.groupId, 10) },
-                    status: { notIn: ['Trash', 'Cancelled', 'Rejected'] }
-                },
-                include: { items: true }
-            });
-        } else if ((pType === 2 || pType === 3) && payment.batchId) {
-            existingDeliveries = await prisma.delivery.findMany({
-                where: {
-                    studentId: payment.studentId.toString(),
-                    paymentType: { in: ['Installment', 'Full'] },
                     payment: { batchId: parseInt(payment.batchId, 10) },
                     status: { notIn: ['Trash', 'Cancelled', 'Rejected'] }
                 },
-                include: { items: true }
+                include: { items: true, payment: true }
+            });
+        } else if (payment.groupId) {
+            existingDeliveries = await prisma.delivery.findMany({
+                where: {
+                    studentId: payment.studentId.toString(),
+                    payment: { groupId: parseInt(payment.groupId, 10) },
+                    status: { notIn: ['Trash', 'Cancelled', 'Rejected'] }
+                },
+                include: { items: true, payment: true }
             });
         }
 
         // Collect already delivered/queued items for this student in this scope
-        const alreadyDeliveredSet = new Set();
+        const alreadyDeliveredExactSet = new Set();
+        const alreadyDeliveredBaseSet = new Set();
+        const alreadyDeliveredCourseSet = new Set();
+
         existingDeliveries.forEach(d => {
+            const isDeliveryFull = d.paymentType === 'Full' || d.paymentType === 'Installment';
             (d.items || []).forEach(item => {
                 if (item.courseId) {
-                    alreadyDeliveredSet.add(`${item.courseId}`);
+                    alreadyDeliveredCourseSet.add(`${item.courseId}`);
                 }
                 if (item.tuteName) {
                     const norm = normalizeTuteText(item.tuteName);
+                    const base = getBaseSubjectName(item.tuteName);
                     if (norm) {
-                        alreadyDeliveredSet.add(`name_${norm}`);
-                        if (item.courseId) alreadyDeliveredSet.add(`${item.courseId}_${norm}`);
+                        alreadyDeliveredExactSet.add(norm);
+                        if (item.courseId) alreadyDeliveredExactSet.add(`${item.courseId}_${norm}`);
+                    }
+                    if (base && isDeliveryFull) {
+                        alreadyDeliveredBaseSet.add(base);
+                        if (item.courseId) alreadyDeliveredBaseSet.add(`${item.courseId}_${base}`);
                     }
                 }
             });
@@ -322,13 +334,22 @@ const createAutoDeliveryForPayment = async (payment, isSelfPicked = false) => {
         // Filter out already delivered tutes in this scope
         const newDeliverableItems = deliverableItems.filter(item => {
             const norm = item.tuteName ? normalizeTuteText(item.tuteName) : null;
-            const keyTute = (norm && item.courseId) ? `${item.courseId}_${norm}` : null;
-            const keyName = norm ? `name_${norm}` : null;
+            const base = item.tuteName ? getBaseSubjectName(item.tuteName) : null;
             const keyCourse = `${item.courseId}`;
 
-            if (keyName && alreadyDeliveredSet.has(keyName)) return false;
-            if (keyTute && alreadyDeliveredSet.has(keyTute)) return false;
-            if (!keyName && !keyTute && alreadyDeliveredSet.has(keyCourse)) return false;
+            // 1. Exact tute name already delivered in this batch (e.g. same lesson book like "PS - Lesson 02")
+            if (norm && alreadyDeliveredExactSet.has(norm)) return false;
+            if (norm && item.courseId && alreadyDeliveredExactSet.has(`${item.courseId}_${norm}`)) return false;
+
+            // 2. For Full / Installment payments:
+            if (pType === 2 || pType === 3) {
+                // If the exact courseId was already delivered
+                if (alreadyDeliveredCourseSet.has(keyCourse)) return false;
+                // If base subject was already delivered in Full (e.g. "Sinhala Full" when "Sinhala" was already delivered)
+                if (base && alreadyDeliveredBaseSet.has(base)) return false;
+                if (base && item.courseId && alreadyDeliveredBaseSet.has(`${item.courseId}_${base}`)) return false;
+            }
+
             return true;
         });
 

@@ -1,30 +1,99 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from "../../../api/axios";
 import {
     Loader2, Bell, AlertTriangle, CheckCircle, Calendar, Clock,
     User, X, Smartphone, Download, AlertCircle, Apple,
-    Video, Play, Radio, CalendarDays, Lock, BookOpen
+    Video, Play, Radio, CalendarDays, Lock, BookOpen,
+    Camera, Sparkles, Plus, Check
 } from 'lucide-react';
 import UpgradeOfferWidget from './UpgradeOfferWidget';
-
+import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 
-export default function StudentOverview() {
+export default function StudentOverview({ setActiveTab }) {
     const navigate = useNavigate();
+    const fileInputRef = useRef(null);
     const [data, setData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [currentTime, setCurrentTime] = useState(new Date());
     const [selectedImage, setSelectedImage] = useState(null);
+    const [isUploading, setIsUploading] = useState(false);
 
     // Popup State
     const [showAppPopup, setShowAppPopup] = useState(true);
 
-    const user = JSON.parse(localStorage.getItem('user') || '{}') || {};
+    const [currentUser, setCurrentUser] = useState(() => {
+        try {
+            return JSON.parse(localStorage.getItem('user') || '{}') || {};
+        } catch {
+            return {};
+        }
+    });
+
+    const user = currentUser;
     const backendBaseUrl = axios.defaults.baseURL ? axios.defaults.baseURL.replace('/api', '') : 'https://imacampus.online';
 
-    const profilePic = user.image && user.image !== 'default.png' && user.image !== 'null'
-        ? `${backendBaseUrl}/storage/images/${user.image}`
+    const profilePic = currentUser.image && currentUser.image !== 'default.png' && currentUser.image !== 'null'
+        ? `${backendBaseUrl}/storage/images/${currentUser.image}`
         : null;
+
+    useEffect(() => {
+        const handleUserUpdate = () => {
+            try {
+                setCurrentUser(JSON.parse(localStorage.getItem('user') || '{}') || {});
+            } catch (e) {}
+        };
+        window.addEventListener('storage', handleUserUpdate);
+        window.addEventListener('user-updated', handleUserUpdate);
+        return () => {
+            window.removeEventListener('storage', handleUserUpdate);
+            window.removeEventListener('user-updated', handleUserUpdate);
+        };
+    }, []);
+
+    const handleDirectImageUpload = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        if (!file.type.startsWith('image/')) {
+            toast.error('Please select a valid image file (PNG, JPG, WebP)');
+            return;
+        }
+
+        if (file.size > 5 * 1024 * 1024) {
+            toast.error('Image size must be less than 5MB');
+            return;
+        }
+
+        setIsUploading(true);
+        const toastId = toast.loading('Uploading profile picture...');
+        try {
+            const formData = new FormData();
+            formData.append('image', file);
+            if (currentUser.addressHouseNo) formData.append('addressHouseNo', currentUser.addressHouseNo);
+            if (currentUser.addressStreet) formData.append('addressStreet', currentUser.addressStreet);
+            if (currentUser.city) formData.append('city', currentUser.city);
+            if (currentUser.district) formData.append('district', currentUser.district);
+
+            const res = await axios.post('/student/profile/update', formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+
+            const newImage = res.data?.image || file.name;
+            const updatedUser = { ...currentUser, image: newImage };
+            localStorage.setItem('user', JSON.stringify(updatedUser));
+            setCurrentUser(updatedUser);
+            window.dispatchEvent(new Event('user-updated'));
+
+            toast.success('Awesome! Profile picture updated! 🎉 Looking sharp!', { id: toastId, icon: '📸' });
+        } catch (err) {
+            console.error('Failed to upload profile picture:', err);
+            toast.error(err.response?.data?.error || err.response?.data?.message || 'Failed to upload profile picture', { id: toastId });
+        } finally {
+            setIsUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -221,27 +290,127 @@ export default function StudentOverview() {
                 </div>
             </div>
 
-            {/* 🔥 COMPACT GREETING CARD 🔥 */}
-            <div className="glass-card flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 p-4 md:p-6 rounded-2xl md:rounded-[2.5rem] border-white/20">
-                <div className="flex items-center gap-3 md:gap-4 w-full sm:w-auto text-center sm:text-left">
-                    <div className="relative w-12 h-12 md:w-14 md:h-14 flex items-center justify-center shrink-0 mx-auto sm:mx-0">
-                        <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-red-600 to-orange-500 animate-pulse"></div>
-                        <div className="absolute inset-0.5 bg-black/20 backdrop-blur-xl rounded-full z-10"></div>
-                        {profilePic ? <img src={profilePic} alt="Profile" className="absolute inset-1 w-[calc(100%-8px)] h-[calc(100%-8px)] rounded-full object-cover z-20" /> : <User size={20} className="text-white/80 font-medium relative z-20" />}
+            {/* Hidden Native File Input for Instant 1-Click Upload */}
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/jpg"
+                className="hidden"
+                onChange={handleDirectImageUpload}
+            />
+
+            {/* 🔥 COMPACT GREETING CARD WITH SOCIAL MEDIA STORY RING & PROFILE CTA 🔥 */}
+            <div className="glass-card flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 p-4 md:p-6 rounded-2xl md:rounded-[2.5rem] border-white/20 relative overflow-hidden">
+                {/* Subtle colorful ambient glow behind avatar */}
+                <div className="absolute -top-12 -left-12 w-48 h-48 bg-gradient-to-br from-rose-500/15 via-purple-500/10 to-amber-500/5 blur-3xl rounded-full pointer-events-none"></div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-4 md:gap-6 w-full sm:w-auto text-center sm:text-left z-10">
+                    
+                    {/* 🌟 SOCIAL MEDIA AVATAR & PROMPT CONTAINER (ENLARGED) 🌟 */}
+                    <div className="flex flex-col items-center shrink-0">
+                        <div
+                            onClick={() => fileInputRef.current?.click()}
+                            className="relative group cursor-pointer"
+                            role="button"
+                            tabIndex={0}
+                            title={profilePic ? "Click to change your profile picture" : "Click to add your profile picture"}
+                            onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInputRef.current?.click()}
+                        >
+                            {/* 🔥 Intense Animated Blinking & Radar Waves when no profile picture 🔥 */}
+                            {!profilePic && (
+                                <>
+                                    {/* Outward Expanding Ping Wave 1 */}
+                                    <span className="absolute -inset-3 rounded-full bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 opacity-70 blur-md animate-ping pointer-events-none"></span>
+                                    {/* Breathing Neon Halo Wave 2 */}
+                                    <span className="absolute -inset-2 rounded-full bg-gradient-to-tr from-rose-500 via-purple-600 to-amber-400 opacity-90 blur-sm animate-pulse pointer-events-none"></span>
+                                </>
+                            )}
+
+                            {/* 📸 Social Media Story Gradient Ring - LARGER AREA */}
+                            <div className={`relative w-20 h-20 sm:w-22 sm:h-22 md:w-24 md:h-24 rounded-full p-[3px] transition-all duration-300 ${
+                                profilePic
+                                    ? 'bg-gradient-to-tr from-emerald-400 via-cyan-500 to-blue-500 group-hover:scale-105 shadow-[0_0_20px_rgba(6,182,212,0.45)]'
+                                    : 'bg-gradient-to-tr from-amber-400 via-rose-500 to-purple-600 story-glow-active group-hover:scale-110'
+                            }`}>
+                                {/* Inner circle housing photo or placeholder */}
+                                <div className="w-full h-full rounded-full bg-[#0a0f1d] p-0.5 flex items-center justify-center overflow-hidden relative">
+                                    {isUploading ? (
+                                        <div className="w-full h-full flex flex-col items-center justify-center bg-black/75 backdrop-blur-sm">
+                                            <Loader2 className="animate-spin text-rose-400" size={30} />
+                                        </div>
+                                    ) : profilePic ? (
+                                        <>
+                                            <img
+                                                src={profilePic}
+                                                alt="Profile"
+                                                className="w-full h-full rounded-full object-cover group-hover:scale-110 transition-transform duration-300"
+                                            />
+                                            {/* Hover Camera Overlay */}
+                                            <div className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-full transition-opacity duration-200">
+                                                <Camera size={24} className="text-white drop-shadow" />
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className="w-full h-full rounded-full bg-gradient-to-br from-rose-500/30 via-purple-500/20 to-amber-500/30 flex items-center justify-center group-hover:bg-rose-500/40 transition-colors">
+                                            <User size={38} className="text-white group-hover:scale-110 transition-transform" />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* 🎯 Social Media Corner Badge */}
+                            {isUploading ? null : !profilePic ? (
+                                /* Instagram-style Bouncing Plus Badge */
+                                <div className="absolute -bottom-1 -right-1 w-7 h-7 md:w-8 md:h-8 rounded-full bg-gradient-to-tr from-rose-500 to-amber-500 text-white flex items-center justify-center border-2 border-[#0a0f1d] shadow-lg shadow-rose-500/50 animate-bounce group-hover:scale-125 transition-transform">
+                                    <Plus size={16} className="stroke-[3]" />
+                                </div>
+                            ) : (
+                                /* Verified / Edit Photo Badge */
+                                <div className="absolute -bottom-0.5 -right-0.5 w-6 h-6 md:w-7 md:h-7 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 text-white flex items-center justify-center border-2 border-[#0a0f1d] shadow-md group-hover:scale-110 transition-transform">
+                                    <Camera size={13} className="stroke-[2.5]" />
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 🔥 ONLY 1 BUTTON DIRECTLY UNDER AVATAR 🔥 */}
+                        {!profilePic ? (
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="mt-2.5 relative inline-flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-full text-[11px] md:text-xs font-black text-white bg-gradient-to-r from-rose-500 via-pink-600 to-amber-500 hover:from-rose-600 hover:to-amber-600 shadow-[0_0_20px_rgba(244,63,94,0.45)] hover:shadow-[0_0_28px_rgba(244,63,94,0.75)] hover:scale-105 active:scale-95 transition-all duration-300 border border-white/25 group cursor-pointer whitespace-nowrap"
+                            >
+                                <span className="relative flex h-2 w-2">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-90"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-white"></span>
+                                </span>
+                                <Camera size={13} className="group-hover:rotate-12 transition-transform shrink-0" />
+                                <span>Add Your Profile Picture</span>
+                                <Sparkles size={12} className="text-yellow-300 animate-pulse shrink-0" />
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => fileInputRef.current?.click()}
+                                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold text-white/90 bg-white/10 hover:bg-white/20 border border-white/20 transition-all hover:scale-105 active:scale-95 cursor-pointer shadow-sm"
+                            >
+                                <Camera size={12} />
+                                <span>Change Photo</span>
+                            </button>
+                        )}
                     </div>
-                    <div className="flex-1">
-                        <h1 className="text-lg md:text-2xl font-extrabold text-white leading-tight break-words">
-                            {getGreeting()}, <span className="text-red-500">{user.fName}</span> 👋
+
+                    {/* Greeting & Details (Clean & Uncluttered) */}
+                    <div className="flex-1 text-center sm:text-left">
+                        <h1 className="text-xl md:text-3xl font-extrabold text-white leading-tight break-words">
+                            {getGreeting()}{user.fName ? <>, <span className="text-red-500">{user.fName}</span></> : null} 👋
                         </h1>
-                        <p className="text-white/80 font-medium text-[10px] md:text-xs font-medium mt-0.5 flex items-center justify-center sm:justify-start gap-1.5">
-                            <Calendar size={12} /> {currentTime.toLocaleDateString()} <span className="mx-1">•</span> <Clock size={12} /> {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <p className="text-white/80 font-medium text-xs md:text-sm mt-1 flex items-center justify-center sm:justify-start gap-1.5">
+                            <Calendar size={13} /> {currentTime.toLocaleDateString()} <span className="mx-1">•</span> <Clock size={13} /> {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </p>
                     </div>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-center sm:justify-end gap-3 w-full sm:w-auto">
-
-
+                <div className="flex flex-wrap items-center justify-center sm:justify-end gap-3 w-full sm:w-auto z-10">
                     <div className="bg-black/20 backdrop-blur-xl border border-white/20 px-4 py-2 md:px-5 md:py-2.5 rounded-xl flex items-center justify-center gap-3 w-full sm:w-auto min-w-max">
                         <div className="bg-red-500/20 p-2 rounded-lg text-red-400 shrink-0">
                             <BookOpen size={18} />

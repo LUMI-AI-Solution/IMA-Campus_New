@@ -210,6 +210,7 @@ exports.ghostLogin = async (req, res) => {
       const allowedSubordinateRoles = [
         'COORDINATOR', 'CALLER', 'CALL_CENTER_AGENT', 'TELECALLER',
         'STAFF', 'SOCIAL_MEDIA_STAFF', 'PAPER_GUIDER', 'LECTURE', 'LECTURER',
+        'PAPER_MARKER', 'PAPER MARKER',
         'STUDENT', 'USER'
       ];
       if (!allowedSubordinateRoles.includes(targetRoleUpper)) {
@@ -222,8 +223,8 @@ exports.ghostLogin = async (req, res) => {
 
       if (callerDept) {
         if (callerDept === 'class coordination') {
-          // Class Coordination managers can access Coordinators and Class Coordination staff
-          if (targetRoleUpper !== 'COORDINATOR' && targetDept !== 'class coordination') {
+          // Class Coordination managers can access Coordinators and Class Coordination staff (including Paper Markers)
+          if (targetRoleUpper !== 'COORDINATOR' && targetRoleUpper !== 'PAPER_MARKER' && targetRoleUpper !== 'PAPER MARKER' && targetDept !== 'class coordination') {
             return res.status(403).json({ error: "Unauthorized: Class Coordination managers can only ghost login into coordinators." });
           }
         } else if (callerDept === 'call center') {
@@ -244,7 +245,8 @@ exports.ghostLogin = async (req, res) => {
     const isGhostStaff = [
       'ADMIN', 'SUPER_ADMIN', 'SYSTEM_ADMIN', 'STAFF', 'COORDINATOR', 
       'CALLER', 'MANAGER', 'MANAGEMENT', 'TEACHER', 'INSTRUCTOR', 
-      'TELECALLER', 'FINANCE', 'ASS MANAGER', 'SOCIAL MEDIA MANAGER', 'SOCIAL MEDIA STAFF'
+      'TELECALLER', 'FINANCE', 'ASS MANAGER', 'SOCIAL MEDIA MANAGER', 'SOCIAL MEDIA STAFF',
+      'PAPER_GUIDER', 'LECTURE', 'LECTURER', 'PAPER_MARKER', 'PAPER MARKER'
     ].includes(targetRoleUpper) || Boolean(user.department) || Boolean(user.businessType);
 
     const isGhostStudent = !isGhostStaff && (targetRoleUpper === 'STUDENT' || targetRoleUpper === 'USER');

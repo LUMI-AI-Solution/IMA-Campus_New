@@ -570,3 +570,19 @@ label,
 .animate-portal-content {
   animation: portalContentReveal 1s 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* 🔥 Social Media Story Glow & Avatar Blink Animations 🔥 */
+@keyframes storyRingGlow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(244, 63, 94, 0.5), 0 0 30px rgba(236, 72, 153, 0.3);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(244, 63, 94, 0.9), 0 0 60px rgba(249, 115, 22, 0.65);
+    transform: scale(1.05);
+  }
+}
+
+.story-glow-active {
+  animation: storyRingGlow 2s ease-in-out infinite;
+}

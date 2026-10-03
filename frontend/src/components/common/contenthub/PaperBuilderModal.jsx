@@ -8,7 +8,7 @@ import {
 import toast from 'react-hot-toast';
 import api from '../../../api/axios';
 
-export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated }) {
+export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated, readOnly = false }) {
   const [activeTab, setActiveTab] = useState('questions'); // 'questions' | 'pdf' | 'settings' | 'submissions' | 'leaderboard'
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -565,6 +565,11 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated 
                     <Users size={12} /> {manualParticipantCount} Candidates
                   </span>
                 )}
+                {readOnly && (
+                  <span className="text-xs font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 flex items-center gap-1">
+                    <Eye size={12} /> Paper Marker View
+                  </span>
+                )}
               </div>
               <h2 className="text-lg sm:text-2xl font-black text-white mt-1 drop-shadow-sm truncate max-w-[500px]">
                 {content?.title}
@@ -639,21 +644,27 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated 
                         Add questions with up to 5 answers. Click the radio button next to an option to mark it as the correct answer.
                       </p>
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={addQuestion}
-                        className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 transition-all active:scale-95"
-                      >
-                        <Plus size={16} /> Add Question
-                      </button>
-                      <button
-                        onClick={handleSaveQuestions}
-                        disabled={saving}
-                        className="bg-brand-accent hover:bg-brand-accent/90 text-white font-extrabold px-5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50"
-                      >
-                        {saving ? <RefreshCw className="animate-spin" size={16} /> : <Save size={16} />} Save All Questions
-                      </button>
-                    </div>
+                    {!readOnly ? (
+                      <div className="flex gap-2">
+                        <button
+                          onClick={addQuestion}
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 transition-all active:scale-95"
+                        >
+                          <Plus size={16} /> Add Question
+                        </button>
+                        <button
+                          onClick={handleSaveQuestions}
+                          disabled={saving}
+                          className="bg-brand-accent hover:bg-brand-accent/90 text-white font-extrabold px-5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50"
+                        >
+                          {saving ? <RefreshCw className="animate-spin" size={16} /> : <Save size={16} />} Save All Questions
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-xs font-bold text-slate-400 bg-white/5 border border-white/10 px-3.5 py-2 rounded-xl">
+                        <Eye size={14} className="text-cyan-400" /> Read-Only Questions Mode
+                      </div>
+                    )}
                   </div>
 
                   {/* Questions List */}
@@ -862,21 +873,23 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated 
                   </div>
 
                   {/* Bottom Action Bar */}
-                  <div className="flex justify-between items-center bg-black/40 p-4 rounded-2xl border border-white/10 sticky bottom-0 z-20 backdrop-blur-md">
-                    <button
-                      onClick={addQuestion}
-                      className="bg-white/10 hover:bg-white/20 text-white font-extrabold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-all"
-                    >
-                      <Plus size={16} /> Add Another Question
-                    </button>
-                    <button
-                      onClick={handleSaveQuestions}
-                      disabled={saving}
-                      className="bg-brand-accent hover:bg-brand-accent/90 text-white font-extrabold px-8 py-2.5 rounded-xl text-sm flex items-center gap-2 shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50"
-                    >
-                      {saving ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Save All Questions ({questions.length})
-                    </button>
-                  </div>
+                  {!readOnly && (
+                    <div className="flex justify-between items-center bg-black/40 p-4 rounded-2xl border border-white/10 sticky bottom-0 z-20 backdrop-blur-md">
+                      <button
+                        onClick={addQuestion}
+                        className="bg-white/10 hover:bg-white/20 text-white font-extrabold px-4 py-2.5 rounded-xl text-xs flex items-center gap-2 transition-all"
+                      >
+                        <Plus size={16} /> Add Another Question
+                      </button>
+                      <button
+                        onClick={handleSaveQuestions}
+                        disabled={saving}
+                        className="bg-brand-accent hover:bg-brand-accent/90 text-white font-extrabold px-8 py-2.5 rounded-xl text-sm flex items-center gap-2 shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50"
+                      >
+                        {saving ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Save All Questions ({questions.length})
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1777,13 +1790,19 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated 
 
                   {/* Save Button */}
                   <div className="flex justify-end pt-4 border-t border-white/10">
-                    <button
-                      type="submit"
-                      disabled={saving}
-                      className="bg-brand-accent hover:bg-brand-accent/90 text-white font-extrabold px-8 py-3 rounded-xl text-sm flex items-center gap-2 shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50"
-                    >
-                      {saving ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Save Settings
-                    </button>
+                    {!readOnly ? (
+                      <button
+                        type="submit"
+                        disabled={saving}
+                        className="bg-brand-accent hover:bg-brand-accent/90 text-white font-extrabold px-8 py-3 rounded-xl text-sm flex items-center gap-2 shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50"
+                      >
+                        {saving ? <RefreshCw className="animate-spin" size={18} /> : <Save size={18} />} Save Settings
+                      </button>
+                    ) : (
+                      <div className="text-xs font-bold text-slate-400 bg-white/5 border border-white/10 px-4 py-2 rounded-xl flex items-center gap-2">
+                        <Eye size={14} className="text-cyan-400" /> Read-Only Mode: Settings cannot be modified
+                      </div>
+                    )}
                   </div>
                 </form>
               )}

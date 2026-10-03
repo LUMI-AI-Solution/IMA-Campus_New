@@ -9,7 +9,7 @@ import {
   Archive, HardDrive, CalendarDays, CalendarCheck, CheckSquare, History,
   Music, Palette, ChevronLeft, ChevronRight, Megaphone, X, BarChart, PieChart, Calendar, Menu,
   PhoneCall, UserPlus, Repeat, GraduationCap, TrendingUp, Box, Activity, ShieldCheck, RefreshCw, Layers, Mic, Upload, Video, Sun, Moon, Sparkles, Wand2, Send,
-  BrainCircuit, MessageSquareText, BookOpen, Bot
+  BrainCircuit, MessageSquareText, BookOpen, Bot, Briefcase
 } from 'lucide-react';
 
 export default function Sidebar({ userRole, loggedInUser, handleLogout, isSidebarOpen, setIsSidebarOpen, currentBg, setBgImage, isSpotifyOpen, setIsSpotifyOpen, isSocialMedia, isDarkMode, toggleThemeMode }) {
@@ -178,26 +178,27 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
 
   const roleUpper = (roleName || '').toUpperCase().replace(/[\s_-]+/g, '_');
   const isLectureOrGuider = roleUpper === 'LECTURE' || roleUpper === 'LECTURER' || roleUpper === 'PAPER_GUIDER' || roleName === 'Lecture' || roleName === 'Paper Guider';
+  const isPaperMarker = roleUpper === 'PAPER_MARKER' || roleName === 'Paper Marker';
 
   const isSystemAdmin = roleName === 'SYSTEM_ADMIN' || roleName === 'System Admin' || roleName === 'Director' || roleName === 'SUPER' || roleName === 'ADMIN';
   const isDeliveryDept = loggedInUser?.department === 'Delivery';
   const isFinanceDept = loggedInUser?.department === 'Finance';
   const isPhysicalDept = loggedInUser?.department === 'Physical';
-  const isManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'ASS_MANAGER') && !isDeliveryDept && !isFinanceDept && !isPhysicalDept && !isLectureOrGuider;
+  const isManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'ASS_MANAGER') && !isDeliveryDept && !isFinanceDept && !isPhysicalDept && !isLectureOrGuider && !isPaperMarker;
   const isCallCenterDept = loggedInUser?.department === 'Call Center';
   const isCallCenterManager = isManager && isCallCenterDept;
 
   const isSocialMediaManager = roleName === 'SOCIAL_MEDIA_MANAGER' || roleName === 'SOCIAL MEDIA MANAGER' || roleName === 'Social Media Manager' || (isManager && loggedInUser?.department === 'Social Media');
   const isSocialMediaStaff = roleName === 'SOCIAL_MEDIA_STAFF' || roleName === 'SOCIAL MEDIA STAFF' || roleName === 'Social Media Staff' || (roleName === 'STAFF' && loggedInUser?.department === 'Social Media');
 
-  const isGeneralManager = isManager && !isCallCenterDept && !isSocialMediaManager && !isLectureOrGuider;
+  const isGeneralManager = isManager && !isCallCenterDept && !isSocialMediaManager && !isLectureOrGuider && !isPaperMarker;
   const isClassCoordinatorManager = isManager && loggedInUser?.department === 'Class Coordination';
   const isPhysicalManager = isPhysicalDept;
-  const isAnyManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'Ass Manager' || roleName === 'ASS_MANAGER') && !isCallCenterManager && !isSocialMediaManager && !isLectureOrGuider;
-  const isHeadManager = (roleName === 'MANAGER' || roleName === 'Manager') && !isCallCenterManager && !isSocialMediaManager && !isPhysicalManager && !isLectureOrGuider;
+  const isAnyManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'Ass Manager' || roleName === 'ASS_MANAGER') && !isCallCenterManager && !isSocialMediaManager && !isLectureOrGuider && !isPaperMarker;
+  const isHeadManager = (roleName === 'MANAGER' || roleName === 'Manager') && !isCallCenterManager && !isSocialMediaManager && !isPhysicalManager && !isLectureOrGuider && !isPaperMarker;
   const isCaller = roleName === 'CALLER' || roleName === 'Caller';
   const isCallCenterAgent = roleName === 'CALL_CENTER_AGENT' || roleName === 'Call Center Agent';
-  const isStaff = !isSystemAdmin && !isManager && !isPhysicalManager && !isDeliveryDept && !isFinanceDept && !isCaller && !isCallCenterAgent && !isSocialMediaManager && !isSocialMediaStaff && !isLectureOrGuider && roleName !== 'STUDENT' && roleName !== 'user';
+  const isStaff = !isSystemAdmin && !isManager && !isPhysicalManager && !isDeliveryDept && !isFinanceDept && !isCaller && !isCallCenterAgent && !isSocialMediaManager && !isSocialMediaStaff && !isLectureOrGuider && !isPaperMarker && roleName !== 'STUDENT' && roleName !== 'user';
   const isStudent = roleName === 'STUDENT' || roleName === 'user';
 
   return (
@@ -259,6 +260,15 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
           </>
         )}
 
+        {/* PAPER MARKER PORTAL MENU (Overview & Workplace) */}
+        {isPaperMarker && (
+          <>
+            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2 mt-2">Paper Marker Portal</p>}
+            <NavLink to="/paper-marker/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
+            <NavLink to="/paper-marker/workplace" className={getNavLinkClass}><Briefcase size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Workplace</span>}</NavLink>
+          </>
+        )}
+
         {isSystemAdmin && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Administration</p>}
@@ -266,6 +276,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/admin/stats-hub" className={getNavLinkClass}><BrainCircuit size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-cyan-300">LUMI AI Analyser</span>}</NavLink>
             <NavLink to="/admin/claude-opus" className={getNavLinkClass}><Sparkles size={18} className="text-amber-400 animate-pulse" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">Claude Opus 5 Studio 🔥</span>}</NavLink>
             <NavLink to="/admin/sinhala-voice-agent" className={getNavLinkClass}><Mic size={18} className="text-emerald-400 animate-pulse" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-emerald-300">Sinhala AI Call Agent 🎙️</span>}</NavLink>
+            <NavLink to="/admin/yt-transcriber" className={getNavLinkClass}><Video size={18} className="text-red-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-red-300">YouTube Transcriber 🎬</span>}</NavLink>
             <NavLink to="/admin/ai-team" className={getNavLinkClass}><Bot size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-purple-300">AI Dev Squad 🤖</span>}</NavLink>
             <NavLink to="/admin/ai-image-generator" className={getNavLinkClass}><Palette size={18} className="text-rose-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-rose-300">LUMI Image Generator</span>}</NavLink>
             <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>

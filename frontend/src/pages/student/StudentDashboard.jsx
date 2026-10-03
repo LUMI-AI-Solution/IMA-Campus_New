@@ -172,7 +172,7 @@ const StudentDashboard = () => {
                 <div className="w-full h-full animate-fade-in relative">
     
     <div className={`h-full ${activeTab === 'home' ? 'block' : 'hidden'}`}>
-        <StudentOverview />
+        <StudentOverview setActiveTab={setActiveTab} />
     </div>
 
     <div className={`h-full ${activeTab === 'courses' ? 'block' : 'hidden'}`}>

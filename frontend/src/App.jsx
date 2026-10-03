@@ -58,6 +58,7 @@ import DataExportDashboard from './components/DataExport/DataExportDashboard';
 import ZoomAccountManager from './pages/admin/ZoomAccountManager';
 import WhatsAppCallTest from './pages/admin/WhatsAppCallTest';
 import CallTreeManager from './pages/admin/CallTreeManager';
+import PaperMarkerDashboard from './components/paperMarker/PaperMarkerDashboard';
 
 // Coordinator CRM Dashboard (For Manager & Staff)
 import CoordinatorDashboard from './pages/ClassCoordinator/CoordinatorDashboard';
@@ -98,6 +99,7 @@ import AIImageGeneratorPage from './pages/admin/AIImageGeneratorPage';
 import ClaudeOpusStudio from './pages/admin/ClaudeOpusStudio';
 import AITeamHub from './pages/admin/AITeamHub';
 import SinhalaVoiceAgentTester from './pages/admin/SinhalaVoiceAgentTester';
+import YouTubeTranscriber from './pages/admin/YouTubeTranscriber';
 
 // 🔥 GHOST MODE BANNER COMPONENT 🔥
 const GhostModeBanner = () => {
@@ -160,12 +162,14 @@ export default function App() {
   const getDashboardLink = (user) => {
     if (!user) return '/login';
 
-    const role = user?.role?.toUpperCase();
+    const role = (user?.role || '').toUpperCase().replace(/[\s_-]+/g, '_');
     const dept = user?.department;
 
     if (role === 'STUDENT' || role === 'USER') return '/student/dashboard';
 
-    if (role === 'LECTURE' || role === 'LECTURER' || role === 'PAPER GUIDER' || role === 'PAPER_GUIDER') return '/manager/dashboard';
+    if (role === 'PAPER_MARKER') return '/paper-marker/dashboard';
+
+    if (role === 'LECTURE' || role === 'LECTURER' || role === 'PAPER_GUIDER') return '/manager/dashboard';
 
     if (role === 'CALLER') return '/workspace/crm';
     if (role === 'CALL_CENTER_AGENT' || role === 'CALL CENTER AGENT') return '/call-center/agent/overview';
@@ -259,6 +263,7 @@ export default function App() {
               <Route path="/admin/stats-hub" element={<ExecutiveStatsHub loggedInUser={loggedInUser} />} />
               <Route path="/admin/claude-opus" element={<ClaudeOpusStudio loggedInUser={loggedInUser} />} />
               <Route path="/admin/sinhala-voice-agent" element={<SinhalaVoiceAgentTester loggedInUser={loggedInUser} />} />
+              <Route path="/admin/yt-transcriber" element={<YouTubeTranscriber loggedInUser={loggedInUser} />} />
               <Route path="/admin/ai-team" element={<AITeamHub loggedInUser={loggedInUser} />} />
               <Route path="/workspace/ai-team" element={<AITeamHub loggedInUser={loggedInUser} />} />
               <Route path="/admin/system-tasks" element={<SystemTasksAdmin />} />
@@ -335,6 +340,10 @@ export default function App() {
               {/* AI Image Studio / Generator in Development & Admin */}
               <Route path="/admin/ai-image-generator" element={<AIImageGeneratorPage loggedInUser={loggedInUser} />} />
               <Route path="/development/ai-image-generator" element={<AIImageGeneratorPage loggedInUser={loggedInUser} />} />
+
+              {/* Paper Marker Routes */}
+              <Route path="/paper-marker/dashboard" element={<PaperMarkerDashboard loggedInUser={loggedInUser} activeTab="overview" />} />
+              <Route path="/paper-marker/workplace" element={<PaperMarkerDashboard loggedInUser={loggedInUser} activeTab="workplace" />} />
             </Route>
 
             {/* ✅ STUDENT ROUTES ✅ */}

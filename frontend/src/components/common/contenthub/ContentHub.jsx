@@ -14,13 +14,14 @@ export default function ContentHub() {
 
   const isSystemAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'ADMIN', 'SUPER_ADMIN'].includes(userRole);
   const isManager = ['MANAGER', 'ASS_MANAGER', 'SUPER', 'SUPERVISOR', 'PHYSICAL_MANAGER', 'SOCIAL_MEDIA_MANAGER', 'CALL_CENTER_SUPERVISOR'].includes(userRole) || userRole.includes('MANAG');
-  const isLectureOrGuider = ['LECTURE', 'LECTURER', 'PAPER_GUIDER', 'PAPER GUIDER'].includes(userRole);
+  const isPaperMarkerOrGuider = ['PAPER_MARKER', 'PAPER_GUIDER', 'PAPER GUIDER', 'PAPER MARKER'].includes(userRole) || userRole.includes('MARKER') || userRole.includes('GUIDER');
+  const isLectureOrGuider = (['LECTURE', 'LECTURER'].includes(userRole) || userRole.includes('LECTUR')) && !isPaperMarkerOrGuider;
   const isStaff = userRole === 'COORDINATOR' || userRole === 'STAFF';
 
-  const canManageBusiness = isSystemAdmin;
-  const canManageBatches = isSystemAdmin || isManager || isLectureOrGuider;
-  const canManageGroupsAndSubjects = isSystemAdmin || isManager || isLectureOrGuider;
-  const canManageContent = isSystemAdmin || isManager || isLectureOrGuider;
+  const canManageBusiness = isSystemAdmin && !isPaperMarkerOrGuider;
+  const canManageBatches = (isSystemAdmin || isManager || isLectureOrGuider) && !isPaperMarkerOrGuider;
+  const canManageGroupsAndSubjects = (isSystemAdmin || isManager || isLectureOrGuider) && !isPaperMarkerOrGuider;
+  const canManageContent = (isSystemAdmin || isManager || isLectureOrGuider) && !isPaperMarkerOrGuider;
 
   const [showPaperBuilderModal, setShowPaperBuilderModal] = useState(false);
   const [selectedPaperContent, setSelectedPaperContent] = useState(null);
@@ -36,7 +37,7 @@ export default function ContentHub() {
   const [batchTab, setBatchTab] = useState('subjects'); 
   const [selectedClassType, setSelectedClassType] = useState('theory'); // 'theory' (courseType: 1) | 'paper' (courseType: 2) 
   const [activeSubject, setActiveSubject] = useState(null);
-  const [contentTab, setContentTab] = useState('live'); 
+  const [contentTab, setContentTab] = useState(isPaperMarkerOrGuider ? 'testRanking' : 'live'); 
 
   const [businesses, setBusinesses] = useState([]);
   const [managersList, setManagersList] = useState([]);
@@ -252,10 +253,13 @@ export default function ContentHub() {
   };
 
   const fetchContents = async (subject, batch) => {
+      const activeSub = subject || activeSubject;
+      const activeB = batch || activeBatch;
+      if (!activeSub || !activeB) return;
       try {
-          const safeCode = subject.code || `SUB_${subject.id}`;
-          const courseIdsParam = subject.allCourseIds ? subject.allCourseIds.join(',') : subject.id;
-          const res = await api.get(`/admin/manager/get-contents?batchId=${batch.id}&courseCode=${safeCode}&courseIds=${courseIdsParam}`);
+          const safeCode = activeSub.code || `SUB_${activeSub.id}`;
+          const courseIdsParam = activeSub.allCourseIds ? activeSub.allCourseIds.join(',') : activeSub.id;
+          const res = await api.get(`/admin/manager/get-contents?batchId=${activeB.id}&courseCode=${safeCode}&courseIds=${courseIdsParam}`);
           setLessonGroups(res.data?.lessonGroups || []);
           setSubjectContents(res.data?.contents || []);
           const newOpenState = {};
@@ -294,7 +298,17 @@ export default function ContentHub() {
       setViewLevel('batch_details'); 
       setBatchTab('subjects'); 
   };
-  const openContentsView = async (subject) => { setActiveSubject(subject); setViewLevel('contents'); setLoading(true); await fetchContents(subject, activeBatch); setLoading(false); };
+
+  const openContentsView = async (subject) => { 
+      setActiveSubject(subject); 
+      if (isPaperMarkerOrGuider) {
+          setContentTab('testRanking');
+      }
+      setViewLevel('contents'); 
+      setLoading(true); 
+      await fetchContents(subject, activeBatch); 
+      setLoading(false); 
+  };
 
   const getBaseUrl = () => {
       if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
@@ -688,31 +702,75 @@ export default function ContentHub() {
       e.preventDefault();
       if (isSubmittingFolder) return;
       setIsSubmittingFolder(true);
-      const formData = new FormData(e.target);
-      const folderType = getTypeInt(contentTab); 
-      const chosenParent = formData.get('parentId') !== null ? formData.get('parentId') : selectedFolderParentId;
-      const parsedParentId = (chosenParent && chosenParent !== '' && chosenParent !== 'null' && chosenParent !== '0') ? parseInt(chosenParent) : null;
-      
-      const payload = { 
-          contentGroupId: editData?.id, 
-          title: formData.get('title'), 
-          type: folderType, 
-          order: formData.get('order') || 1, 
-          batch_id: activeBatch.id, 
-          course_code: activeSubject.code || `SUB_${activeSubject.id}`,
-          parentId: parsedParentId,
-          selectedBatches: selectedBatchesForContent
-      };
 
       try {
-          if(editMode) await api.put('/admin/content-group/update', payload); 
-          else await api.post('/admin/manager/content-group/add', payload);
-          toast.success(editMode ? (payload.parentId ? "Sub-folder Updated!" : "Folder Updated!") : (payload.parentId ? "Sub-folder Created!" : "Folder Created!"));
+          const formData = new FormData(e.target);
+          const chosenParent = formData.get('parentId') !== null ? formData.get('parentId') : selectedFolderParentId;
+          const parsedParentId = (chosenParent && chosenParent !== '' && chosenParent !== 'null' && chosenParent !== '0') ? parseInt(chosenParent) : null;
+          
+          const rawTitle = formData.get('title');
+          const title = (rawTitle || '').trim();
+          if (!title) {
+              toast.error("Please enter a folder title");
+              setIsSubmittingFolder(false);
+              return;
+          }
+
+          const applyToAllSubjects = formData.get('applyToAllSubjects') === 'true' || formData.get('applyToAllSubjects') === 'on';
+          const applyToBothTypes = formData.get('applyToBothTypes') === 'true' || formData.get('applyToBothTypes') === 'on';
+
+          const resolvedBatchId = activeBatch?.id || editData?.batchId;
+          if (!resolvedBatchId) {
+              toast.error("No active batch selected");
+              setIsSubmittingFolder(false);
+              return;
+          }
+
+          const currentTabType = getTypeInt(contentTab);
+          let targetTypes = [currentTabType];
+          if (!parsedParentId && applyToBothTypes) {
+              targetTypes = [2, 3];
+              if (currentTabType === 1) targetTypes = [1, 2, 3];
+          }
+
+          const resolvedCourseCode = applyToAllSubjects 
+              ? null 
+              : (activeSubject?.code || (activeSubject?.id ? `SUB_${activeSubject.id}` : null));
+
+          const payload = { 
+              contentGroupId: editData?.id, 
+              title, 
+              type: currentTabType, 
+              types: targetTypes,
+              applyToAllSubjects,
+              applyToAllTypes: applyToBothTypes,
+              order: parseInt(formData.get('order')) || 1, 
+              batch_id: resolvedBatchId, 
+              course_code: resolvedCourseCode,
+              parentId: parsedParentId,
+              selectedBatches: selectedBatchesForContent
+          };
+
+          if (editMode) {
+              await api.put('/admin/content-group/update', payload); 
+              toast.success(payload.parentId ? "Sub-folder Updated!" : "Folder Updated!");
+          } else {
+              await api.post('/admin/manager/content-group/add', payload);
+              toast.success(payload.parentId ? "Sub-folder Created!" : (applyToAllSubjects ? "Folder Created for All Subjects!" : "Folder Created!"));
+          }
+
           setShowLessonGroupModal(false); 
+          setEditMode(false);
+          setEditData(null);
           setParentFolderForSub(null);
           setSelectedFolderParentId('');
-          fetchContents(activeSubject, activeBatch); 
+          setSelectedBatchesForContent([]);
+          
+          if (activeSubject && activeBatch) {
+              fetchContents(activeSubject, activeBatch); 
+          }
       } catch (error) { 
+          console.error("Folder action error:", error);
           toast.error(error.response?.data?.error || "Action Failed"); 
       } finally {
           setIsSubmittingFolder(false);
@@ -814,7 +872,7 @@ export default function ContentHub() {
   };
 
   const stateData = {
-    isSystemAdmin, isManager, isStaff, canManageBusiness, canManageBatches, canManageGroupsAndSubjects, canManageContent,
+    isSystemAdmin, isManager, isStaff, isPaperMarkerOrGuider, canManageBusiness, canManageBatches, canManageGroupsAndSubjects, canManageContent,
     viewLevel, activeBusiness, activeBatch, batchTab, activeSubject, contentTab, businesses, managersList, batches, uniqueSubjects,
     lessonGroups, subjectContents, postsList, showBusinessModal, showAssignModal, showBatchModal, showGroupModal, showCourseModal,
     showLessonGroupModal, showContentModal, showPostModal, showManagePostsModal, previewData, editMode, editData, selectedLogoName,
@@ -912,6 +970,7 @@ export default function ContentHub() {
         content={selectedPaperContent}
         isOpen={showPaperBuilderModal}
         onClose={() => setShowPaperBuilderModal(false)}
+        readOnly={isPaperMarkerOrGuider}
         onUpdated={() => {
           if (activeSubject) openContentsView(activeSubject);
         }}
