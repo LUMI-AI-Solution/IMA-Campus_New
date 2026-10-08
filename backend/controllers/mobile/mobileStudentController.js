@@ -11,6 +11,7 @@ const { execSync } = require('child_process');
 const path = require('path');
 const streamCache = {};
 const contentController = require('../contentController'); // 🔥 Added for Zoom proxy
+const { getStudentOverdueInstallmentBatchIds } = require('../studentController');
 
 const safeJson = (data) => JSON.parse(JSON.stringify(data, (key, value) => typeof value === 'bigint' ? value.toString() : value));
 
@@ -132,17 +133,34 @@ exports.getMobileClassroom = async (req, res) => {
     try {
         const studentId = req.user?.userId || req.user?.id || req.userId;
 
+        const overdueBatchIds = await getStudentOverdueInstallmentBatchIds(studentId);
+
         const validPayments = await prisma.payment.findMany({
             where: { studentId: parseInt(studentId), status: { in: [1, 4] } }
         });
 
-        if (validPayments.length === 0) return res.status(200).json([]);
+        // Filter out installment payments for batches with overdue installments,
+        // unless the student also has a valid full or monthly payment for that batch
+        const effectivePayments = validPayments.filter(p => {
+            if (p.payment_type === 2 && overdueBatchIds.has(p.batchId)) {
+                const hasValidAlternative = validPayments.some(other =>
+                    other.id !== p.id &&
+                    other.batchId === p.batchId &&
+                    [1, 3].includes(other.payment_type) &&
+                    other.status === 1
+                );
+                return hasValidAlternative;
+            }
+            return true;
+        });
+
+        if (effectivePayments.length === 0) return res.status(200).json([]);
 
         let allowedSubjectIds = [];
         let validBatchIds = [];
         let validGroupIds = [];
 
-        validPayments.forEach(p => {
+        effectivePayments.forEach(p => {
             if (p.batchId) validBatchIds.push(p.batchId);
             if (p.groupId) validGroupIds.push(p.groupId);
             if (p.subjects) {
@@ -172,7 +190,7 @@ exports.getMobileClassroom = async (req, res) => {
 
         groupsWithCourses.forEach(group => {
             const paidSubjectIdsInThisGroup = [];
-            validPayments.filter(p => p.groupId === group.id).forEach(p => {
+            effectivePayments.filter(p => p.groupId === group.id).forEach(p => {
                 if (p.subjects && p.subjects !== '[]') {
                     try { paidSubjectIdsInThisGroup.push(...JSON.parse(p.subjects).map(Number)); } catch(e){}
                 }
@@ -180,7 +198,7 @@ exports.getMobileClassroom = async (req, res) => {
             const paidCoursesInThisGroup = paidCourses.filter(pc => paidSubjectIdsInThisGroup.includes(pc.id));
 
             group.courses.forEach(c => {
-                const hasFullGroupPayment = validPayments.some(p => p.groupId === group.id && (!p.subjects || p.subjects === '[]'));
+                const hasFullGroupPayment = effectivePayments.some(p => p.groupId === group.id && (!p.subjects || p.subjects === '[]'));
                 if (hasFullGroupPayment) {
                     finalAllowedCourseIds.add(c.id);
                     return;
@@ -214,7 +232,7 @@ exports.getMobileClassroom = async (req, res) => {
             } catch(e) {}
 
             // Calculate student payment type for this course
-            const coursePayments = validPayments.filter(p => {
+            const coursePayments = effectivePayments.filter(p => {
                 if (!p.subjects) return true;
                 try {
                     const subs = JSON.parse(p.subjects).map(id => parseInt(id, 10));
@@ -260,6 +278,34 @@ exports.getCourseModules = async (req, res) => {
 
         if (!studentId) return res.status(401).json({ error: "Authorization failed" });
 
+        const overdueBatchIds = await getStudentOverdueInstallmentBatchIds(studentId);
+
+        const requestedCourse = await prisma.course.findUnique({
+            where: { id: parseInt(id) },
+            include: { group: true }
+        });
+
+        if (requestedCourse && requestedCourse.group?.batchId) {
+            const batchId = requestedCourse.group.batchId;
+            if (overdueBatchIds.has(batchId)) {
+                const hasValidAlternative = await prisma.payment.findFirst({
+                    where: {
+                        studentId: parseInt(studentId),
+                        batchId: batchId,
+                        payment_type: { in: [1, 3] },
+                        status: 1
+                    }
+                });
+                if (!hasValidAlternative) {
+                    return res.status(403).json({
+                        error: "INSTALLMENT_OVERDUE",
+                        message: "ඔබගේ වාරික ගෙවීමේ (Installment) අවසන් දිනය ඉක්මවා ගොස් ඇත. පාඨමාලාවට ප්‍රවේශ වීම සඳහා කරුණාකර හිඟ වාරිකය ගෙවන්න.",
+                        isOverdue: true
+                    });
+                }
+            }
+        }
+
         const allPayments = await prisma.payment.findMany({
             where: { studentId: parseInt(studentId) }
         });
@@ -268,6 +314,9 @@ exports.getCourseModules = async (req, res) => {
         let isPending = false;
 
         allPayments.forEach(p => {
+            if (p.payment_type === 2 && overdueBatchIds.has(p.batchId)) {
+                return;
+            }
             if (p.subjects) {
                 try {
                     const parsedIds = JSON.parse(p.subjects).map(subId => parseInt(subId, 10));
@@ -285,11 +334,6 @@ exports.getCourseModules = async (req, res) => {
         let paidStatus = 0; 
         if (isEnrolled) paidStatus = 1; 
         else if (isPending) paidStatus = -1; 
-
-        const requestedCourse = await prisma.course.findUnique({
-            where: { id: parseInt(id) },
-            include: { group: true }
-        });
 
         let targetCourseIds = [BigInt(id)];
 
@@ -566,12 +610,27 @@ exports.getMobileUpcomingLives = async (req, res) => {
         const studentId = req.user?.userId || req.user?.id || req.userId;
         if (!studentId) return res.status(401).json({ error: "Authorization failed" });
 
+        const overdueBatchIds = await getStudentOverdueInstallmentBatchIds(studentId);
+
         const validPayments = await prisma.payment.findMany({
             where: { studentId: parseInt(studentId), status: { in: [1, 4] } }
         });
 
+        const effectivePayments = validPayments.filter(p => {
+            if (p.payment_type === 2 && overdueBatchIds.has(p.batchId)) {
+                const hasValidAlternative = validPayments.some(other =>
+                    other.id !== p.id &&
+                    other.batchId === p.batchId &&
+                    [1, 3].includes(other.payment_type) &&
+                    other.status === 1
+                );
+                return hasValidAlternative;
+            }
+            return true;
+        });
+
         let allowedSubjectIds = [];
-        validPayments.forEach(p => {
+        effectivePayments.forEach(p => {
             if (p.subjects) {
                 try { 
                     const parsedIds = JSON.parse(p.subjects).map(id => parseInt(id, 10));

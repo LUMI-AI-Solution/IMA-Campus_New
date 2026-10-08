@@ -8,8 +8,8 @@ import StaffPerformanceModal from './StaffPerformanceModal';
 import ExportReportModal from './ExportReportModal';
 import AISlipVerification from '../admin/AISlipVerification';
 export default function PaymentManagement({ loggedInUser }) {
-    const isSystemAdmin = loggedInUser?.role?.toUpperCase() === 'SYSTEM_ADMIN' || loggedInUser?.role?.toUpperCase() === 'DIRECTOR';
-    const isFinance = loggedInUser?.department === 'Finance';
+    const isSystemAdmin = loggedInUser?.role?.toUpperCase() === 'SYSTEM_ADMIN' || loggedInUser?.role?.toUpperCase() === 'DIRECTOR' || loggedInUser?.role?.toUpperCase() === 'SUPER';
+    const isFinance = String(loggedInUser?.department || '').trim().toUpperCase() === 'FINANCE' || String(loggedInUser?.role || '').trim().toUpperCase() === 'FINANCE';
     const isAdmin = isSystemAdmin || isFinance;
     const isManager = loggedInUser?.role?.toUpperCase() === 'MANAGER' || loggedInUser?.role?.toUpperCase() === 'ASS MANAGER' || loggedInUser?.role?.toUpperCase() === 'ASS_MANAGER';
     const hasFullAccess = isAdmin || isManager;
@@ -40,12 +40,12 @@ export default function PaymentManagement({ loggedInUser }) {
     const [customPrices, setCustomPrices] = useState({});
     const [actionRemark, setActionRemark] = useState('');
     const [showStaffModal, setShowStaffModal] = useState(false);
+    const [showExportModal, setShowExportModal] = useState(false);
 
     const [approveModal, setApproveModal] = useState(null);
     const [actualAmount, setActualAmount] = useState('');
     const [institutePaymentModal, setInstitutePaymentModal] = useState(null);
 
-    const [showExportModal, setShowExportModal] = useState(false);
 
     // 🔥 NEW STATES: For Editing Payment Subjects & Amount 🔥
     const [allCourses, setAllCourses] = useState([]);
@@ -1060,9 +1060,17 @@ export default function PaymentManagement({ loggedInUser }) {
 
             {/* Filters */}
             <PaymentFilters
-                isAdmin={isAdmin} isSystemAdmin={hasFullAccess} filters={filters} setFilters={setFilters}
-                businesses={businesses} batches={batches} groups={groups}
-                subjects={subjects} stats={stats} onOpenStaffStats={() => setShowStaffModal(true)}
+                isAdmin={isAdmin}
+                isSystemAdmin={hasFullAccess}
+                isFinance={isFinance}
+                filters={filters}
+                setFilters={setFilters}
+                businesses={businesses}
+                batches={batches}
+                groups={groups}
+                subjects={subjects}
+                stats={stats}
+                onOpenStaffStats={() => setShowStaffModal(true)}
                 onOpenExport={() => setShowExportModal(true)}
             />
 
@@ -1983,17 +1991,16 @@ export default function PaymentManagement({ loggedInUser }) {
                 />
             )}
 
-            {/* 🔥 ALUTHIN ADD KALA: EXPORT REPORT MODAL RENDER EKA 🔥 */}
             {showExportModal && (
-                <ExportReportModal
+                <ExportReportModal 
                     onClose={() => setShowExportModal(false)}
                     payments={payments}
                     filters={filters}
                     businesses={businesses}
                     batches={batches}
-                    subjects={subjects}
                 />
             )}
+
                 </>
             )}
 

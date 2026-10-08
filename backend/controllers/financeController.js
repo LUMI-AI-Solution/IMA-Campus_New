@@ -59,7 +59,7 @@ exports.getFinanceMatrix = async (req, res) => {
 
         const rawGroups = await prisma.group.findMany({
             where: groupWhere,
-            orderBy: { itemOrder: 'asc' },
+            orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }],
             select: { id: true, name: true, classType: true }
         });
         const monthlyGroups = rawGroups.filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'));
@@ -504,7 +504,7 @@ exports.getPaidCampaignDropMatrix = async (req, res) => {
         // 1. Get Monthly Groups
         const rawGroups = await prisma.group.findMany({
             where: { batchId: parsedBatchId },
-            orderBy: { itemOrder: 'asc' },
+            orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }],
             select: { id: true, name: true }
         });
         const monthlyGroups = rawGroups.filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'));

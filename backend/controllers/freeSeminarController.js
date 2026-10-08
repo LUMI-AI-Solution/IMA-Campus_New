@@ -659,11 +659,28 @@ exports.receiveMessage = async (req, res) => {
         console.log(JSON.stringify(body, null, 2));
         console.log("==================================\n");
 
-        if (body.object === "whatsapp_business_account" && body.entry?.[0]?.changes?.[0]?.value?.statuses?.[0]) {
-            const statusData = body.entry[0].changes[0].value.statuses[0];
+        if (body.object === "whatsapp_business_account" && body.entry?.[0]?.changes?.[0]?.value?.statuses?.length > 0) {
+            const changeValue = body.entry[0].changes[0].value;
+            const wabaId = body.entry[0].id;
+            const statusList = changeValue.statuses;
+            const statusData = statusList[0];
+
             console.log("\n⚠️ ====== META STATUS WEBHOOK ======");
             console.log(JSON.stringify(statusData, null, 2));
             console.log("===================================\n");
+
+            // 🔥 RECORD WHATSAPP BILLING & PRICING EVENT IN REAL-TIME 🔥
+            try {
+                const { recordWebhookBillingEvent } = require('../services/whatsappBillingService');
+                for (const st of statusList) {
+                    recordWebhookBillingEvent(st, changeValue?.metadata || {}, wabaId).catch(err => {
+                        console.error('[WhatsAppBilling] Error recording billing event:', err.message);
+                    });
+                }
+            } catch (billingErr) {
+                console.error('[WhatsAppBilling] Service error:', billingErr.message);
+            }
+
             if (statusData.type === "call") {
                 const { getIo } = require('./chatController');
                 const io = getIo();
@@ -1157,20 +1174,27 @@ exports.receiveMessage = async (req, res) => {
                 }
 
                 let existingLead;
-                try {
-                    existingLead = await prisma.lead.upsert({
-                        where: { phone: targetPhone },
-                        update: updateData,
-                        create: createDataAfterSeminar
-                    });
-                } catch (upsertError) {
-                    if (upsertError.code === 'P2002' && upsertError.meta?.target?.includes('phone')) {
-                        await new Promise(resolve => setTimeout(resolve, 50));
-                        existingLead = await prisma.lead.update({
-                            where: { phone: dbPhone },
-                            data: updateData
+                for (let attempt = 0; attempt < 3; attempt++) {
+                    try {
+                        existingLead = await prisma.lead.upsert({
+                            where: { phone: targetPhone },
+                            update: updateData,
+                            create: createDataAfterSeminar
                         });
-                    } else throw upsertError;
+                        break;
+                    } catch (upsertError) {
+                        if (attempt < 2 && (upsertError.code === 'P2034' || (upsertError.code === 'P2002' && upsertError.meta?.target?.includes('phone')))) {
+                            await new Promise(resolve => setTimeout(resolve, 60 * (attempt + 1)));
+                            continue;
+                        }
+                        if (upsertError.code === 'P2002' && upsertError.meta?.target?.includes('phone')) {
+                            existingLead = await prisma.lead.update({
+                                where: { phone: dbPhone },
+                                data: updateData
+                            });
+                            break;
+                        } else throw upsertError;
+                    }
                 }
 
                 await prisma.chatMessage.create({

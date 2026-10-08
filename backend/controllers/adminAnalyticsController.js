@@ -1021,7 +1021,7 @@ exports.getExecutiveAnalytics = async (req, res) => {
         // D. Batch Payment Groups & Coordinator Cohort Retention Matrix
         const rawMonthlyGroups = await prisma.group.findMany({
             where: { batchId: { in: targetBatchIds } },
-            orderBy: { itemOrder: 'asc' },
+            orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }],
             select: { id: true, name: true, itemOrder: true, batchId: true }
         });
 

@@ -1138,11 +1138,23 @@ exports.getTeachers = async (req, res) => {
 
 exports.createTeacher = async (req, res) => {
   try {
-    const { name, image, address, whatsapp, phone, classIds, instituteCut, timetables } = req.body;
+    const { lecturerId, name, image, address, whatsapp, phone, classIds, instituteCut, timetables } = req.body;
     const processedImage = saveBase64Image(image);
     
+    // Auto-generate lecturerId if not explicitly provided (e.g. IMA-LEC-1026)
+    let assignedLecturerId = lecturerId ? lecturerId.trim().toUpperCase() : null;
+    if (!assignedLecturerId) {
+      const maxTeacher = await prisma.physicalTeacher.findFirst({
+        orderBy: { id: 'desc' },
+        select: { id: true }
+      });
+      const nextNum = (maxTeacher ? maxTeacher.id : 0) + 1;
+      assignedLecturerId = `IMA-LEC-${1000 + nextNum}`;
+    }
+
     const teacher = await prisma.physicalTeacher.create({
       data: {
+        lecturerId: assignedLecturerId,
         name,
         image: processedImage,
         address,
@@ -1167,7 +1179,7 @@ exports.createTeacher = async (req, res) => {
 exports.updateTeacher = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, image, address, whatsapp, phone, classIds, instituteCut, timetables } = req.body;
+    const { lecturerId, name, image, address, whatsapp, phone, classIds, instituteCut, timetables } = req.body;
     const processedImage = saveBase64Image(image);
     
     // Simplest way to update timetables: delete old and create new
@@ -1177,24 +1189,30 @@ exports.updateTeacher = async (req, res) => {
         });
     }
 
+    const updateData = {
+      name,
+      image: processedImage,
+      address,
+      whatsapp,
+      phone,
+      instituteCut: instituteCut ? parseFloat(instituteCut) : 0,
+      classes: {
+        set: classIds && classIds.length > 0 ? classIds.map(id => ({ id: parseInt(id) })) : []
+      },
+      ...(timetables && {
+        timetables: {
+          create: timetables
+        }
+      })
+    };
+
+    if (lecturerId && lecturerId.trim()) {
+      updateData.lecturerId = lecturerId.trim().toUpperCase();
+    }
+
     const teacher = await prisma.physicalTeacher.update({
       where: { id: parseInt(id) },
-      data: {
-        name,
-        image: processedImage,
-        address,
-        whatsapp,
-        phone,
-        instituteCut: instituteCut ? parseFloat(instituteCut) : 0,
-        classes: {
-          set: classIds && classIds.length > 0 ? classIds.map(id => ({ id: parseInt(id) })) : []
-        },
-        ...(timetables && {
-          timetables: {
-            create: timetables
-          }
-        })
-      },
+      data: updateData,
       include: { classes: true, timetables: true }
     });
     res.json(teacher);
@@ -1274,18 +1292,29 @@ exports.getClassFeeMatrix = async (req, res) => {
     // Parse active months
     let activeMonths = [];
     if (Array.isArray(phyClass.activeMonths)) {
-      activeMonths = phyClass.activeMonths;
+      activeMonths = [...phyClass.activeMonths];
     } else if (typeof phyClass.activeMonths === 'string') {
       try { activeMonths = JSON.parse(phyClass.activeMonths); } catch (e) { activeMonths = [phyClass.activeMonths]; }
     } else if (phyClass.startMonth) {
       activeMonths = [phyClass.startMonth];
     }
 
-    // If still empty, default to current month
+    // Also include any months recorded in payments for this class
+    payments.forEach(p => {
+      if (p.month && !activeMonths.includes(p.month)) {
+        activeMonths.push(p.month);
+      }
+    });
+
+    // If still empty or limited, guarantee recent months
     if (activeMonths.length === 0) {
       const now = new Date();
-      activeMonths = [`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`];
+      for (let offset = -1; offset <= 3; offset++) {
+        const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+        activeMonths.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+      }
     }
+    activeMonths.sort().reverse();
 
     // Map payments by `${studentId}_${month}`
     const paymentMap = new Map();
@@ -1452,21 +1481,9 @@ exports.toggleStudentFeePayment = async (req, res) => {
         }
       });
 
-      // Soft-delete corresponding Cash Flow transaction so cash balance stays 100% accurate
-      await prisma.physicalTransaction.updateMany({
-        where: {
-          studentId: sId,
-          category: 'Class Fee',
-          description: { contains: month },
-          isDeleted: false
-        },
-        data: {
-          isDeleted: true,
-          deletedReason: `Payment for ${month} marked Pending / Cancelled`,
-          deletedAt: new Date(),
-          deletedBy: 'Staff / Attendance Portal'
-        }
-      });
+      // NOTE: Attendance Portal status changes must NEVER delete historical PhysicalTransaction records.
+      // Physical cash collected at the counter on historical dates belongs to the cash register/drawer history.
+      // Cash adjustments/refunds are handled exclusively via the Cash Flow Portal.
 
       return res.json({
         success: true,
@@ -2256,7 +2273,7 @@ exports.getTeacherReport = async (req, res) => {
       }
     });
 
-    // Get all active months across classes
+    // Get all active months across classes, recorded payments, transactions, and calendar window
     const allMonthsSet = new Set();
     relevantClasses.forEach(cls => {
       let months = [];
@@ -2265,11 +2282,62 @@ exports.getTeacherReport = async (req, res) => {
         try { months = JSON.parse(cls.activeMonths); } catch (e) { months = [cls.activeMonths]; }
       } else if (cls.startMonth) months = [cls.startMonth];
 
-      months.forEach(m => allMonthsSet.add(m));
+      months.forEach(m => {
+        if (m && typeof m === 'string' && m.trim()) allMonthsSet.add(m.trim());
+      });
     });
 
+    // Also get months that have fee payments for these classes
+    if (classIds.length > 0) {
+      const classPaymentMonths = await prisma.physicalClassFeePayment.findMany({
+        where: { classId: { in: classIds } },
+        select: { month: true },
+        distinct: ['month']
+      });
+      classPaymentMonths.forEach(p => {
+        if (p.month && p.month.trim()) allMonthsSet.add(p.month.trim());
+      });
+    }
+
+    // Also get months with fee payments across the physical CRM system (up to 24)
+    const systemPaymentMonths = await prisma.physicalClassFeePayment.findMany({
+      select: { month: true },
+      distinct: ['month'],
+      take: 24
+    });
+    systemPaymentMonths.forEach(p => {
+      if (p.month && p.month.trim()) allMonthsSet.add(p.month.trim());
+    });
+
+    // Also include months where this teacher has cash flow advances/deductions
+    const teacherTxMonths = await prisma.physicalTransaction.findMany({
+      where: { teacherId: tId, isDeleted: false },
+      select: { billingMonth: true },
+      distinct: ['billingMonth']
+    });
+    teacherTxMonths.forEach(t => {
+      if (t.billingMonth && t.billingMonth.trim()) allMonthsSet.add(t.billingMonth.trim());
+    });
+
+    // Always guarantee current month and standard active window (past 6 months + current + next 2 months)
+    const now = new Date();
+    for (let offset = -2; offset <= 6; offset++) {
+      const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+      const mStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      allMonthsSet.add(mStr);
+    }
+    if (month && typeof month === 'string' && month.trim()) {
+      allMonthsSet.add(month.trim());
+    }
+
+    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     const availableMonths = Array.from(allMonthsSet).sort().reverse();
-    const selectedMonth = month || (availableMonths.length > 0 ? availableMonths[0] : `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`);
+    const selectedMonth = (month && month.trim()) ? month.trim() : (allMonthsSet.has(currentMonthStr) ? currentMonthStr : (availableMonths[0] || currentMonthStr));
+
+    // Date range for month
+    const [selYear, selMonthNum] = selectedMonth.split('-').map(Number);
+    const startOfMonth = new Date(Date.UTC(selYear, selMonthNum - 1, 1, 0, 0, 0));
+    const endOfMonth = new Date(Date.UTC(selYear, selMonthNum, 0, 23, 59, 59, 999));
 
     // Fetch payments for these classes in the selected month
     const feePayments = await prisma.physicalClassFeePayment.findMany({
@@ -2284,6 +2352,74 @@ exports.getTeacherReport = async (req, res) => {
       paymentKeyMap.set(`${p.studentId}_${p.classId}`, p);
     });
 
+    // Fetch physical attendance records for these classes in this month
+    const monthAttendances = await prisma.physicalAttendance.findMany({
+      where: {
+        classId: { in: classIds },
+        date: { gte: startOfMonth, lte: endOfMonth }
+      },
+      select: {
+        studentId: true,
+        classId: true,
+        date: true,
+        status: true
+      }
+    });
+
+    // Day of week mapping helper
+    const DAYS_OF_WEEK_MAP = {
+      'sunday': 0, 'sun': 0,
+      'monday': 1, 'mon': 1,
+      'tuesday': 2, 'tue': 2,
+      'wednesday': 3, 'wed': 3,
+      'thursday': 4, 'thu': 4,
+      'friday': 5, 'fri': 5,
+      'saturday': 6, 'sat': 6
+    };
+
+    const getScheduledDaysForClass = (cls) => {
+      const days = new Set();
+      if (cls.timetables && cls.timetables.length > 0) {
+        cls.timetables.forEach(t => {
+          if (t.dayOfWeek) {
+            const d = DAYS_OF_WEEK_MAP[t.dayOfWeek.toLowerCase().trim()];
+            if (d !== undefined) days.add(d);
+          }
+        });
+      }
+      if (days.size === 0 && cls.name) {
+        const lower = cls.name.toLowerCase();
+        for (const [dayName, dayIdx] of Object.entries(DAYS_OF_WEEK_MAP)) {
+          const reg = new RegExp('\\b' + dayName + '\\b', 'i');
+          if (reg.test(lower)) days.add(dayIdx);
+        }
+      }
+      return days;
+    };
+
+    // Track headcount per date per class and student attendance
+    const classDateCountsMap = new Map();
+    classIds.forEach(cid => classDateCountsMap.set(cid, new Map()));
+    const studentAttendanceMap = new Map();
+
+    monthAttendances.forEach(att => {
+      const dStr = att.date ? new Date(att.date).toISOString().slice(0, 10) : '';
+      if (!dStr) return;
+
+      if (att.status === 'PRESENT') {
+        const counts = classDateCountsMap.get(att.classId);
+        if (counts) {
+          counts.set(dStr, (counts.get(dStr) || 0) + 1);
+        }
+
+        const key = `${att.studentId}_${att.classId}`;
+        if (!studentAttendanceMap.has(key)) {
+          studentAttendanceMap.set(key, new Set());
+        }
+        studentAttendanceMap.get(key).add(dStr);
+      }
+    });
+
     let totalEnrolled = 0;
     let totalPaidStudents = 0;
     let totalGrossRevenue = 0;
@@ -2296,6 +2432,37 @@ exports.getTeacherReport = async (req, res) => {
       let clsPaidCount = 0;
       let clsGross = 0;
 
+      // Identify legitimate conducted sessions for this class (filtering out gate stray scans and cross-batch makeup noise)
+      const scheduledDays = getScheduledDaysForClass(cls);
+      const dateCounts = classDateCountsMap.get(cls.id) || new Map();
+      const validDates = [];
+
+      for (const [dStr, count] of dateCounts.entries()) {
+        const dObj = new Date(`${dStr}T12:00:00.000Z`);
+        const dayOfWeek = dObj.getUTCDay();
+        const pct = enrolledCount > 0 ? (count / enrolledCount) : 0;
+
+        let isValidSession = false;
+        if (scheduledDays.size > 0) {
+          if (scheduledDays.has(dayOfWeek)) {
+            // Scheduled lecture day: valid session if attendance exists
+            isValidSession = count >= 1;
+          } else {
+            // Non-scheduled day: only legitimate if substantial quorum (>= 30% of class or >= 25 students)
+            isValidSession = pct >= 0.30 || count >= 25;
+          }
+        } else {
+          // No schedule specified: require at least 15% quorum or >= 10 students
+          isValidSession = pct >= 0.15 || count >= 10;
+        }
+
+        if (isValidSession) {
+          validDates.push(dStr);
+        }
+      }
+      validDates.sort();
+      const clsDatesArray = validDates;
+
       const studentList = students.map(st => {
         const pay = paymentKeyMap.get(`${st.id}_${cls.id}`);
         const isPaid = pay && pay.status === 'PAID';
@@ -2306,6 +2473,15 @@ exports.getTeacherReport = async (req, res) => {
           clsPaidCount++;
           clsGross += fee;
         }
+
+        const rawAttendedDatesSet = studentAttendanceMap.get(`${st.id}_${cls.id}`) || new Set();
+        // Valid conducted sessions attended by this student
+        const validAttendedDates = Array.from(rawAttendedDatesSet)
+          .filter(d => clsDatesArray.includes(d))
+          .sort();
+        const attendedCount = validAttendedDates.length;
+        const totalConducted = clsDatesArray.length;
+        const attRate = totalConducted > 0 ? Math.round((attendedCount / totalConducted) * 100) : 0;
 
         return {
           id: st.id,
@@ -2318,7 +2494,13 @@ exports.getTeacherReport = async (req, res) => {
           feeStatus: isPaid ? 'PAID' : (isFree ? 'FREE_CARD' : 'PENDING'),
           amount: fee,
           paidDate: pay ? pay.paidDate : null,
-          paymentMethod: pay ? pay.paymentMethod : null
+          paymentMethod: pay ? pay.paymentMethod : null,
+          attendance: {
+            attendedSessions: attendedCount,
+            totalSessions: totalConducted,
+            attendanceRate: attRate,
+            attendedDates: validAttendedDates
+          }
         };
       });
 
@@ -2343,17 +2525,42 @@ exports.getTeacherReport = async (req, res) => {
         instituteCutPercent: instCutPct,
         instituteCutAmount: instCutAmt,
         netTeacherPayout: netPayout,
+        conductedSessionDates: clsDatesArray,
+        conductedSessionsCount: clsDatesArray.length,
         students: studentList
       };
     });
 
     const overallInstCutPct = teacher.instituteCut || 0;
     const overallInstCutAmt = (totalGrossRevenue * overallInstCutPct) / 100;
-    const overallNetPayout = totalGrossRevenue - overallInstCutAmt;
+    const netPayoutBeforeDeductions = totalGrossRevenue - overallInstCutAmt;
+
+    // Fetch Teacher Advances / Expense Deductions for this month from PhysicalTransaction
+    const deductionsTxns = await prisma.physicalTransaction.findMany({
+      where: {
+        teacherId: tId,
+        type: 'EXPENSE',
+        isDeleted: false,
+        OR: [
+          { billingMonth: selectedMonth },
+          {
+            AND: [
+              { billingMonth: null },
+              { date: { gte: startOfMonth, lte: endOfMonth } }
+            ]
+          }
+        ]
+      },
+      orderBy: { date: 'desc' }
+    });
+
+    const totalDeductions = deductionsTxns.reduce((sum, d) => sum + (d.amount || 0), 0);
+    const overallNetPayout = Math.max(0, netPayoutBeforeDeductions - totalDeductions);
 
     res.json({
       teacher: {
         id: teacher.id,
+        lecturerId: teacher.lecturerId || `IMA-LEC-${1000 + teacher.id}`,
         name: teacher.name,
         image: teacher.image,
         address: teacher.address,
@@ -2372,8 +2579,18 @@ exports.getTeacherReport = async (req, res) => {
         grossRevenue: totalGrossRevenue,
         instituteCutPercent: overallInstCutPct,
         instituteCutAmount: overallInstCutAmt,
+        netTeacherPayoutBeforeDeductions: netPayoutBeforeDeductions,
+        totalDeductions,
         netTeacherPayout: overallNetPayout
       },
+      deductions: deductionsTxns.map(d => ({
+        id: d.id,
+        category: d.category,
+        amount: d.amount,
+        description: d.description,
+        date: d.date,
+        billingMonth: d.billingMonth || selectedMonth
+      })),
       classes: classBreakdowns
     });
 

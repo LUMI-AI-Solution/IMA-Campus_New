@@ -2021,6 +2021,7 @@ exports.getBatches = async (req, res) => {
 
 exports.getBusinesses = async (req, res) => {
     try {
+        const userId = Number(req.user?.id || req.user?.userId);
         const userDepartment = req.user.department ? req.user.department.toUpperCase() : '';
         const role = String(req.user.role || '').toUpperCase().replace(/[\s_-]+/g, '_');
         const isSuperAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'SUPER_ADMIN', 'SUPERADMIN', 'ADMIN', 'FINANCE'].includes(role) || 

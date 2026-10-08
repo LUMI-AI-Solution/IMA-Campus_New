@@ -9,7 +9,7 @@ import {
   Archive, HardDrive, CalendarDays, CalendarCheck, CheckSquare, History,
   Music, Palette, ChevronLeft, ChevronRight, Megaphone, X, BarChart, PieChart, Calendar, Menu,
   PhoneCall, UserPlus, Repeat, GraduationCap, TrendingUp, Box, Activity, ShieldCheck, RefreshCw, Layers, Mic, Upload, Video, Sun, Moon, Sparkles, Wand2, Send,
-  BrainCircuit, MessageSquareText, BookOpen, Bot, Briefcase
+  BrainCircuit, MessageSquareText, BookOpen, Bot, Briefcase, Trophy, CreditCard
 } from 'lucide-react';
 
 export default function Sidebar({ userRole, loggedInUser, handleLogout, isSidebarOpen, setIsSidebarOpen, currentBg, setBgImage, isSpotifyOpen, setIsSpotifyOpen, isSocialMedia, isDarkMode, toggleThemeMode }) {
@@ -177,12 +177,14 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
   };
 
   const roleUpper = (roleName || '').toUpperCase().replace(/[\s_-]+/g, '_');
-  const isLectureOrGuider = roleUpper === 'LECTURE' || roleUpper === 'LECTURER' || roleUpper === 'PAPER_GUIDER' || roleName === 'Lecture' || roleName === 'Paper Guider';
+  const isPaperGuider = roleUpper === 'PAPER_GUIDER' || roleName === 'Paper Guider';
+  const isLecture = (roleUpper === 'LECTURE' || roleUpper === 'LECTURER' || roleName === 'Lecture') && !isPaperGuider;
+  const isLectureOrGuider = isLecture || isPaperGuider;
   const isPaperMarker = roleUpper === 'PAPER_MARKER' || roleName === 'Paper Marker';
 
   const isSystemAdmin = roleName === 'SYSTEM_ADMIN' || roleName === 'System Admin' || roleName === 'Director' || roleName === 'SUPER' || roleName === 'ADMIN';
   const isDeliveryDept = loggedInUser?.department === 'Delivery';
-  const isFinanceDept = loggedInUser?.department === 'Finance';
+  const isFinanceDept = String(loggedInUser?.department || '').trim().toUpperCase() === 'FINANCE' || String(loggedInUser?.role || '').trim().toUpperCase() === 'FINANCE' || roleUpper === 'FINANCE';
   const isPhysicalDept = loggedInUser?.department === 'Physical';
   const isManager = (roleName === 'MANAGER' || roleName === 'Manager' || roleName === 'ASS MANAGER' || roleName === 'ASS_MANAGER') && !isDeliveryDept && !isFinanceDept && !isPhysicalDept && !isLectureOrGuider && !isPaperMarker;
   const isCallCenterDept = loggedInUser?.department === 'Call Center';
@@ -251,8 +253,17 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
         </div>
 
         <nav onClick={() => { if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className="flex-1 px-3 py-2 space-y-1 overflow-y-auto custom-scrollbar">
-        {/* LECTURE / PAPER GUIDER RESTRICTED MENU (Overview & Content Hub only) */}
-        {isLectureOrGuider && (
+        {/* PAPER GUIDER PORTAL MENU (Dedicated Paper & Ranking Hub) */}
+        {isPaperGuider && (
+          <>
+            {isSidebarOpen && <p className="px-3 text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2 mt-2">Paper Guider Portal</p>}
+            <NavLink to="/paper-guider/hub" className={getNavLinkClass}><Trophy size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">Paper & Ranking Hub</span>}</NavLink>
+            <NavLink to="/manager/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Academic Overview</span>}</NavLink>
+          </>
+        )}
+
+        {/* LECTURE RESTRICTED MENU (Overview & Content Hub only) */}
+        {isLecture && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-brand-accent uppercase tracking-wider mb-2 mt-2">Academic Portal</p>}
             <NavLink to="/manager/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
@@ -260,12 +271,13 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
           </>
         )}
 
-        {/* PAPER MARKER PORTAL MENU (Overview & Workplace) */}
+        {/* PAPER MARKER PORTAL MENU (Overview, Paper Hub & Workplace) */}
         {isPaperMarker && (
           <>
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2 mt-2">Paper Marker Portal</p>}
-            <NavLink to="/paper-marker/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
-            <NavLink to="/paper-marker/workplace" className={getNavLinkClass}><Briefcase size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Workplace</span>}</NavLink>
+            <NavLink to="/paper-guider/hub" className={getNavLinkClass}><Trophy size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">Paper & Ranking Hub</span>}</NavLink>
+            <NavLink to="/paper-marker/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
+            <NavLink to="/paper-marker/workplace" className={getNavLinkClass}><Briefcase size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Workplace</span>}</NavLink>
           </>
         )}
 
@@ -282,12 +294,14 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/admin/staff" className={getNavLinkClass}><Users size={18} className="text-orange-400" /> {isSidebarOpen && <span className="truncate text-sm">Staff Management</span>}</NavLink>
             <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} className="text-yellow-400" /> {isSidebarOpen && <span className="truncate text-sm">Announcements & Events</span>}</NavLink>
             <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
+            <NavLink to="/paper-guider/hub" className={getNavLinkClass}><Trophy size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">Paper & Ranking Hub</span>}</NavLink>
             <NavLink to="/admin/pusthakalaya" className={getNavLinkClass}><BookOpen size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">IMA පුස්තකාලය</span>}</NavLink>
             <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
 
             <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
             <NavLink to="/admin/student-center" className={getNavLinkClass}><Database size={18} className="text-teal-400" /> {isSidebarOpen && <span className="truncate text-sm">Student Data Center</span>}</NavLink>
             <NavLink to="/admin/crm-setup" className={getNavLinkClass}><HeadphonesIcon size={18} className="text-pink-400" /> {isSidebarOpen && <span className="truncate text-sm">CRM Setup</span>}</NavLink>
+            <NavLink to="/admin/whatsapp-billing" className={getNavLinkClass}><CreditCard size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm font-semibold text-emerald-300">WhatsApp Billing 💳</span>}</NavLink>
             <NavLink to="/admin/database" className={getNavLinkClass}><HardDrive size={18} className="text-slate-400" /> {isSidebarOpen && <span className="truncate text-sm">Database Manager</span>}</NavLink>
             <NavLink to="/admin/system-tasks" className={getNavLinkClass}><CheckSquare size={18} className="text-red-400" /> {isSidebarOpen && <span className="truncate text-sm">System Tasks & Issues</span>}</NavLink>
             <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
@@ -323,7 +337,8 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2 mt-2">Finance Department</p>}
             <NavLink to="/finance/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className="text-blue-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Overview</span>}</NavLink>
             <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
-
+            <NavLink to="/admin/whatsapp-billing" className={getNavLinkClass}><CreditCard size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">WhatsApp Billing 💳</span>}</NavLink>
+            <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
             <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
           </>
         )}
@@ -351,11 +366,13 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/admin/stats-hub" className={getNavLinkClass}><Sparkles size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-cyan-300">LUMI AI Analyser</span>}</NavLink>
             <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} className="text-yellow-400" /> {isSidebarOpen && <span className="truncate text-sm">Announcements</span>}</NavLink>
             <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
+            <NavLink to="/paper-guider/hub" className={getNavLinkClass}><Trophy size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">Paper & Ranking Hub</span>}</NavLink>
             <NavLink to="/manager/pusthakalaya" className={getNavLinkClass}><BookOpen size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">IMA පුස්තකාලය</span>}</NavLink>
             {isClassCoordinatorManager && (
               <NavLink to="/admin/crm-setup" className={getNavLinkClass}><HeadphonesIcon size={18} className="text-pink-400" /> {isSidebarOpen && <span className="truncate text-sm">CRM Setup</span>}</NavLink>
             )}
             <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
+            <NavLink to="/admin/whatsapp-billing" className={getNavLinkClass}><CreditCard size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm font-semibold text-emerald-300">WhatsApp Billing 💳</span>}</NavLink>
 
             <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
             <NavLink to="/admin/student-center" className={getNavLinkClass}><Database size={18} className="text-teal-400" /> {isSidebarOpen && <span className="truncate text-sm">Student Data Center</span>}</NavLink>

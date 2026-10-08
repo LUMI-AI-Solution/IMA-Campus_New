@@ -3,30 +3,31 @@ const prisma = new PrismaClient();
 
 // Default seed categories
 const DEFAULT_CATEGORIES = [
-    { name: 'Registration', type: 'INCOME' },
-    { name: 'Class Fee', type: 'INCOME' },
-    { name: 'Tute Sale', type: 'INCOME' },
-    { name: 'Other Income', type: 'INCOME' },
-    { name: 'Utility', type: 'EXPENSE' },
-    { name: 'Supplies', type: 'EXPENSE' },
-    { name: 'Refund', type: 'EXPENSE' },
-    { name: 'Teacher Payout', type: 'EXPENSE' },
-    { name: 'Maintenance', type: 'EXPENSE' },
-    { name: 'Marketing', type: 'EXPENSE' },
-    { name: 'Other Expense', type: 'EXPENSE' }
+    { name: 'Registration', type: 'INCOME', isLecturerCategory: false },
+    { name: 'Class Fee', type: 'INCOME', isLecturerCategory: false },
+    { name: 'Tute Sale', type: 'INCOME', isLecturerCategory: false },
+    { name: 'Other Income', type: 'INCOME', isLecturerCategory: false },
+    { name: 'Teacher Advance', type: 'EXPENSE', isLecturerCategory: true },
+    { name: 'Teacher Payout', type: 'EXPENSE', isLecturerCategory: true },
+    { name: 'Lecturer Allowance', type: 'EXPENSE', isLecturerCategory: true },
+    { name: 'Utility', type: 'EXPENSE', isLecturerCategory: false },
+    { name: 'Supplies', type: 'EXPENSE', isLecturerCategory: false },
+    { name: 'Refund', type: 'EXPENSE', isLecturerCategory: false },
+    { name: 'Maintenance', type: 'EXPENSE', isLecturerCategory: false },
+    { name: 'Marketing', type: 'EXPENSE', isLecturerCategory: false },
+    { name: 'Other Expense', type: 'EXPENSE', isLecturerCategory: false }
 ];
 
 const ensureDefaultCategories = async () => {
     try {
-        const count = await prisma.physicalFinanceCategory.count();
-        if (count === 0) {
-            for (const cat of DEFAULT_CATEGORIES) {
-                await prisma.physicalFinanceCategory.upsert({
-                    where: { name_type: { name: cat.name, type: cat.type } },
-                    update: {},
-                    create: cat
-                });
-            }
+        for (const cat of DEFAULT_CATEGORIES) {
+            await prisma.physicalFinanceCategory.upsert({
+                where: { name_type: { name: cat.name, type: cat.type } },
+                update: {
+                    ...(cat.isLecturerCategory ? { isLecturerCategory: true } : {})
+                },
+                create: cat
+            });
         }
     } catch (e) {
         console.error('Error seeding default categories:', e.message);
@@ -55,18 +56,19 @@ exports.getCategories = async (req, res) => {
 
 exports.addCategory = async (req, res) => {
     try {
-        const { name, type } = req.body;
+        const { name, type, isLecturerCategory } = req.body;
         if (!name || !type) {
             return res.status(400).json({ error: 'Name and type (INCOME/EXPENSE) are required' });
         }
 
         const trimmedName = name.trim();
         const upperType = type.toUpperCase();
+        const isLecturer = Boolean(isLecturerCategory);
 
         const category = await prisma.physicalFinanceCategory.upsert({
             where: { name_type: { name: trimmedName, type: upperType } },
-            update: {},
-            create: { name: trimmedName, type: upperType }
+            update: { isLecturerCategory: isLecturer },
+            create: { name: trimmedName, type: upperType, isLecturerCategory: isLecturer }
         });
 
         res.status(201).json(category);
@@ -78,7 +80,7 @@ exports.addCategory = async (req, res) => {
 exports.updateCategory = async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, type } = req.body;
+        const { name, type, isLecturerCategory } = req.body;
 
         if (!name) {
             return res.status(400).json({ error: 'Name is required' });
@@ -96,7 +98,8 @@ exports.updateCategory = async (req, res) => {
             where: { id: parseInt(id) },
             data: {
                 name: name.trim(),
-                ...(type && { type: type.toUpperCase() })
+                ...(type && { type: type.toUpperCase() }),
+                ...(isLecturerCategory !== undefined && { isLecturerCategory: Boolean(isLecturerCategory) })
             }
         });
 
@@ -236,6 +239,9 @@ exports.getTransactions = async (req, res) => {
             include: {
                 student: {
                     select: { id: true, firstName: true, lastName: true, studentName: true, studentId: true, phone: true }
+                },
+                teacher: {
+                    select: { id: true, lecturerId: true, name: true, image: true, phone: true }
                 }
             },
             orderBy: { date: 'desc' }
@@ -278,7 +284,7 @@ exports.getTransactions = async (req, res) => {
 
 exports.addTransaction = async (req, res) => {
     try {
-        const { type, category, amount, description, studentId, date } = req.body;
+        const { type, category, amount, description, studentId, teacherId, billingMonth, isTeacherAdvance, date } = req.body;
         
         if (!type || !category || !amount) {
             return res.status(400).json({ error: 'Type, category, and amount are required' });
@@ -296,6 +302,16 @@ exports.addTransaction = async (req, res) => {
             }
         }
 
+        // Determine effective billing month if linked to teacher
+        let effectiveBillingMonth = billingMonth || null;
+        if (teacherId && !effectiveBillingMonth) {
+            effectiveBillingMonth = `${txDate.getUTCFullYear()}-${String(txDate.getUTCMonth() + 1).padStart(2, '0')}`;
+        }
+
+        const isAdv = isTeacherAdvance !== undefined 
+            ? Boolean(isTeacherAdvance) 
+            : (Boolean(teacherId) && (category.toLowerCase().includes('advance') || category.toLowerCase().includes('teacher')));
+
         const transaction = await prisma.physicalTransaction.create({
             data: {
                 type: type.toUpperCase(),
@@ -303,12 +319,18 @@ exports.addTransaction = async (req, res) => {
                 amount: parseFloat(amount),
                 description,
                 studentId: studentId ? parseInt(studentId) : null,
+                teacherId: teacherId ? parseInt(teacherId) : null,
+                billingMonth: effectiveBillingMonth,
+                isTeacherAdvance: isAdv,
                 date: txDate,
                 isDeleted: false
             },
             include: {
                 student: {
                     select: { id: true, firstName: true, lastName: true, studentName: true, studentId: true }
+                },
+                teacher: {
+                    select: { id: true, lecturerId: true, name: true, image: true, phone: true }
                 }
             }
         });
@@ -434,6 +456,9 @@ exports.getTrashTransactions = async (req, res) => {
             include: {
                 student: {
                     select: { id: true, firstName: true, lastName: true, studentName: true, studentId: true, phone: true }
+                },
+                teacher: {
+                    select: { id: true, lecturerId: true, name: true, image: true, phone: true }
                 }
             },
             orderBy: { deletedAt: 'desc' }
@@ -513,6 +538,9 @@ exports.getReports = async (req, res) => {
             include: {
                 student: {
                     select: { firstName: true, lastName: true, studentName: true, studentId: true, phone: true }
+                },
+                teacher: {
+                    select: { id: true, lecturerId: true, name: true }
                 }
             },
             orderBy: { date: 'desc' }

@@ -120,6 +120,100 @@ const calculateGroupAmount = (group, courses) => {
     return Math.max(0, total);
 };
 
+// Helper to identify batches where the student has an overdue installment
+const getStudentOverdueInstallmentBatchIds = async (studentId) => {
+    if (!studentId) return new Set();
+    const now = new Date();
+
+    // 1. Any upcoming or pending installment with due_date in the past
+    const overdueUpcoming = await prisma.payment.findMany({
+        where: {
+            studentId: parseInt(studentId),
+            payment_type: 2,
+            status: { in: [0, 2] },
+            due_date: { not: null, lt: now }
+        },
+        select: { batchId: true }
+    });
+
+    const overdueBatchIds = new Set(overdueUpcoming.map(p => p.batchId).filter(Boolean));
+
+    // 2. Also check approved installments where gapDays expired and next phase is unpaid
+    const approvedInstallments = await prisma.payment.findMany({
+        where: {
+            studentId: parseInt(studentId),
+            payment_type: 2,
+            status: 1
+        }
+    });
+
+    for (const p of approvedInstallments) {
+        if (!p.batchId || overdueBatchIds.has(p.batchId) || !p.subjects) continue;
+        try {
+            const subIds = parseSafeSubjectIds(p.subjects);
+            const plan = await prisma.installment.findFirst({
+                where: {
+                    batchId: p.batchId,
+                    subjectCount: { lte: subIds.length }
+                },
+                orderBy: { subjectCount: 'desc' }
+            });
+
+            if (plan && plan.details) {
+                const phases = JSON.parse(plan.details);
+                const currentStep = p.installment_no || 1;
+                const currentPhaseIndex = currentStep - 1;
+
+                if (currentPhaseIndex + 1 < phases.length) {
+                    const nextPaid = approvedInstallments.find(
+                        other => other.batchId === p.batchId && (other.installment_no || 1) > currentStep
+                    );
+                    if (!nextPaid) {
+                        // Check if an upcoming or pending payment record already exists for the next phase
+                        const nextPending = await prisma.payment.findFirst({
+                            where: {
+                                studentId: parseInt(studentId),
+                                batchId: p.batchId,
+                                payment_type: 2,
+                                installment_no: currentStep + 1,
+                                status: { in: [0, 2] }
+                            }
+                        });
+
+                        if (nextPending && nextPending.due_date) {
+                            if (new Date(nextPending.due_date) < now) {
+                                overdueBatchIds.add(p.batchId);
+                            }
+                            // If nextPending has a future due_date, student is within payment window!
+                            continue;
+                        }
+
+                        // If no nextPending with due_date, check if this approved payment itself has an explicit due_date
+                        if (p.due_date) {
+                            if (new Date(p.due_date) < now) {
+                                overdueBatchIds.add(p.batchId);
+                            }
+                            continue;
+                        }
+
+                        const currentPhase = phases[currentPhaseIndex];
+                        const gapDays = parseInt(currentPhase.gapDays || '30', 10);
+                        const baseDate = p.updatedAt || p.created_at;
+                        const expiryDate = new Date(baseDate.getTime() + gapDays * 24 * 60 * 60 * 1000);
+
+                        if (expiryDate < now) {
+                            overdueBatchIds.add(p.batchId);
+                        }
+                    }
+                }
+            }
+        } catch (err) {}
+    }
+
+    return overdueBatchIds;
+};
+exports.getStudentOverdueInstallmentBatchIds = getStudentOverdueInstallmentBatchIds;
+
 // 1. Dashboard
 exports.getStudentDashboard = async (req, res) => {
     try {
@@ -269,6 +363,9 @@ exports.getStudentDashboard = async (req, res) => {
 
                 duePaymentsList.push({
                     id: p.id,
+                    businessId: p.businessId,
+                    batchId: p.batchId,
+                    groupId: p.groupId,
                     courseName: courseName,
                     amount: p.amount || 0,
                     dueDate: p.due_date,
@@ -391,7 +488,7 @@ exports.getAvailableEnrollments = async (req, res) => {
                 batches: {
                     where: { status: 1 },
                     include: {
-                        groups: { include: { courses: true } }
+                        groups: { include: { courses: true }, orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }] }
                     }
                 }
             }
@@ -420,17 +517,24 @@ exports.getAvailableEnrollments = async (req, res) => {
 exports.getMyEnrolledSubjects = async (req, res) => {
     try {
         const studentId = req.user?.userId || req.user?.id;
+
+        const overdueBatchIds = await getStudentOverdueInstallmentBatchIds(studentId);
         
         const validPayments = await prisma.payment.findMany({
             where: { studentId: parseInt(studentId), status: { in: [0, 1, 4] } },
             include: { group: true }
         });
 
+        const activePayments = validPayments.filter(p => {
+            if (p.payment_type === 2 && overdueBatchIds.has(p.batchId)) return false;
+            return true;
+        });
+
         let enrolled = [];
         let groupPaidSubjects = {};
         let fullPaidSubjects = [];
 
-        validPayments.forEach(p => {
+        activePayments.forEach(p => {
             if (p.subjects) {
                 try { 
                     const parsed = typeof p.subjects === 'string' ? JSON.parse(p.subjects) : p.subjects;
@@ -816,17 +920,34 @@ exports.getStudentClassroom = async (req, res) => {
     try {
         const studentId = req.user?.userId || req.user?.id;
 
+        const overdueBatchIds = await getStudentOverdueInstallmentBatchIds(studentId);
+
         const validPayments = await prisma.payment.findMany({
             where: { studentId: parseInt(studentId), status: { in: [1, 4] } }
         });
 
-        if (validPayments.length === 0) return res.status(200).json({ businesses: [] });
+        // Filter out installment payments for batches with overdue installments,
+        // unless the student also has a valid full or monthly payment for that batch
+        const effectivePayments = validPayments.filter(p => {
+            if (p.payment_type === 2 && overdueBatchIds.has(p.batchId)) {
+                const hasValidAlternative = validPayments.some(other =>
+                    other.id !== p.id &&
+                    other.batchId === p.batchId &&
+                    [1, 3].includes(other.payment_type) &&
+                    other.status === 1
+                );
+                return hasValidAlternative;
+            }
+            return true;
+        });
 
-        const validBatchIds = [...new Set(validPayments.map(p => p.batchId).filter(Boolean))];
-        let validGroupIds = [...new Set(validPayments.map(p => p.groupId).filter(Boolean))];
+        if (effectivePayments.length === 0) return res.status(200).json({ businesses: [] });
+
+        const validBatchIds = [...new Set(effectivePayments.map(p => p.batchId).filter(Boolean))];
+        let validGroupIds = [...new Set(effectivePayments.map(p => p.groupId).filter(Boolean))];
 
         let allowedSubjectIds = [];
-        validPayments.forEach(p => {
+        effectivePayments.forEach(p => {
             if (p.subjects) {
                 allowedSubjectIds.push(...parseSafeSubjectIds(p.subjects));
             }
@@ -841,7 +962,8 @@ exports.getStudentClassroom = async (req, res) => {
                     include: {
                         groups: {
                             where: validGroupIds.length > 0 ? { id: { in: validGroupIds } } : undefined,
-                            include: { courses: true }
+                            include: { courses: true },
+                            orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }]
                         }
                     }
                 }
@@ -862,7 +984,7 @@ exports.getStudentClassroom = async (req, res) => {
                     // Determine which subjects were explicitly paid for in THIS group
                     const paidSubjectIdsInThisGroup = [];
                     const paidSubjectStringsInThisGroup = [];
-                    validPayments.filter(p => p.groupId === group.id).forEach(p => {
+                    effectivePayments.filter(p => p.groupId === group.id).forEach(p => {
                         if (p.subjects && p.subjects !== '[]') {
                             paidSubjectIdsInThisGroup.push(...parseSafeSubjectIds(p.subjects));
                             paidSubjectStringsInThisGroup.push(...parseSafeSubjectStrings(p.subjects));
@@ -873,7 +995,7 @@ exports.getStudentClassroom = async (req, res) => {
                     const paidCoursesInThisGroup = paidCourses.filter(pc => paidSubjectIdsInThisGroup.includes(pc.id));
 
                     group.courses = group.courses.filter(c => {
-                        const hasFullGroupPayment = validPayments.some(p => p.groupId === group.id && (!p.subjects || p.subjects === '[]'));
+                        const hasFullGroupPayment = effectivePayments.some(p => p.groupId === group.id && (!p.subjects || p.subjects === '[]'));
                         if (hasFullGroupPayment) return true;
 
                         // Check if THIS specific group's payment included this subject
@@ -978,6 +1100,26 @@ exports.getCourseModules = async (req, res) => {
             const batchId = requestedCourse.group.batchId;
             const targetClassType = parseInt(requestedCourse.courseType || requestedCourse.group?.classType || 1, 10);
 
+            // Check if student's installment is overdue for this batch
+            const overdueBatchIds = await getStudentOverdueInstallmentBatchIds(studentId);
+            if (overdueBatchIds.has(batchId)) {
+                const hasValidAlternative = await prisma.payment.findFirst({
+                    where: {
+                        studentId: parseInt(studentId),
+                        batchId: batchId,
+                        payment_type: { in: [1, 3] },
+                        status: 1
+                    }
+                });
+                if (!hasValidAlternative) {
+                    return res.status(403).json({
+                        error: "INSTALLMENT_OVERDUE",
+                        message: "ඔබගේ වාරික ගෙවීමේ (Installment) අවසන් දිනය ඉක්මවා ගොස් ඇත. පාඨමාලාවට ප්‍රවේශ වීම සඳහා කරුණාකර හිඟ වාරිකය ගෙවන්න.",
+                        isOverdue: true
+                    });
+                }
+            }
+
             const fullPayments = await prisma.payment.findMany({
                 where: {
                     studentId: parseInt(studentId),
@@ -988,7 +1130,13 @@ exports.getCourseModules = async (req, res) => {
                 }
             });
 
-            if (fullPayments.length > 0) {
+            // Filter out overdue installment payments from fullPayments
+            const activeFullPayments = fullPayments.filter(p => {
+                if (p.payment_type === 2 && overdueBatchIds.has(p.batchId)) return false;
+                return true;
+            });
+
+            if (activeFullPayments.length > 0) {
                 // If Full Payment, fetch all courses in this batch with the same code OR same name AND matching classType!
                 const similarCoursesRaw = await prisma.course.findMany({
                     where: {
@@ -1210,6 +1358,28 @@ exports.getMyPayments = async (req, res) => {
     try {
         const studentId = req.user?.userId || req.user?.id;
         console.log(`[getMyPayments] Called for Student ID: ${studentId}`);
+
+        // Auto-heal: Ensure next installment phase is generated if previous installment is approved
+        try {
+            const approvedInsts = await prisma.payment.findMany({
+                where: {
+                    studentId: parseInt(studentId),
+                    payment_type: 2,
+                    status: 1
+                },
+                orderBy: { installment_no: 'desc' }
+            });
+
+            const checkedBatches = new Set();
+            const { createNextInstallmentPhase } = require('./paymentController');
+            for (const inst of approvedInsts) {
+                if (!inst.batchId || checkedBatches.has(inst.batchId)) continue;
+                checkedBatches.add(inst.batchId);
+                await createNextInstallmentPhase(inst);
+            }
+        } catch (healErr) {
+            console.error("Auto-heal next installment error:", healErr);
+        }
 
         const payments = await prisma.payment.findMany({
             where: { 

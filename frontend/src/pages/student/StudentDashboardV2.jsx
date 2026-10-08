@@ -261,7 +261,7 @@ const StudentDashboardV2 = () => {
             </div>
           </main>
       </div>
-      <WebInquiryWidget businesses={businesses} />
+      <WebInquiryWidget businesses={businesses} setActiveTab={setActiveTab} />
     </div>
   );
 };

@@ -72,7 +72,7 @@ exports.getModuleOneAnalytics = async (req, res) => {
         // ---------------------------------------------------------
         const allGroups = await prisma.group.findMany({
             where: { batchId: parsedBatchId },
-            orderBy: { itemOrder: 'asc' },
+            orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }],
             select: { id: true, name: true, itemOrder: true, type: true }
         });
 

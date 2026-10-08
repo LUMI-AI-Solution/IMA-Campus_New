@@ -46,8 +46,28 @@ const uploadQuestionImagesMulter = multer({
     limits: { fileSize: 25 * 1024 * 1024 } // 25MB max
 });
 
+// Storage Configuration for Master Question Paper PDF
+const masterPaperStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        const ext = path.extname(file.originalname);
+        cb(null, 'master-paper-' + uniqueSuffix + ext);
+    }
+});
+
+const uploadMasterPaperMulter = multer({
+    storage: masterPaperStorage,
+    limits: { fileSize: 50 * 1024 * 1024 } // 50MB max
+});
+
 // All paper routes require authentication
 router.use(verifyToken);
+
+// Direct Upload Master Question Paper PDF
+router.post('/upload-master-sheet', uploadMasterPaperMulter.single('file'), paperController.uploadMasterSheet);
 
 // Upload Question Images / Figures (up to 10 images at once)
 router.post('/upload-question-images', uploadQuestionImagesMulter.array('images', 10), paperController.uploadQuestionImages);
@@ -82,4 +102,8 @@ router.get('/:paperId/leaderboard', paperController.getPaperLeaderboard);
 // 10. Grade a structured submission
 router.put('/submissions/:submissionId/grade', paperController.gradeStructuredSubmission);
 
+// 11. Student Paper Class enrollment verification & available paper classes
+router.get('/student/paper-classes', paperController.getStudentPaperClassAccess);
+
 module.exports = router;
+

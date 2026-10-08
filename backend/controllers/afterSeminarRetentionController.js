@@ -20,26 +20,84 @@ const getActiveStaffIds = async (businessId, batchId) => {
     return activeStaffIds;
 };
 
-// 🔥 HELPER FUNCTION (උඩටම ගත්තා හැමතැනම පාවිච්චි කරන්න ලේසි වෙන්න)
+// 🔥 HELPER FUNCTION (Strict Business & Batch Isolation)
 const buildStatsWhereClause = (businessId, batchId, startDate, endDate, baseConditions = {}) => {
     let whereClause = { ...baseConditions };
 
+    const isBatchAll = !batchId || String(batchId).trim().toUpperCase() === 'ALL' || batchId === 'undefined' || batchId === 'null' || batchId === '';
+    const isBizAll = !businessId || String(businessId).trim().toUpperCase() === 'ALL' || businessId === 'undefined' || businessId === 'null' || businessId === '';
+
+    const hasBatch = !isBatchAll && batchId !== 'UNASSIGNED' && !isNaN(parseInt(batchId));
+    const hasBiz = !isBizAll && !isNaN(parseInt(businessId));
+
     if (batchId === 'UNASSIGNED') {
         whereClause.batchId = null;
-    } else if (batchId && batchId !== '' && batchId !== 'ALL') {
-        whereClause.batchId = parseInt(batchId);
-    } else if (businessId && businessId !== '' && businessId !== 'ALL') {
+        if (hasBiz) {
+            const bizId = parseInt(businessId);
+            whereClause.OR = [
+                { phone: { endsWith: `_BIZ_${bizId}` } },
+                { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+                { phone: { contains: `_BIZ_${bizId}_BATCH_` } },
+                { phone: { contains: `_BIZ_${bizId}_ROUND_` } },
+                { phone: { contains: `_BIZ_${bizId}_HISTORY_ROUND_` } }
+            ];
+        }
+    } else if (hasBatch) {
+        const bId = parseInt(batchId);
+        if (hasBiz) {
+            const bizId = parseInt(businessId);
+            whereClause.OR = [
+                { batchId: bId, batch: { businessId: bizId } },
+                {
+                    batchId: null,
+                    OR: [
+                        { phone: { endsWith: `_BATCH_${bId}` } },
+                        { phone: { contains: `_BATCH_${bId}_` } }
+                    ],
+                    AND: [
+                        {
+                            OR: [
+                                { phone: { endsWith: `_BIZ_${bizId}` } },
+                                { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+                                { phone: { contains: `_BIZ_${bizId}_BATCH_` } },
+                                { phone: { contains: `_BIZ_${bizId}_ROUND_` } },
+                                { phone: { contains: `_BIZ_${bizId}_HISTORY_ROUND_` } }
+                            ]
+                        }
+                    ]
+                }
+            ];
+        } else {
+            whereClause.OR = [
+                { batchId: bId },
+                { batchId: null, phone: { endsWith: `_BATCH_${bId}` } },
+                { batchId: null, phone: { contains: `_BATCH_${bId}_` } }
+            ];
+        }
+    } else if (hasBiz) {
+        const bizId = parseInt(businessId);
         whereClause.OR = [
-            { phone: { endsWith: `_BIZ_${businessId}` } },
-            { phone: { endsWith: `_BIZ_${businessId}_AS` } },
-            { phone: { contains: `_BIZ_${businessId}_BATCH_` } }
+            { batch: { businessId: bizId } },
+            {
+                batchId: null,
+                OR: [
+                    { phone: { endsWith: `_BIZ_${bizId}` } },
+                    { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+                    { phone: { contains: `_BIZ_${bizId}_BATCH_` } },
+                    { phone: { contains: `_BIZ_${bizId}_ROUND_` } },
+                    { phone: { contains: `_BIZ_${bizId}_HISTORY_ROUND_` } }
+                ]
+            }
         ];
     }
 
     if (startDate && endDate) {
+        const isExactStart = startDate.includes('T');
+        const isExactEnd = endDate.includes('T');
+
         whereClause.updatedAt = {
-            gte: new Date(`${startDate}T00:00:00.000Z`),
-            lte: new Date(`${endDate}T23:59:59.999Z`)
+            gte: isExactStart ? new Date(startDate) : new Date(`${startDate}T00:00:00.000Z`),
+            lte: isExactEnd ? new Date(endDate) : new Date(`${endDate}T23:59:59.999Z`)
         };
     }
     return whereClause;
@@ -328,11 +386,27 @@ exports.getRetentionCampaignData = async (req, res) => {
 
         const allGroups = await prisma.group.findMany({
             where: { batchId: { in: batchIdsToFetch } },
-            orderBy: { itemOrder: 'asc' }
+            orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }]
         });
         const monthlyGroupsRaw = allGroups.filter(g => !g.name.toLowerCase().includes('full'));
 
-        const uniqueGroupNames = [...new Set(monthlyGroupsRaw.map(g => g.name))];
+        // Helper to get minimum itemOrder for a group name, prioritizing Theory (classType: 1)
+        const getGroupSortOrder = (name) => {
+            const theoryMatches = monthlyGroupsRaw.filter(g => g.classType === 1 && g.name.toLowerCase().trim() === name.toLowerCase().trim());
+            if (theoryMatches.length > 0) {
+                return Math.min(...theoryMatches.map(g => g.itemOrder));
+            }
+            const allMatches = monthlyGroupsRaw.filter(g => g.name.toLowerCase().trim() === name.toLowerCase().trim());
+            if (allMatches.length > 0) {
+                return Math.min(...allMatches.map(g => g.itemOrder));
+            }
+            return 999;
+        };
+
+        const uniqueGroupNames = [...new Set(monthlyGroupsRaw.map(g => g.name))].sort((a, b) => {
+            return getGroupSortOrder(a) - getGroupSortOrder(b);
+        });
+
         const distinctMonthlyGroups = uniqueGroupNames.map(name => {
             const matchingGroups = monthlyGroupsRaw.filter(g => g.name === name);
             return {

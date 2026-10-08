@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, Users, Activity, CheckCircle, Clock, XCircle, Gift, Tag, Download, ChevronDown, Check } from 'lucide-react';
 
 export default function PaymentFilters({ 
-    isAdmin, isSystemAdmin, filters, setFilters, businesses, batches, groups, subjects, stats, onOpenStaffStats, onOpenExport
+    isAdmin, isSystemAdmin, isFinance, filters, setFilters, businesses, batches, groups, subjects, stats, onOpenStaffStats, onOpenExport
 }) {
     const [isSubjectDropdownOpen, setIsSubjectDropdownOpen] = useState(false);
     const dropdownRef = useRef(null);
@@ -27,6 +27,8 @@ export default function PaymentFilters({
         }
     };
 
+    const canViewReports = isSystemAdmin || isAdmin || isFinance;
+
     return (
         <div className="mb-8 font-sans transition-all duration-300 relative z-[60]">
             {/* Top Stats Cards */}
@@ -47,20 +49,18 @@ export default function PaymentFilters({
                     <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-2"><Tag size={14} className="text-blue-400"/> Discounts</p>
                     <h3 className="text-3xl font-black text-white">{stats.discounts}</h3>
                 </div>
-                {isSystemAdmin && (
+                {canViewReports && (
                     <div className="bg-white/5 backdrop-blur-md border border-white/10 p-5 rounded-2xl flex flex-col justify-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] cursor-pointer hover:bg-white/10 hover:shadow-[0_0_20px_rgba(168,85,247,0.12)] hover:border-purple-500/30 hover:-translate-y-1 transition-all duration-300" onClick={onOpenStaffStats}>
                         <p className="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-2"><Users size={14} className="text-purple-400"/> Staff Stats</p>
                         <h3 className="text-sm font-extrabold text-purple-400 mt-1 uppercase tracking-widest">Click to View</h3>
                     </div>
                 )}
-                
-                {/* Export Button (Dynamic Themed) */}
-                {isSystemAdmin && (
+                {canViewReports && onOpenExport && (
                     <div className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 p-5 rounded-2xl flex flex-col justify-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] cursor-pointer hover:bg-emerald-500/20 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] hover:border-emerald-500/40 hover:-translate-y-1 transition-all duration-300 group" onClick={onOpenExport}>
                         <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-2 group-hover:text-emerald-300 transition-colors">
-                            <Download size={14} className="text-emerald-400 group-hover:text-emerald-300 transition-colors"/> View
+                            <Download size={14} className="text-emerald-400 group-hover:text-emerald-300 transition-colors"/> Payment Report
                         </p>
-                        <h3 className="text-[13px] font-extrabold text-emerald-400 mt-1 uppercase tracking-widest group-hover:text-emerald-300 transition-colors">Financial Dashboard</h3>
+                        <h3 className="text-[13px] font-extrabold text-emerald-400 mt-1 uppercase tracking-widest group-hover:text-emerald-300 transition-colors">Generate Report</h3>
                     </div>
                 )}
             </div>

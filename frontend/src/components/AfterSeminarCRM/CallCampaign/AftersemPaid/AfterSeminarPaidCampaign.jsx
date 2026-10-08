@@ -105,13 +105,15 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
     const handleAttemptDataChange = (leadId, monthName, attemptNum, field, value) => {
         setDraftAttemptsData(prev => {
             const leadObj = leads.find(l => l.id === leadId);
-            const leadAttempts = prev[leadId] || leadObj?.attemptsData || {};
-            const monthAttempts = leadAttempts[monthName] || {};
+            const leadAttempts = leadObj?.attemptsData || {};
+            const prevLeadDrafts = prev[leadId] || {};
+            const monthAttempts = prevLeadDrafts[monthName] || leadAttempts[monthName] || {};
             const currentAttemptData = monthAttempts[attemptNum] || { status: 'pending', method: 'direct', feedback: '' };
             return {
                 ...prev,
                 [leadId]: {
                     ...leadAttempts,
+                    ...prevLeadDrafts,
                     [monthName]: {
                         ...monthAttempts,
                         [attemptNum]: {
@@ -137,23 +139,34 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         const leadObj = leads.find(l => l.id === leadId);
         if (!leadObj) return;
 
-        const currentActiveMonth = selectedGroupName !== 'ALL' && selectedGroupName ? selectedGroupName : (monthlyGroups[0]?.name || 'UNKNOWN');
+        const currentActiveMonth = (selectedGroupName && selectedGroupName !== 'ALL') ? selectedGroupName : (monthlyGroups[0]?.name || 'UNKNOWN');
         const currentActiveAttempt = activeAttemptTab[leadId] || 1;
         
-        const attemptsData = draftAttemptsData[leadId] || leadObj.attemptsData || {};
-        const monthAttempts = attemptsData[currentActiveMonth] || {};
-        const activeAttemptData = monthAttempts[currentActiveAttempt] || {};
+        // Deep merge existing lead attempts with any draft attempts
+        const existingAttempts = leadObj.attemptsData 
+            ? (typeof leadObj.attemptsData === 'string' ? JSON.parse(leadObj.attemptsData) : { ...leadObj.attemptsData }) 
+            : {};
+        const draftAttempts = draftAttemptsData[leadId] || {};
+        
+        const allAttemptsData = { ...existingAttempts };
+        for (const mKey in draftAttempts) {
+            allAttemptsData[mKey] = { ...(allAttemptsData[mKey] || {}), ...(draftAttempts[mKey] || {}) };
+        }
+        if (!allAttemptsData[currentActiveMonth]) {
+            allAttemptsData[currentActiveMonth] = {};
+        }
+
+        const monthAttempts = allAttemptsData[currentActiveMonth] || {};
+        const activeAttemptData = monthAttempts[currentActiveAttempt] || { status: 'pending', method: 'direct', feedback: '' };
 
         const finalStatus = activeAttemptData.status || 'pending';
         const finalMethod = activeAttemptData.method || 'direct';
         const finalAttempt = currentActiveAttempt;
-
         const remarkVal = activeAttemptData.feedback || '';
-        const reasonVal = reasonDrafts[leadId] !== undefined ? reasonDrafts[leadId] : (leadObj.nonEnrolledReason || '');
-
-        if (activeMainTab === 'NON_ENROLLED' && (!reasonVal || reasonVal.trim() === '')) {
-            toast.error("Please provide a Non-Enrolled Reason before saving.");
-            return;
+        
+        let reasonVal = reasonDrafts[leadId] !== undefined ? reasonDrafts[leadId] : (leadObj.nonEnrolledReason || '');
+        if ((!reasonVal || reasonVal.trim() === '') && remarkVal && remarkVal.trim() !== '') {
+            reasonVal = remarkVal.trim();
         }
 
         const loadToast = toast.loading("Saving progress...");
@@ -172,7 +185,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                 method: finalMethod,
                 campaignContext: 'PAID',
                 isNonEnrolledTab: activeMainTab === 'NON_ENROLLED',
-                attemptsData: attemptsData
+                attemptsData: allAttemptsData
             };
 
             const response = await axios.post('/after-seminar-crm/leads/update-call', payload, {
@@ -182,45 +195,36 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
             toast.success("Progress saved successfully!", { id: loadToast });
             localStorage.removeItem(`draft_paid_remark_${leadId}`);
             
-            const newDrafts = { ...drafts };
-            delete newDrafts[leadId];
-            setDrafts(newDrafts);
-
-            const newReasonDrafts = { ...reasonDrafts };
-            delete newReasonDrafts[leadId];
-            setReasonDrafts(newReasonDrafts);
+            // Clean up drafts for this lead
+            setDrafts(prev => { const n = { ...prev }; delete n[leadId]; return n; });
+            setReasonDrafts(prev => { const n = { ...prev }; delete n[leadId]; return n; });
+            setDraftAttemptsData(prev => { const n = { ...prev }; delete n[leadId]; return n; });
+            setDraftStatus(prev => { const n = { ...prev }; delete n[leadId]; return n; });
+            setDraftAttempt(prev => { const n = { ...prev }; delete n[leadId]; return n; });
+            setDraftMethod(prev => { const n = { ...prev }; delete n[leadId]; return n; });
             
-            setDraftStatus(prev => { const n = {...prev}; delete n[leadId]; return n; });
-            setDraftAttempt(prev => { const n = {...prev}; delete n[leadId]; return n; });
-            setDraftMethod(prev => { const n = {...prev}; delete n[leadId]; return n; });
-            
-            if (response.data && response.data.lead) {
-                const updated = response.data.lead;
-                setLeads(prev => prev.map(l => {
-                    if (l.id === leadId) {
-                        return {
-                            ...l,
-                            ...updated,
-                            callStatus: updated.paidCallStatus !== undefined ? updated.paidCallStatus : updated.callStatus,
-                            callAttempt: updated.paidCallAttempt !== undefined ? updated.paidCallAttempt : updated.callAttempt,
-                            callMethod: updated.paidCallMethod !== undefined ? updated.paidCallMethod : updated.callMethod,
-                            feedback: updated.paidFeedback !== undefined ? updated.paidFeedback : updated.feedback,
-                            attemptsData: updated.attemptsData !== undefined ? updated.attemptsData : attemptsData,
-                            phase: updated.paidPhase !== undefined ? updated.paidPhase : updated.phase,
-                            coordinationRound: updated.paidRound !== undefined ? updated.paidRound : updated.coordinationRound
-                        };
-                    }
-                    return l;
-                }));
-            } else {
-                handleUpdateLocalLead(leadId, 'feedback', remarkVal);
-                handleUpdateLocalLead(leadId, 'callStatus', finalStatus);
-                handleUpdateLocalLead(leadId, 'callAttempt', finalAttempt);
-                handleUpdateLocalLead(leadId, 'callMethod', finalMethod);
-            }
-            
-            // Optionally refetch or let it stay in UI
-            // fetchPaidCampaignData();
+            const updated = response.data?.lead || {};
+            setLeads(prev => prev.map(l => {
+                if (l.id === leadId) {
+                    return {
+                        ...l,
+                        ...updated,
+                        callStatus: finalStatus,
+                        paidCallStatus: finalStatus,
+                        callAttempt: finalAttempt,
+                        paidCallAttempt: finalAttempt,
+                        callMethod: finalMethod,
+                        paidCallMethod: finalMethod,
+                        feedback: remarkVal,
+                        paidFeedback: remarkVal,
+                        nonEnrolledReason: reasonVal,
+                        attemptsData: allAttemptsData,
+                        phase: updated.paidPhase !== undefined ? updated.paidPhase : (l.paidPhase || l.phase || 1),
+                        coordinationRound: updated.paidRound !== undefined ? updated.paidRound : (l.paidRound || l.coordinationRound || 1)
+                    };
+                }
+                return l;
+            }));
         } catch (err) {
             toast.error(err.response?.data?.error || "Failed to save workflow state", { id: loadToast });
         }
@@ -389,14 +393,18 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         });
         const dedupedLeads = Array.from(uniqueMap.values());
 
+        const activeMonthName = (selectedGroupName && selectedGroupName !== 'ALL') 
+            ? selectedGroupName 
+            : (monthlyGroups[0]?.name || null);
+
         return dedupedLeads.map(l => {
             let effectiveEnrollmentStatus = l.enrollmentStatus;
             let effectivePaymentIntention = l.paymentIntention;
             
-            let activeGroupIndex = monthlyGroups.findIndex(g => g.name === selectedGroupName);
+            let activeGroupIndex = monthlyGroups.findIndex(g => g.name === activeMonthName);
             let unpaidCount = 0;
 
-            if (selectedGroupName && l.paymentIntention !== 'FULL') {
+            if (activeMonthName && l.paymentIntention !== 'FULL') {
                 if (activeGroupIndex >= 0) {
                     for (let i = 0; i <= activeGroupIndex; i++) {
                         const pm = monthlyGroups[i];
@@ -405,9 +413,10 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                     }
                 }
             }
+
             let effectiveCallStatus = 'pending';
-            if (selectedGroupName) {
-                const monthAttempts = (draftAttemptsData[l.id]?.[selectedGroupName]) || (l.attemptsData?.[selectedGroupName]) || {};
+            if (activeMonthName) {
+                const monthAttempts = (draftAttemptsData[l.id]?.[activeMonthName]) || (l.attemptsData?.[activeMonthName]) || {};
                 let highestStatus = 'pending';
                 for (let i = 4; i >= 1; i--) {
                     if (monthAttempts[i] && monthAttempts[i].status && monthAttempts[i].status !== 'pending') {
@@ -415,9 +424,12 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                         break;
                     }
                 }
+                if (highestStatus === 'pending' && l.paidCallStatus && l.paidCallStatus !== 'pending') {
+                    highestStatus = l.paidCallStatus;
+                }
                 effectiveCallStatus = highestStatus;
             } else {
-                effectiveCallStatus = l.callStatus || 'pending';
+                effectiveCallStatus = l.paidCallStatus || l.callStatus || 'pending';
             }
 
             return { ...l, effectiveEnrollmentStatus, effectivePaymentIntention, unpaidCount, effectiveCallStatus };
@@ -548,7 +560,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                             <FaLayerGroup className="text-amber-400" />
                             <span className="text-xs font-bold text-slate-400 whitespace-nowrap">Group Period:</span>
                             <select 
-                                value={selectedGroupName || ''} 
+                                value={selectedGroupName || monthlyGroups[0]?.name || ''} 
                                 onChange={(e) => { setSelectedGroupName(e.target.value); setCurrentPage(1); fetchPaidCampaignData(e.target.value); }}
                                 className="bg-transparent border-none text-amber-400 text-sm font-black outline-none cursor-pointer w-full md:w-auto appearance-none pr-4"
                             >
@@ -701,10 +713,9 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                                     const currentReason = reasonDrafts[lead.id] !== undefined ? reasonDrafts[lead.id] : (lead.nonEnrolledReason || '');
                                     const isReasonDraft = reasonDrafts[lead.id] !== undefined && reasonDrafts[lead.id] !== lead.nonEnrolledReason;
 
-                                    const attemptsData = draftAttemptsData[lead.id] || lead.attemptsData || {};
-                                    const currentActiveMonth = selectedGroupName !== 'ALL' && selectedGroupName ? selectedGroupName : (monthlyGroups[0]?.name || 'UNKNOWN');
+                                    const currentActiveMonth = (selectedGroupName && selectedGroupName !== 'ALL') ? selectedGroupName : (monthlyGroups[0]?.name || 'UNKNOWN');
                                     const currentActiveAttempt = activeAttemptTab[lead.id] || 1;
-                                    const monthAttempts = attemptsData[currentActiveMonth] || {};
+                                    const monthAttempts = (draftAttemptsData[lead.id]?.[currentActiveMonth]) || (lead.attemptsData?.[currentActiveMonth]) || {};
                                     const activeAttemptData = monthAttempts[currentActiveAttempt] || { status: 'pending', method: 'direct', feedback: '' };
 
                                     const overallCallOutcome = lead.effectiveCallStatus || 'pending';
@@ -735,6 +746,11 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                                                             <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${lead.enrollmentStatus === 'ENROLLED' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : lead.isProcessing ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>
                                                                 {lead.enrollmentStatus === 'ENROLLED' ? `✅ ${lead.paymentIntention}` : lead.isProcessing ? '⏳ PRO' : '❌ NON ENR'}
                                                             </span>
+                                                            {lead.effectiveCallStatus && lead.effectiveCallStatus !== 'pending' && (
+                                                                <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${lead.effectiveCallStatus === 'answered' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : lead.effectiveCallStatus === 'reject' ? 'bg-rose-500/20 text-rose-300 border-rose-500/40' : 'bg-blue-500/20 text-blue-300 border-blue-500/40'}`}>
+                                                                    📞 {lead.effectiveCallStatus.toUpperCase()}
+                                                                </span>
+                                                            )}
                                                             {lead.isDroppedTwoMonthsPlus && (
                                                                 <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border bg-purple-500/20 text-purple-300 border-purple-500/40" title={lead.droppedSubjectsDetails?.map(d => `${d.subject} (${d.unpaidMonths} mos unpaid)`).join(', ')}>
                                                                     ⚠️ DROPPED (2+ MOS)

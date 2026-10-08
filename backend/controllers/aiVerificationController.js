@@ -1514,12 +1514,16 @@ Format:
                 // Trigger ContentHub Auto Delivery Creation
                 await createDeliveryForVerifiedPayment(updatedPay);
 
-                // Sync CRM Lead Enrollment
+                // Sync CRM Lead Enrollment and Generate Next Installment Phase
                 try {
-                    const { syncLeadEnrollment } = require('./paymentController');
+                    const { syncLeadEnrollment, createNextInstallmentPhase } = require('./paymentController');
                     await syncLeadEnrollment(updatedPay.studentId, updatedPay.payment_type, updatedPay);
+
+                    if (parseInt(updatedPay.payment_type) === 2) {
+                        await createNextInstallmentPhase(updatedPay);
+                    }
                 } catch (e) {
-                    console.error("CRM Sync Error in AI Verification:", e);
+                    console.error("CRM / Installment Sync Error in AI Verification:", e);
                 }
 
                 // Write back to GSheet

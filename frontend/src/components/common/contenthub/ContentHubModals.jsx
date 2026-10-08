@@ -201,6 +201,8 @@ export default function ContentHubModals({ state, actions }) {
     const [modalTimerMode, setModalTimerMode] = useState('FLEXIBLE');
     const [modalPaperType, setModalPaperType] = useState('MCQ'); // 'MCQ' | 'STRUCTURED' | 'BOTH'
     const [modalCategory, setModalCategory] = useState('WEEKLY'); // 'WEEKLY' | 'MONTHLY'
+    const [modalWeeklyLeaderboard, setModalWeeklyLeaderboard] = useState(true); // Whether Weekly test publishes to leaderboard
+    const [modalQuestionCount, setModalQuestionCount] = useState('4'); // Number of questions in paper
     const [modalManualParticipantCount, setModalManualParticipantCount] = useState('');
     const [modalBreakIntervalMinutes, setModalBreakIntervalMinutes] = useState('15');
     const [modalStructuredUploadMinutes, setModalStructuredUploadMinutes] = useState('15');
@@ -335,6 +337,9 @@ export default function ContentHubModals({ state, actions }) {
             setModalStructuredMarks(String(sMarks));
             setModalTotalMarks(String(tMarks));
 
+            setModalWeeklyLeaderboard(editData?.paper?.hasLeaderboard !== undefined ? Boolean(editData.paper.hasLeaderboard) : true);
+            setModalQuestionCount(editData?.questionCount ? String(editData.questionCount) : '4');
+
             if (editData?.paper?.gradingScale) {
                 try {
                     const parsed = typeof editData.paper.gradingScale === 'string'
@@ -353,6 +358,8 @@ export default function ContentHubModals({ state, actions }) {
             }
         } else {
             setModalCategory('WEEKLY');
+            setModalWeeklyLeaderboard(true);
+            setModalQuestionCount('4');
             setModalManualParticipantCount('');
             setModalBreakIntervalMinutes('15');
             setModalStructuredUploadMinutes('15');
@@ -605,94 +612,90 @@ export default function ContentHubModals({ state, actions }) {
                                                 </div>
                                             )}
 
-                                            {/* Dedicated Test Ranking Paper Uploads */}
-                                            {contentType === 'testRanking' && modalPaperType === 'BOTH' && (
-                                                <div className="md:col-span-4 grid grid-cols-1 md:grid-cols-2 gap-4 bg-white/[0.02] border border-amber-500/20 rounded-2xl p-4 sm:p-5 shadow-inner">
-                                                    {/* Part 1: MCQ Question Paper */}
-                                                    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4 space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <label className="text-xs font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
-                                                                <CheckCircle size={15} /> Part 1: MCQ Question Paper (PDF)
-                                                            </label>
-                                                            {editMode && editData?.paper?.mcqPaperFile && (
-                                                                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md font-mono truncate max-w-[150px]">
-                                                                    {editData.paper.mcqPaperFile}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <input 
-                                                            type="file" 
-                                                            name="mcqFile" 
-                                                            accept=".pdf" 
-                                                            className="w-full bg-black/60 border border-emerald-500/30 rounded-xl p-2.5 text-gray-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-emerald-500/20 file:text-emerald-300 file:font-bold shadow-inner cursor-pointer text-xs" 
-                                                        />
-                                                        <p className="text-[11px] text-slate-400">
-                                                            Upload MCQ question paper PDF for Part 1. {editMode && editData?.paper?.mcqPaperFile && <span className="text-emerald-400">(Leave empty to keep existing)</span>}
-                                                        </p>
-                                                    </div>
-
-                                                    {/* Part 2: Structured Essay Question Paper */}
-                                                    <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4 space-y-2">
-                                                        <div className="flex items-center justify-between">
-                                                            <label className="text-xs font-bold text-purple-400 flex items-center gap-1.5 uppercase tracking-wider">
-                                                                <FileSignature size={15} /> Part 2: Structure Essay Paper (PDF) *
-                                                            </label>
-                                                            {editMode && (editData?.paper?.structuredPaperFile || editData?.fileName) && (
-                                                                <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-md font-mono truncate max-w-[150px]">
-                                                                    {editData?.paper?.structuredPaperFile || editData?.fileName}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                        <input 
-                                                            type="file" 
-                                                            name="structuredFile" 
-                                                            accept=".pdf" 
-                                                            required={!editMode}
-                                                            className="w-full bg-black/60 border border-purple-500/30 rounded-xl p-2.5 text-gray-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-purple-500/20 file:text-purple-300 file:font-bold shadow-inner cursor-pointer text-xs" 
-                                                        />
-                                                        <p className="text-[11px] text-slate-400">
-                                                            Upload Structure/Essay master sheet PDF for Part 2. {editMode && (editData?.paper?.structuredPaperFile || editData?.fileName) && <span className="text-purple-400">(Leave empty to keep existing)</span>}
-                                                        </p>
-                                                    </div>
-                                                </div>
-                                            )}
-
-                                            {contentType === 'testRanking' && modalPaperType === 'MCQ' && (
-                                                <div className="md:col-span-4 bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4 space-y-2 shadow-inner">
-                                                    <div className="flex items-center justify-between">
-                                                        <label className="text-xs font-bold text-emerald-400 flex items-center gap-1.5 uppercase tracking-wider">
-                                                            <CheckCircle size={15} /> MCQ Question Paper (PDF) (Optional)
-                                                        </label>
-                                                        {editMode && editData?.paper?.mcqPaperFile && (
-                                                            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md font-mono truncate max-w-[200px]">
-                                                                {editData.paper.mcqPaperFile}
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <input 
-                                                        type="file" 
-                                                        name="mcqFile" 
-                                                        accept=".pdf" 
-                                                        className="w-full bg-black/60 border border-emerald-500/30 rounded-xl p-2.5 text-gray-300 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-emerald-500/20 file:text-emerald-300 file:font-bold shadow-inner cursor-pointer text-xs" 
-                                                    />
-                                                    <p className="text-[11px] text-slate-400">Optional PDF question sheet for student offline reference or viewing alongside online quiz. {editMode && editData?.paper?.mcqPaperFile && <span className="text-emerald-400">(Leave empty to keep existing)</span>}</p>
-                                                </div>
-                                            )}
-
-                                            {(contentType === 'document' || contentType === 'sPaper' || (contentType === 'testRanking' && modalPaperType === 'STRUCTURED')) && (
+                                            {/* Document File Upload */}
+                                            {contentType === 'document' && (
                                                 <div className="md:col-span-4">
-                                                    <label className="text-xs font-bold text-gray-400 mb-2 block uppercase tracking-wider">
-                                                        {contentType === 'testRanking' ? 'Structure Essay Question Paper (PDF) *' : 'File Upload'} {editMode && <span className="text-green-400 font-normal ml-2 normal-case">(Leave empty to keep existing)</span>}
+                                                    <label className="text-sm font-bold text-gray-300 mb-2 block uppercase tracking-wider">
+                                                        Document File Upload {editMode && <span className="text-green-400 font-normal ml-2 normal-case">(Leave empty to keep existing)</span>}
                                                     </label>
                                                     <input 
                                                         type="file" 
                                                         name="file" 
-                                                        required={!editMode && (contentType === 'document' || (contentType === 'testRanking' && modalPaperType === 'STRUCTURED'))} 
-                                                        className="w-full bg-black/60 border border-white/10 rounded-xl p-2.5 text-gray-400 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:bg-white/10 file:text-white shadow-inner cursor-pointer" 
+                                                        required={!editMode} 
+                                                        className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-gray-300 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:bg-white/10 file:text-white shadow-inner cursor-pointer text-sm" 
                                                     />
-                                                    {contentType === 'testRanking' && (
-                                                        <p className="text-[11px] text-slate-400 mt-1">Students will view or download this PDF master sheet to write their structured answers.</p>
-                                                    )}
+                                                </div>
+                                            )}
+
+                                            {/* Dedicated Structure / Essay Question Paper & Question Count (No MCQ paper upload) */}
+                                            {(contentType === 'testRanking' || contentType === 'sPaper' || contentType === 'paper') && (
+                                                <div className="md:col-span-4 bg-gradient-to-r from-purple-950/30 via-slate-900/60 to-indigo-950/30 border border-purple-500/30 rounded-2xl sm:rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3.5">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-400 shrink-0">
+                                                                <FileSignature size={20} />
+                                                            </div>
+                                                            <div>
+                                                                <h4 className="text-sm sm:text-base font-black text-white tracking-wide uppercase">
+                                                                    Structure / Essay Master Question Paper (PDF)
+                                                                </h4>
+                                                                <p className="text-xs sm:text-sm text-slate-400">
+                                                                    Upload the question paper PDF. Students will view this to write answers and upload answer sheets.
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        {editMode && (editData?.paper?.structuredPaperFile || editData?.fileName) && (
+                                                            <div className="flex items-center gap-2 bg-purple-500/20 border border-purple-500/40 px-3 py-1.5 rounded-xl shrink-0">
+                                                                <span className="text-xs text-purple-300 font-semibold">Current:</span>
+                                                                <span className="text-xs font-mono font-bold text-white max-w-[200px] truncate">
+                                                                    {editData?.paper?.structuredPaperFile || editData?.fileName}
+                                                                </span>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start pt-1">
+                                                        {/* Question Paper PDF file */}
+                                                        <div className="md:col-span-2 space-y-2">
+                                                            <label className="text-xs sm:text-sm font-bold text-purple-300 block uppercase tracking-wider">
+                                                                Question Paper PDF * {editMode && (editData?.paper?.structuredPaperFile || editData?.fileName) && <span className="text-purple-400 font-normal lowercase">(Leave empty to keep existing)</span>}
+                                                            </label>
+                                                            <input 
+                                                                type="file" 
+                                                                name="structuredFile" 
+                                                                accept=".pdf" 
+                                                                required={!editMode && !editData?.paper?.structuredPaperFile && !editData?.fileName}
+                                                                className="w-full bg-black/60 border border-purple-500/40 focus:border-purple-400 rounded-xl p-3 text-slate-200 file:mr-4 file:py-2.5 file:px-5 file:rounded-xl file:border-0 file:bg-purple-600/30 file:text-purple-200 file:font-bold hover:file:bg-purple-600/50 shadow-inner cursor-pointer text-xs sm:text-sm transition-all" 
+                                                            />
+                                                            <p className="text-xs text-slate-400">
+                                                                PDF format only. Master sheet downloaded or viewed in split-view by students.
+                                                            </p>
+                                                        </div>
+
+                                                        {/* Number of Essay Questions in the paper */}
+                                                        <div className="space-y-2 bg-black/40 border border-white/10 rounded-2xl p-4 shadow-inner">
+                                                            <label className="text-xs sm:text-sm font-bold text-amber-400 block uppercase tracking-wider">
+                                                                Total Questions (ප්‍රශ්න ගණන) *
+                                                            </label>
+                                                            <div className="relative">
+                                                                <input 
+                                                                    type="number" 
+                                                                    name="questionCount" 
+                                                                    min="1" 
+                                                                    max="50" 
+                                                                    required
+                                                                    value={modalQuestionCount} 
+                                                                    onChange={(e) => setModalQuestionCount(e.target.value)} 
+                                                                    placeholder="e.g. 4" 
+                                                                    className="w-full bg-black/70 border border-amber-500/40 focus:border-amber-400 rounded-xl p-3 text-white outline-none shadow-inner text-base sm:text-lg font-black" 
+                                                                />
+                                                                <span className="absolute right-3.5 top-3.5 text-xs text-slate-400 font-bold uppercase">Questions</span>
+                                                            </div>
+                                                            <p className="text-[11px] sm:text-xs text-slate-400 leading-snug">
+                                                                Paper Guiders will award marks question-by-question based on this count.
+                                                            </p>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             )}
 
@@ -722,59 +725,64 @@ export default function ContentHubModals({ state, actions }) {
                                             )}
 
                                             {(contentType === 'testRanking' || contentType === 'paper' || contentType === 'sPaper') && (
-                                                <div className="md:col-span-4 bg-white/[0.03] border border-white/10 rounded-2xl sm:rounded-3xl p-5 sm:p-7 space-y-6 shadow-inner">
-                                                    <div className="flex items-center justify-between border-b border-white/10 pb-4">
-                                                        <div className="flex items-center gap-2.5">
-                                                            <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                                                                <Trophy size={18} />
+                                                <div className="md:col-span-4 bg-gradient-to-b from-slate-900/90 via-slate-900/60 to-black/80 border border-amber-500/30 rounded-3xl p-6 sm:p-8 space-y-8 shadow-2xl">
+                                                    {/* Section Header */}
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-5">
+                                                        <div className="flex items-center gap-3.5">
+                                                            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-500/20 to-amber-600/30 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-lg shadow-amber-500/10">
+                                                                <Trophy size={24} />
                                                             </div>
                                                             <div>
-                                                                <span className="text-sm font-black uppercase tracking-wider text-white block">
-                                                                    Test Ranking Configuration
-                                                                </span>
-                                                                <span className="text-[11px] text-slate-400">Choose exam format, scheduling rules, and duration</span>
+                                                                <h3 className="text-base sm:text-lg font-black uppercase tracking-wider text-white">
+                                                                    Test Ranking & Assessment Setup
+                                                                </h3>
+                                                                <p className="text-xs sm:text-sm text-slate-400">
+                                                                    Configure category, leaderboard publishing, exam duration, and scoring rules.
+                                                                </p>
                                                             </div>
                                                         </div>
                                                         <input type="hidden" name="paperType" value={modalPaperType} />
                                                         <input type="hidden" name="category" value={modalCategory} />
                                                         <input type="hidden" name="paperCategory" value={modalCategory} />
+                                                        <input type="hidden" name="hasLeaderboard" value={modalCategory === 'WEEKLY' ? (modalWeeklyLeaderboard ? '1' : '0') : '1'} />
+                                                        <input type="hidden" name="passMarks" value="0" />
                                                     </div>
 
-                                                    {/* 0. TEST CATEGORY SELECTOR (WEEKLY VS MONTHLY) */}
-                                                    <div className="space-y-3">
+                                                    {/* 1. TEST CATEGORY & LEADERBOARD VISIBILITY */}
+                                                    <div className="space-y-4">
                                                         <div className="flex items-center justify-between">
-                                                            <label className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
-                                                                <Sparkles size={14} className="text-amber-400" /> Test Category (Ranking Pool) *
+                                                            <label className="text-xs sm:text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                                                                <Sparkles size={16} className="text-amber-400" /> 1. Test Category (Ranking Pool) *
                                                             </label>
-                                                            <span className="text-[10px] text-slate-400">Determines separate leaderboard & student progress analytics</span>
+                                                            <span className="text-xs text-slate-400">Select weekly or monthly exam tier</span>
                                                         </div>
                                                         
-                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                             {/* Weekly Test Card */}
                                                             <div
                                                                 onClick={() => setModalCategory('WEEKLY')}
-                                                                className={`cursor-pointer p-4 rounded-2xl border transition-all flex items-start gap-3.5 ${
+                                                                className={`cursor-pointer p-5 rounded-2xl border-2 transition-all flex items-start gap-4 ${
                                                                     modalCategory === 'WEEKLY'
-                                                                        ? 'bg-amber-500/15 border-amber-500 ring-2 ring-amber-500/40 text-white shadow-lg shadow-amber-500/10'
-                                                                        : 'bg-black/40 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                                                                        ? 'bg-amber-500/15 border-amber-500 ring-4 ring-amber-500/20 text-white shadow-xl shadow-amber-500/10'
+                                                                        : 'bg-black/40 border-white/10 text-slate-400 hover:text-white hover:border-white/25'
                                                                 }`}
                                                             >
-                                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg font-black shrink-0 ${
-                                                                    modalCategory === 'WEEKLY' ? 'bg-amber-500 text-black shadow' : 'bg-white/5 text-slate-400'
+                                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl font-black shrink-0 ${
+                                                                    modalCategory === 'WEEKLY' ? 'bg-amber-500 text-black shadow-md' : 'bg-white/5 text-slate-400'
                                                                 }`}>
                                                                     ⚡
                                                                 </div>
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="flex items-center justify-between">
-                                                                        <p className="text-xs font-black text-white uppercase tracking-wider">Weekly Test</p>
+                                                                        <p className="text-sm sm:text-base font-black text-white uppercase tracking-wider">Weekly Test</p>
                                                                         {modalCategory === 'WEEKLY' && (
-                                                                            <span className="text-[9px] bg-amber-500 text-black font-extrabold px-2 py-0.5 rounded-full">
-                                                                                Active
+                                                                            <span className="text-xs bg-amber-500 text-black font-extrabold px-2.5 py-0.5 rounded-full shadow-sm">
+                                                                                Selected
                                                                             </span>
                                                                         )}
                                                                     </div>
-                                                                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-                                                                        Standard weekly syllabus assessment. Ranked in Weekly Test leaderboard & progress charts.
+                                                                    <p className="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
+                                                                        Standard weekly syllabus assessment paper.
                                                                     </p>
                                                                 </div>
                                                             </div>
@@ -782,155 +790,235 @@ export default function ContentHubModals({ state, actions }) {
                                                             {/* Monthly Test Card */}
                                                             <div
                                                                 onClick={() => setModalCategory('MONTHLY')}
-                                                                className={`cursor-pointer p-4 rounded-2xl border transition-all flex items-start gap-3.5 ${
+                                                                className={`cursor-pointer p-5 rounded-2xl border-2 transition-all flex items-start gap-4 ${
                                                                     modalCategory === 'MONTHLY'
-                                                                        ? 'bg-indigo-500/15 border-indigo-500 ring-2 ring-indigo-500/40 text-white shadow-lg shadow-indigo-500/10'
-                                                                        : 'bg-black/40 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                                                                        ? 'bg-indigo-500/15 border-indigo-500 ring-4 ring-indigo-500/20 text-white shadow-xl shadow-indigo-500/10'
+                                                                        : 'bg-black/40 border-white/10 text-slate-400 hover:text-white hover:border-white/25'
                                                                 }`}
                                                             >
-                                                                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-lg font-black shrink-0 ${
-                                                                    modalCategory === 'MONTHLY' ? 'bg-indigo-500 text-white shadow' : 'bg-white/5 text-slate-400'
+                                                                <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-xl font-black shrink-0 ${
+                                                                    modalCategory === 'MONTHLY' ? 'bg-indigo-500 text-white shadow-md' : 'bg-white/5 text-slate-400'
                                                                 }`}>
                                                                     🏆
                                                                 </div>
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="flex items-center justify-between">
-                                                                        <p className="text-xs font-black text-white uppercase tracking-wider">Monthly Test</p>
+                                                                        <p className="text-sm sm:text-base font-black text-white uppercase tracking-wider">Monthly Test</p>
                                                                         {modalCategory === 'MONTHLY' && (
-                                                                            <span className="text-[9px] bg-indigo-500 text-white font-extrabold px-2 py-0.5 rounded-full">
-                                                                                Active
+                                                                            <span className="text-xs bg-indigo-500 text-white font-extrabold px-2.5 py-0.5 rounded-full shadow-sm">
+                                                                                Selected
                                                                             </span>
                                                                         )}
                                                                     </div>
-                                                                    <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">
-                                                                        Major monthly milestone examination. Ranked in Monthly Test leaderboard & progress charts.
+                                                                    <p className="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
+                                                                        Major monthly milestone examination. Automatically published to Monthly Leaderboard.
                                                                     </p>
                                                                 </div>
                                                             </div>
                                                         </div>
+
+                                                        {/* WEEKLY TEST LEADERBOARD TOGGLE (When WEEKLY is selected) */}
+                                                        {modalCategory === 'WEEKLY' && (
+                                                            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-5 space-y-3 animate-in fade-in">
+                                                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                                                    <label className="text-xs sm:text-sm font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
+                                                                        <Trophy size={16} className="text-amber-400" /> Weekly Test Leaderboard Publishing *
+                                                                    </label>
+                                                                    <span className="text-xs text-amber-200/70">Decide if this weekly test appears on the live student leaderboard</span>
+                                                                </div>
+
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                                                                    {/* Option 1: Publish to Leaderboard */}
+                                                                    <div
+                                                                        onClick={() => setModalWeeklyLeaderboard(true)}
+                                                                        className={`cursor-pointer p-4 rounded-xl border-2 transition-all flex items-start gap-3.5 ${
+                                                                            modalWeeklyLeaderboard
+                                                                                ? 'bg-amber-500/20 border-amber-400 text-white shadow-md'
+                                                                                : 'bg-black/50 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                                                                        }`}
+                                                                    >
+                                                                        <div className="mt-0.5">
+                                                                            <input 
+                                                                                type="radio" 
+                                                                                name="weeklyLeaderboardRadio" 
+                                                                                checked={modalWeeklyLeaderboard} 
+                                                                                onChange={() => setModalWeeklyLeaderboard(true)} 
+                                                                                className="w-4 h-4 accent-amber-400 cursor-pointer" 
+                                                                            />
+                                                                        </div>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <p className="text-xs sm:text-sm font-extrabold text-white">
+                                                                                    Publish to Live Leaderboard
+                                                                                </p>
+                                                                                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
+                                                                                    Ranked
+                                                                                </span>
+                                                                            </div>
+                                                                            <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                                                                                Scores and ranks will be visible on the public student leaderboard.
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* Option 2: Practice / No Leaderboard */}
+                                                                    <div
+                                                                        onClick={() => setModalWeeklyLeaderboard(false)}
+                                                                        className={`cursor-pointer p-4 rounded-xl border-2 transition-all flex items-start gap-3.5 ${
+                                                                            !modalWeeklyLeaderboard
+                                                                                ? 'bg-purple-500/20 border-purple-400 text-white shadow-md'
+                                                                                : 'bg-black/50 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                                                                        }`}
+                                                                    >
+                                                                        <div className="mt-0.5">
+                                                                            <input 
+                                                                                type="radio" 
+                                                                                name="weeklyLeaderboardRadio" 
+                                                                                checked={!modalWeeklyLeaderboard} 
+                                                                                onChange={() => setModalWeeklyLeaderboard(false)} 
+                                                                                className="w-4 h-4 accent-purple-400 cursor-pointer" 
+                                                                            />
+                                                                        </div>
+                                                                        <div className="flex-1 min-w-0">
+                                                                            <div className="flex items-center gap-2">
+                                                                                <p className="text-xs sm:text-sm font-extrabold text-white">
+                                                                                    Practice / Homework Only
+                                                                                </p>
+                                                                                <span className="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-full font-bold">
+                                                                                    No Leaderboard
+                                                                                </span>
+                                                                            </div>
+                                                                            <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                                                                                Self-study / homework only. No public student ranking will be generated.
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                     </div>
 
-                                                    {/* OFFICIAL CANDIDATE COUNT OVERRIDE (STAFF COUNT) */}
-                                                    <div className="bg-black/40 border border-white/10 rounded-2xl p-4 space-y-2">
+                                                    {/* OFFICIAL CANDIDATE COUNT (STAFF COUNT) */}
+                                                    <div className="bg-black/40 border border-white/10 rounded-2xl p-5 space-y-2.5">
                                                         <div className="flex items-center justify-between">
-                                                            <label className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
-                                                                <Users size={14} className="text-emerald-400" /> Total Official Candidates (Staff Count)
+                                                            <label className="text-xs sm:text-sm font-bold text-slate-200 uppercase tracking-wider flex items-center gap-2">
+                                                                <Users size={16} className="text-emerald-400" /> Total Official Candidates (Staff Count)
                                                             </label>
-                                                            <span className="text-[10px] text-slate-400">Optional</span>
+                                                            <span className="text-xs text-slate-400 font-medium">Optional</span>
                                                         </div>
-                                                        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                                                        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
                                                             <input
                                                                 type="number"
                                                                 name="manualParticipantCount"
                                                                 value={modalManualParticipantCount}
                                                                 onChange={(e) => setModalManualParticipantCount(e.target.value)}
-                                                                placeholder="e.g. 120 (Official total test-takers across all batches)"
-                                                                className="flex-1 bg-black/60 border border-white/10 focus:border-amber-500 focus:bg-black/80 rounded-xl p-3 text-xs text-white outline-none shadow-inner"
+                                                                placeholder="e.g. 350 (Total test-takers across all batches)"
+                                                                className="flex-1 bg-black/60 border border-white/10 focus:border-amber-500 focus:bg-black/90 rounded-xl p-3.5 text-sm sm:text-base font-bold text-white outline-none shadow-inner"
                                                             />
-                                                            <div className="text-[11px] text-slate-400 leading-tight">
-                                                                If entered, students see: <span className="text-amber-400 font-bold">Rank #X of {modalManualParticipantCount || '120'} Candidates</span>.
+                                                            <div className="text-xs sm:text-sm text-slate-300">
+                                                                Students will see: <span className="text-amber-400 font-black">Rank #X of {modalManualParticipantCount || '350'} Candidates</span>.
                                                             </div>
                                                         </div>
                                                     </div>
 
-                                                    {/* 1. TEST FORMAT SELECTOR (3 OPTIONS) */}
-                                                    <div className="space-y-3">
-                                                        <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">
-                                                            Test Format *
+                                                    {/* 2. TEST FORMAT SELECTOR */}
+                                                    <div className="space-y-4 pt-2 border-t border-white/10">
+                                                        <label className="text-xs sm:text-sm font-bold text-slate-200 block uppercase tracking-wider">
+                                                            2. Test Format *
                                                         </label>
-                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                                            {/* Format 1: MCQ only */}
-                                                            <label 
-                                                                onClick={() => setModalPaperType('MCQ')}
-                                                                className={`cursor-pointer border rounded-2xl p-4 flex flex-col gap-2 transition-all ${
-                                                                    modalPaperType === 'MCQ'
-                                                                        ? 'bg-emerald-500/20 border-emerald-500 ring-2 ring-emerald-500/50 shadow-lg shadow-emerald-500/10'
-                                                                        : 'bg-black/40 border-white/10 hover:border-white/20'
-                                                                }`}
-                                                            >
-                                                                <div className="flex items-center justify-between">
-                                                                    <div className="flex items-center gap-2 font-black text-sm text-white">
-                                                                        <CheckCircle size={16} className="text-emerald-400" /> MCQ Only
-                                                                    </div>
-                                                                    <input 
-                                                                        type="radio" 
-                                                                        name="paperTypeRadio" 
-                                                                        checked={modalPaperType === 'MCQ'} 
-                                                                        onChange={() => setModalPaperType('MCQ')} 
-                                                                        className="accent-emerald-500" 
-                                                                    />
-                                                                </div>
-                                                                <p className="text-[11px] text-slate-400 leading-relaxed">
-                                                                    Interactive online questions with option choices. Automatically marked upon submission.
-                                                                </p>
-                                                            </label>
-
-                                                            {/* Format 2: Structure essay only */}
-                                                            <label 
+                                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                                            {/* Format 1: Structure Essay Only */}
+                                                            <div 
                                                                 onClick={() => setModalPaperType('STRUCTURED')}
-                                                                className={`cursor-pointer border rounded-2xl p-4 flex flex-col gap-2 transition-all ${
+                                                                className={`cursor-pointer border-2 rounded-2xl p-5 flex flex-col gap-2.5 transition-all ${
                                                                     modalPaperType === 'STRUCTURED'
-                                                                        ? 'bg-purple-500/20 border-purple-500 ring-2 ring-purple-500/50 shadow-lg shadow-purple-500/10'
-                                                                        : 'bg-black/40 border-white/10 hover:border-white/20'
+                                                                        ? 'bg-purple-500/20 border-purple-500 ring-4 ring-purple-500/20 shadow-xl text-white'
+                                                                        : 'bg-black/40 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
                                                                 }`}
                                                             >
                                                                 <div className="flex items-center justify-between">
-                                                                    <div className="flex items-center gap-2 font-black text-sm text-white">
-                                                                        <FileSignature size={16} className="text-purple-400" /> Structure Essay Only
+                                                                    <div className="flex items-center gap-2.5 font-black text-sm sm:text-base text-white">
+                                                                        <FileSignature size={18} className="text-purple-400" /> Structure Essay Only
                                                                     </div>
                                                                     <input 
                                                                         type="radio" 
                                                                         name="paperTypeRadio" 
                                                                         checked={modalPaperType === 'STRUCTURED'} 
                                                                         onChange={() => setModalPaperType('STRUCTURED')} 
-                                                                        className="accent-purple-500" 
+                                                                        className="w-4 h-4 accent-purple-500 cursor-pointer" 
                                                                     />
                                                                 </div>
-                                                                <p className="text-[11px] text-slate-400 leading-relaxed">
-                                                                    Download question PDF, write answers on paper, and upload answer sheets for lecturer evaluation.
+                                                                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                                                                    Download/view question PDF, write answers on paper, and upload answer sheets for lecturer evaluation.
                                                                 </p>
-                                                            </label>
+                                                            </div>
 
-                                                            {/* Format 3: MCQ + structured both */}
-                                                            <label 
+                                                            {/* Format 2: MCQ + Structured Both */}
+                                                            <div 
                                                                 onClick={() => setModalPaperType('BOTH')}
-                                                                className={`cursor-pointer border rounded-2xl p-4 flex flex-col gap-2 transition-all ${
+                                                                className={`cursor-pointer border-2 rounded-2xl p-5 flex flex-col gap-2.5 transition-all ${
                                                                     modalPaperType === 'BOTH'
-                                                                        ? 'bg-amber-500/20 border-amber-500 ring-2 ring-amber-500/50 shadow-lg shadow-amber-500/10'
-                                                                        : 'bg-black/40 border-white/10 hover:border-white/20'
+                                                                        ? 'bg-amber-500/20 border-amber-500 ring-4 ring-amber-500/20 shadow-xl text-white'
+                                                                        : 'bg-black/40 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
                                                                 }`}
                                                             >
                                                                 <div className="flex items-center justify-between">
-                                                                    <div className="flex items-center gap-2 font-black text-sm text-white">
-                                                                        <Sparkles size={16} className="text-amber-400" /> MCQ + Structured Both
+                                                                    <div className="flex items-center gap-2.5 font-black text-sm sm:text-base text-white">
+                                                                        <Sparkles size={18} className="text-amber-400" /> MCQ + Structured Both
                                                                     </div>
                                                                     <input 
                                                                         type="radio" 
                                                                         name="paperTypeRadio" 
                                                                         checked={modalPaperType === 'BOTH'} 
                                                                         onChange={() => setModalPaperType('BOTH')} 
-                                                                        className="accent-amber-500" 
+                                                                        className="w-4 h-4 accent-amber-500 cursor-pointer" 
                                                                     />
                                                                 </div>
-                                                                <p className="text-[11px] text-slate-400 leading-relaxed">
-                                                                    Complete paper with Part 1 (MCQs) and Part 2 (Structured Essay PDF). Auto-scored + Marker evaluation combined.
+                                                                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                                                                    Complete examination with Part 1 (Online MCQs) and Part 2 (Structured Essay PDF upload).
                                                                 </p>
-                                                            </label>
+                                                            </div>
+
+                                                            {/* Format 3: MCQ Only */}
+                                                            <div 
+                                                                onClick={() => setModalPaperType('MCQ')}
+                                                                className={`cursor-pointer border-2 rounded-2xl p-5 flex flex-col gap-2.5 transition-all ${
+                                                                    modalPaperType === 'MCQ'
+                                                                        ? 'bg-emerald-500/20 border-emerald-500 ring-4 ring-emerald-500/20 shadow-xl text-white'
+                                                                        : 'bg-black/40 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center justify-between">
+                                                                    <div className="flex items-center gap-2.5 font-black text-sm sm:text-base text-white">
+                                                                        <CheckCircle size={18} className="text-emerald-400" /> MCQ Only
+                                                                    </div>
+                                                                    <input 
+                                                                        type="radio" 
+                                                                        name="paperTypeRadio" 
+                                                                        checked={modalPaperType === 'MCQ'} 
+                                                                        onChange={() => setModalPaperType('MCQ')} 
+                                                                        className="w-4 h-4 accent-emerald-500 cursor-pointer" 
+                                                                    />
+                                                                </div>
+                                                                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                                                                    Interactive online questions with option choices. Automatically marked upon submission.
+                                                                </p>
+                                                            </div>
                                                         </div>
                                                     </div>
 
-                                                    {/* 2. TIMER & SCHEDULE RULES */}
-                                                    <div className="space-y-3 pt-2 border-t border-white/5">
-                                                        <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">
-                                                            Execution Schedule & Timer Mode *
+                                                    {/* 3. TIMER & SCHEDULE RULES */}
+                                                    <div className="space-y-4 pt-2 border-t border-white/10">
+                                                        <label className="text-xs sm:text-sm font-bold text-slate-200 block uppercase tracking-wider">
+                                                            3. Execution Schedule & Timer Mode *
                                                         </label>
-                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                                             {/* Flexible Start Option */}
-                                                            <label 
+                                                            <div 
                                                                 onClick={() => setModalTimerMode('FLEXIBLE')}
-                                                                className={`cursor-pointer border rounded-2xl p-4 flex items-start gap-3 transition-all ${
+                                                                className={`cursor-pointer border-2 rounded-2xl p-5 flex items-start gap-4 transition-all ${
                                                                     modalTimerMode === 'FLEXIBLE' 
-                                                                        ? 'bg-blue-500/20 border-blue-500 ring-1 ring-blue-500 text-white' 
+                                                                        ? 'bg-blue-500/20 border-blue-500 ring-4 ring-blue-500/20 text-white shadow-lg' 
                                                                         : 'bg-black/40 border-white/10 text-slate-400 hover:border-white/20'
                                                                 }`}
                                                             >
@@ -940,24 +1028,24 @@ export default function ContentHubModals({ state, actions }) {
                                                                     value="FLEXIBLE" 
                                                                     checked={modalTimerMode === 'FLEXIBLE'} 
                                                                     onChange={() => setModalTimerMode('FLEXIBLE')} 
-                                                                    className="mt-1 accent-blue-500" 
+                                                                    className="mt-1 w-4 h-4 accent-blue-500 cursor-pointer" 
                                                                 />
                                                                 <div>
-                                                                    <p className="text-xs font-extrabold text-white flex items-center gap-1.5">
-                                                                        <Sparkles size={14} className="text-blue-400" /> Flexible Start (Individual Countdown)
+                                                                    <p className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
+                                                                        <Sparkles size={16} className="text-blue-400" /> Flexible Start (Individual Countdown)
                                                                     </p>
-                                                                    <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                                                                    <p className="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
                                                                         Students can start at any convenient time. Countdown starts immediately when they click 'Start Exam'.
                                                                     </p>
                                                                 </div>
-                                                            </label>
+                                                            </div>
 
                                                             {/* Scheduled Start Option */}
-                                                            <label 
+                                                            <div 
                                                                 onClick={() => setModalTimerMode('SCHEDULED')}
-                                                                className={`cursor-pointer border rounded-2xl p-4 flex items-start gap-3 transition-all ${
+                                                                className={`cursor-pointer border-2 rounded-2xl p-5 flex items-start gap-4 transition-all ${
                                                                     modalTimerMode === 'SCHEDULED' 
-                                                                        ? 'bg-amber-500/20 border-amber-500 ring-1 ring-amber-500 text-white' 
+                                                                        ? 'bg-amber-500/20 border-amber-500 ring-4 ring-amber-500/20 text-white shadow-lg' 
                                                                         : 'bg-black/40 border-white/10 text-slate-400 hover:border-white/20'
                                                                 }`}
                                                             >
@@ -967,41 +1055,41 @@ export default function ContentHubModals({ state, actions }) {
                                                                     value="SCHEDULED" 
                                                                     checked={modalTimerMode === 'SCHEDULED'} 
                                                                     onChange={() => setModalTimerMode('SCHEDULED')} 
-                                                                    className="mt-1 accent-amber-500" 
+                                                                    className="mt-1 w-4 h-4 accent-amber-500 cursor-pointer" 
                                                                 />
                                                                 <div>
-                                                                    <p className="text-xs font-extrabold text-white flex items-center gap-1.5">
-                                                                        <Clock size={14} className="text-amber-400" /> Scheduled Start (Synchronized Time)
+                                                                    <p className="text-sm sm:text-base font-extrabold text-white flex items-center gap-2">
+                                                                        <Clock size={16} className="text-amber-400" /> Scheduled Start (Synchronized Time)
                                                                     </p>
-                                                                    <p className="text-[11px] text-slate-400 mt-0.5 leading-snug">
+                                                                    <p className="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
                                                                         Synchronized countdown to exact date & time. Everyone starts at the exact same moment.
                                                                     </p>
                                                                 </div>
-                                                            </label>
+                                                            </div>
                                                         </div>
                                                     </div>
 
                                                     {/* If Scheduled Mode: Show Scheduled Start Time picker */}
                                                     {modalTimerMode === 'SCHEDULED' && (
-                                                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 space-y-2 animate-in fade-in">
-                                                            <label className="text-xs font-bold text-amber-400 block uppercase tracking-wider">Scheduled Start Time *</label>
+                                                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-5 space-y-2.5 animate-in fade-in">
+                                                            <label className="text-xs sm:text-sm font-bold text-amber-300 block uppercase tracking-wider">Scheduled Start Time *</label>
                                                             <input 
                                                                 type="time" 
                                                                 name="scheduledStartTime" 
                                                                 defaultValue={editData?.paper?.scheduledStartTime ? new Date(editData.paper.scheduledStartTime).toTimeString().slice(0, 5) : ''} 
                                                                 required={modalTimerMode === 'SCHEDULED'}
-                                                                className="w-full bg-black/60 border border-amber-500/40 focus:border-amber-400 focus:bg-black/80 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold cursor-pointer" 
+                                                                className="w-full bg-black/60 border border-amber-500/40 focus:border-amber-400 focus:bg-black/90 rounded-xl p-4 text-white outline-none shadow-inner text-base font-bold cursor-pointer" 
                                                             />
-                                                            <p className="text-[11px] text-slate-400 italic">Scheduled to start on the Date selected in the field above.</p>
+                                                            <p className="text-xs text-slate-300 italic">Synchronized to the Date selected above in the form.</p>
                                                         </div>
                                                     )}
 
-                                                    {/* 3. EXAM DURATION (HOURS & MINUTES) */}
+                                                    {/* 4. EXAM DURATION & BUFFER WINDOWS */}
                                                     {modalPaperType === 'BOTH' ? (
-                                                        <div className="space-y-4 pt-2 border-t border-white/5">
+                                                        <div className="space-y-4 pt-2 border-t border-white/10">
                                                             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                                                                <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">
-                                                                    Exam Durations (Part 1 & Part 2) *
+                                                                <label className="text-xs sm:text-sm font-bold text-slate-200 block uppercase tracking-wider">
+                                                                    4. Exam Durations (Part 1 & Part 2) *
                                                                 </label>
                                                                 {(() => {
                                                                     const mcqMins = (parseInt(modalMcqDurationHours || 0) * 60) + parseInt(modalMcqDurationMinutes || 0);
@@ -1009,11 +1097,11 @@ export default function ContentHubModals({ state, actions }) {
                                                                     const totalMins = mcqMins + structMins;
                                                                     return (
                                                                         <div className="flex items-center gap-2 flex-wrap">
-                                                                            <span className="text-[11px] font-bold text-slate-300 bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg">
+                                                                            <span className="text-xs font-bold text-slate-300 bg-white/5 border border-white/10 px-3 py-1 rounded-xl">
                                                                                 MCQ: {modalMcqDurationHours || 0}h {modalMcqDurationMinutes || 0}m + Essay: {modalStructuredDurationHours || 0}h {modalStructuredDurationMinutes || 0}m
                                                                             </span>
-                                                                            <span className="text-xs font-black text-amber-400 bg-amber-500/10 border border-amber-500/30 px-3 py-1 rounded-lg shadow-sm">
-                                                                                Total: {Math.floor(totalMins / 60)} Hours {totalMins % 60} Mins ({totalMins} Minutes)
+                                                                            <span className="text-xs sm:text-sm font-black text-amber-400 bg-amber-500/10 border border-amber-500/30 px-3.5 py-1 rounded-xl shadow-sm">
+                                                                                Total: {Math.floor(totalMins / 60)}h {totalMins % 60}m ({totalMins} Mins)
                                                                             </span>
                                                                         </div>
                                                                     );
@@ -1022,18 +1110,18 @@ export default function ContentHubModals({ state, actions }) {
 
                                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                                 {/* Part 1 MCQ Duration Card */}
-                                                                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4 space-y-3 shadow-inner">
+                                                                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 space-y-3.5 shadow-inner">
                                                                     <div className="flex items-center justify-between">
-                                                                        <span className="text-xs font-black text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                                                                            <CheckCircle size={14} /> Part 1 (MCQ) Duration
+                                                                        <span className="text-xs sm:text-sm font-black text-emerald-400 uppercase tracking-wider flex items-center gap-2">
+                                                                            <CheckCircle size={16} /> Part 1 (MCQ) Duration
                                                                         </span>
-                                                                        <span className="text-[11px] font-extrabold text-emerald-300 bg-emerald-500/20 px-2.5 py-0.5 rounded-md">
+                                                                        <span className="text-xs font-extrabold text-emerald-300 bg-emerald-500/20 px-3 py-1 rounded-lg">
                                                                             {(parseInt(modalMcqDurationHours || 0) * 60) + parseInt(modalMcqDurationMinutes || 0)} Mins
                                                                         </span>
                                                                     </div>
-                                                                    <div className="grid grid-cols-2 gap-2.5">
+                                                                    <div className="grid grid-cols-2 gap-3">
                                                                         <div>
-                                                                            <label className="text-[10px] font-bold text-slate-400 mb-1 block">Hours</label>
+                                                                            <label className="text-xs font-semibold text-slate-300 mb-1.5 block">Hours</label>
                                                                             <div className="relative">
                                                                                 <input 
                                                                                     type="number" 
@@ -1042,13 +1130,13 @@ export default function ContentHubModals({ state, actions }) {
                                                                                     step="1" 
                                                                                     value={modalMcqDurationHours} 
                                                                                     onChange={(e) => setModalMcqDurationHours(e.target.value)} 
-                                                                                    className="w-full bg-black/60 border border-emerald-500/30 focus:border-emerald-400 rounded-xl p-3 text-white outline-none text-xs font-bold" 
+                                                                                    className="w-full bg-black/60 border border-emerald-500/30 focus:border-emerald-400 rounded-xl p-3 text-white outline-none text-sm sm:text-base font-bold" 
                                                                                 />
-                                                                                <span className="absolute right-3 top-3 text-[10px] text-slate-500 font-bold">Hrs</span>
+                                                                                <span className="absolute right-3.5 top-3.5 text-xs text-slate-500 font-bold">Hrs</span>
                                                                             </div>
                                                                         </div>
                                                                         <div>
-                                                                            <label className="text-[10px] font-bold text-slate-400 mb-1 block">Minutes</label>
+                                                                            <label className="text-xs font-semibold text-slate-300 mb-1.5 block">Minutes</label>
                                                                             <div className="relative">
                                                                                 <input 
                                                                                     type="number" 
@@ -1057,27 +1145,27 @@ export default function ContentHubModals({ state, actions }) {
                                                                                     step="5" 
                                                                                     value={modalMcqDurationMinutes} 
                                                                                     onChange={(e) => setModalMcqDurationMinutes(e.target.value)} 
-                                                                                    className="w-full bg-black/60 border border-emerald-500/30 focus:border-emerald-400 rounded-xl p-3 text-white outline-none text-xs font-bold" 
+                                                                                    className="w-full bg-black/60 border border-emerald-500/30 focus:border-emerald-400 rounded-xl p-3 text-white outline-none text-sm sm:text-base font-bold" 
                                                                                 />
-                                                                                <span className="absolute right-3 top-3 text-[10px] text-slate-500 font-bold">Mins</span>
+                                                                                <span className="absolute right-3.5 top-3.5 text-xs text-slate-500 font-bold">Mins</span>
                                                                             </div>
                                                                         </div>
                                                                     </div>
                                                                 </div>
 
                                                                 {/* Part 2 Structured Duration Card */}
-                                                                <div className="bg-purple-500/5 border border-purple-500/20 rounded-2xl p-4 space-y-3 shadow-inner">
+                                                                <div className="bg-purple-500/5 border border-purple-500/20 rounded-2xl p-5 space-y-3.5 shadow-inner">
                                                                     <div className="flex items-center justify-between">
-                                                                        <span className="text-xs font-black text-purple-400 uppercase tracking-wider flex items-center gap-1.5">
-                                                                            <FileSignature size={14} /> Part 2 (Structured) Duration
+                                                                        <span className="text-xs sm:text-sm font-black text-purple-400 uppercase tracking-wider flex items-center gap-2">
+                                                                            <FileSignature size={16} /> Part 2 (Structured Essay) Duration
                                                                         </span>
-                                                                        <span className="text-[11px] font-extrabold text-purple-300 bg-purple-500/20 px-2.5 py-0.5 rounded-md">
+                                                                        <span className="text-xs font-extrabold text-purple-300 bg-purple-500/20 px-3 py-1 rounded-lg">
                                                                             {(parseInt(modalStructuredDurationHours || 0) * 60) + parseInt(modalStructuredDurationMinutes || 0)} Mins
                                                                         </span>
                                                                     </div>
-                                                                    <div className="grid grid-cols-2 gap-2.5">
+                                                                    <div className="grid grid-cols-2 gap-3">
                                                                         <div>
-                                                                            <label className="text-[10px] font-bold text-slate-400 mb-1 block">Hours</label>
+                                                                            <label className="text-xs font-semibold text-slate-300 mb-1.5 block">Hours</label>
                                                                             <div className="relative">
                                                                                 <input 
                                                                                     type="number" 
@@ -1086,13 +1174,13 @@ export default function ContentHubModals({ state, actions }) {
                                                                                     step="1" 
                                                                                     value={modalStructuredDurationHours} 
                                                                                     onChange={(e) => setModalStructuredDurationHours(e.target.value)} 
-                                                                                    className="w-full bg-black/60 border border-purple-500/30 focus:border-purple-400 rounded-xl p-3 text-white outline-none text-xs font-bold" 
+                                                                                    className="w-full bg-black/60 border border-purple-500/30 focus:border-purple-400 rounded-xl p-3 text-white outline-none text-sm sm:text-base font-bold" 
                                                                                 />
-                                                                                <span className="absolute right-3 top-3 text-[10px] text-slate-500 font-bold">Hrs</span>
+                                                                                <span className="absolute right-3.5 top-3.5 text-xs text-slate-500 font-bold">Hrs</span>
                                                                             </div>
                                                                         </div>
                                                                         <div>
-                                                                            <label className="text-[10px] font-bold text-slate-400 mb-1 block">Minutes</label>
+                                                                            <label className="text-xs font-semibold text-slate-300 mb-1.5 block">Minutes</label>
                                                                             <div className="relative">
                                                                                 <input 
                                                                                     type="number" 
@@ -1101,29 +1189,28 @@ export default function ContentHubModals({ state, actions }) {
                                                                                     step="5" 
                                                                                     value={modalStructuredDurationMinutes} 
                                                                                     onChange={(e) => setModalStructuredDurationMinutes(e.target.value)} 
-                                                                                    className="w-full bg-black/60 border border-purple-500/30 focus:border-purple-400 rounded-xl p-3 text-white outline-none text-xs font-bold" 
+                                                                                    className="w-full bg-black/60 border border-purple-500/30 focus:border-purple-400 rounded-xl p-3 text-white outline-none text-sm sm:text-base font-bold" 
                                                                                 />
-                                                                                <span className="absolute right-3 top-3 text-[10px] text-slate-500 font-bold">Mins</span>
+                                                                                <span className="absolute right-3.5 top-3.5 text-xs text-slate-500 font-bold">Mins</span>
                                                                             </div>
                                                                         </div>
                                                                     </div>
                                                                 </div>
                                                             </div>
 
-                                                            {/* --- INTERMISSION / BREAK INTERVAL & STRUCTURED UPLOAD WINDOW --- */}
+                                                            {/* Interval Break & Dedicated Upload Window */}
                                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-3">
-                                                                {/* Intermission Break Card */}
-                                                                <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl p-4 space-y-2">
+                                                                <div className="bg-indigo-500/10 border border-indigo-500/30 rounded-2xl p-4 sm:p-5 space-y-2">
                                                                     <div className="flex items-center justify-between">
-                                                                        <span className="text-xs font-black text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
-                                                                            ☕ Break / Interval (Between MCQ & Essay) *
+                                                                        <span className="text-xs sm:text-sm font-black text-indigo-300 uppercase tracking-wider">
+                                                                            ☕ Break Between MCQ & Essay *
                                                                         </span>
-                                                                        <span className="text-[11px] font-extrabold text-indigo-300 bg-indigo-500/20 px-2 py-0.5 rounded-md">
+                                                                        <span className="text-xs font-extrabold text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-lg">
                                                                             {modalBreakIntervalMinutes || 15} Mins
                                                                         </span>
                                                                     </div>
-                                                                    <p className="text-[11px] text-slate-400 leading-snug">
-                                                                        Rest interval given to students after submitting Part 1 (MCQ) before Part 2 (Essay) starts.
+                                                                    <p className="text-xs text-slate-300 leading-relaxed">
+                                                                        Rest interval given to students after submitting Part 1 before Part 2 begins.
                                                                     </p>
                                                                     <div className="relative pt-1">
                                                                         <input 
@@ -1134,24 +1221,23 @@ export default function ContentHubModals({ state, actions }) {
                                                                             name="breakIntervalMinutes"
                                                                             value={modalBreakIntervalMinutes} 
                                                                             onChange={(e) => setModalBreakIntervalMinutes(e.target.value)} 
-                                                                            className="w-full bg-black/60 border border-indigo-500/40 focus:border-indigo-400 rounded-xl p-3 text-white outline-none text-xs font-bold pr-14" 
+                                                                            className="w-full bg-black/60 border border-indigo-500/40 focus:border-indigo-400 rounded-xl p-3 text-white outline-none text-sm font-bold pr-16" 
                                                                         />
-                                                                        <span className="absolute right-3.5 top-4 text-[11px] text-slate-400 font-bold">Mins Break</span>
+                                                                        <span className="absolute right-3.5 top-4 text-xs text-slate-400 font-bold">Mins</span>
                                                                     </div>
                                                                 </div>
 
-                                                                {/* Dedicated Upload Window Card */}
-                                                                <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 space-y-2">
+                                                                <div className="bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 sm:p-5 space-y-2">
                                                                     <div className="flex items-center justify-between">
-                                                                        <span className="text-xs font-black text-rose-300 uppercase tracking-wider flex items-center gap-1.5">
+                                                                        <span className="text-xs sm:text-sm font-black text-rose-300 uppercase tracking-wider">
                                                                             📤 Dedicated Upload Window (Part 2) *
                                                                         </span>
-                                                                        <span className="text-[11px] font-extrabold text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded-md">
+                                                                        <span className="text-xs font-extrabold text-rose-300 bg-rose-500/20 px-2.5 py-0.5 rounded-lg">
                                                                             {modalStructuredUploadMinutes || 15} Mins
                                                                         </span>
                                                                     </div>
-                                                                    <p className="text-[11px] text-slate-400 leading-snug">
-                                                                        Dedicated buffer window for photographing and uploading answer sheets after writing time finishes.
+                                                                    <p className="text-xs text-slate-300 leading-relaxed">
+                                                                        Buffer window for photographing and uploading answer sheets after writing ends.
                                                                     </p>
                                                                     <div className="relative pt-1">
                                                                         <input 
@@ -1162,9 +1248,9 @@ export default function ContentHubModals({ state, actions }) {
                                                                             name="structuredUploadMinutes"
                                                                             value={modalStructuredUploadMinutes} 
                                                                             onChange={(e) => setModalStructuredUploadMinutes(e.target.value)} 
-                                                                            className="w-full bg-black/60 border border-rose-500/40 focus:border-rose-400 rounded-xl p-3 text-white outline-none text-xs font-bold pr-14" 
+                                                                            className="w-full bg-black/60 border border-rose-500/40 focus:border-rose-400 rounded-xl p-3 text-white outline-none text-sm font-bold pr-16" 
                                                                         />
-                                                                        <span className="absolute right-3.5 top-4 text-[11px] text-slate-400 font-bold">Mins Upload</span>
+                                                                        <span className="absolute right-3.5 top-4 text-xs text-slate-400 font-bold">Mins</span>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -1186,19 +1272,19 @@ export default function ContentHubModals({ state, actions }) {
                                                             />
                                                         </div>
                                                     ) : (
-                                                        <div className="space-y-2 pt-2 border-t border-white/5">
+                                                        <div className="space-y-4 pt-2 border-t border-white/10">
                                                             <div className="flex items-center justify-between">
-                                                                <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">
-                                                                    Exam Duration *
+                                                                <label className="text-xs sm:text-sm font-bold text-slate-200 block uppercase tracking-wider">
+                                                                    4. Exam Duration & Upload Buffer *
                                                                 </label>
-                                                                <span className="text-xs font-extrabold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-lg">
-                                                                    Total: {modalDurationHours || 0} Hours {modalDurationMinutes || 0} Mins ({(parseInt(modalDurationHours || 0) * 60) + parseInt(modalDurationMinutes || 0)} Minutes)
+                                                                <span className="text-xs sm:text-sm font-extrabold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-3.5 py-1 rounded-xl">
+                                                                    Writing Duration: {modalDurationHours || 0}h {modalDurationMinutes || 0}m ({(parseInt(modalDurationHours || 0) * 60) + parseInt(modalDurationMinutes || 0)} Minutes)
                                                                 </span>
                                                             </div>
 
-                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                                                 <div>
-                                                                    <label className="text-[11px] font-bold text-slate-400 mb-1 block">Hours</label>
+                                                                    <label className="text-xs font-semibold text-slate-300 mb-1.5 block">Hours</label>
                                                                     <div className="relative">
                                                                         <input 
                                                                             type="number" 
@@ -1209,26 +1295,43 @@ export default function ContentHubModals({ state, actions }) {
                                                                             onChange={(e) => setModalDurationHours(e.target.value)}
                                                                             placeholder="Hours (e.g. 2)" 
                                                                             required
-                                                                            className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                            className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm sm:text-base font-bold" 
                                                                         />
                                                                         <span className="absolute right-4 top-3.5 text-xs text-slate-500 font-bold">Hours</span>
                                                                     </div>
                                                                 </div>
                                                                 <div>
-                                                                    <label className="text-[11px] font-bold text-slate-400 mb-1 block">Minutes</label>
+                                                                    <label className="text-xs font-semibold text-slate-300 mb-1.5 block">Minutes</label>
                                                                     <div className="relative">
                                                                         <input 
                                                                             type="number" 
-                                                                            min="0"
-                                                                            max="59"
-                                                                            step="5"
-                                                                            value={modalDurationMinutes}
-                                                                            onChange={(e) => setModalDurationMinutes(e.target.value)}
+                                                                            min="0" 
+                                                                            max="59" 
+                                                                            step="5" 
+                                                                            value={modalDurationMinutes} 
+                                                                            onChange={(e) => setModalDurationMinutes(e.target.value)} 
                                                                             placeholder="Minutes (e.g. 0)" 
                                                                             required
-                                                                            className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                            className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm sm:text-base font-bold" 
                                                                         />
                                                                         <span className="absolute right-4 top-3.5 text-xs text-slate-500 font-bold">Mins</span>
+                                                                    </div>
+                                                                </div>
+                                                                <div>
+                                                                    <label className="text-xs font-semibold text-rose-300 mb-1.5 block">Upload Buffer (Answer Upload)</label>
+                                                                    <div className="relative">
+                                                                        <input 
+                                                                            type="number" 
+                                                                            min="5" 
+                                                                            max="120" 
+                                                                            step="5" 
+                                                                            name="structuredUploadMinutes"
+                                                                            value={modalStructuredUploadMinutes} 
+                                                                            onChange={(e) => setModalStructuredUploadMinutes(e.target.value)} 
+                                                                            placeholder="15" 
+                                                                            className="w-full bg-black/60 border border-rose-500/40 focus:border-rose-400 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm sm:text-base font-bold" 
+                                                                        />
+                                                                        <span className="absolute right-4 top-3.5 text-xs text-rose-400 font-bold">Mins Upload</span>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -1240,17 +1343,17 @@ export default function ContentHubModals({ state, actions }) {
                                                         </div>
                                                     )}
 
-                                                    {/* 4. MARKS & INSTRUCTIONS */}
+                                                    {/* 5. MARKS CONFIGURATION (NO PASS MARKS) */}
                                                     {modalPaperType === 'BOTH' ? (
-                                                        <div className="space-y-3 pt-2 border-t border-white/5">
-                                                            <label className="text-xs font-bold text-gray-300 block uppercase tracking-wider">
-                                                                Marks Configuration (Part 1 & Part 2 Breakdown) *
+                                                        <div className="space-y-4 pt-2 border-t border-white/10">
+                                                            <label className="text-xs sm:text-sm font-bold text-slate-200 block uppercase tracking-wider">
+                                                                5. Marks Configuration (Part 1 & Part 2 Breakdown) *
                                                             </label>
-                                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                                                 {/* MCQ Marks */}
-                                                                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3.5 space-y-1">
-                                                                    <label className="text-[11px] font-bold text-emerald-400 block flex items-center gap-1 uppercase tracking-wider">
-                                                                        <CheckCircle size={12} /> Part 1 (MCQ) Marks
+                                                                <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-4 sm:p-5 space-y-2">
+                                                                    <label className="text-xs sm:text-sm font-bold text-emerald-400 block flex items-center gap-1.5 uppercase tracking-wider">
+                                                                        <CheckCircle size={15} /> Part 1 (MCQ) Marks
                                                                     </label>
                                                                     <input 
                                                                         type="number" 
@@ -1262,14 +1365,14 @@ export default function ContentHubModals({ state, actions }) {
                                                                             setModalTotalMarks(String(nT));
                                                                         }}
                                                                         placeholder="e.g. 50" 
-                                                                        className="w-full bg-black/60 border border-emerald-500/30 focus:border-emerald-400 rounded-xl p-3 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                        className="w-full bg-black/60 border border-emerald-500/30 focus:border-emerald-400 rounded-xl p-3.5 text-white outline-none shadow-inner text-base sm:text-lg font-black" 
                                                                     />
                                                                 </div>
 
                                                                 {/* Structured Marks */}
-                                                                <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-3.5 space-y-1">
-                                                                    <label className="text-[11px] font-bold text-purple-400 block flex items-center gap-1 uppercase tracking-wider">
-                                                                        <FileSignature size={12} /> Part 2 (Essay) Marks
+                                                                <div className="bg-purple-500/5 border border-purple-500/20 rounded-2xl p-4 sm:p-5 space-y-2">
+                                                                    <label className="text-xs sm:text-sm font-bold text-purple-400 block flex items-center gap-1.5 uppercase tracking-wider">
+                                                                        <FileSignature size={15} /> Part 2 (Essay) Marks
                                                                     </label>
                                                                     <input 
                                                                         type="number" 
@@ -1281,13 +1384,13 @@ export default function ContentHubModals({ state, actions }) {
                                                                             setModalTotalMarks(String(nT));
                                                                         }}
                                                                         placeholder="e.g. 50" 
-                                                                        className="w-full bg-black/60 border border-purple-500/30 focus:border-purple-400 rounded-xl p-3 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                        className="w-full bg-black/60 border border-purple-500/30 focus:border-purple-400 rounded-xl p-3.5 text-white outline-none shadow-inner text-base sm:text-lg font-black" 
                                                                     />
                                                                 </div>
 
                                                                 {/* Total Paper Marks */}
-                                                                <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3.5 space-y-1">
-                                                                    <label className="text-[11px] font-bold text-amber-400 block uppercase tracking-wider">
+                                                                <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-4 sm:p-5 space-y-2">
+                                                                    <label className="text-xs sm:text-sm font-bold text-amber-400 block uppercase tracking-wider">
                                                                         Total Combined Marks
                                                                     </label>
                                                                     <input 
@@ -1296,74 +1399,54 @@ export default function ContentHubModals({ state, actions }) {
                                                                         value={modalTotalMarks} 
                                                                         onChange={(e) => setModalTotalMarks(e.target.value)}
                                                                         placeholder="e.g. 100" 
-                                                                        className="w-full bg-black/60 border border-amber-500/30 focus:border-amber-400 rounded-xl p-3 text-white outline-none shadow-inner text-sm font-bold" 
-                                                                    />
-                                                                </div>
-
-                                                                {/* Pass Marks */}
-                                                                <div className="bg-white/5 border border-white/10 rounded-xl p-3.5 space-y-1">
-                                                                    <label className="text-[11px] font-bold text-slate-300 block uppercase tracking-wider">
-                                                                        Pass Marks (%)
-                                                                    </label>
-                                                                    <input 
-                                                                        type="number" 
-                                                                        name="passMarks" 
-                                                                        defaultValue={editData?.paper?.passMarks || 40} 
-                                                                        placeholder="e.g. 40" 
-                                                                        className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                        className="w-full bg-black/60 border border-amber-500/30 focus:border-amber-400 rounded-xl p-3.5 text-white outline-none shadow-inner text-base sm:text-lg font-black" 
                                                                     />
                                                                 </div>
                                                             </div>
                                                         </div>
                                                     ) : (
-                                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-white/5">
-                                                            <div>
-                                                                <label className="text-xs font-bold text-gray-300 mb-1.5 block uppercase tracking-wider">Pass Marks (%)</label>
-                                                                <input 
-                                                                    type="number" 
-                                                                    name="passMarks" 
-                                                                    defaultValue={editData?.paper?.passMarks || 40} 
-                                                                    placeholder="e.g. 40" 
-                                                                    className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold" 
-                                                                />
-                                                            </div>
-                                                            <div>
-                                                                <label className="text-xs font-bold text-gray-300 mb-1.5 block uppercase tracking-wider">Total Paper Marks</label>
+                                                        <div className="space-y-4 pt-2 border-t border-white/10">
+                                                            <div className="max-w-md">
+                                                                <label className="text-xs sm:text-sm font-bold text-slate-200 mb-2 block uppercase tracking-wider">
+                                                                    5. Total Paper Marks *
+                                                                </label>
                                                                 <input 
                                                                     type="number" 
                                                                     name="totalMarks" 
-                                                                    defaultValue={editData?.paper?.totalMarks || 100} 
+                                                                    value={modalTotalMarks}
+                                                                    onChange={(e) => setModalTotalMarks(e.target.value)}
                                                                     placeholder="e.g. 100" 
-                                                                    className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold" 
+                                                                    required
+                                                                    className="w-full bg-black/60 border border-white/10 focus:border-amber-400 rounded-xl p-4 text-white outline-none shadow-inner text-base sm:text-lg font-black" 
                                                                 />
                                                             </div>
                                                         </div>
                                                     )}
 
-                                                    {/* Grade Boundaries / Grading Scale */}
-                                                    <div className="bg-gradient-to-br from-indigo-950/30 via-slate-900/60 to-purple-950/20 border border-indigo-500/20 rounded-2xl p-4 space-y-3.5 shadow-lg">
-                                                        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-indigo-500/10 pb-2.5">
-                                                            <div className="flex items-center gap-2.5">
-                                                                <div className="w-7 h-7 rounded-lg bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
-                                                                    <Trophy size={15} />
+                                                    {/* 6. GRADE BOUNDARIES & GRADING SCALE */}
+                                                    <div className="bg-gradient-to-br from-indigo-950/40 via-slate-900/70 to-purple-950/30 border border-indigo-500/30 rounded-2xl p-5 sm:p-6 space-y-4 shadow-xl">
+                                                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-500/20 pb-3">
+                                                            <div className="flex items-center gap-3">
+                                                                <div className="w-9 h-9 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                                                                    <Trophy size={18} />
                                                                 </div>
                                                                 <div>
-                                                                    <h4 className="text-xs font-bold text-indigo-200 tracking-wide uppercase flex items-center gap-2">
-                                                                        Grade Boundaries & Grading Scale
-                                                                        <span className="text-[10px] font-semibold normal-case text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded-full border border-indigo-500/20">
+                                                                    <h4 className="text-xs sm:text-sm font-bold text-indigo-200 tracking-wide uppercase flex items-center gap-2">
+                                                                        6. Grade Boundaries & Grading Scale
+                                                                        <span className="text-[11px] font-semibold normal-case text-indigo-300 bg-indigo-500/20 px-2.5 py-0.5 rounded-full border border-indigo-500/30">
                                                                             Score % Ranges
                                                                         </span>
                                                                     </h4>
-                                                                    <p className="text-[11px] text-slate-400">
-                                                                        Define student grade badges according to marks / percentage thresholds (e.g. A: 75–100, B: 65–74)
+                                                                    <p className="text-xs text-slate-400">
+                                                                        Student grade badges according to marks percentage thresholds.
                                                                     </p>
                                                                 </div>
                                                             </div>
-                                                            <div className="flex items-center gap-2">
+                                                            <div className="flex items-center gap-2.5">
                                                                 <button
                                                                     type="button"
                                                                     onClick={handleResetStandardGrade}
-                                                                    className="text-[11px] font-semibold text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+                                                                    className="text-xs font-semibold text-slate-300 hover:text-white px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
                                                                     title="Reset to default A, B, C, S, F"
                                                                 >
                                                                     Reset Default
@@ -1371,25 +1454,25 @@ export default function ContentHubModals({ state, actions }) {
                                                                 <button
                                                                     type="button"
                                                                     onClick={handleAddGradeTier}
-                                                                    className="text-[11px] font-semibold text-indigo-300 hover:text-white px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 transition-colors flex items-center gap-1 shadow-sm"
+                                                                    className="text-xs font-bold text-indigo-300 hover:text-white px-3 py-1.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-500/40 transition-colors flex items-center gap-1.5 shadow-sm"
                                                                 >
-                                                                    <Plus size={13} /> Add Grade
+                                                                    <Plus size={14} /> Add Grade
                                                                 </button>
                                                             </div>
                                                         </div>
 
                                                         {/* Grade Tiers Grid */}
-                                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2.5">
+                                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
                                                             {modalGradingScale.map((tier, idx) => {
                                                                 const badgeStyle = getGradeBadgeStyle(tier.grade);
                                                                 return (
                                                                     <div 
                                                                         key={idx} 
-                                                                        className="relative bg-black/40 border border-white/10 hover:border-indigo-500/30 rounded-xl p-3 flex flex-col justify-between transition-all group"
+                                                                        className="relative bg-black/50 border border-white/10 hover:border-indigo-500/40 rounded-xl p-3.5 flex flex-col justify-between transition-all group"
                                                                     >
-                                                                        <div className="flex items-center justify-between gap-1.5 mb-2">
-                                                                            <div className="flex items-center gap-1.5 flex-1">
-                                                                                <span className={`px-2 py-0.5 rounded-md text-xs font-black border ${badgeStyle} shadow-sm min-w-[28px] text-center`}>
+                                                                        <div className="flex items-center justify-between gap-2 mb-2.5">
+                                                                            <div className="flex items-center gap-2 flex-1">
+                                                                                <span className={`px-2.5 py-1 rounded-lg text-sm font-black border ${badgeStyle} shadow-sm min-w-[32px] text-center`}>
                                                                                     {tier.grade || '?'}
                                                                                 </span>
                                                                                 <input
@@ -1397,7 +1480,7 @@ export default function ContentHubModals({ state, actions }) {
                                                                                     value={tier.grade}
                                                                                     onChange={(e) => handleUpdateGradeTier(idx, 'grade', e.target.value)}
                                                                                     placeholder="Grade"
-                                                                                    className="w-full bg-white/5 border border-white/10 focus:border-indigo-400 rounded-lg px-2 py-1 text-white font-bold text-xs uppercase outline-none"
+                                                                                    className="w-full bg-white/5 border border-white/10 focus:border-indigo-400 rounded-lg px-2.5 py-1 text-white font-bold text-sm uppercase outline-none"
                                                                                 />
                                                                             </div>
                                                                             {modalGradingScale.length > 1 && (
@@ -1407,14 +1490,14 @@ export default function ContentHubModals({ state, actions }) {
                                                                                     className="text-slate-500 hover:text-rose-400 p-1 rounded transition-colors"
                                                                                     title="Remove grade tier"
                                                                                 >
-                                                                                    <Trash2 size={13} />
+                                                                                    <Trash2 size={15} />
                                                                                 </button>
                                                                             )}
                                                                         </div>
 
-                                                                        <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                                                                            <div className="flex-1 space-y-0.5">
-                                                                                <span className="text-[10px] text-slate-500 block uppercase font-medium">Min %</span>
+                                                                        <div className="flex items-center gap-2 text-xs sm:text-sm text-slate-300">
+                                                                            <div className="flex-1 space-y-1">
+                                                                                <span className="text-[11px] text-slate-400 block uppercase font-bold">Min %</span>
                                                                                 <input
                                                                                     type="number"
                                                                                     min="0"
@@ -1422,12 +1505,12 @@ export default function ContentHubModals({ state, actions }) {
                                                                                     value={tier.min}
                                                                                     onChange={(e) => handleUpdateGradeTier(idx, 'min', e.target.value)}
                                                                                     placeholder="0"
-                                                                                    className="w-full bg-black/50 border border-white/10 focus:border-indigo-400 rounded-md px-2 py-1 text-white font-semibold text-xs outline-none"
+                                                                                    className="w-full bg-black/60 border border-white/10 focus:border-indigo-400 rounded-lg px-1 py-1.5 text-center text-white font-black text-xs sm:text-sm outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-inner"
                                                                                 />
                                                                             </div>
-                                                                            <span className="text-slate-500 pt-3 font-bold">-</span>
-                                                                            <div className="flex-1 space-y-0.5">
-                                                                                <span className="text-[10px] text-slate-500 block uppercase font-medium">Max %</span>
+                                                                            <span className="text-slate-500 pt-4 font-black">-</span>
+                                                                            <div className="flex-1 space-y-1">
+                                                                                <span className="text-[11px] text-slate-400 block uppercase font-bold text-center">Max %</span>
                                                                                 <input
                                                                                     type="number"
                                                                                     min="0"
@@ -1435,7 +1518,7 @@ export default function ContentHubModals({ state, actions }) {
                                                                                     value={tier.max}
                                                                                     onChange={(e) => handleUpdateGradeTier(idx, 'max', e.target.value)}
                                                                                     placeholder="100"
-                                                                                    className="w-full bg-black/50 border border-white/10 focus:border-indigo-400 rounded-md px-2 py-1 text-white font-semibold text-xs outline-none"
+                                                                                    className="w-full bg-black/60 border border-white/10 focus:border-indigo-400 rounded-lg px-1 py-1.5 text-center text-white font-black text-xs sm:text-sm outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-inner"
                                                                                 />
                                                                             </div>
                                                                         </div>
@@ -1450,18 +1533,20 @@ export default function ContentHubModals({ state, actions }) {
 
                                                     {/* Instructions */}
                                                     <div>
-                                                        <label className="text-xs font-bold text-gray-300 mb-1.5 block uppercase tracking-wider">Instructions for Students (Optional)</label>
+                                                        <label className="text-xs sm:text-sm font-bold text-slate-200 mb-2 block uppercase tracking-wider">
+                                                            Instructions for Students (Optional)
+                                                        </label>
                                                         <textarea 
                                                             name="instructions" 
                                                             rows="2" 
                                                             defaultValue={editData?.paper?.instructions || ''} 
                                                             placeholder="e.g. Read each question carefully. Countdown begins once started. Submit your answers before time expires." 
-                                                            className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3 text-white outline-none shadow-inner text-xs"
+                                                            className="w-full bg-black/60 border border-white/10 focus:border-green-500 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm leading-relaxed"
                                                         />
                                                     </div>
                                                 </div>
                                             )}
-                                            
+
                                             <div className="md:col-span-4 mt-4">
                                                 <label className="flex items-center gap-4 cursor-pointer w-max group bg-white/5 p-4 rounded-2xl border border-white/10 hover:border-white/20 hover:bg-white/10 transition-all shadow-sm">
                                                     <div className="relative flex items-center justify-center">

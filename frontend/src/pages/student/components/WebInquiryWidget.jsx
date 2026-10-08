@@ -3,21 +3,32 @@ import { useSearchParams } from 'react-router-dom';
 import axios from '../../../api/axios';
 import { 
     MessageCircle, X, Send, Paperclip, CheckCircle, ShieldAlert, Reply, 
-    Mic, StopCircle, Music, Image as ImageIcon, FileText
+    Mic, StopCircle, Music, Image as ImageIcon, FileText,
+    GraduationCap, Lock, Sparkles, HelpCircle, BookOpen, ChevronRight, CheckCircle2
 } from 'lucide-react';
 import { io } from 'socket.io-client';
 import toast from 'react-hot-toast';
 
-const WebInquiryWidget = ({ businesses }) => {
+const WebInquiryWidget = ({ businesses, setActiveTab }) => {
     const [searchParams, setSearchParams] = useSearchParams();
     const [isOpen, setIsOpen] = useState(false);
     const [inquiry, setInquiry] = useState(null); 
     const [messages, setMessages] = useState([]);
     
     // Pre-chat form states
+    const [preChatTab, setPreChatTab] = useState('paper_guiders'); // 'paper_guiders' | 'support'
     const [selectedCourseId, setSelectedCourseId] = useState('');
     const [unreadTotal, setUnreadTotal] = useState(0);
     const [unreadBusinesses, setUnreadBusinesses] = useState({}); 
+
+    // Paper Guider states
+    const [isEnrolledInPaperClass, setIsEnrolledInPaperClass] = useState(false);
+    const [paperClasses, setPaperClasses] = useState([]);
+    const [selectedPaperClassId, setSelectedPaperClassId] = useState('');
+    const [guiderInquiryType, setGuiderInquiryType] = useState('QUESTION_DOUBT');
+    const [guiderInitialNote, setGuiderInitialNote] = useState('');
+    const [guiderSessionMeta, setGuiderSessionMeta] = useState(null);
+    const [isCheckingEnrollment, setIsCheckingEnrollment] = useState(true);
     
     // Chat states
     const [inputMsg, setInputMsg] = useState('');
@@ -52,6 +63,49 @@ const WebInquiryWidget = ({ businesses }) => {
     };
 
     useEffect(() => { scrollToBottom(); }, [messages]);
+
+    // Check student paper class eligibility
+    useEffect(() => {
+        setIsCheckingEnrollment(true);
+        axios.get('/papers/student/paper-classes')
+            .then(res => {
+                if (res.data?.success) {
+                    const enrolled = !!res.data.isEnrolledInPaperClass;
+                    setIsEnrolledInPaperClass(enrolled);
+                    setPaperClasses(res.data.paperClasses || []);
+                    if (res.data.paperClasses?.length > 0) {
+                        setSelectedPaperClassId(String(res.data.paperClasses[0].id));
+                    }
+                    if (!enrolled) {
+                        setPreChatTab('support');
+                    }
+                }
+            })
+            .catch(err => {
+                console.error("Paper classes access check error:", err);
+            })
+            .finally(() => {
+                setIsCheckingEnrollment(false);
+            });
+    }, []);
+
+    // Listen for custom trigger from StudentOverview or other tabs
+    useEffect(() => {
+        const handleOpenGuiderEvent = (e) => {
+            const { paperId, testTitle, courseId, batchId, className } = e.detail || {};
+            setIsOpen(true);
+            setPreChatTab('paper_guiders');
+            if (courseId) {
+                setSelectedPaperClassId(String(courseId));
+            }
+            if (testTitle) {
+                setGuiderInitialNote(`[Paper Discussion] Regarding "${testTitle}": I would like clarification on question marks.`);
+                setGuiderInquiryType('MARKING_REVIEW');
+            }
+        };
+        window.addEventListener('open-paper-guider-chat', handleOpenGuiderEvent);
+        return () => window.removeEventListener('open-paper-guider-chat', handleOpenGuiderEvent);
+    }, [paperClasses]);
 
     useEffect(() => {
         axios.get('/web-inquiry/my-inquiries')
@@ -102,15 +156,6 @@ const WebInquiryWidget = ({ businesses }) => {
                 }
                 return prev; 
             });
-
-            if (msg.direction === 'outbound' && (!currentIsOpen || !currentInquiry || currentInquiry.id !== msg.inquiryId)) {
-                if (msg.inquiry || msg.inquiryId) {
-                    // if msg doesn't populate msg.inquiry, fallback to using msg.inquiryId and businessId from the backend notification payload if possible
-                    // But in new_web_inquiry_message, we only have msg which is the message object.
-                    // Wait, we can increment based on msg data if we know the businessId. 
-                    // Let's use the web_inquiry_student_notification which has businessId reliably.
-                }
-            }
         });
 
         socketRef.current.on('web_inquiry_student_notification', (data) => {
@@ -152,11 +197,11 @@ const WebInquiryWidget = ({ businesses }) => {
         }
     }, [businesses]);
 
-    const startInquiry = async (directBizId = null, directCourseId = null) => {
-        const bId = directBizId;
+    const startInquiry = async (directBizId = null, directCourseId = null, initialNoteText = null, isGuider = false) => {
+        const bId = directBizId || (businesses && businesses[0]?.id) || 1;
         const cId = directCourseId || selectedCourseId;
         if (!bId) {
-            toast.error("Please select a business");
+            toast.error("Please select an institution / business");
             return;
         }
 
@@ -165,11 +210,62 @@ const WebInquiryWidget = ({ businesses }) => {
             if (res.data.success) {
                 setInquiry(res.data.inquiry);
                 setMessages(res.data.inquiry?.messages || res.data.messages || []);
+                if (isGuider) {
+                    setGuiderSessionMeta({
+                        courseId: cId,
+                        isPaperGuider: true
+                    });
+                } else {
+                    setGuiderSessionMeta(null);
+                }
+
+                // If an initial intro message was provided, auto-send it
+                if (initialNoteText && socketRef.current) {
+                    socketRef.current.emit('send_web_inquiry_message', {
+                        inquiryId: res.data.inquiry.id,
+                        businessId: bId,
+                        message: initialNoteText,
+                        mediaUrl: null,
+                        mediaType: null,
+                        replyToId: null
+                    });
+                }
             }
         } catch (error) {
-            toast.error("Failed to start chat");
+            console.error("Failed to start chat:", error);
+            toast.error("Failed to start chat session");
         }
     };
+
+    const handleStartPaperGuiderChat = async () => {
+        if (!isEnrolledInPaperClass) {
+            toast.error("Paper Guider Chat is exclusive to Paper Class students.");
+            return;
+        }
+
+        const selectedClass = paperClasses.find(c => String(c.id) === String(selectedPaperClassId)) || paperClasses[0];
+        const bizId = selectedClass?.businessId || (businesses && businesses[0]?.id) || 1;
+        const courseId = selectedClass?.id !== 0 ? selectedClass?.id : null;
+
+        const topicLabels = {
+            'QUESTION_DOUBT': '🔍 Question Doubts (ප්‍රශ්න විවරණ)',
+            'MARKING_REVIEW': '⚖️ Marking Review (ලකුණු නැවත බැලීම)',
+            'SCHEME_HELP': '💡 Scheme & Essay Guidance (පිළිතුරු සැකසීම)',
+            'GENERAL': '📌 General Paper Query (සාමාන්‍ය විමසීමක්)'
+        };
+
+        const topicStr = topicLabels[guiderInquiryType] || 'Paper Consultation';
+        const classNameStr = selectedClass?.name || 'Paper Class';
+        
+        let introMessage = `[📝 PAPER GUIDER DESK]\nClass: ${classNameStr}\nTopic: ${topicStr}`;
+        if (guiderInitialNote.trim()) {
+            introMessage += `\n\nStudent Note:\n${guiderInitialNote.trim()}`;
+        }
+
+        await startInquiry(bizId, courseId, introMessage, true);
+        toast.success(`Connected to Paper Guider Desk for ${classNameStr}!`, { icon: '🎓' });
+    };
+
 
     // --- Voice Recording ---
     const startRecording = async () => {
@@ -272,15 +368,29 @@ const WebInquiryWidget = ({ businesses }) => {
         return (
             <button 
                 onClick={() => setIsOpen(true)}
-                className={`fixed bottom-6 right-6 md:bottom-24 z-50 text-white rounded-full p-4 shadow-xl hover:scale-110 transition-transform flex items-center justify-center ${unreadTotal > 0 ? 'bg-red-500 animate-pulse' : 'bg-[#00a884] hover:bg-[#008f6f] animate-bounce-slow'}`}
+                className={`fixed bottom-6 right-6 md:bottom-24 z-50 text-white rounded-full p-3.5 sm:px-4 sm:py-3.5 shadow-2xl hover:scale-105 active:scale-95 transition-all duration-300 flex items-center gap-2.5 ${
+                    unreadTotal > 0 
+                        ? 'bg-gradient-to-r from-red-600 to-rose-600 animate-pulse ring-4 ring-red-400/30' 
+                        : 'bg-gradient-to-r from-sky-500 via-blue-600 to-indigo-600 hover:shadow-[0_0_25px_rgba(14,165,233,0.6)] ring-2 ring-sky-300/40'
+                }`}
+                title="LUMI Chat & Paper Guider Desk"
             >
-                <div className="relative">
-                    <MessageCircle size={28} />
+                <div className="relative flex items-center justify-center">
+                    <MessageCircle size={24} className="text-white drop-shadow" />
+                    <Sparkles size={12} className="absolute -top-1 -right-1 text-yellow-300 animate-pulse" />
                     {unreadTotal > 0 && (
-                        <span className="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center animate-bounce border-2 border-white shadow-sm">
+                        <span className="absolute -top-2.5 -right-2.5 bg-red-600 text-white text-[11px] font-black w-5 h-5 rounded-full flex items-center justify-center animate-bounce border-2 border-white shadow-md">
                             {unreadTotal}
                         </span>
                     )}
+                </div>
+                <div className="hidden sm:flex flex-col text-left leading-tight">
+                    <span className="text-xs font-black tracking-wider uppercase flex items-center gap-1 text-white">
+                        LUMI Chat
+                    </span>
+                    <span className="text-[10px] text-sky-100 font-medium opacity-90">
+                        {isEnrolledInPaperClass ? 'Paper Guiders & Help' : 'Campus Support'}
+                    </span>
                 </div>
             </button>
         );
@@ -288,32 +398,49 @@ const WebInquiryWidget = ({ businesses }) => {
 
     // Find current business info for Header
     const currentBiz = inquiry ? businesses.find(b => b.id === inquiry.businessId) : null;
+    const isGuiderChatMode = !!guiderSessionMeta;
 
     return (
-        <div className="fixed bottom-6 right-6 md:bottom-24 z-50 w-[350px] sm:w-[380px] h-[550px] max-h-[85vh] flex flex-col bg-[#efeae2] rounded-2xl shadow-2xl overflow-hidden border border-[#d1d7db]">
+        <div className="fixed bottom-6 right-6 md:bottom-24 z-50 w-[350px] sm:w-[400px] h-[580px] max-h-[88vh] flex flex-col bg-[#efeae2] rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden border border-white/20">
             {/* Header */}
-            <div className="bg-[#008069] px-4 py-3 text-white flex items-center justify-between shrink-0 z-10 shadow-sm relative">
+            <div className={`px-4 py-3.5 text-white flex items-center justify-between shrink-0 z-10 shadow-md relative transition-all ${
+                isGuiderChatMode
+                    ? 'bg-gradient-to-r from-sky-700 via-blue-800 to-indigo-900 border-b border-sky-400/30'
+                    : 'bg-[#008069]'
+            }`}>
                 <div className="flex items-center gap-3">
                     {inquiry && (
-                        <button onClick={() => { setInquiry(null); setReplyToMessage(null); }} className="p-1 hover:bg-black/10 rounded-full transition-colors mr-0.5">
+                        <button onClick={() => { setInquiry(null); setReplyToMessage(null); setGuiderSessionMeta(null); }} className="p-1 hover:bg-black/10 rounded-full transition-colors mr-0.5">
                             <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
                         </button>
                     )}
-                    <div className="w-10 h-10 bg-[#dfe5e7] rounded-full flex items-center justify-center overflow-hidden shrink-0">
-                        {currentBiz && currentBiz.logo && currentBiz.logo !== 'default.png' && currentBiz.logo !== 'null' ? (
+                    <div className="w-10 h-10 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center overflow-hidden shrink-0 border border-white/20">
+                        {isGuiderChatMode ? (
+                            <GraduationCap size={22} className="text-sky-300" />
+                        ) : currentBiz && currentBiz.logo && currentBiz.logo !== 'default.png' && currentBiz.logo !== 'null' ? (
                             <img src={`${axios.defaults.baseURL.replace('/api', '')}/storage/icons/${currentBiz.logo}`} className="w-full h-full object-cover" alt="Logo" onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; }} />
                         ) : (
                             <img src="/logo.png" alt="Logo" className="w-8 h-8 object-contain" />
                         )}
                     </div>
                     <div>
-                        <h3 className="font-semibold text-[15px] leading-tight">
-                            {currentBiz ? `${currentBiz.name} Support` : 'IMA Campus Support'}
-                        </h3>
-                        <p className="text-[11px] text-white/90 font-medium">We usually reply in a few minutes</p>
+                        <div className="flex items-center gap-1.5">
+                            <h3 className="font-bold text-[15px] leading-tight">
+                                {isGuiderChatMode 
+                                    ? 'LUMI • Paper Guider Desk' 
+                                    : currentBiz ? `${currentBiz.name} Support` : 'LUMI Campus Support'}
+                            </h3>
+                            {isGuiderChatMode && (
+                                <span className="bg-sky-400/30 text-sky-200 text-[9px] font-black uppercase px-1.5 py-0.5 rounded tracking-wider border border-sky-400/40">Guider</span>
+                            )}
+                        </div>
+                        <p className="text-[11px] text-white/90 font-medium flex items-center gap-1">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse inline-block"></span>
+                            {isGuiderChatMode ? 'Dedicated Paper Marking Support' : 'We usually reply in a few minutes'}
+                        </p>
                     </div>
                 </div>
-                <button onClick={() => setIsOpen(false)} className="hover:bg-black/10 p-2 rounded-full transition-colors shrink-0">
+                <button onClick={() => setIsOpen(false)} className="hover:bg-white/10 p-2 rounded-full transition-colors shrink-0">
                     <X size={20} />
                 </button>
             </div>
@@ -321,49 +448,214 @@ const WebInquiryWidget = ({ businesses }) => {
             {/* Content Area */}
             <div className="flex-1 flex flex-col bg-[#efeae2] relative overflow-hidden" style={{ backgroundImage: 'url("/chat-bg.png")', backgroundSize: 'contain', backgroundBlendMode: 'overlay', backgroundColor: 'rgba(239, 234, 226, 0.95)' }}>
                 {!inquiry ? (
-                    // PRE-CHAT FORM
-                    <div className="p-5 flex-1 overflow-y-auto custom-scrollbar">
-                        <div className="bg-white p-4 rounded-xl shadow-sm mb-6 text-center">
-                            <h4 className="text-lg font-bold text-[#111b21] mb-2">Welcome to Support! 👋</h4>
-                            <p className="text-[13px] text-[#54656f] leading-relaxed">
-                                ඔබ අපත් සමඟ සම්බන්ධ වීමට කැමති ආයතනය තෝරා ගැටලු ඉදිරිපත් කරන්න.
-                            </p>
-                        </div>
+                    // PRE-CHAT FORM WITH LUMI TABS
+                    <div className="p-4 sm:p-5 flex-1 overflow-y-auto custom-scrollbar flex flex-col">
                         
-                        <div className="space-y-3">
-                            <label className="block text-[11px] font-bold text-[#54656f] uppercase tracking-wider mb-2 ml-1">Select Business</label>
-                            
-                            <div className="flex flex-col gap-2">
-                                {businesses?.map(b => (
-                                    <div 
-                                        key={b.id} 
-                                        onClick={() => startInquiry(b.id, null)}
-                                        className="bg-white hover:bg-[#f5f6f6] border border-transparent hover:border-[#d1d7db] cursor-pointer transition-colors rounded-xl p-3 flex items-center gap-3 relative shadow-sm"
-                                    >
-                                        <div className="w-12 h-12 rounded-full bg-[#dfe5e7] flex items-center justify-center shrink-0 overflow-hidden">
-                                            {b.logo && b.logo !== 'default.png' && b.logo !== 'null' ? (
-                                                <img src={`${axios.defaults.baseURL.replace('/api', '')}/storage/icons/${b.logo}`} className="w-full h-full object-cover" alt="" onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; }} />
+                        {/* Dual Tabs: Paper Guiders vs General Support */}
+                        <div className="grid grid-cols-2 gap-1.5 p-1 bg-black/10 backdrop-blur-md rounded-2xl mb-4 border border-black/5">
+                            <button
+                                onClick={() => setPreChatTab('paper_guiders')}
+                                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold text-xs transition-all ${
+                                    preChatTab === 'paper_guiders'
+                                        ? 'bg-gradient-to-r from-sky-600 to-blue-700 text-white shadow-md shadow-sky-600/30'
+                                        : 'text-gray-700 hover:text-black hover:bg-black/5'
+                                }`}
+                            >
+                                <GraduationCap size={16} />
+                                <span>Paper Guider</span>
+                                {isEnrolledInPaperClass && (
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                )}
+                            </button>
+                            <button
+                                onClick={() => setPreChatTab('support')}
+                                className={`flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-bold text-xs transition-all ${
+                                    preChatTab === 'support'
+                                        ? 'bg-gradient-to-r from-[#008069] to-emerald-700 text-white shadow-md shadow-emerald-700/30'
+                                        : 'text-gray-700 hover:text-black hover:bg-black/5'
+                                }`}
+                            >
+                                <MessageCircle size={16} />
+                                <span>General Support</span>
+                            </button>
+                        </div>
+
+                        {/* TAB 1: PAPER GUIDER DESK */}
+                        {preChatTab === 'paper_guiders' && (
+                            <div className="flex-1 flex flex-col space-y-4">
+                                {!isEnrolledInPaperClass ? (
+                                    /* 🔒 LOCKED CARD: ONLY FOR ENROLLED STUDENTS */
+                                    <div className="bg-white rounded-2xl p-5 border border-red-200 shadow-sm text-center flex flex-col items-center justify-center my-auto">
+                                        <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500/20 to-red-500/20 border border-red-300 flex items-center justify-center text-red-600 mb-3 shadow-inner">
+                                            <Lock size={30} strokeWidth={2.5} />
+                                        </div>
+                                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-100 text-red-700 text-[11px] font-black uppercase tracking-wider mb-2">
+                                            Paper Class Exclusive
+                                        </div>
+                                        <h4 className="text-base font-bold text-gray-900 mb-1.5">
+                                            පේපර් ගයිඩර් සහය ලබාගත නොහැක
+                                        </h4>
+                                        <p className="text-xs text-gray-600 leading-relaxed mb-4">
+                                            මෙම විශේෂාංගය විවෘත වන්නේ <strong className="text-gray-900 font-bold">Paper Class සඳහා ලියාපදිංචි වූ සිසුන්ට පමණි</strong>. පේපර් පරීක්ෂකවරුන් හා ගයිඩර්වරුන් සමඟ සෘජුව සම්බන්ධ වීමට නම් පළමුව අදාළ Paper Class එකට Enroll වන්න.
+                                        </p>
+                                        <button
+                                            onClick={() => {
+                                                setIsOpen(false);
+                                                if (setActiveTab) setActiveTab('courses');
+                                                window.dispatchEvent(new CustomEvent('switch-student-tab', { detail: { tab: 'courses' } }));
+                                            }}
+                                            className="w-full py-3 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-2"
+                                        >
+                                            <BookOpen size={16} />
+                                            <span>Explore Paper Classes & Enroll</span>
+                                        </button>
+                                    </div>
+                                ) : (
+                                    /* 🟢 UNLOCKED: ENROLLED PAPER CLASS STUDENTS */
+                                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-sky-100 space-y-3.5">
+                                        <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
+                                            <div>
+                                                <h4 className="font-bold text-sm text-gray-900 flex items-center gap-1.5">
+                                                    <Sparkles size={16} className="text-sky-600" />
+                                                    Paper Guider Consultation Desk
+                                                </h4>
+                                                <p className="text-[11px] text-gray-500">
+                                                    ඔබගේ ප්‍රශ්න පත්‍ර සහ ලකුණු පිළිබඳ ගැටලු විසඳා ගන්න
+                                                </p>
+                                            </div>
+                                            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-300">
+                                                Active Student
+                                            </span>
+                                        </div>
+
+                                        {/* Paper Class Selector */}
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                                                Select Your Paper Class
+                                            </label>
+                                            {paperClasses.length > 0 ? (
+                                                <select
+                                                    value={selectedPaperClassId}
+                                                    onChange={e => setSelectedPaperClassId(e.target.value)}
+                                                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                                >
+                                                    {paperClasses.map(pc => (
+                                                        <option key={pc.id} value={pc.id}>
+                                                            {pc.name} {pc.batchName ? `(${pc.batchName})` : ''}
+                                                        </option>
+                                                    ))}
+                                                </select>
                                             ) : (
-                                                <span className="font-bold text-lg text-[#54656f]">{b.name.charAt(0)}</span>
+                                                <div className="p-2.5 bg-sky-50 rounded-xl text-xs font-medium text-sky-800 border border-sky-200">
+                                                    General Paper Class Program
+                                                </div>
                                             )}
                                         </div>
-                                        <div className="flex-1 overflow-hidden">
-                                            <h5 className="font-semibold text-[15px] text-[#111b21] truncate">{b.name}</h5>
-                                            <p className="text-[12px] text-[#54656f]">Click to Chat</p>
-                                        </div>
-                                        {/* Unread indicator */}
-                                        {unreadBusinesses[b.id] > 0 && (
-                                            <div className="absolute top-1/2 -translate-y-1/2 right-4 w-6 h-6 bg-red-600 animate-bounce text-white text-[11px] font-bold rounded-full flex items-center justify-center shadow-md">
-                                                {unreadBusinesses[b.id]}
+
+                                        {/* Consultation Topic */}
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                                                Consultation Topic (විමසන කරුණ)
+                                            </label>
+                                            <div className="grid grid-cols-2 gap-1.5">
+                                                {[
+                                                    { id: 'QUESTION_DOUBT', label: '🔍 Question Doubt', sub: 'ප්‍රශ්න විවරණ' },
+                                                    { id: 'MARKING_REVIEW', label: '⚖️ Marks Review', sub: 'ලකුණු ගැටලු' },
+                                                    { id: 'SCHEME_HELP', label: '💡 Essay Guidance', sub: 'පිළිතුරු සැකසීම' },
+                                                    { id: 'GENERAL', label: '📌 General Query', sub: 'සාමාන්‍ය සහය' }
+                                                ].map(t => (
+                                                    <button
+                                                        key={t.id}
+                                                        type="button"
+                                                        onClick={() => setGuiderInquiryType(t.id)}
+                                                        className={`p-2 rounded-xl text-left border transition-all ${
+                                                            guiderInquiryType === t.id
+                                                                ? 'bg-sky-50 border-sky-500 text-sky-900 font-bold shadow-sm ring-1 ring-sky-500'
+                                                                : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
+                                                        }`}
+                                                    >
+                                                        <div className="text-xs font-bold leading-tight">{t.label}</div>
+                                                        <div className="text-[10px] text-gray-500">{t.sub}</div>
+                                                    </button>
+                                                ))}
                                             </div>
-                                        )}
+                                        </div>
+
+                                        {/* Initial Note / Doubts Input */}
+                                        <div>
+                                            <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
+                                                Brief Details (ගැටලුවේ විස්තරය)
+                                            </label>
+                                            <textarea
+                                                rows={3}
+                                                value={guiderInitialNote}
+                                                onChange={e => setGuiderInitialNote(e.target.value)}
+                                                placeholder="උදා: ප්‍රශ්න අංක 02 හි දෙවන කොටස සඳහා ලකුණු ලබාදීමේ ක්‍රමය පැහැදිලි කරන්න..."
+                                                className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
+                                            />
+                                        </div>
+
+                                        {/* Action Button */}
+                                        <button
+                                            type="button"
+                                            onClick={handleStartPaperGuiderChat}
+                                            className="w-full py-3 bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-700 hover:from-sky-500 hover:to-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-sky-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                                        >
+                                            <Send size={15} />
+                                            <span>Start Paper Guider Chat (ගයිඩර් අමතන්න)</span>
+                                        </button>
                                     </div>
-                                ))}
+                                )}
                             </div>
-                        </div>
+                        )}
+
+                        {/* TAB 2: GENERAL SUPPORT */}
+                        {preChatTab === 'support' && (
+                            <div className="flex-1 flex flex-col space-y-3">
+                                <div className="bg-white p-3.5 rounded-xl shadow-sm text-center">
+                                    <h4 className="text-sm font-bold text-[#111b21] mb-1">Campus Support Center 👋</h4>
+                                    <p className="text-xs text-[#54656f] leading-relaxed">
+                                        ඔබ අපත් සමඟ සම්බන්ධ වීමට කැමති අංශය තෝරා පණිවිඩයක් එවන්න.
+                                    </p>
+                                </div>
+                                
+                                <div className="space-y-2">
+                                    <label className="block text-[11px] font-bold text-[#54656f] uppercase tracking-wider ml-1">Institutions & Support Desks</label>
+                                    
+                                    <div className="flex flex-col gap-2">
+                                        {businesses?.map(b => (
+                                            <div 
+                                                key={b.id} 
+                                                onClick={() => startInquiry(b.id, null)}
+                                                className="bg-white hover:bg-[#f5f6f6] border border-transparent hover:border-[#d1d7db] cursor-pointer transition-colors rounded-xl p-3 flex items-center gap-3 relative shadow-sm"
+                                            >
+                                                <div className="w-11 h-11 rounded-full bg-[#dfe5e7] flex items-center justify-center shrink-0 overflow-hidden">
+                                                    {b.logo && b.logo !== 'default.png' && b.logo !== 'null' ? (
+                                                        <img src={`${axios.defaults.baseURL.replace('/api', '')}/storage/icons/${b.logo}`} className="w-full h-full object-cover" alt="" onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; }} />
+                                                    ) : (
+                                                        <span className="font-bold text-base text-[#54656f]">{b.name.charAt(0)}</span>
+                                                    )}
+                                                </div>
+                                                <div className="flex-1 overflow-hidden">
+                                                    <h5 className="font-bold text-sm text-[#111b21] truncate">{b.name}</h5>
+                                                    <p className="text-[11px] text-[#54656f]">Click to Chat with Staff</p>
+                                                </div>
+                                                {unreadBusinesses[b.id] > 0 && (
+                                                    <div className="w-5 h-5 bg-red-600 animate-bounce text-white text-[10px] font-bold rounded-full flex items-center justify-center shadow-md">
+                                                        {unreadBusinesses[b.id]}
+                                                    </div>
+                                                )}
+                                                <ChevronRight size={16} className="text-gray-400" />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 ) : (
                     // CHAT INTERFACE
+
                     <div className="flex-1 flex flex-col h-full overflow-hidden relative">
                         {/* Status banner */}
                         {inquiry.status === 'RESOLVED' && (

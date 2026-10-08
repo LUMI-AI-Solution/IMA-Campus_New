@@ -137,45 +137,74 @@ const getPrimaryEnrolledLeadIds = async (businessId, batchId, verifiedPhones) =>
     return primaryLeadIds;
 };
 
-// 🔥 STRICT HELPER: Fixed BIZ_ and BATCH_ string format to prevent missing leads 🔥
+// 🔥 STRICT HELPER: Fixed BIZ_ and BATCH_ string format to prevent cross-business bleeding 🔥
 const buildStatsWhereClause = (businessId, batchId, startDate, endDate, baseConditions = {}) => {
     let whereClause = { ...baseConditions };
 
-    const hasBatch = batchId && batchId !== '' && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null';
-    const hasBiz = businessId && businessId !== '' && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null';
+    const isBatchAll = !batchId || String(batchId).trim().toUpperCase() === 'ALL' || batchId === 'undefined' || batchId === 'null' || batchId === '';
+    const isBizAll = !businessId || String(businessId).trim().toUpperCase() === 'ALL' || businessId === 'undefined' || businessId === 'null' || businessId === '';
+
+    const hasBatch = !isBatchAll && batchId !== 'UNASSIGNED' && !isNaN(parseInt(batchId));
+    const hasBiz = !isBizAll && !isNaN(parseInt(businessId));
 
     if (batchId === 'UNASSIGNED') {
         whereClause.batchId = null;
-    } else if (hasBatch) {
-        const bId = parseInt(batchId);
-        const batchOrConditions = [
-            { batchId: bId },
-            { batchId: null, phone: { endsWith: `_BATCH_${bId}` } },
-            { batchId: null, phone: { contains: `_BATCH_${bId}_` } }
-        ];
-
         if (hasBiz) {
             const bizId = parseInt(businessId);
-            whereClause.AND = [
-                { OR: batchOrConditions },
+            whereClause.OR = [
+                { phone: { endsWith: `_BIZ_${bizId}` } },
+                { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+                { phone: { contains: `_BIZ_${bizId}_BATCH_` } },
+                { phone: { contains: `_BIZ_${bizId}_ROUND_` } },
+                { phone: { contains: `_BIZ_${bizId}_HISTORY_ROUND_` } }
+            ];
+        }
+    } else if (hasBatch) {
+        const bId = parseInt(batchId);
+        if (hasBiz) {
+            const bizId = parseInt(businessId);
+            whereClause.OR = [
+                { batchId: bId, batch: { businessId: bizId } },
                 {
+                    batchId: null,
                     OR: [
-                        { phone: { endsWith: `_BIZ_${bizId}` } },
-                        { phone: { endsWith: `_BIZ_${bizId}_AS` } },
-                        { phone: { contains: `_BIZ_${bizId}_` } }
+                        { phone: { endsWith: `_BATCH_${bId}` } },
+                        { phone: { contains: `_BATCH_${bId}_` } }
+                    ],
+                    AND: [
+                        {
+                            OR: [
+                                { phone: { endsWith: `_BIZ_${bizId}` } },
+                                { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+                                { phone: { contains: `_BIZ_${bizId}_BATCH_` } },
+                                { phone: { contains: `_BIZ_${bizId}_ROUND_` } },
+                                { phone: { contains: `_BIZ_${bizId}_HISTORY_ROUND_` } }
+                            ]
+                        }
                     ]
                 }
             ];
         } else {
-            whereClause.OR = batchOrConditions;
+            whereClause.OR = [
+                { batchId: bId },
+                { batchId: null, phone: { endsWith: `_BATCH_${bId}` } },
+                { batchId: null, phone: { contains: `_BATCH_${bId}_` } }
+            ];
         }
     } else if (hasBiz) {
         const bizId = parseInt(businessId);
         whereClause.OR = [
             { batch: { businessId: bizId } },
-            { phone: { endsWith: `_BIZ_${bizId}` } },
-            { phone: { endsWith: `_BIZ_${bizId}_AS` } },
-            { phone: { contains: `_BIZ_${bizId}_` } }
+            {
+                batchId: null,
+                OR: [
+                    { phone: { endsWith: `_BIZ_${bizId}` } },
+                    { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+                    { phone: { contains: `_BIZ_${bizId}_BATCH_` } },
+                    { phone: { contains: `_BIZ_${bizId}_ROUND_` } },
+                    { phone: { contains: `_BIZ_${bizId}_HISTORY_ROUND_` } }
+                ]
+            }
         ];
     }
 
@@ -1712,7 +1741,7 @@ exports.getCoordinatorProgressSheetStats = async (req, res) => {
                 coord.totalAssigned++;
 
                 const msgStats = messageCountsMap[l.id] || { inbound: 0, outbound: 0 };
-                const isPaid = l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || l.status === 'ENROLLED' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_')) || (primaryEnrolledLeadIds && primaryEnrolledLeadIds.has(l.id));
+                const isPaid = l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || l.status === 'ENROLLED' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_')) || (typeof primaryEnrolledLeadIds !== 'undefined' && primaryEnrolledLeadIds?.has(l.id));
 
                 if (l.campaignType === 'FREE_SEMINAR') {
                     // --- FREE SEMINAR ---

@@ -1330,7 +1330,16 @@ exports.updateCallCampaign = async (req, res) => {
 
         // 🔥 Map back to base properties so the frontend doesn't reset to default global 'pending' 🔥
         let mappedLead = { ...updatedLead };
-        if (campaignContext === 'OPEN_SEMINAR' || updatedLead.inquiryType === 'OPEN_SEMINAR') {
+        if (campaignContext === 'PAID') {
+            mappedLead.attemptsData = attemptsData || null;
+            mappedLead.callStatus = updatedLead.paidCallStatus || 'pending';
+            mappedLead.paidCallStatus = updatedLead.paidCallStatus || 'pending';
+            mappedLead.phase = updatedLead.paidPhase || 1;
+            mappedLead.coordinationRound = updatedLead.paidRound || 1;
+            mappedLead.feedback = updatedLead.paidFeedback || '';
+            mappedLead.callMethod = updatedLead.paidCallMethod || null;
+            mappedLead.callAttempt = updatedLead.paidCallAttempt || 1;
+        } else if (campaignContext === 'OPEN_SEMINAR' || updatedLead.inquiryType === 'OPEN_SEMINAR') {
             mappedLead.phase = updatedLead.openSemPhase || 1;
             mappedLead.callStatus = updatedLead.openSemCallStatus || 'pending';
             mappedLead.coordinationRound = updatedLead.openSemRound || 1;
@@ -1344,16 +1353,6 @@ exports.updateCallCampaign = async (req, res) => {
             mappedLead.feedback = updatedLead.newInqFeedback || '';
             mappedLead.callMethod = updatedLead.newInqCallMethod || null;
             mappedLead.callAttempt = updatedLead.newInqCallAttempt || 1;
-        }
-        
-        if (campaignContext === 'PAID') {
-            mappedLead.attemptsData = attemptsData || null;
-            mappedLead.callStatus = updatedLead.paidCallStatus || 'pending';
-            mappedLead.phase = updatedLead.paidPhase || 1;
-            mappedLead.coordinationRound = updatedLead.paidRound || 1;
-            mappedLead.feedback = updatedLead.paidFeedback || '';
-            mappedLead.callMethod = updatedLead.paidCallMethod || null;
-            mappedLead.callAttempt = updatedLead.paidCallAttempt || 1;
         }
 
         res.status(200).json({ message: "Call status updated successfully", lead: mappedLead });

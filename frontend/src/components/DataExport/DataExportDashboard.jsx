@@ -5,14 +5,19 @@ import { Database, Filter, AlertTriangle, LayoutDashboard, GitCompare, Lock } fr
 import ModuleOneRetention from './ModuleOneRetention';
 import ModuleTwoComparison from './ModuleTwoComparison';
 import ModuleCoordinatorKPI from './ModuleCoordinatorKPI';
+import ModuleRevenueBreakdown from './ModuleRevenueBreakdown';
 import { ArrowLeft } from 'lucide-react';
 
 export default function DataExportDashboard() {
     const navigate = useNavigate();
     const [businesses, setBusinesses] = useState([]);
     const [batches, setBatches] = useState([]);
-    const [selectedBusiness, setSelectedBusiness] = useState('');
-    const [selectedBatch, setSelectedBatch] = useState('');
+    const [selectedBusiness, setSelectedBusiness] = useState(() => {
+        return localStorage.getItem('callCamp_selectedBusiness') || localStorage.getItem('afterSem_selectedBusiness') || '';
+    });
+    const [selectedBatch, setSelectedBatch] = useState(() => {
+        return localStorage.getItem('callCamp_selectedBatch') || localStorage.getItem('afterSem_selectedBatch') || '';
+    });
     const [hasError, setHasError] = useState(false);
     
     // 🔥 State for Tab Switching 🔥
@@ -29,6 +34,13 @@ export default function DataExportDashboard() {
                 setBusinesses(fetchedBiz);
                 if (fetchedBiz.length === 1) {
                     setSelectedBusiness(fetchedBiz[0].id.toString());
+                } else if (!selectedBusiness && fetchedBiz.length > 0) {
+                    const savedBiz = localStorage.getItem('callCamp_selectedBusiness') || localStorage.getItem('afterSem_selectedBusiness');
+                    if (savedBiz && fetchedBiz.some(b => b.id.toString() === savedBiz.toString())) {
+                        setSelectedBusiness(savedBiz.toString());
+                    } else {
+                        setSelectedBusiness(fetchedBiz[0].id.toString());
+                    }
                 }
             } catch (error) {
                 console.error("Failed to fetch businesses", error);
@@ -49,7 +61,17 @@ export default function DataExportDashboard() {
                 const res = await axios.get(`/admin/batches/${selectedBusiness}`, {
                     headers: { Authorization: `Bearer ${token}` }
                 });
-                setBatches(res.data.batches || res.data || []);
+                const fetchedBatches = res.data.batches || res.data || [];
+                setBatches(fetchedBatches);
+                
+                // If current selectedBatch is invalid or empty, pick saved or latest batch
+                const savedBatch = localStorage.getItem('callCamp_selectedBatch') || localStorage.getItem('afterSem_selectedBatch');
+                if (savedBatch && fetchedBatches.some(b => b.id.toString() === savedBatch.toString())) {
+                    setSelectedBatch(savedBatch.toString());
+                } else if (!selectedBatch && fetchedBatches.length > 0) {
+                    // Pick the latest batch
+                    setSelectedBatch(fetchedBatches[fetchedBatches.length - 1].id.toString());
+                }
             } catch (err) {
                 console.error(err);
             }
@@ -112,6 +134,7 @@ export default function DataExportDashboard() {
                             {activeModule === 'module1' ? 'Drop & Growth Analytics' : 
                              activeModule === 'module2' ? 'Coordinator KPI Matrix' : 
                              activeModule === 'module3' ? 'Batch Comparison' : 
+                             activeModule === 'module4' ? 'Revenue Breakdown & Simulator' :
                              'Campaign Master Analytics'}
                         </h2>
                         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">Select filters to generate reports</p>
@@ -125,7 +148,11 @@ export default function DataExportDashboard() {
                         {businesses.length > 1 && (
                             <select 
                                 value={selectedBusiness} 
-                                onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }}
+                                onChange={(e) => { 
+                                    setSelectedBusiness(e.target.value); 
+                                    setSelectedBatch(''); 
+                                    if (e.target.value) localStorage.setItem('callCamp_selectedBusiness', e.target.value);
+                                }}
                                 className="bg-transparent text-xs font-bold text-white outline-none py-2 sm:py-1.5 px-2 cursor-pointer w-full sm:w-48 border-b sm:border-b-0 sm:border-r border-slate-700"
                             >
                                 <option value="" className="bg-slate-900">Select Campaign</option>
@@ -137,7 +164,10 @@ export default function DataExportDashboard() {
                         
                         <select 
                             value={selectedBatch} 
-                            onChange={(e) => setSelectedBatch(e.target.value)}
+                            onChange={(e) => {
+                                setSelectedBatch(e.target.value);
+                                if (e.target.value) localStorage.setItem('callCamp_selectedBatch', e.target.value);
+                            }}
                             disabled={!selectedBusiness || activeModule === 'module3'}
                             className="bg-transparent text-xs font-bold text-white outline-none py-2 sm:py-1.5 px-2 cursor-pointer w-full sm:w-48 disabled:opacity-50"
                         >
@@ -164,16 +194,16 @@ export default function DataExportDashboard() {
             {/* Dynamic Rendering based on Tab */}
             <div className="flex-1 min-h-0">
                 {!activeModule ? (
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-10 p-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 mt-6 p-4">
                         <div 
                             onClick={() => setActiveModule('module1')}
                             className="relative group cursor-pointer rounded-[2rem] overflow-hidden border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] transition-all duration-500 hover:scale-[1.02] hover:border-indigo-500/50 hover:shadow-indigo-500/20 aspect-[4/3] bg-black/40"
                         >
                             <img src="/img/analytics/drop_growth.png" alt="Drop and Growth" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity duration-700 mix-blend-screen" />
                             <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] via-[#0f172a]/80 to-transparent pointer-events-none"></div>
-                            <div className="absolute bottom-0 left-0 right-0 p-8">
-                                <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 mb-2 uppercase tracking-widest drop-shadow-md">Drop & Growth</h3>
-                                <p className="text-slate-400 text-sm font-semibold">Analyze student retention, drop rates, and monthly growth across your campaigns.</p>
+                            <div className="absolute bottom-0 left-0 right-0 p-6">
+                                <h3 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-400 to-purple-400 mb-2 uppercase tracking-widest drop-shadow-md">Drop & Growth</h3>
+                                <p className="text-slate-400 text-xs font-semibold">Analyze student retention, drop rates, and monthly growth across your campaigns.</p>
                             </div>
                         </div>
 
@@ -183,9 +213,9 @@ export default function DataExportDashboard() {
                         >
                             <img src="/img/analytics/coordinator_kpi.png" alt="Coordinator KPI" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity duration-700 mix-blend-screen" />
                             <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] via-[#0f172a]/80 to-transparent pointer-events-none"></div>
-                            <div className="absolute bottom-0 left-0 right-0 p-8">
-                                <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 mb-2 uppercase tracking-widest drop-shadow-md">Coordinator KPI</h3>
-                                <p className="text-slate-400 text-sm font-semibold">Track coordinator performance, conversion rates, and individual lead breakdowns.</p>
+                            <div className="absolute bottom-0 left-0 right-0 p-6">
+                                <h3 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 mb-2 uppercase tracking-widest drop-shadow-md">Coordinator KPI</h3>
+                                <p className="text-slate-400 text-xs font-semibold">Track coordinator performance, conversion rates, and individual lead breakdowns.</p>
                             </div>
                         </div>
 
@@ -195,9 +225,21 @@ export default function DataExportDashboard() {
                         >
                             <img src="/img/analytics/batch_compare.png" alt="Batch Compare" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity duration-700 mix-blend-screen" />
                             <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] via-[#0f172a]/80 to-transparent pointer-events-none"></div>
-                            <div className="absolute bottom-0 left-0 right-0 p-8">
-                                <h3 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-rose-400 mb-2 uppercase tracking-widest drop-shadow-md">Batch Compare</h3>
-                                <p className="text-slate-400 text-sm font-semibold">Compare multiple datasets side-by-side to identify trends and performance disparities.</p>
+                            <div className="absolute bottom-0 left-0 right-0 p-6">
+                                <h3 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-rose-400 mb-2 uppercase tracking-widest drop-shadow-md">Batch Compare</h3>
+                                <p className="text-slate-400 text-xs font-semibold">Compare multiple datasets side-by-side to identify trends and performance disparities.</p>
+                            </div>
+                        </div>
+
+                        <div 
+                            onClick={() => setActiveModule('module4')}
+                            className="relative group cursor-pointer rounded-[2rem] overflow-hidden border border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.5)] transition-all duration-500 hover:scale-[1.02] hover:border-teal-500/50 hover:shadow-teal-500/20 aspect-[4/3] bg-black/40"
+                        >
+                            <img src="/img/analytics/revenue_breakdown.png" alt="Revenue Breakdown" className="w-full h-full object-cover opacity-60 group-hover:opacity-100 transition-opacity duration-700 mix-blend-screen" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-[#0f172a] via-[#0f172a]/80 to-transparent pointer-events-none"></div>
+                            <div className="absolute bottom-0 left-0 right-0 p-6">
+                                <h3 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 mb-2 uppercase tracking-widest drop-shadow-md">Revenue Breakdown</h3>
+                                <p className="text-slate-400 text-xs font-semibold">Staff allocation, lead sources, revenue breakdown, and what-if conversion simulator.</p>
                             </div>
                         </div>
                     </div>
@@ -207,6 +249,8 @@ export default function DataExportDashboard() {
                     <ModuleCoordinatorKPI filters={{ selectedBusiness, selectedBatch }} />
                 ) : activeModule === 'module3' ? (
                     <ModuleTwoComparison businesses={businesses} selectedBusiness={selectedBusiness} />
+                ) : activeModule === 'module4' ? (
+                    <ModuleRevenueBreakdown filters={{ selectedBusiness, selectedBatch }} businesses={businesses} />
                 ) : null}
             </div>
 

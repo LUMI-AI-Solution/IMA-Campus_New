@@ -101,6 +101,7 @@ model Business {
   
   whatsappCalls WhatsAppCallRecord[]
   missedCallTasks MissedCallTask[]
+  whatsappBillingRecords WhatsAppBillingRecord[]
 }
 
 model Batch {
@@ -988,9 +989,10 @@ model PhysicalClassFeePayment {
 }
 
 model PhysicalTeacher {
-  id       Int     @id @default(autoincrement())
-  name     String
-  image    String? @db.Text
+  id         Int     @id @default(autoincrement())
+  lecturerId String? @unique
+  name       String
+  image      String? @db.Text
   address  String? @db.Text
   whatsapp String?
   phone    String?
@@ -1000,6 +1002,7 @@ model PhysicalTeacher {
   instituteCut Float? @default(0)
 
   timetables PhysicalTimetable[]
+  transactions PhysicalTransaction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1180,6 +1183,33 @@ model WhatsAppAlert {
   createdAt   DateTime @default(now())
 }
 
+model WhatsAppBillingRecord {
+  id                 Int       @id @default(autoincrement())
+  businessId         Int?
+  business           Business? @relation(fields: [businessId], references: [id], onDelete: SetNull)
+  wabaId             String?
+  phoneNumberId      String?
+  displayPhoneNumber String?
+  recipient          String?
+  wamid              String    @unique
+  conversationId     String?
+  category           String    // 'MARKETING', 'UTILITY', 'AUTHENTICATION', 'SERVICE'
+  pricingModel       String?   @default("PMP") // 'PMP' (Per-Message) or 'CBP' (Conversation-Based)
+  pricingType        String?   // 'regular', 'free_tier', 'free_entry_point'
+  costUsd            Float     @default(0.0)
+  billable           Boolean   @default(true)
+  status             String?   // 'sent', 'delivered', 'read', 'failed'
+  eventTimestamp     DateTime  @default(now())
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([businessId, createdAt], name: "idx_wabill_biz_created")
+  @@index([category, createdAt], name: "idx_wabill_cat_created")
+  @@index([phoneNumberId, createdAt], name: "idx_wabill_phone_created")
+  @@index([conversationId], name: "idx_wabill_conv")
+  @@index([createdAt], name: "idx_wabill_created")
+}
+
 model CallCampaignAuditLog {
   id               Int      @id @default(autoincrement())
   leadId           Int
@@ -1254,6 +1284,11 @@ model PhysicalTransaction {
   studentId   Int?
   student     PhysicalStudent? @relation(fields: [studentId], references: [id], onDelete: SetNull)
 
+  teacherId       Int?
+  teacher         PhysicalTeacher? @relation(fields: [teacherId], references: [id], onDelete: SetNull)
+  billingMonth    String?          // e.g. "2026-10" to link deduction to specific teacher billing month
+  isTeacherAdvance Boolean         @default(false)
+
   isDeleted   Boolean          @default(false)
   deletedReason String?        @db.Text
   deletedAt   DateTime?
@@ -1264,11 +1299,12 @@ model PhysicalTransaction {
 }
 
 model PhysicalFinanceCategory {
-  id        Int      @id @default(autoincrement())
-  name      String
-  type      String   // "INCOME" or "EXPENSE"
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                 Int      @id @default(autoincrement())
+  name               String
+  type               String   // "INCOME" or "EXPENSE"
+  isLecturerCategory Boolean  @default(false)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   @@unique([name, type])
 }
@@ -1340,6 +1376,7 @@ model Paper {
   mcqPaperFile              String?
   structuredPaperFile       String?
   category                  String            @default("WEEKLY") // "WEEKLY" or "MONTHLY"
+  hasLeaderboard            Boolean           @default(true)
   manualParticipantCount    Int?              // Staff-entered participant count
   createdAt                 DateTime          @default(now())
   updatedAt                 DateTime          @updatedAt

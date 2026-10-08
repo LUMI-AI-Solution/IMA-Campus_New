@@ -38,6 +38,11 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
   const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
   const [showInstructionsModal, setShowInstructionsModal] = useState(false);
 
+  // Student Progress & Academic Level Modal state
+  const [showProgressModal, setShowProgressModal] = useState(false);
+  const [progressData, setProgressData] = useState(null);
+  const [loadingProgress, setLoadingProgress] = useState(false);
+
   // Question Images / Figures Lightbox & Tab state
   const [activeFigureIdx, setActiveFigureIdx] = useState(0);
   const [lightboxState, setLightboxState] = useState(null); // { images: string[], currentIdx: number }
@@ -574,6 +579,79 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
     } finally {
       setLoadingLeaderboard(false);
     }
+  };
+
+  // Fetch Student Cumulative Paper Progress & Level
+  const fetchStudentProgressModal = async () => {
+    try {
+      setLoadingProgress(true);
+      setShowProgressModal(true);
+      const res = await api.get('/papers/student/progress');
+      setProgressData(res.data);
+    } catch (err) {
+      console.error("Failed to load progress", err);
+      toast.error("Failed to load test performance history");
+    } finally {
+      setLoadingProgress(false);
+    }
+  };
+
+  // Helper to determine student academic tier/level based on cumulative analytics
+  const getStudentLevel = (overall) => {
+    const avg = overall?.averagePercentage || 0;
+    const count = overall?.totalTaken || 0;
+    if (count === 0) {
+      return { 
+        level: 1, 
+        title: 'Starter Scholar', 
+        badge: '🌱 Level 1: Starter', 
+        color: 'from-slate-700 to-slate-900 border-slate-600/50', 
+        description: 'Complete your first paper test to earn your official rank level!' 
+      };
+    }
+    if (avg >= 75 && count >= 3) {
+      return { 
+        level: 5, 
+        title: 'Elite Master', 
+        badge: '👑 Level 5: Elite Master', 
+        color: 'from-amber-500/30 via-yellow-600/20 to-amber-950/40 border-amber-500/60 shadow-amber-500/20', 
+        description: 'Outstanding mastery across all paper series! Consistent Grade-A performance.' 
+      };
+    }
+    if (avg >= 65) {
+      return { 
+        level: 4, 
+        title: 'Advanced Achiever', 
+        badge: '⭐ Level 4: Advanced', 
+        color: 'from-purple-600/30 via-indigo-600/20 to-purple-950/40 border-purple-500/60 shadow-purple-500/20', 
+        description: 'Consistently strong marks! You are very close to Elite Master status.' 
+      };
+    }
+    if (avg >= 50) {
+      return { 
+        level: 3, 
+        title: 'Skilled Competitor', 
+        badge: '🎯 Level 3: Competitor', 
+        color: 'from-blue-600/30 via-cyan-600/20 to-blue-950/40 border-blue-500/60 shadow-blue-500/20', 
+        description: 'Solid foundational marks. Focus on improving essay derivation steps.' 
+      };
+    }
+    if (avg >= 35) {
+      return { 
+        level: 2, 
+        title: 'Rising Apprentice', 
+        badge: '⚡ Level 2: Apprentice', 
+        color: 'from-emerald-600/30 via-teal-600/20 to-emerald-950/40 border-emerald-500/60 shadow-emerald-500/20', 
+        description: 'Good foundation. Regular practice with time management will accelerate your marks.' 
+      };
+    }
+    return { 
+      level: 1, 
+      title: 'Beginner Scholar', 
+      badge: '🌱 Level 1: Starter', 
+      color: 'from-slate-700/40 to-slate-900/60 border-slate-600/40', 
+      description: 'Keep practicing consistently to level up your scores and climb the rankings!' 
+    };
   };
 
   const handleAutoSubmitOnTimeout = () => {
@@ -1519,28 +1597,30 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
                   </div>
                 ) : isStructured ? (
                   /* Structured Submission Receipt */
-                  <div className="bg-white/[0.03] border border-white/10 rounded-2xl sm:rounded-3xl p-6 sm:p-8 text-center space-y-3 shadow-xl">
-                    <CheckCircle2 size={40} className="text-emerald-400 mx-auto" />
-                    <h2 className="text-base sm:text-xl font-bold text-white">Structure Essay Paper Submitted</h2>
-                    <p className="text-slate-400 text-xs max-w-sm mx-auto">
+                  <div className="bg-white/[0.03] border border-white/10 rounded-2xl sm:rounded-3xl p-6 sm:p-8 text-center space-y-4 shadow-xl">
+                    <CheckCircle2 size={44} className="text-emerald-400 mx-auto" />
+                    <h2 className="text-lg sm:text-2xl font-black text-white">Structure Essay Paper Submitted</h2>
+                    <p className="text-slate-300 text-xs sm:text-sm max-w-md mx-auto">
                       Your answer sheet has been securely submitted for lecturer evaluation.
                     </p>
                     {submission?.score !== null && submission?.score !== undefined ? (
-                      <div className="bg-purple-500/10 border border-purple-500/30 p-3 rounded-xl max-w-xs mx-auto mt-3">
-                        <p className="text-[10px] uppercase font-bold text-purple-300">Awarded Marks</p>
-                        <p className="text-2xl font-black text-white">{submission.score} Marks</p>
+                      <div className="bg-purple-500/10 border border-purple-500/30 p-4 rounded-2xl max-w-sm mx-auto mt-2">
+                        <p className="text-xs uppercase font-black text-purple-300 tracking-wider">Awarded Marks</p>
+                        <p className="text-3xl font-black text-white mt-0.5">{submission.score} Marks</p>
                         {submission.grade && (
-                          <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-0.5 rounded-full inline-block border mt-1.5 ${getGradeStyle(submission.grade)}`}>
+                          <span className={`text-xs font-black uppercase tracking-wider px-3.5 py-1 rounded-full inline-block border mt-2 ${getGradeStyle(submission.grade)}`}>
                             Grade {submission.grade}
                           </span>
                         )}
                         {submission.teacherFeedback && (
-                          <p className="text-xs text-slate-300 mt-1 italic">"{submission.teacherFeedback}"</p>
+                          <p className="text-xs sm:text-sm text-slate-200 mt-2 italic bg-black/40 p-2.5 rounded-xl border border-white/5">
+                            "{submission.teacherFeedback}"
+                          </p>
                         )}
                       </div>
                     ) : (
-                      <span className="inline-block bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1 rounded-full text-xs font-semibold mt-2">
-                        Pending Lecturer Evaluation
+                      <span className="inline-block bg-amber-500/20 text-amber-300 border border-amber-500/40 px-4 py-1.5 rounded-full text-xs sm:text-sm font-bold mt-2">
+                        ⏳ Pending Lecturer Evaluation
                       </span>
                     )}
                   </div>
@@ -1551,13 +1631,13 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
                       <Award size={36} />
                     </div>
 
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                       <div className="flex items-center justify-center gap-2 flex-wrap">
-                        <span className="text-[10px] font-bold uppercase tracking-wider px-3 py-0.5 rounded-full inline-block bg-blue-500/20 text-blue-300 border border-blue-500/40">
+                        <span className="text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full inline-block bg-blue-500/20 text-blue-300 border border-blue-500/40">
                           Combined Exam Completed
                         </span>
                         {submission?.grade && (
-                          <span className={`text-[10px] font-black uppercase tracking-wider px-3 py-0.5 rounded-full inline-block border ${getGradeStyle(submission.grade)}`}>
+                          <span className={`text-xs font-black uppercase tracking-wider px-3.5 py-1 rounded-full inline-block border ${getGradeStyle(submission.grade)}`}>
                             Grade {submission.grade}
                           </span>
                         )}
@@ -1565,37 +1645,139 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
                       <h2 className="text-2xl sm:text-4xl font-black text-white">
                         {submission?.score !== null ? `${submission.score} Total Marks` : 'Exam Submitted'}
                       </h2>
-                      <p className="text-slate-400 text-xs">
-                        Part 1 MCQs evaluated automatically. Part 2 essay submission is stored safely.
+                      <p className="text-slate-300 text-xs sm:text-sm">
+                        Part 1 MCQs evaluated automatically. Part 2 essay evaluated by lecturer.
                       </p>
                     </div>
 
                     <div className="grid grid-cols-2 gap-3 max-w-sm mx-auto pt-2">
-                      <div className="bg-emerald-500/10 border border-emerald-500/30 p-3 rounded-xl">
-                        <span className="text-[10px] uppercase font-bold text-emerald-400 block">MCQ Score</span>
-                        <span className="text-lg font-black text-white">{submission?.mcqScore !== null ? `${submission.mcqScore} pts` : '0 pts'}</span>
-                        <span className="text-[10px] text-slate-400 block">({submission?.correctAnswers || 0}/{submission?.totalQuestions || questions.length} correct)</span>
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 p-3.5 rounded-2xl">
+                        <span className="text-xs uppercase font-bold text-emerald-400 block">MCQ Score</span>
+                        <span className="text-xl font-black text-white">{submission?.mcqScore !== null ? `${submission.mcqScore} pts` : '0 pts'}</span>
+                        <span className="text-xs text-slate-400 block mt-0.5">({submission?.correctAnswers || 0}/{submission?.totalQuestions || questions.length} correct)</span>
                       </div>
-                      <div className="bg-purple-500/10 border border-purple-500/30 p-3 rounded-xl">
-                        <span className="text-[10px] uppercase font-bold text-purple-400 block">Essay Score</span>
-                        <span className="text-lg font-black text-white">
+                      <div className="bg-purple-500/10 border border-purple-500/30 p-3.5 rounded-2xl">
+                        <span className="text-xs uppercase font-bold text-purple-400 block">Essay Score</span>
+                        <span className="text-xl font-black text-white">
                           {submission?.structuredScore !== null ? `${submission.structuredScore} pts` : 'Pending'}
                         </span>
-                        <span className="text-[10px] text-slate-400 block">Lecturer grading</span>
+                        <span className="text-xs text-slate-400 block mt-0.5">Lecturer grading</span>
                       </div>
                     </div>
 
                     {submission?.teacherFeedback && (
-                      <div className="bg-white/5 border border-white/10 p-3 rounded-xl text-left max-w-md mx-auto">
-                        <p className="text-[10px] uppercase font-bold text-slate-400">Lecturer Feedback:</p>
-                        <p className="text-xs text-slate-200 mt-0.5 italic">"{submission.teacherFeedback}"</p>
+                      <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl text-left max-w-md mx-auto">
+                        <p className="text-xs uppercase font-bold text-slate-400">Lecturer Feedback:</p>
+                        <p className="text-xs sm:text-sm text-slate-200 mt-1 italic">"{submission.teacherFeedback}"</p>
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* 2. PROMINENT LEADERBOARD BUTTON */}
-                <div className="flex justify-center pt-2">
+                {/* 🌟 ESSAY QUESTIONS DETAILED MARKS BREAKDOWN COLUMN 🌟 */}
+                {Array.isArray(submission?.questionMarks) && submission.questionMarks.length > 0 && (
+                  <div className="bg-white/[0.04] border border-white/10 rounded-2xl sm:rounded-3xl p-5 sm:p-7 space-y-4 text-left shadow-2xl">
+                    <div className="flex items-center justify-between border-b border-white/10 pb-3 flex-wrap gap-2">
+                      <div>
+                        <h3 className="text-sm sm:text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                          <FileText className="text-purple-400" size={18} />
+                          Essay Question Marks Breakdown (ප්‍රශ්න අනුව ලකුණු)
+                        </h3>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          Detailed marks and remarks assigned by the Paper Guider
+                        </p>
+                      </div>
+                      <span className="bg-purple-500/20 text-purple-300 border border-purple-500/40 px-3 py-1 rounded-xl text-xs font-bold">
+                        {submission.questionMarks.length} Questions
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {submission.questionMarks.map((q, qIdx) => {
+                        const awarded = parseFloat(q.marks) || 0;
+                        const maxM = parseFloat(q.maxMarks) || 25;
+                        const pct = maxM > 0 ? Math.min(100, Math.round((awarded / maxM) * 100)) : 0;
+
+                        return (
+                          <div 
+                            key={qIdx} 
+                            className="bg-black/40 border border-white/10 rounded-2xl p-4 hover:border-purple-500/40 transition-all space-y-2.5"
+                          >
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
+                              <div className="flex items-center gap-2.5">
+                                <span className="w-8 h-8 rounded-xl bg-purple-500/20 border border-purple-500/40 text-purple-300 text-xs font-black flex items-center justify-center">
+                                  Q{q.questionNo || qIdx + 1}
+                                </span>
+                                <span className="text-sm font-bold text-white">
+                                  {q.title || `Question ${qIdx + 1}`}
+                                </span>
+                              </div>
+
+                              <div className="flex items-baseline gap-1.5">
+                                <span className="text-xl sm:text-2xl font-black text-white">
+                                  {awarded}
+                                </span>
+                                <span className="text-xs font-bold text-slate-400">
+                                  / {maxM} pts
+                                </span>
+                                <span className={`text-xs font-black px-2.5 py-0.5 rounded-lg ml-2 border ${
+                                  pct >= 75 ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' :
+                                  pct >= 50 ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' :
+                                  'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                }`}>
+                                  {pct}%
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Question Progress Bar */}
+                            <div className="w-full bg-white/10 rounded-full h-2.5 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${
+                                  pct >= 75 ? 'bg-gradient-to-r from-emerald-500 to-teal-400' :
+                                  pct >= 50 ? 'bg-gradient-to-r from-amber-500 to-yellow-400' :
+                                  'bg-gradient-to-r from-rose-500 to-orange-400'
+                                }`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+
+                            {/* Specific Remark */}
+                            {q.remarks && (
+                              <div className="bg-white/5 border border-white/5 rounded-xl px-3 py-1.5 text-xs text-slate-300 flex items-center gap-1.5">
+                                <span className="text-slate-400 font-bold">Feedback:</span>
+                                <span>"{q.remarks}"</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Auto-sum verification row */}
+                    <div className="bg-gradient-to-r from-purple-950/40 via-indigo-950/40 to-black/60 border border-purple-500/30 p-4 rounded-2xl flex items-center justify-between">
+                      <div>
+                        <span className="text-xs font-black uppercase tracking-wider text-purple-300 block">
+                          Total Essay Score (ප්‍රශ්න එකතුව)
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          Sum of marks from all questions above
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-2xl font-black text-white">
+                          {submission.structuredScore ?? submission.score}
+                        </span>
+                        <span className="text-xs font-bold text-slate-400 ml-1">
+                          / {paperData?.paper?.totalStructuredMarks || paperData?.paper?.totalMarks || 100} pts
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 2. LEADERBOARD & PROGRESS ANALYTICS BUTTONS */}
+                <div className="flex flex-wrap justify-center gap-3 pt-2">
                   <button
                     onClick={fetchStudentLeaderboard}
                     disabled={loadingLeaderboard}
@@ -1603,6 +1785,14 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
                   >
                     {loadingLeaderboard ? <RefreshCw className="animate-spin" size={18} /> : <Trophy size={18} />}
                     View Test Leaderboard & Rankings
+                  </button>
+
+                  <button
+                    onClick={fetchStudentProgressModal}
+                    className="bg-gradient-to-r from-purple-600 via-indigo-600 to-purple-600 hover:from-purple-500 hover:to-indigo-500 text-white font-black px-6 sm:px-8 py-3.5 rounded-2xl text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2.5 shadow-xl shadow-purple-600/25 hover:scale-105 active:scale-95 transition-all"
+                  >
+                    <Sparkles size={18} className="text-amber-300" />
+                    My Progress & Academic Level
                   </button>
                 </div>
 
@@ -2195,6 +2385,221 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {/* 🌟 STUDENT ACADEMIC LEVEL & PROGRESS ANALYTICS MODAL 🌟 */}
+      {showProgressModal && (
+        <div className="fixed inset-0 z-[10000003] flex items-center justify-center bg-black/85 backdrop-blur-md p-3 sm:p-6 animate-in fade-in duration-200">
+          <div className="bg-[#090E17] border border-white/20 rounded-3xl w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden backdrop-blur-3xl text-slate-100">
+            
+            {/* Modal Header */}
+            <div className="p-4 sm:p-6 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                  <Sparkles size={22} className="text-amber-300" />
+                </div>
+                <div>
+                  <h3 className="text-base sm:text-lg font-black text-white">
+                    My Paper Progress & Academic Level (මගේ ප්‍රගතිය)
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Your cumulative test performance, rank level, and marks trajectory
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setShowProgressModal(false)}
+                className="text-slate-400 hover:text-white bg-white/5 border border-white/10 p-2 rounded-xl"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto custom-scrollbar flex-1 space-y-6">
+              {loadingProgress ? (
+                <div className="text-center py-20 space-y-3">
+                  <RefreshCw className="animate-spin text-purple-400 mx-auto" size={32} />
+                  <p className="text-sm font-bold text-slate-300">Calculating your performance metrics...</p>
+                </div>
+              ) : progressData ? (() => {
+                const overall = progressData.overall || {};
+                const levelInfo = getStudentLevel(overall);
+                const avgPct = overall.averagePercentage || 0;
+
+                return (
+                  <div className="space-y-6">
+                    {/* Level Hero Card */}
+                    <div className={`p-5 sm:p-6 rounded-3xl bg-gradient-to-r ${levelInfo.color} border text-white shadow-2xl relative overflow-hidden`}>
+                      <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div>
+                          <span className="text-xs font-black uppercase tracking-wider px-3 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/20 inline-block mb-2">
+                            {levelInfo.badge}
+                          </span>
+                          <h2 className="text-2xl sm:text-3xl font-black text-white">
+                            {levelInfo.title}
+                          </h2>
+                          <p className="text-xs sm:text-sm text-white/90 mt-1 max-w-lg">
+                            {levelInfo.description}
+                          </p>
+                        </div>
+
+                        <div className="text-left sm:text-right bg-black/30 backdrop-blur-md p-4 rounded-2xl border border-white/20 shrink-0">
+                          <span className="text-xs font-bold text-white/80 block uppercase">Overall Average</span>
+                          <span className="text-3xl font-black text-white">{avgPct}%</span>
+                          <span className="text-xs text-emerald-300 block mt-0.5">
+                            Pass Rate: {overall.passRate || 0}%
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Cumulative Progress Bar */}
+                      <div className="mt-5 relative z-10">
+                        <div className="flex justify-between text-xs font-bold text-white/90 mb-1.5">
+                          <span>Academic Level Progress</span>
+                          <span>{avgPct}% / 100% Target</span>
+                        </div>
+                        <div className="w-full bg-black/40 rounded-full h-3 overflow-hidden p-0.5 border border-white/20">
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-teal-300 to-white transition-all duration-700 shadow-lg"
+                            style={{ width: `${Math.min(100, Math.max(5, avgPct))}%` }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Stats Metrics 4-Column Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                      <div className="bg-white/[0.03] border border-white/10 p-4 rounded-2xl">
+                        <span className="text-xs font-bold text-slate-400 uppercase block">Tests Completed</span>
+                        <span className="text-2xl font-black text-white mt-1 block">{overall.totalTaken || 0}</span>
+                        <span className="text-xs text-purple-300">Papers submitted</span>
+                      </div>
+                      <div className="bg-white/[0.03] border border-white/10 p-4 rounded-2xl">
+                        <span className="text-xs font-bold text-slate-400 uppercase block">Average Score</span>
+                        <span className="text-2xl font-black text-white mt-1 block">{overall.averageScore || 0} pts</span>
+                        <span className="text-xs text-slate-400">{avgPct}% overall avg</span>
+                      </div>
+                      <div className="bg-emerald-500/10 border border-emerald-500/30 p-4 rounded-2xl">
+                        <span className="text-xs font-bold text-emerald-400 uppercase block">Pass Count</span>
+                        <span className="text-2xl font-black text-emerald-300 mt-1 block">{overall.passCount || 0}</span>
+                        <span className="text-xs text-emerald-400">{overall.passRate || 0}% pass rate</span>
+                      </div>
+                      <div className="bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl">
+                        <span className="text-xs font-bold text-amber-400 uppercase block">Highest Score</span>
+                        <span className="text-2xl font-black text-amber-300 mt-1 block">{overall.highestScore || 0} pts</span>
+                        <span className="text-xs text-amber-400">Personal Best</span>
+                      </div>
+                    </div>
+
+                    {/* Weekly vs Monthly Breakdown */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Weekly */}
+                      <div className="bg-indigo-950/20 border border-indigo-500/30 p-4 sm:p-5 rounded-2xl space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black uppercase tracking-wider text-indigo-300 flex items-center gap-1.5">
+                            ⚡ Weekly Paper Series
+                          </span>
+                          <span className="text-xs font-bold bg-indigo-500/20 text-indigo-300 px-2.5 py-0.5 rounded-lg border border-indigo-500/30">
+                            {progressData.weekly?.totalTaken || 0} Taken
+                          </span>
+                        </div>
+                        <div className="flex items-baseline justify-between pt-1">
+                          <span className="text-sm text-slate-300">Average Percentage:</span>
+                          <span className="text-xl font-black text-white">{progressData.weekly?.averagePercentage || 0}%</span>
+                        </div>
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-sm text-slate-300">Pass Rate:</span>
+                          <span className="text-sm font-bold text-emerald-400">{progressData.weekly?.passRate || 0}%</span>
+                        </div>
+                      </div>
+
+                      {/* Monthly */}
+                      <div className="bg-amber-950/20 border border-amber-500/30 p-4 sm:p-5 rounded-2xl space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                            🏆 Monthly Grand Tests
+                          </span>
+                          <span className="text-xs font-bold bg-amber-500/20 text-amber-300 px-2.5 py-0.5 rounded-lg border border-amber-500/30">
+                            {progressData.monthly?.totalTaken || 0} Taken
+                          </span>
+                        </div>
+                        <div className="flex items-baseline justify-between pt-1">
+                          <span className="text-sm text-slate-300">Average Percentage:</span>
+                          <span className="text-xl font-black text-white">{progressData.monthly?.averagePercentage || 0}%</span>
+                        </div>
+                        <div className="flex items-baseline justify-between">
+                          <span className="text-sm text-slate-300">Pass Rate:</span>
+                          <span className="text-sm font-bold text-emerald-400">{progressData.monthly?.passRate || 0}%</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Recent Papers History Table */}
+                    {Array.isArray(progressData.recentTests) && progressData.recentTests.length > 0 && (
+                      <div className="space-y-3 pt-2">
+                        <h4 className="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                          <Clock size={16} className="text-purple-400" /> Recent Papers History
+                        </h4>
+
+                        <div className="space-y-2">
+                          {progressData.recentTests.map((t, idx) => (
+                            <div key={idx} className="bg-white/[0.02] border border-white/10 rounded-2xl p-3.5 flex items-center justify-between gap-3 hover:border-white/20 transition-all flex-wrap sm:flex-nowrap">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className={`text-[11px] font-black uppercase px-2 py-0.5 rounded border ${
+                                    t.category === 'MONTHLY' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
+                                  }`}>
+                                    {t.category || 'WEEKLY'}
+                                  </span>
+                                  <span className="text-xs text-slate-400">
+                                    {t.paperType}
+                                  </span>
+                                </div>
+                                <p className="text-sm font-bold text-white mt-1 truncate">{t.testTitle}</p>
+                              </div>
+
+                              <div className="flex items-center gap-3 shrink-0">
+                                <div className="text-right">
+                                  <span className="text-base font-black text-white block">{t.score} pts</span>
+                                  <span className="text-xs text-slate-400">{t.percentage}%</span>
+                                </div>
+                                {t.grade && (
+                                  <span className={`text-xs font-black uppercase px-2.5 py-1 rounded-xl border ${getGradeStyle(t.grade)}`}>
+                                    {t.grade}
+                                  </span>
+                                )}
+                                <span className="bg-white/5 border border-white/10 px-2.5 py-1 rounded-xl text-xs font-bold text-slate-300">
+                                  Rank #{t.rank}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })() : (
+                <div className="text-center py-16">
+                  <p className="text-sm text-slate-400">No test history available.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 sm:p-5 border-t border-white/10 flex justify-end bg-white/[0.02]">
+              <button
+                onClick={() => setShowProgressModal(false)}
+                className="bg-white/10 hover:bg-white/20 text-white font-bold px-6 py-2.5 rounded-xl text-xs uppercase tracking-wider transition-all"
+              >
+                Close Progress
+              </button>
+            </div>
+
+          </div>
         </div>
       )}
 

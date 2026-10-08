@@ -398,7 +398,14 @@ async function getPhoneLeadMap() {
         return leadIndexCache;
     }
     const leads = await prisma.lead.findMany({
-        select: { phone: true, batchId: true, inquiryType: true, campaignType: true }
+        select: { 
+            phone: true, 
+            batchId: true, 
+            inquiryType: true, 
+            campaignType: true,
+            assignedTo: true,
+            assignedUser: { select: { id: true, firstName: true, lastName: true } }
+        }
     });
     const map = new Map();
     for (let i = 0; i < leads.length; i++) {
@@ -420,8 +427,14 @@ async function getPhoneLeadMap() {
     return map;
 }
 
-function resolveLeadSource(p, phoneLeadMap) {
-    if (!p.student) return 'DIRECT';
+function resolveLeadDetails(p, phoneLeadMap) {
+    if (!p.student) {
+        return {
+            source: 'DIRECT',
+            staffId: null,
+            staffName: 'Direct / Untracked'
+        };
+    }
     const rawPhones = [p.student.phone, p.student.whatsapp, p.student.optionalPhone].filter(Boolean);
     let matchedLeads = [];
     for (const ph of rawPhones) {
@@ -432,22 +445,54 @@ function resolveLeadSource(p, phoneLeadMap) {
             if (ml) matchedLeads.push(...ml);
         }
     }
-    if (matchedLeads.length === 0) return 'DIRECT';
+    if (matchedLeads.length === 0) {
+        return {
+            source: 'DIRECT',
+            staffId: null,
+            staffName: 'Direct / Untracked'
+        };
+    }
 
-    // 1. Exact batch lead with explicit inquiryType
-    let best = matchedLeads.find(l => l.batchId === p.batchId && (l.inquiryType === 'NEW_INQ' || l.inquiryType === 'OPEN_SEMINAR'));
+    // 1. Exact batch lead with explicit inquiryType (NEW_INQ, OPEN_SEMINAR, NORMAL)
+    let best = matchedLeads.find(l => l.batchId === p.batchId && (l.inquiryType === 'NEW_INQ' || l.inquiryType === 'OPEN_SEMINAR' || l.inquiryType === 'NORMAL'));
     // 2. Exact batch lead
     if (!best) best = matchedLeads.find(l => l.batchId === p.batchId);
     // 3. Any lead with explicit inquiryType
-    if (!best) best = matchedLeads.find(l => l.inquiryType === 'NEW_INQ' || l.inquiryType === 'OPEN_SEMINAR');
+    if (!best) best = matchedLeads.find(l => l.inquiryType === 'NEW_INQ' || l.inquiryType === 'OPEN_SEMINAR' || l.inquiryType === 'NORMAL');
     // 4. Fallback to first matched lead
     if (!best) best = matchedLeads[0];
 
-    if (best.inquiryType === 'NEW_INQ') return 'NEW_INQ';
-    if (best.inquiryType === 'OPEN_SEMINAR' || best.inquiryType === 'NORMAL' || best.campaignType === 'FREE_SEMINAR' || best.campaignType === 'AFTER_SEMINAR') {
-        return 'OPEN_SEMINAR';
+    let source = 'DIRECT';
+    if (best.inquiryType === 'NEW_INQ') {
+        source = 'NEW_INQ';
+    } else if (best.inquiryType === 'OPEN_SEMINAR' || best.inquiryType === 'NORMAL' || best.campaignType === 'FREE_SEMINAR' || best.campaignType === 'AFTER_SEMINAR') {
+        source = 'OPEN_SEMINAR';
     }
-    return 'DIRECT';
+
+    // Resolve assigned staff from best lead, or fallback to any matched lead with assigned staff
+    let assignedStaff = (best && best.assignedUser) ? best.assignedUser : null;
+    let assignedStaffId = (best && best.assignedTo) ? best.assignedTo : null;
+    if (!assignedStaff && matchedLeads.length > 0) {
+        const anyAssigned = matchedLeads.find(l => l.assignedUser);
+        if (anyAssigned) {
+            assignedStaff = anyAssigned.assignedUser;
+            assignedStaffId = anyAssigned.assignedTo;
+        }
+    }
+
+    const staffName = assignedStaff 
+        ? `${assignedStaff.firstName || ''} ${assignedStaff.lastName || ''}`.trim() 
+        : (source === 'DIRECT' ? 'Direct / Untracked' : 'Unassigned / Direct');
+
+    return {
+        source,
+        staffId: assignedStaffId || null,
+        staffName: staffName || 'Unassigned / Direct'
+    };
+}
+
+function resolveLeadSource(p, phoneLeadMap) {
+    return resolveLeadDetails(p, phoneLeadMap).source;
 }
 
 // 1. Get All Payments
@@ -667,6 +712,8 @@ exports.getPayments = async (req, res) => {
                 : (parsedSubjects.some(s => s.courseType === 2) ? 2 : 1);
             const classTypeName = resolvedClassType === 2 ? 'Paper Class' : 'Theory Class';
 
+            const leadDetails = resolveLeadDetails(p, phoneLeadMap);
+
             return {
                 id: p.id,
                 studentId: p.studentId,
@@ -699,7 +746,9 @@ exports.getPayments = async (req, res) => {
                 arrearsAmount: p.arrearsAmount || 0,
                 hasDelivery: deliveryMap[p.id] || false,
                 aiVerified: p.aiVerified || false,
-                inquirySource: resolveLeadSource(p, phoneLeadMap)
+                inquirySource: leadDetails.source,
+                assignedStaffId: leadDetails.staffId,
+                assignedStaffName: leadDetails.staffName
             };
         }));
 
@@ -845,6 +894,15 @@ exports.paymentAction = async (req, res) => {
             }
         }
 
+        // Auto-generate next installment phase if approving an installment
+        if (action === 'Approve' && parseInt(updatedPayment.payment_type) === 2) {
+            try {
+                await createNextInstallmentPhase(updatedPayment);
+            } catch (instErr) {
+                console.error("Auto next installment error in paymentAction:", instErr);
+            }
+        }
+
         // Trigger GSheet sync asynchronously for Approve/Reject/Free Card/Discount
         if (['Approve', 'Free Card', 'Discount', 'Reject'].includes(action)) {
             markPaymentOnGSheet(paymentId).catch(e => console.error("GSheet Update Error:", e));
@@ -855,6 +913,76 @@ exports.paymentAction = async (req, res) => {
         res.status(500).json({ error: "Action failed" });
     }
 };
+
+const createNextInstallmentPhase = async (payRecord, nextDueDate = null) => {
+    if (!payRecord || !payRecord.subjects || parseInt(payRecord.payment_type) !== 2) return null;
+
+    try {
+        const subIds = typeof payRecord.subjects === 'string' ? JSON.parse(payRecord.subjects) : payRecord.subjects;
+
+        const plan = await prisma.installment.findFirst({
+            where: {
+                batchId: payRecord.batchId,
+                subjectCount: { lte: subIds.length }
+            },
+            orderBy: { subjectCount: 'desc' }
+        });
+
+        if (plan && plan.details) {
+            const phases = JSON.parse(plan.details);
+
+            const currentInstallment = payRecord.installment_no || 1;
+            const currentPhaseIndex = currentInstallment - 1;
+
+            if (currentPhaseIndex + 1 < phases.length) {
+                const nextPhase = phases[currentPhaseIndex + 1];
+
+                const existingNext = await prisma.payment.findFirst({
+                    where: {
+                        studentId: payRecord.studentId,
+                        batchId: payRecord.batchId,
+                        payment_type: 2,
+                        installment_no: currentInstallment + 1
+                    }
+                });
+
+                if (existingNext) return existingNext;
+
+                let finalNextDueDate = nextDueDate ? new Date(nextDueDate) : new Date();
+                if (!nextDueDate) {
+                    const currentPhase = phases[currentPhaseIndex];
+                    const gapDays = parseInt(currentPhase.gapDays || '30', 10);
+                    finalNextDueDate.setDate(finalNextDueDate.getDate() + gapDays);
+                }
+
+                const nextPhaseAmount = parseFloat(nextPhase.price || nextPhase.amount || 0);
+
+                const nextPay = await prisma.payment.create({
+                    data: {
+                        studentId: payRecord.studentId,
+                        businessId: payRecord.businessId,
+                        batchId: payRecord.batchId,
+                        groupId: payRecord.groupId,
+                        subjects: typeof payRecord.subjects === 'string' ? payRecord.subjects : JSON.stringify(payRecord.subjects),
+                        payment_type: 2,
+                        method: 'Upcoming',
+                        status: 0,
+                        amount: nextPhaseAmount,
+                        installment_no: currentInstallment + 1,
+                        due_date: finalNextDueDate
+                    }
+                });
+
+                console.log(`[Installment] Auto-generated Phase #${currentInstallment + 1} for Student #${payRecord.studentId}, Due: ${finalNextDueDate.toISOString()}`);
+                return nextPay;
+            }
+        }
+    } catch (e) {
+        console.error("🔥 Auto-Generate Next Installment Error:", e);
+    }
+    return null;
+};
+exports.createNextInstallmentPhase = createNextInstallmentPhase;
 
 exports.approveInstallment = async (req, res) => {
     try {
@@ -924,57 +1052,7 @@ exports.approveInstallment = async (req, res) => {
         }
 
         // 🔥 NEXT PHASE GENERATION LOGIC
-        if (payRecord.subjects) {
-            try {
-                const subIds = JSON.parse(payRecord.subjects);
-
-                // 🔥 FIX 2: හරියටම සමාන නොවී, ළමයාගේ subject ගාණට ගැලපෙන හොඳම plan එක ගන්න 'lte' (less than or equal) පාවිච්චි කරනවා
-                const plan = await prisma.installment.findFirst({
-                    where: {
-                        batchId: payRecord.batchId,
-                        subjectCount: { lte: subIds.length }
-                    },
-                    orderBy: { subjectCount: 'desc' }
-                });
-
-                if (plan && plan.details) {
-                    const phases = JSON.parse(plan.details);
-
-                    const currentInstallment = payRecord.installment_no || 1;
-                    const currentPhaseIndex = currentInstallment - 1;
-
-                    if (currentPhaseIndex + 1 < phases.length) {
-                        const nextPhase = phases[currentPhaseIndex + 1];
-
-                        // 🔥 FIX 3: Frontend එකෙන් එවන Date එක ගන්නවා. ඒක නැත්නම් විතරක් දවස් 30ක් එකතු කරනවා.
-                        let finalNextDueDate = nextDueDate ? new Date(nextDueDate) : new Date();
-                        if (!nextDueDate) {
-                            finalNextDueDate.setDate(finalNextDueDate.getDate() + 30);
-                        }
-
-                        const nextPhaseAmount = parseFloat(nextPhase.price || nextPhase.amount || 0);
-
-                        await prisma.payment.create({
-                            data: {
-                                studentId: payRecord.studentId,
-                                businessId: payRecord.businessId,
-                                batchId: payRecord.batchId,
-                                groupId: payRecord.groupId,
-                                subjects: payRecord.subjects,
-                                payment_type: parseInt(payRecord.payment_type) || 2, // 👈 100% ක්ම Integer එකක් බව ෂුවර් කරනවා
-                                method: 'Upcoming',
-                                status: 0, // ළමයා ඊළඟ මාසේ මේක ගෙවලා Approve කරනකම් මේක 0 වෙලා තියෙන්නේ
-                                amount: nextPhaseAmount,
-                                installment_no: currentPhaseIndex + 2,
-                                due_date: finalNextDueDate
-                            }
-                        });
-                    }
-                }
-            } catch (e) {
-                console.error("🔥 Auto-Generate Next Installment Error:", e);
-            }
-        }
+        await createNextInstallmentPhase(payRecord, nextDueDate);
 
         // Trigger GSheet sync asynchronously
         markPaymentOnGSheet(paymentId).catch(e => console.error("GSheet Update Error in approveInstallment:", e));

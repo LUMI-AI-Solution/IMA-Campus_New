@@ -2,8 +2,8 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 const auditMiddleware = (req, res, next) => {
-    // Skip OPTIONS, HEAD requests to save database space
-    if (['OPTIONS', 'HEAD'].includes(req.method)) {
+    // Skip read-only requests (GET, OPTIONS, HEAD) to save database space and avoid bottlenecking the database
+    if (['GET', 'OPTIONS', 'HEAD'].includes(req.method)) {
         return next();
     }
 

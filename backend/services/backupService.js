@@ -28,8 +28,8 @@ function runBackup() {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const backupFile = path.join(BACKUP_DIR, `imacampus_backup_${timestamp}.sql`);
     
-    // DB Credentials matching the .env
-    const cmd = `mysqldump -u ima_admin -p'ImaCampus@2026' imacampus > ${backupFile}`;
+    // DB Credentials matching the .env - optimized with non-locking consistent snapshot
+    const cmd = `mysqldump -u ima_admin -p'ImaCampus@2026' --no-tablespaces --single-transaction --quick --ignore-table=imacampus.SystemAuditLog imacampus > ${backupFile} && mysqldump -u ima_admin -p'ImaCampus@2026' --no-tablespaces --no-data imacampus SystemAuditLog >> ${backupFile}`;
 
     exec(cmd, (error, stdout, stderr) => {
         if (error) {
@@ -40,11 +40,8 @@ function runBackup() {
     });
 }
 
-// Run immediately on start (optional) or wait for cron
-// runBackup();
-
-// Schedule every 30 minutes
-cron.schedule('*/30 * * * *', () => {
+// Schedule daily at 02:30 AM (off-peak hours) instead of every 30 minutes
+cron.schedule('30 2 * * *', () => {
     runBackup();
 });
 

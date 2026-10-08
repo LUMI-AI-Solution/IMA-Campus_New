@@ -87,6 +87,9 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
   const [totalStructuredMarks, setTotalStructuredMarks] = useState(50);
   const [mcqPaperFile, setMcqPaperFile] = useState('');
   const [structuredPaperFile, setStructuredPaperFile] = useState('');
+  const [questionCount, setQuestionCount] = useState(content?.questionCount || 4);
+  const [hasLeaderboard, setHasLeaderboard] = useState(true);
+  const [uploadingMasterSheet, setUploadingMasterSheet] = useState(false);
 
   // MCQ Questions list
   const [questions, setQuestions] = useState([]);
@@ -104,6 +107,36 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
   // Question Images upload & preview state
   const [uploadingQuestionIdx, setUploadingQuestionIdx] = useState(null);
   const [previewImageUrl, setPreviewImageUrl] = useState(null);
+
+  // Upload Master Essay PDF handler
+  const handleUploadMasterSheetFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
+      toast.error("Please upload a PDF file only.");
+      return;
+    }
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('contentId', content.id);
+    formData.append('paperType', paperType);
+
+    setUploadingMasterSheet(true);
+    try {
+      const res = await api.post('/papers/upload-master-sheet', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setStructuredPaperFile(res.data.filename);
+      toast.success("Master Essay PDF uploaded successfully!");
+      if (onUpdated) onUpdated();
+    } catch (err) {
+      console.error("Upload error", err);
+      toast.error("Failed to upload master essay PDF");
+    } finally {
+      setUploadingMasterSheet(false);
+      e.target.value = '';
+    }
+  };
 
   useEffect(() => {
     if (isOpen && content?.id) {
@@ -134,6 +167,12 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
         setBreakIntervalMinutes(p.breakIntervalMinutes !== null && p.breakIntervalMinutes !== undefined ? p.breakIntervalMinutes : 15);
         setStructuredUploadMinutes(p.structuredUploadMinutes !== null && p.structuredUploadMinutes !== undefined ? p.structuredUploadMinutes : 15);
         setCategory(p.category || 'WEEKLY');
+        setHasLeaderboard(p.hasLeaderboard !== undefined ? p.hasLeaderboard : true);
+        if (res.data?.content?.questionCount) {
+          setQuestionCount(res.data.content.questionCount);
+        } else if (content?.questionCount) {
+          setQuestionCount(content.questionCount);
+        }
         setManualParticipantCount(p.manualParticipantCount !== null && p.manualParticipantCount !== undefined ? String(p.manualParticipantCount) : '');
         
         const totalMins = p.durationMinutes || content.paperTime || 60;
@@ -305,9 +344,11 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
         totalMarks: parseFloat(totalMarks || 100),
         totalMcqMarks: parseFloat(totalMcqMarks || 50),
         totalStructuredMarks: parseFloat(totalStructuredMarks || 50),
-        passMarks: parseFloat(passMarks || 40),
+        passMarks: 0,
         gradingScale: JSON.stringify(gradingScale),
         category,
+        hasLeaderboard: category === 'WEEKLY' ? hasLeaderboard : true,
+        questionCount: (paperType === 'STRUCTURED' || paperType === 'BOTH') ? (parseInt(questionCount) || 4) : null,
         manualParticipantCount: manualParticipantCount !== '' && manualParticipantCount !== null ? parseInt(manualParticipantCount) : null,
         instructions
       };
@@ -935,9 +976,9 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                   )}
 
                   <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-4 space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                       <div className="flex items-center gap-2.5">
-                        <FileSignature size={20} className="text-purple-400" />
+                        <FileSignature size={24} className="text-purple-400 shrink-0" />
                         <div>
                           <p className="text-sm font-bold text-white">
                             {paperType === 'BOTH' ? 'Part 2: Structure Essay Master Sheet (PDF)' : 'Structure Essay Master Sheet (PDF)'}
@@ -945,21 +986,28 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                           <p className="text-xs text-slate-400 font-mono">{(structuredPaperFile || content.fileName) || 'No file uploaded yet'}</p>
                         </div>
                       </div>
-                      {(structuredPaperFile || content.fileName) && (
-                        <a 
-                          href={`${getBaseUrl()}/storage/documents/${structuredPaperFile || content.fileName}`} 
-                          target="_blank" 
-                          rel="noreferrer" 
-                          download
-                          className="bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white border border-purple-500/30 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
-                        >
-                          <Download size={14} /> Download PDF
-                        </a>
-                      )}
+                      <div className="flex flex-wrap items-center gap-2">
+                        {(structuredPaperFile || content.fileName) && (
+                          <a 
+                            href={`${getBaseUrl()}/storage/documents/${structuredPaperFile || content.fileName}`} 
+                            target="_blank" 
+                            rel="noreferrer" 
+                            download
+                            className="bg-purple-600/20 hover:bg-purple-600 text-purple-300 hover:text-white border border-purple-500/30 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
+                          >
+                            <Download size={14} /> Download PDF
+                          </a>
+                        )}
+                        <label className="cursor-pointer bg-purple-600 hover:bg-purple-500 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-md">
+                          {uploadingMasterSheet ? (
+                            <span className="flex items-center gap-1.5"><Loader2 size={14} className="animate-spin" /> Uploading...</span>
+                          ) : (
+                            <span className="flex items-center gap-1.5"><UploadCloud size={14} /> {(structuredPaperFile || content.fileName) ? 'Replace PDF Sheet' : 'Upload Essay PDF Sheet'}</span>
+                          )}
+                          <input type="file" accept=".pdf" onChange={handleUploadMasterSheetFile} className="hidden" disabled={uploadingMasterSheet} />
+                        </label>
+                      </div>
                     </div>
-                    {!(structuredPaperFile || content.fileName) && (
-                      <p className="text-[11px] text-slate-400 italic">To attach a Structured PDF master sheet, edit this content card in Content Hub.</p>
-                    )}
                   </div>
 
                   <div className="bg-purple-500/10 border border-purple-500/20 p-4 rounded-xl text-xs text-purple-200 leading-relaxed">
@@ -1014,6 +1062,49 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                         </div>
                       </div>
                     </div>
+
+                    {/* Weekly Leaderboard Publishing Option */}
+                    {category === 'WEEKLY' && (
+                      <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 sm:p-5 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <Trophy size={18} className="text-amber-400" />
+                            <label className="text-xs sm:text-sm font-bold text-amber-300 uppercase tracking-wider">
+                              Weekly Leaderboard Publishing *
+                            </label>
+                          </div>
+                          <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border ${hasLeaderboard ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' : 'bg-slate-700/50 text-slate-300 border-slate-600'}`}>
+                            {hasLeaderboard ? 'Leaderboard Enabled' : 'Private Practice'}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div
+                            onClick={() => setHasLeaderboard(true)}
+                            className={`cursor-pointer p-3.5 rounded-xl border transition-all flex items-center gap-3 ${hasLeaderboard ? 'bg-amber-500/20 border-amber-500 text-white shadow-md ring-1 ring-amber-500/30' : 'bg-black/40 border-white/10 text-slate-400 hover:text-white'}`}
+                          >
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm ${hasLeaderboard ? 'bg-amber-500 text-black' : 'bg-white/10 text-slate-400'}`}>
+                              ✓
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-white">Publish to Live Leaderboard</div>
+                              <div className="text-[10px] text-slate-400">Student scores & rankings appear on public leaderboard</div>
+                            </div>
+                          </div>
+                          <div
+                            onClick={() => setHasLeaderboard(false)}
+                            className={`cursor-pointer p-3.5 rounded-xl border transition-all flex items-center gap-3 ${!hasLeaderboard ? 'bg-indigo-500/20 border-indigo-500 text-white shadow-md ring-1 ring-indigo-500/30' : 'bg-black/40 border-white/10 text-slate-400 hover:text-white'}`}
+                          >
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm ${!hasLeaderboard ? 'bg-indigo-500 text-white' : 'bg-white/10 text-slate-400'}`}>
+                              🔒
+                            </div>
+                            <div>
+                              <div className="text-xs font-bold text-white">Practice / Homework Only</div>
+                              <div className="text-[10px] text-slate-400">Hidden from leaderboard rankings. Individual score only.</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* 1. PAPER FORMAT SELECTION (3 FORMATS) */}
@@ -1555,93 +1646,181 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                     </div>
                   )}
 
-                  {/* 4. MARKS & RULES */}
-                  {paperType === 'BOTH' ? (
-                    <div className="space-y-3 pt-3 border-t border-white/5">
-                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
-                        Marks Configuration (Part 1 & Part 2 Breakdown) *
-                      </label>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-                        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3 space-y-1">
-                          <label className="text-[11px] font-bold text-emerald-400 block uppercase tracking-wider flex items-center gap-1">
-                            <CheckCircle size={12} /> Part 1 (MCQ) Marks
-                          </label>
-                          <input 
-                            type="number" 
-                            value={totalMcqMarks} 
-                            onChange={(e) => {
-                              setTotalMcqMarks(e.target.value);
-                              const nT = parseFloat(e.target.value || 0) + parseFloat(totalStructuredMarks || 0);
-                              setTotalMarks(nT);
-                            }}
-                            className="w-full bg-black/60 border border-emerald-500/30 focus:border-emerald-400 rounded-xl p-3 text-sm text-white outline-none font-bold" 
-                          />
+                  {/* 4. EXAM STRUCTURE & QUESTIONS CONFIGURATION */}
+                  {paperType === 'STRUCTURED' && (
+                    <div className="space-y-4 pt-3 border-t border-white/5">
+                      <div className="bg-purple-950/20 border border-purple-500/30 rounded-2xl p-5 sm:p-6 space-y-4 shadow-lg">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-purple-500/20 pb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-purple-500/20 border border-purple-500/40 flex items-center justify-center text-purple-400 shrink-0">
+                              <FileSignature size={20} />
+                            </div>
+                            <div>
+                              <h4 className="text-sm sm:text-base font-black text-white uppercase tracking-wide">
+                                Structure / Essay Master Question Paper & Questions Count
+                              </h4>
+                              <p className="text-xs text-slate-400">
+                                Upload the essay paper PDF and configure total questions in this paper.
+                              </p>
+                            </div>
+                          </div>
+                          {(structuredPaperFile || content.fileName) && (
+                            <span className="text-xs font-mono font-bold text-purple-300 bg-purple-500/20 px-3 py-1.5 rounded-xl border border-purple-500/30 truncate max-w-[240px]">
+                              {structuredPaperFile || content.fileName}
+                            </span>
+                          )}
                         </div>
 
-                        <div className="bg-purple-500/5 border border-purple-500/20 rounded-xl p-3 space-y-1">
-                          <label className="text-[11px] font-bold text-purple-400 block uppercase tracking-wider flex items-center gap-1">
-                            <FileSignature size={12} /> Part 2 (Essay) Marks
-                          </label>
-                          <input 
-                            type="number" 
-                            value={totalStructuredMarks} 
-                            onChange={(e) => {
-                              setTotalStructuredMarks(e.target.value);
-                              const nT = parseFloat(totalMcqMarks || 0) + parseFloat(e.target.value || 0);
-                              setTotalMarks(nT);
-                            }}
-                            className="w-full bg-black/60 border border-purple-500/30 focus:border-purple-400 rounded-xl p-3 text-sm text-white outline-none font-bold" 
-                          />
-                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+                          {/* Master Question Paper PDF upload */}
+                          <div className="md:col-span-2 bg-black/40 border border-purple-500/30 rounded-2xl p-4 space-y-3">
+                            <label className="text-xs sm:text-sm font-bold text-purple-300 block uppercase tracking-wider">
+                              Essay Question Paper PDF *
+                            </label>
+                            <div className="flex flex-wrap items-center gap-2.5">
+                              <label className="cursor-pointer bg-purple-600 hover:bg-purple-500 text-white font-bold px-4 py-2.5 rounded-xl text-xs sm:text-sm flex items-center gap-2 transition-all shadow-md">
+                                {uploadingMasterSheet ? (
+                                  <span className="flex items-center gap-2"><Loader2 size={16} className="animate-spin" /> Uploading PDF...</span>
+                                ) : (
+                                  <span className="flex items-center gap-2"><UploadCloud size={16} /> {(structuredPaperFile || content.fileName) ? 'Change / Replace PDF' : 'Upload Question Paper PDF'}</span>
+                                )}
+                                <input type="file" accept=".pdf" onChange={handleUploadMasterSheetFile} className="hidden" disabled={uploadingMasterSheet} />
+                              </label>
 
-                        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-3 space-y-1">
-                          <label className="text-[11px] font-bold text-amber-400 block uppercase tracking-wider">
-                            Total Paper Marks
-                          </label>
-                          <input 
-                            type="number" 
-                            value={totalMarks} 
-                            onChange={(e) => setTotalMarks(e.target.value)}
-                            className="w-full bg-black/60 border border-amber-500/30 focus:border-amber-400 rounded-xl p-3 text-sm text-white outline-none font-bold" 
-                          />
-                        </div>
+                              {(structuredPaperFile || content.fileName) && (
+                                <a 
+                                  href={`${getBaseUrl()}/storage/documents/${structuredPaperFile || content.fileName}`} 
+                                  target="_blank" 
+                                  rel="noreferrer" 
+                                  download
+                                  className="bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all"
+                                >
+                                  <Download size={14} /> Download PDF
+                                </a>
+                              )}
+                            </div>
+                            <p className="text-xs text-slate-400">
+                              Students will view this question paper to write and upload their answers.
+                            </p>
+                          </div>
 
-                        <div className="bg-white/5 border border-white/10 rounded-xl p-3 space-y-1">
-                          <label className="text-[11px] font-bold text-slate-300 block uppercase tracking-wider">
-                            Pass Marks (%)
-                          </label>
-                          <input 
-                            type="number" 
-                            value={passMarks} 
-                            onChange={(e) => setPassMarks(e.target.value)}
-                            className="w-full bg-black/60 border border-white/10 focus:border-emerald-500 rounded-xl p-3 text-sm text-white outline-none font-bold" 
-                          />
+                          {/* Number of Essay Questions in the paper */}
+                          <div className="bg-black/40 border border-amber-500/30 rounded-2xl p-4 space-y-2">
+                            <label className="text-xs sm:text-sm font-bold text-amber-300 block uppercase tracking-wider">
+                              Total Questions (ප්‍රශ්න ගණන) *
+                            </label>
+                            <div className="relative">
+                              <input 
+                                type="number" 
+                                min="1" 
+                                max="50" 
+                                value={questionCount} 
+                                onChange={(e) => setQuestionCount(e.target.value)} 
+                                placeholder="e.g. 4" 
+                                className="w-full bg-black/60 border border-amber-500/40 focus:border-amber-400 rounded-xl p-3 text-white outline-none font-black text-lg" 
+                              />
+                              <span className="absolute right-3.5 top-3.5 text-xs text-slate-400 font-bold uppercase">Questions</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400 leading-snug">
+                              Paper Guiders will award marks question-by-question based on this count.
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-white/5">
-                      <div>
-                        <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                          Total Paper Marks
-                        </label>
-                        <input 
-                          type="number" 
-                          value={totalMarks} 
-                          onChange={(e) => setTotalMarks(e.target.value)}
-                          className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500"
-                        />
+                  )}
+
+                  {paperType === 'BOTH' && (
+                    <div className="space-y-4 pt-3 border-t border-white/5">
+                      <div className="bg-blue-950/20 border border-blue-500/30 rounded-2xl p-5 sm:p-6 space-y-4 shadow-lg">
+                        <div className="flex items-center gap-3 border-b border-blue-500/20 pb-3.5">
+                          <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400 shrink-0">
+                            <Layers size={20} />
+                          </div>
+                          <div>
+                            <h4 className="text-sm sm:text-base font-black text-white uppercase tracking-wide">
+                              Dual Part Paper Configuration (Part 1 MCQ & Part 2 Essay)
+                            </h4>
+                            <p className="text-xs text-slate-400">
+                              Part 1 MCQ questions are managed in the Questions tab. Set Part 2 Essay paper details below.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+                          {/* Part 1: MCQ Summary */}
+                          <div className="bg-black/40 border border-emerald-500/30 rounded-2xl p-4 space-y-2">
+                            <label className="text-xs sm:text-sm font-bold text-emerald-300 block uppercase tracking-wider flex items-center gap-1.5">
+                              <CheckCircle size={14} /> Part 1: MCQ Quiz
+                            </label>
+                            <div className="text-2xl font-black text-white">
+                              {questions.length} <span className="text-xs font-bold text-slate-400 uppercase">Questions Built</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400">
+                              Auto-synced from questions added in the Part 1 MCQ tab.
+                            </p>
+                          </div>
+
+                          {/* Part 2: Essay Master PDF */}
+                          <div className="bg-black/40 border border-purple-500/30 rounded-2xl p-4 space-y-2.5">
+                            <label className="text-xs sm:text-sm font-bold text-purple-300 block uppercase tracking-wider">
+                              Part 2: Essay PDF *
+                            </label>
+                            <div className="flex flex-col gap-2">
+                              <label className="cursor-pointer bg-purple-600 hover:bg-purple-500 text-white font-bold px-3.5 py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition-all shadow-md">
+                                {uploadingMasterSheet ? (
+                                  <span className="flex items-center gap-1.5"><Loader2 size={14} className="animate-spin" /> Uploading...</span>
+                                ) : (
+                                  <span className="flex items-center gap-1.5"><UploadCloud size={14} /> {(structuredPaperFile || content.fileName) ? 'Replace PDF' : 'Upload PDF'}</span>
+                                )}
+                                <input type="file" accept=".pdf" onChange={handleUploadMasterSheetFile} className="hidden" disabled={uploadingMasterSheet} />
+                              </label>
+                              {(structuredPaperFile || content.fileName) && (
+                                <p className="text-[10px] font-mono text-purple-300 truncate">
+                                  {structuredPaperFile || content.fileName}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Part 2: Essay Question Count */}
+                          <div className="bg-black/40 border border-amber-500/30 rounded-2xl p-4 space-y-2">
+                            <label className="text-xs sm:text-sm font-bold text-amber-300 block uppercase tracking-wider">
+                              Part 2 Questions (ප්‍රශ්න ගණන) *
+                            </label>
+                            <div className="relative">
+                              <input 
+                                type="number" 
+                                min="1" 
+                                max="50" 
+                                value={questionCount} 
+                                onChange={(e) => setQuestionCount(e.target.value)} 
+                                placeholder="e.g. 4" 
+                                className="w-full bg-black/60 border border-amber-500/40 focus:border-amber-400 rounded-xl p-2.5 text-white outline-none font-black text-base" 
+                              />
+                              <span className="absolute right-3 top-3 text-[11px] text-slate-400 font-bold uppercase">Questions</span>
+                            </div>
+                            <p className="text-[11px] text-slate-400">
+                              Guiders evaluate each essay question individually.
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-2">
-                          Pass Marks
+                    </div>
+                  )}
+
+                  {paperType === 'MCQ' && (
+                    <div className="space-y-4 pt-3 border-t border-white/5">
+                      <div className="bg-emerald-950/20 border border-emerald-500/30 rounded-2xl p-5 space-y-2">
+                        <label className="text-xs sm:text-sm font-bold text-emerald-300 block uppercase tracking-wider flex items-center gap-1.5">
+                          <CheckCircle size={14} /> MCQ Quiz Questions Summary
                         </label>
-                        <input 
-                          type="number" 
-                          value={passMarks} 
-                          onChange={(e) => setPassMarks(e.target.value)}
-                          className="w-full bg-black/60 border border-white/10 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-500"
-                        />
+                        <div className="text-2xl font-black text-white">
+                          {questions.length} <span className="text-xs font-bold text-slate-400 uppercase">Questions Built in Quiz</span>
+                        </div>
+                        <p className="text-xs text-slate-400">
+                          Manage MCQ questions, figure diagrams, and correct answers directly in the MCQ Questions tab.
+                        </p>
                       </div>
                     </div>
                   )}
@@ -1685,13 +1864,13 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                     </div>
 
                     {/* Grade Tiers Grid */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-2.5">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
                       {gradingScale.map((tier, idx) => {
                         const badgeStyle = getGradeBadgeStyle(tier.grade);
                         return (
                           <div 
                             key={idx} 
-                            className="relative bg-black/40 border border-white/10 hover:border-indigo-500/30 rounded-xl p-3 flex flex-col justify-between transition-all group"
+                            className="relative bg-black/40 border border-white/10 hover:border-indigo-500/30 rounded-xl p-3 flex flex-col justify-between transition-all group min-w-[130px]"
                           >
                             <div className="flex items-center justify-between gap-1.5 mb-2">
                               <div className="flex items-center gap-1.5 flex-1">
@@ -1719,8 +1898,8 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                             </div>
 
                             <div className="flex items-center gap-1.5 text-xs text-slate-400">
-                              <div className="flex-1 space-y-0.5">
-                                <span className="text-[10px] text-slate-500 block uppercase font-medium">Min %</span>
+                              <div className="flex-1 space-y-1">
+                                <span className="text-[10px] sm:text-[11px] text-slate-400 block uppercase font-bold text-center">Min %</span>
                                 <input
                                   type="number"
                                   min="0"
@@ -1728,12 +1907,12 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                                   value={tier.min}
                                   onChange={(e) => handleUpdateGradeTier(idx, 'min', e.target.value)}
                                   placeholder="0"
-                                  className="w-full bg-black/50 border border-white/10 focus:border-indigo-400 rounded-md px-2 py-1 text-white font-semibold text-xs outline-none"
+                                  className="w-full bg-black/60 border border-white/15 focus:border-indigo-400 rounded-lg py-1 px-0.5 text-center text-white font-black text-xs sm:text-sm outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-inner"
                                 />
                               </div>
-                              <span className="text-slate-500 pt-3 font-bold">-</span>
-                              <div className="flex-1 space-y-0.5">
-                                <span className="text-[10px] text-slate-500 block uppercase font-medium">Max %</span>
+                              <span className="text-slate-500 pt-3.5 font-black text-xs">-</span>
+                              <div className="flex-1 space-y-1">
+                                <span className="text-[10px] sm:text-[11px] text-slate-400 block uppercase font-bold text-center">Max %</span>
                                 <input
                                   type="number"
                                   min="0"
@@ -1741,7 +1920,7 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                                   value={tier.max}
                                   onChange={(e) => handleUpdateGradeTier(idx, 'max', e.target.value)}
                                   placeholder="100"
-                                  className="w-full bg-black/50 border border-white/10 focus:border-indigo-400 rounded-md px-2 py-1 text-white font-semibold text-xs outline-none"
+                                  className="w-full bg-black/60 border border-white/15 focus:border-indigo-400 rounded-lg py-1 px-0.5 text-center text-white font-black text-xs sm:text-sm outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none shadow-inner"
                                 />
                               </div>
                             </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { physicalFinanceService } from '../../api/physicalFinance';
-import { Wallet, TrendingUp, TrendingDown, Plus, Trash2, Calendar, Settings, Edit2, Check, X, Tag, Printer, RotateCcw, AlertTriangle, Archive, FileText, Search, Coins } from 'lucide-react';
+import physicalCrmService from '../../api/physicalCrm';
+import { Wallet, TrendingUp, TrendingDown, Plus, Trash2, Calendar, Settings, Edit2, Check, X, Tag, Printer, RotateCcw, AlertTriangle, Archive, FileText, Search, Coins, UserCheck, DollarSign, GraduationCap } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import ThermalReceiptModal from '../../components/PhysicalCRM/ThermalReceiptModal';
@@ -66,22 +67,42 @@ export default function CashFlowPortal() {
     const [catLoading, setCatLoading] = useState(false);
     const [newCatName, setNewCatName] = useState('');
     const [newCatType, setNewCatType] = useState('EXPENSE');
+    const [newCatIsLecturer, setNewCatIsLecturer] = useState(false);
     const [editingCatId, setEditingCatId] = useState(null);
     const [editingCatName, setEditingCatName] = useState('');
+    const [editingCatIsLecturer, setEditingCatIsLecturer] = useState(false);
+
+    // Teachers List for Lecturer Expenses
+    const [teachers, setTeachers] = useState([]);
+    const [lecturerSearchTerm, setLecturerSearchTerm] = useState('');
+    const [isSelectingLecturer, setIsSelectingLecturer] = useState(false);
 
     const [formData, setFormData] = useState({
         type: 'INCOME',
         category: '',
         amount: '',
         description: '',
-        date: format(new Date(), 'yyyy-MM-dd')
+        date: format(new Date(), 'yyyy-MM-dd'),
+        teacherId: '',
+        billingMonth: format(new Date(), 'yyyy-MM'),
+        isTeacherAdvance: false
     });
 
     useEffect(() => {
         fetchData();
         fetchCategories();
         fetchTrashData();
+        fetchTeachers();
     }, [selectedDate]);
+
+    const fetchTeachers = async () => {
+        try {
+            const data = await physicalCrmService.getTeachers();
+            setTeachers(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error('Failed to load teachers for cash flow', err);
+        }
+    };
 
     const fetchData = async () => {
         setLoading(true);
@@ -225,11 +246,27 @@ export default function CashFlowPortal() {
 
     const handleTypeChange = (newType) => {
         const available = safeCategoriesList.filter(c => c.type === newType);
+        const firstCat = available.length > 0 ? available[0] : null;
+        const isLectCat = Boolean(firstCat?.isLecturerCategory);
         setFormData({
             ...formData,
             type: newType,
-            category: available.length > 0 ? available[0].name : ''
+            category: firstCat ? firstCat.name : '',
+            isTeacherAdvance: isLectCat,
+            teacherId: isLectCat ? formData.teacherId : '',
+            billingMonth: formData.billingMonth || (formData.date ? formData.date.slice(0, 7) : format(new Date(), 'yyyy-MM'))
         });
+    };
+
+    const handleCategoryChange = (catName) => {
+        const chosenCat = categories.find(c => c.name === catName && c.type === formData.type);
+        const isLectCat = Boolean(chosenCat?.isLecturerCategory || catName.toLowerCase().includes('advance') || catName.toLowerCase().includes('teacher'));
+        setFormData(prev => ({
+            ...prev,
+            category: catName,
+            isTeacherAdvance: isLectCat,
+            billingMonth: prev.billingMonth || (prev.date ? prev.date.slice(0, 7) : format(new Date(), 'yyyy-MM'))
+        }));
     };
 
     const handleAddTransaction = async (e) => {
@@ -238,11 +275,23 @@ export default function CashFlowPortal() {
             toast.error('Please select or add a category');
             return;
         }
+
+        const selectedCatObj = categories.find(c => c.name === formData.category && c.type === formData.type);
+        const isLectCat = Boolean(selectedCatObj?.isLecturerCategory || formData.isTeacherAdvance || formData.teacherId);
+
+        if (isLectCat && !formData.teacherId) {
+            toast.error('Please select the Lecturer to link this advance/expense to');
+            return;
+        }
+
         try {
             const txDate = formData.date || selectedDate;
             const createdTx = await physicalFinanceService.addTransaction({
                 ...formData,
-                date: txDate
+                date: txDate,
+                teacherId: formData.teacherId ? parseInt(formData.teacherId) : null,
+                billingMonth: formData.teacherId ? (formData.billingMonth || txDate.slice(0, 7)) : null,
+                isTeacherAdvance: isLectCat
             });
             toast.success('Transaction added successfully!');
             setIsAddModalOpen(false);
@@ -252,11 +301,22 @@ export default function CashFlowPortal() {
                 category: formData.category,
                 amount: formData.amount,
                 description: formData.description,
-                date: txDate
+                date: txDate,
+                teacher: formData.teacherId ? teachers.find(t => t.id === parseInt(formData.teacherId)) : null,
+                billingMonth: formData.billingMonth
             };
             const currentCat = formData.category;
             const currentType = formData.type;
-            setFormData({ type: currentType, category: currentCat, amount: '', description: '', date: selectedDate });
+            setFormData({ 
+                type: currentType, 
+                category: currentCat, 
+                amount: '', 
+                description: '', 
+                date: selectedDate,
+                teacherId: '',
+                billingMonth: format(new Date(), 'yyyy-MM'),
+                isTeacherAdvance: false
+            });
             
             if (txDate !== selectedDate) {
                 setSelectedDate(txDate);
@@ -369,9 +429,14 @@ export default function CashFlowPortal() {
             return;
         }
         try {
-            await physicalFinanceService.addCategory({ name: newCatName.trim(), type: newCatType });
+            await physicalFinanceService.addCategory({ 
+                name: newCatName.trim(), 
+                type: newCatType,
+                isLecturerCategory: newCatType === 'EXPENSE' ? Boolean(newCatIsLecturer) : false
+            });
             toast.success(`Category "${newCatName}" added!`);
             setNewCatName('');
+            setNewCatIsLecturer(false);
             fetchCategories();
         } catch (err) {
             toast.error('Failed to add category: ' + (err.response?.data?.error || err.message));
@@ -384,7 +449,10 @@ export default function CashFlowPortal() {
             return;
         }
         try {
-            await physicalFinanceService.updateCategory(id, { name: editingCatName.trim() });
+            await physicalFinanceService.updateCategory(id, { 
+                name: editingCatName.trim(),
+                isLecturerCategory: editingCatIsLecturer
+            });
             toast.success('Category updated!');
             setEditingCatId(null);
             fetchCategories();
@@ -652,6 +720,21 @@ export default function CashFlowPortal() {
                                         </td>
                                         <td className="py-4">
                                             <div className="font-medium text-white/90">{t.description || '-'}</div>
+                                            {t.teacher && (
+                                                <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm">
+                                                        <span>👨‍🏫 Lecturer: {t.teacher.name}</span>
+                                                        <span className="font-mono text-[10px] bg-purple-500/30 text-purple-200 px-1.5 py-0.2 rounded border border-purple-400/30">
+                                                            {t.teacher.lecturerId || (`IMA-LEC-${1000 + t.teacher.id}`)}
+                                                        </span>
+                                                    </span>
+                                                    {t.billingMonth && (
+                                                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                                                            📅 Deduct Cycle: {t.billingMonth}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
                                             {t.description?.includes('[HALF CARD]') && (
                                                 <div className="mt-1">
                                                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-400/20 text-amber-300 border border-amber-400/40 shadow-sm">
@@ -740,97 +823,323 @@ export default function CashFlowPortal() {
 
             {/* Add Transaction Modal */}
             {isAddModalOpen && (
-                <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex justify-center items-center p-4">
-                    <div className="bg-[#151522] border border-white/20 p-6 rounded-3xl w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200">
-                        <button onClick={() => setIsAddModalOpen(false)} className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors bg-white/5 p-2 rounded-xl">
-                            <X size={18} />
+                <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex justify-center items-center p-4">
+                    <div className="bg-[#151524] border border-white/20 p-6 md:p-8 rounded-[2rem] w-full max-w-2xl max-h-[92vh] overflow-y-auto custom-scrollbar shadow-2xl relative animate-in fade-in zoom-in duration-200 text-white">
+                        <button 
+                            onClick={() => {
+                                setIsAddModalOpen(false);
+                                setLecturerSearchTerm('');
+                                setIsSelectingLecturer(false);
+                            }} 
+                            className="absolute top-5 right-5 text-white/50 hover:text-white transition-colors bg-white/5 hover:bg-white/10 p-2 rounded-xl"
+                        >
+                            <X size={20} />
                         </button>
                         
-                        <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-                            <Plus size={22} className="text-blue-400" /> Add Transaction
-                        </h2>
-                        
-                        <form onSubmit={handleAddTransaction} className="space-y-4">
-                            {/* Date Field with Calendar Picker */}
+                        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-white/10">
+                            <div className="w-11 h-11 rounded-2xl bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30">
+                                <Plus size={24} />
+                            </div>
                             <div>
-                                <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">Date *</label>
+                                <h2 className="text-2xl font-black text-white">Record Transaction Entry</h2>
+                                <p className="text-xs text-white/50">Add daily cash flow income, operational expense, or teacher advance.</p>
+                            </div>
+                        </div>
+                        
+                        <form onSubmit={handleAddTransaction} className="space-y-5">
+                            {/* Row 1: Date & Type */}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5">
+                                        Date (දිනය) *
+                                    </label>
+                                    <div className="relative">
+                                        <Calendar size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none" />
+                                        <input 
+                                            type="date" 
+                                            required
+                                            value={formData.date || selectedDate}
+                                            onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                                            className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-bold text-sm shadow-inner"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5">
+                                        Entry Type (වර්ගය) *
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTypeChange('INCOME')}
+                                            className={`py-3 px-3 rounded-xl font-black text-xs transition-all border flex items-center justify-center gap-1.5 ${
+                                                formData.type === 'INCOME'
+                                                    ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/60 shadow-lg shadow-emerald-950/40'
+                                                    : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
+                                            }`}
+                                        >
+                                            <TrendingUp size={14} className="text-emerald-400" />
+                                            <span>INCOME</span>
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => handleTypeChange('EXPENSE')}
+                                            className={`py-3 px-3 rounded-xl font-black text-xs transition-all border flex items-center justify-center gap-1.5 ${
+                                                formData.type === 'EXPENSE'
+                                                    ? 'bg-red-600/30 text-red-300 border-red-500/60 shadow-lg shadow-red-950/40'
+                                                    : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
+                                            }`}
+                                        >
+                                            <TrendingDown size={14} className="text-red-400" />
+                                            <span>EXPENSE</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Row 2: Category */}
+                            <div>
+                                <div className="flex justify-between items-center mb-1.5">
+                                    <label className="block text-[11px] font-bold text-white/60 uppercase tracking-wider">
+                                        Finance Category (කාණ්ඩය) *
+                                    </label>
+                                    <button 
+                                        type="button" 
+                                        onClick={() => setIsCategoryModalOpen(true)}
+                                        className="text-[11px] text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20"
+                                    >
+                                        <Settings size={12} /> Manage Categories
+                                    </button>
+                                </div>
+                                <select 
+                                    required
+                                    value={formData.category}
+                                    onChange={(e) => handleCategoryChange(e.target.value)}
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none font-bold text-sm shadow-inner"
+                                >
+                                    {activeTypeCategories.map(cat => (
+                                        <option key={cat.id} value={cat.name} className="text-black">
+                                            {cat.name} {cat.isLecturerCategory ? '★ [Lecturer Expense - Deductible]' : ''}
+                                        </option>
+                                    ))}
+                                    {activeTypeCategories.length === 0 && (
+                                        <option value="" className="text-black">No categories. Click Manage to add.</option>
+                                    )}
+                                </select>
+                            </div>
+
+                            {/* Lecturer / Teacher Expense Association Box */}
+                            {formData.type === 'EXPENSE' && (
+                                <div className="bg-gradient-to-br from-purple-950/40 via-purple-900/20 to-black/50 border border-purple-500/35 rounded-2xl p-4 md:p-5 space-y-4 shadow-lg shadow-purple-950/30">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs md:text-sm font-black text-purple-200 flex items-center gap-2.5 cursor-pointer">
+                                            <input 
+                                                type="checkbox"
+                                                checked={formData.isTeacherAdvance || Boolean(formData.teacherId)}
+                                                onChange={(e) => {
+                                                    const checked = e.target.checked;
+                                                    setFormData(prev => ({ 
+                                                        ...prev, 
+                                                        isTeacherAdvance: checked,
+                                                        teacherId: checked ? prev.teacherId : '',
+                                                        billingMonth: checked ? (prev.billingMonth || (prev.date ? prev.date.slice(0, 7) : format(new Date(), 'yyyy-MM'))) : ''
+                                                    }));
+                                                    if (!checked) {
+                                                        setIsSelectingLecturer(false);
+                                                        setLecturerSearchTerm('');
+                                                    }
+                                                }}
+                                                className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-white/20 accent-purple-500"
+                                            />
+                                            <span>👨‍🏫 Link to Lecturer / Teacher Expense (Advance / Payout)</span>
+                                        </label>
+                                        <span className="text-[10px] text-purple-300 font-extrabold bg-purple-500/20 px-2.5 py-1 rounded-full border border-purple-500/40">
+                                            Auto-Deduct from Salary
+                                        </span>
+                                    </div>
+
+                                    {(formData.isTeacherAdvance || Boolean(formData.teacherId)) && (
+                                        <div className="space-y-4 pt-3 border-t border-purple-500/25">
+                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                {/* Searchable Lecturer Selector */}
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-purple-200 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                                                        <span>Select Lecturer (ආචාර්යවරයා) *</span>
+                                                        {formData.teacherId && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setIsSelectingLecturer(true);
+                                                                    setLecturerSearchTerm('');
+                                                                }}
+                                                                className="text-[10px] text-purple-300 hover:text-white underline font-semibold"
+                                                            >
+                                                                Change
+                                                            </button>
+                                                        )}
+                                                    </label>
+
+                                                    {formData.teacherId && !isSelectingLecturer ? (
+                                                        // Selected Lecturer Badge Card
+                                                        <div className="bg-black/60 border border-purple-500/40 rounded-xl p-3 flex items-center justify-between">
+                                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                                <div className="w-8 h-8 rounded-lg bg-purple-500/30 text-purple-200 flex items-center justify-center font-black text-xs shrink-0">
+                                                                    LEC
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <div className="font-bold text-xs text-white truncate">
+                                                                        {teachers.find(t => String(t.id) === String(formData.teacherId))?.name || 'Selected Lecturer'}
+                                                                    </div>
+                                                                    <div className="text-[10px] font-mono text-purple-300">
+                                                                        {teachers.find(t => String(t.id) === String(formData.teacherId))?.lecturerId || (`IMA-LEC-${1000 + parseInt(formData.teacherId)}`)}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setIsSelectingLecturer(true);
+                                                                    setLecturerSearchTerm('');
+                                                                }}
+                                                                className="text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 px-2.5 py-1 rounded-lg border border-purple-500/30 font-bold transition-all shrink-0 ml-2"
+                                                            >
+                                                                Search / Change
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        // Searchable Combobox
+                                                        <div className="space-y-2">
+                                                            <div className="relative">
+                                                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-400 pointer-events-none" />
+                                                                <input
+                                                                    type="text"
+                                                                    autoFocus
+                                                                    placeholder="Search lecturer by name or ID (e.g. Shehan, 1006)..."
+                                                                    value={lecturerSearchTerm}
+                                                                    onChange={(e) => setLecturerSearchTerm(e.target.value)}
+                                                                    className="w-full bg-black/60 border border-purple-500/40 rounded-xl pl-9 pr-3 py-2 text-xs font-medium text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-purple-500/60 shadow-inner"
+                                                                />
+                                                            </div>
+
+                                                            <div className="max-h-36 overflow-y-auto custom-scrollbar bg-black/70 border border-purple-500/30 rounded-xl divide-y divide-white/5">
+                                                                {teachers
+                                                                    .filter(t => {
+                                                                        if (!lecturerSearchTerm.trim()) return true;
+                                                                        const q = lecturerSearchTerm.toLowerCase();
+                                                                        const lId = (t.lecturerId || `IMA-LEC-${1000 + t.id}`).toLowerCase();
+                                                                        return t.name.toLowerCase().includes(q) || lId.includes(q);
+                                                                    })
+                                                                    .map(t => {
+                                                                        const customId = t.lecturerId || `IMA-LEC-${1000 + t.id}`;
+                                                                        const isSelected = String(formData.teacherId) === String(t.id);
+                                                                        return (
+                                                                            <button
+                                                                                key={t.id}
+                                                                                type="button"
+                                                                                onClick={() => {
+                                                                                    setFormData(prev => ({ ...prev, teacherId: String(t.id) }));
+                                                                                    setIsSelectingLecturer(false);
+                                                                                    setLecturerSearchTerm('');
+                                                                                }}
+                                                                                className={`w-full text-left px-3 py-2 flex items-center justify-between hover:bg-purple-500/20 transition-colors ${
+                                                                                    isSelected ? 'bg-purple-500/25 text-purple-200' : 'text-white'
+                                                                                }`}
+                                                                            >
+                                                                                <div className="min-w-0 pr-2">
+                                                                                    <div className="font-bold text-xs truncate">{t.name}</div>
+                                                                                    <div className="text-[10px] font-mono text-purple-300/80">{customId}</div>
+                                                                                </div>
+                                                                                <span className="text-[10px] font-bold bg-white/5 px-2 py-0.5 rounded border border-white/10 shrink-0">
+                                                                                    Select
+                                                                                </span>
+                                                                            </button>
+                                                                        );
+                                                                    })}
+                                                                {teachers.length === 0 && (
+                                                                    <div className="p-3 text-xs text-center text-white/40">No lecturers found.</div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Deductible Billing Month */}
+                                                <div>
+                                                    <label className="block text-[11px] font-bold text-purple-200 uppercase tracking-wider mb-1.5">
+                                                        Deductible Billing Month *
+                                                    </label>
+                                                    <input
+                                                        type="month"
+                                                        required
+                                                        value={formData.billingMonth || (formData.date ? formData.date.slice(0, 7) : format(new Date(), 'yyyy-MM'))}
+                                                        onChange={(e) => setFormData(prev => ({ ...prev, billingMonth: e.target.value }))}
+                                                        className="w-full bg-black/60 border border-purple-500/40 rounded-xl px-4 py-2.5 text-xs font-bold text-white outline-none focus:border-purple-400 cursor-pointer shadow-inner"
+                                                    />
+                                                    <p className="text-[10px] text-purple-300/80 mt-1.5 leading-snug">
+                                                        💡 මෙම මුදල මෙම ආචාර්යවරයාගේ තෝරාගත් මාසයේ Salary Invoice එකෙන් Auto-Deduct වේ.
+                                                    </p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* Row 3: Amount */}
+                            <div>
+                                <label className="block text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5">
+                                    Amount in LKR (මුදල - රුපියල්) *
+                                </label>
                                 <div className="relative">
-                                    <Calendar size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none" />
+                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 font-black text-base pointer-events-none">
+                                        Rs.
+                                    </span>
                                     <input 
-                                        type="date" 
-                                        required
-                                        value={formData.date || selectedDate}
-                                        onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 font-bold text-sm shadow-inner"
+                                        type="number" 
+                                        required 
+                                        step="any"
+                                        value={formData.amount}
+                                        onChange={(e) => setFormData({...formData, amount: e.target.value})}
+                                        className="w-full bg-black/40 border border-white/10 rounded-xl pl-12 pr-4 py-3 text-white placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-xl font-black shadow-inner"
+                                        placeholder="0.00"
                                     />
                                 </div>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">Type</label>
-                                    <select 
-                                        value={formData.type}
-                                        onChange={(e) => handleTypeChange(e.target.value)}
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 appearance-none font-bold text-sm shadow-inner"
-                                    >
-                                        <option value="INCOME" className="text-black">INCOME</option>
-                                        <option value="EXPENSE" className="text-black">EXPENSE</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <div className="flex justify-between items-center mb-1">
-                                        <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider">Category</label>
-                                        <button 
-                                            type="button" 
-                                            onClick={() => setIsCategoryModalOpen(true)}
-                                            className="text-[10px] text-blue-400 hover:text-blue-300 font-bold flex items-center gap-0.5"
-                                        >
-                                            <Settings size={10} /> Edit
-                                        </button>
-                                    </div>
-                                    <select 
-                                        required
-                                        value={formData.category}
-                                        onChange={(e) => setFormData({...formData, category: e.target.value})}
-                                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/40 appearance-none font-bold text-sm shadow-inner"
-                                    >
-                                        {activeTypeCategories.map(cat => (
-                                            <option key={cat.id} value={cat.name} className="text-black">{cat.name}</option>
-                                        ))}
-                                        {activeTypeCategories.length === 0 && (
-                                            <option value="" className="text-black">No categories. Click Edit to add.</option>
-                                        )}
-                                    </select>
-                                </div>
-                            </div>
-
+                            {/* Row 4: Description */}
                             <div>
-                                <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">Amount (Rs) *</label>
-                                <input 
-                                    type="number" 
-                                    required 
-                                    step="any"
-                                    value={formData.amount}
-                                    onChange={(e) => setFormData({...formData, amount: e.target.value})}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500/40 text-lg font-bold shadow-inner"
-                                    placeholder="0.00"
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">Description / Note</label>
+                                <label className="block text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5">
+                                    Description / Remarks (විස්තරය)
+                                </label>
                                 <textarea 
+                                    rows={2}
                                     value={formData.description}
                                     onChange={(e) => setFormData({...formData, description: e.target.value})}
-                                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500/40 min-h-[80px] shadow-inner text-sm"
-                                    placeholder="Optional details (e.g. Electric bill, Classroom stationery, etc.)..."
+                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500/50 min-h-[60px] shadow-inner text-xs"
+                                    placeholder="Optional details (e.g. October Salary Advance, Paper printing costs, Transport allowance)..."
                                 ></textarea>
                             </div>
 
-                            <button type="submit" className="w-full py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all text-sm tracking-wide mt-2">
-                                Save Transaction Entry
-                            </button>
+                            <div className="flex items-center gap-3 pt-2">
+                                <button 
+                                    type="button" 
+                                    onClick={() => {
+                                        setIsAddModalOpen(false);
+                                        setLecturerSearchTerm('');
+                                        setIsSelectingLecturer(false);
+                                    }}
+                                    className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    type="submit" 
+                                    className="flex-2 py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black shadow-lg shadow-blue-500/30 transition-all text-xs tracking-wider flex items-center justify-center gap-2 cursor-pointer"
+                                >
+                                    <Plus size={16} /> Save Transaction Entry
+                                </button>
+                            </div>
                         </form>
                     </div>
                 </div>
@@ -1174,7 +1483,7 @@ export default function CashFlowPortal() {
                                 </select>
                                 <input 
                                     type="text" 
-                                    placeholder="e.g. Hall Rent, Water Bill, Lab Items"
+                                    placeholder="e.g. Teacher Advance, Hall Rent, Water Bill"
                                     value={newCatName}
                                     onChange={(e) => setNewCatName(e.target.value)}
                                     className="flex-1 bg-black/50 border border-white/10 rounded-xl px-3 py-2 text-xs text-white placeholder:text-white/30 outline-none"
@@ -1186,6 +1495,17 @@ export default function CashFlowPortal() {
                                     <Plus size={14} /> Add
                                 </button>
                             </div>
+                            {newCatType === 'EXPENSE' && (
+                                <label className="flex items-center gap-2 text-xs text-purple-300 font-medium cursor-pointer pt-1">
+                                    <input 
+                                        type="checkbox"
+                                        checked={newCatIsLecturer}
+                                        onChange={(e) => setNewCatIsLecturer(e.target.checked)}
+                                        className="w-3.5 h-3.5 rounded text-purple-600 focus:ring-purple-500 accent-purple-500"
+                                    />
+                                    <span>👨‍🏫 Lecturer Expense Category (Links to Lecturer Salary & Payout Deductions)</span>
+                                </label>
+                            )}
                         </form>
 
                         {/* Categories Lists */}
@@ -1200,25 +1520,43 @@ export default function CashFlowPortal() {
                                     {categories.filter(c => c.type === 'EXPENSE').map(cat => (
                                         <div key={cat.id} className="flex items-center justify-between p-2.5 bg-white/5 rounded-xl border border-white/5 hover:border-white/15 transition-all text-xs">
                                             {editingCatId === cat.id ? (
-                                                <div className="flex items-center gap-2 flex-1 mr-2">
-                                                    <input 
-                                                        type="text" 
-                                                        value={editingCatName} 
-                                                        onChange={(e) => setEditingCatName(e.target.value)}
-                                                        className="flex-1 bg-black/60 border border-blue-400 rounded-lg px-2.5 py-1 text-xs text-white outline-none font-semibold"
-                                                        autoFocus
-                                                    />
-                                                    <button onClick={() => handleUpdateCategory(cat.id)} className="p-1 text-emerald-400 hover:bg-emerald-500/20 rounded"><Check size={14} /></button>
-                                                    <button onClick={() => setEditingCatId(null)} className="p-1 text-white/50 hover:bg-white/10 rounded"><X size={14} /></button>
+                                                <div className="flex flex-col gap-2 flex-1 mr-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <input 
+                                                            type="text" 
+                                                            value={editingCatName} 
+                                                            onChange={(e) => setEditingCatName(e.target.value)}
+                                                            className="flex-1 bg-black/60 border border-blue-400 rounded-lg px-2.5 py-1 text-xs text-white outline-none font-semibold"
+                                                            autoFocus
+                                                        />
+                                                        <button onClick={() => handleUpdateCategory(cat.id)} className="p-1 text-emerald-400 hover:bg-emerald-500/20 rounded"><Check size={14} /></button>
+                                                        <button onClick={() => setEditingCatId(null)} className="p-1 text-white/50 hover:bg-white/10 rounded"><X size={14} /></button>
+                                                    </div>
+                                                    <label className="flex items-center gap-2 text-[11px] text-purple-300">
+                                                        <input 
+                                                            type="checkbox"
+                                                            checked={editingCatIsLecturer}
+                                                            onChange={(e) => setEditingCatIsLecturer(e.target.checked)}
+                                                            className="w-3 h-3 accent-purple-500"
+                                                        />
+                                                        <span>Lecturer Category (Deduct from Payout)</span>
+                                                    </label>
                                                 </div>
                                             ) : (
-                                                <span className="font-semibold text-white/90">{cat.name}</span>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="font-semibold text-white/90">{cat.name}</span>
+                                                    {cat.isLecturerCategory && (
+                                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                                            👨‍🏫 Lecturer
+                                                        </span>
+                                                    )}
+                                                </div>
                                             )}
 
                                             {editingCatId !== cat.id && (
                                                 <div className="flex items-center gap-1">
                                                     <button 
-                                                        onClick={() => { setEditingCatId(cat.id); setEditingCatName(cat.name); }} 
+                                                        onClick={() => { setEditingCatId(cat.id); setEditingCatName(cat.name); setEditingCatIsLecturer(Boolean(cat.isLecturerCategory)); }} 
                                                         className="p-1 text-white/40 hover:text-blue-400 hover:bg-white/10 rounded transition-colors"
                                                         title="Rename category"
                                                     >

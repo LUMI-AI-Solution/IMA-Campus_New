@@ -156,7 +156,7 @@ exports.getAuditLogs = async (req, res) => {
         const offset = (page - 1) * limit;
 
         const logs = await prisma.systemAuditLog.findMany({
-            orderBy: { createdAt: 'desc' },
+            orderBy: { id: 'desc' },
             take: parseInt(limit),
             skip: offset,
             include: {
@@ -166,7 +166,9 @@ exports.getAuditLogs = async (req, res) => {
             }
         });
 
-        const totalLogs = await prisma.systemAuditLog.count();
+        // Instant row count estimate from information_schema to avoid 19M row table scan
+        const countResult = await prisma.$queryRaw`SELECT table_rows AS cnt FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'SystemAuditLog'`;
+        const totalLogs = Number(countResult[0]?.cnt || 0);
 
         res.status(200).json({
             logs,

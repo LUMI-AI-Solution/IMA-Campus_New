@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import axios from "../../../api/axios";
 import {
     Loader2, Bell, AlertTriangle, CheckCircle, Calendar, Clock,
     User, X, Smartphone, Download, AlertCircle, Apple,
     Video, Play, Radio, CalendarDays, Lock, BookOpen,
-    Camera, Sparkles, Plus, Check
+    Camera, Sparkles, Plus, Check, Trophy, Award, TrendingUp,
+    BarChart3, ChevronRight, MessageSquare, CheckCircle2, FileText,
+    ArrowRight, Layers, Eye, RefreshCw, GraduationCap, Target, HelpCircle,
+    ChevronDown, ChevronUp
 } from 'lucide-react';
 import UpgradeOfferWidget from './UpgradeOfferWidget';
 import toast from 'react-hot-toast';
@@ -18,6 +21,16 @@ export default function StudentOverview({ setActiveTab }) {
     const [currentTime, setCurrentTime] = useState(new Date());
     const [selectedImage, setSelectedImage] = useState(null);
     const [isUploading, setIsUploading] = useState(false);
+
+    // Academic Progress, Leaderboard & Paper History States
+    const [paperData, setPaperData] = useState(null);
+    const [paperLoading, setPaperLoading] = useState(true);
+    const [selectedClassFilter, setSelectedClassFilter] = useState('ALL');
+    const [selectedTestForBreakdown, setSelectedTestForBreakdown] = useState(null);
+    const [activeLeaderboardPaperId, setActiveLeaderboardPaperId] = useState(null);
+    const [customLeaderboardData, setCustomLeaderboardData] = useState(null);
+    const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
+    const [showAllRankings, setShowAllRankings] = useState(false);
 
     // Popup State
     const [showAppPopup, setShowAppPopup] = useState(true);
@@ -97,6 +110,8 @@ export default function StudentOverview({ setActiveTab }) {
 
     useEffect(() => {
         const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+        
+        // 1. Fetch Student Dashboard
         axios.get('/student/dashboard')
             .then(res => {
                 setData(res.data);
@@ -109,8 +124,168 @@ export default function StudentOverview({ setActiveTab }) {
             })
             .catch(err => console.error(err))
             .finally(() => setLoading(false));
+
+        // 2. Fetch Paper Progress & Exams
+        axios.get('/papers/student/progress')
+            .then(res => {
+                setPaperData(res.data);
+                if (res.data?.latestLeaderboard?.paperId) {
+                    setActiveLeaderboardPaperId(res.data.latestLeaderboard.paperId);
+                }
+            })
+            .catch(err => console.error("Paper progress error:", err))
+            .finally(() => setPaperLoading(false));
+
         return () => clearInterval(timer);
     }, []);
+
+    // Load paper leaderboard for a specific test
+    const loadPaperLeaderboard = async (paperId) => {
+        if (!paperId) return;
+        setActiveLeaderboardPaperId(paperId);
+        setLoadingLeaderboard(true);
+        try {
+            const res = await axios.get(`/papers/${paperId}/leaderboard`);
+            setCustomLeaderboardData(res.data);
+        } catch (err) {
+            console.error("Leaderboard error:", err);
+            toast.error("Failed to load paper leaderboard");
+        } finally {
+            setLoadingLeaderboard(false);
+        }
+    };
+
+    // Chat with Paper Guider Trigger
+    const handleChatWithGuider = (test) => {
+        setSelectedTestForBreakdown(null);
+        window.dispatchEvent(new CustomEvent('open-paper-guider-chat', {
+            detail: {
+                paperId: test?.paperId,
+                testTitle: test?.testTitle,
+                courseId: test?.courseId,
+                batchId: test?.batchId,
+                className: test?.courseName || test?.batchName || test?.classLabel
+            }
+        }));
+        toast.success("Opening LUMI Chat with Paper Guider...", { icon: '🎓' });
+    };
+
+    // Filter tests by selected class
+    const filteredTests = useMemo(() => {
+        const list = paperData?.recentTests || [];
+        if (selectedClassFilter === 'ALL') return list;
+        return list.filter(t => 
+            String(t.courseId) === String(selectedClassFilter) || 
+            String(t.batchId) === String(selectedClassFilter) ||
+            `batch_${t.batchId}` === String(selectedClassFilter) ||
+            t.className === selectedClassFilter ||
+            t.classLabel === selectedClassFilter
+        );
+    }, [paperData, selectedClassFilter]);
+
+    // Calculate class-specific metrics & academic level
+    const classMetrics = useMemo(() => {
+        const list = filteredTests;
+        const total = list.length;
+        if (total === 0) {
+            return {
+                totalTaken: 0,
+                averageScore: 0,
+                averagePercentage: 0,
+                highestScore: 0,
+                passRate: 0,
+                level: 1,
+                levelTitle: 'Rising Aspirant (ආරම්භක මට්ටම)',
+                levelBadge: 'Level 1'
+            };
+        }
+        const totalScore = list.reduce((sum, item) => sum + (item.score || 0), 0);
+        const totalPerc = list.reduce((sum, item) => sum + (item.percentage || 0), 0);
+        const highestScore = Math.max(...list.map(i => i.score || 0));
+        const passCount = list.filter(i => i.isPassed).length;
+        const avgPerc = parseFloat((totalPerc / total).toFixed(1));
+
+        let level = 1;
+        let levelTitle = 'Rising Aspirant (ආරම්භක මට්ටම)';
+        let levelBadge = 'Level 1';
+
+        if (avgPerc >= 85 && total >= 2) {
+            level = 5;
+            levelTitle = 'Master Scholar (විශිෂ්ඨ සාමාර්ථ්‍ය)';
+            levelBadge = 'Level 5';
+        } else if (avgPerc >= 75) {
+            level = 4;
+            levelTitle = 'Elite Performer (ඉහළ දක්ෂතාවය)';
+            levelBadge = 'Level 4';
+        } else if (avgPerc >= 65) {
+            level = 3;
+            levelTitle = 'High Achiever (හොඳ ප්‍රගතියක්)';
+            levelBadge = 'Level 3';
+        } else if (avgPerc >= 50) {
+            level = 2;
+            levelTitle = 'Steady Climber (සාමාන්‍ය මට්ටම)';
+            levelBadge = 'Level 2';
+        }
+
+        return {
+            totalTaken: total,
+            averageScore: parseFloat((totalScore / total).toFixed(1)),
+            averagePercentage: avgPerc,
+            highestScore,
+            passRate: Math.round((passCount / total) * 100),
+            level,
+            levelTitle,
+            levelBadge
+        };
+    }, [filteredTests]);
+
+    // Active Leaderboard Data
+    const activeLeaderboard = useMemo(() => {
+        if (customLeaderboardData) {
+            return {
+                title: customLeaderboardData.paper?.title || 'Class Leaderboard',
+                totalMarks: customLeaderboardData.paper?.totalMarks || 100,
+                ranks: (customLeaderboardData.leaderboard || []).map(r => ({
+                    rank: r.rank,
+                    studentId: r.student?.id,
+                    name: r.student?.name || 'Student',
+                    firstName: r.student?.firstName,
+                    image: r.student?.image,
+                    city: r.student?.city || 'IMA Campus',
+                    score: r.score,
+                    grade: r.grade
+                })),
+                myStanding: customLeaderboardData.myStanding,
+                podium: customLeaderboardData.podium
+            };
+        }
+        if (paperData?.latestLeaderboard) {
+            const ranks = paperData.latestLeaderboard.ranks || [];
+            const callingId = currentUser?.id || currentUser?.userId;
+            return {
+                title: paperData.latestLeaderboard.testTitle || 'Latest Paper Leaderboard',
+                totalMarks: paperData.latestLeaderboard.totalMarks || 100,
+                ranks,
+                podium: {
+                    first: ranks[0] || null,
+                    second: ranks[1] || null,
+                    third: ranks[2] || null
+                },
+                myStanding: ranks.find(r => String(r.studentId) === String(callingId))
+            };
+        }
+        return null;
+    }, [customLeaderboardData, paperData, currentUser]);
+
+    const getGradeBadgeStyle = (grade) => {
+        switch((grade || '').toUpperCase()) {
+            case 'A': return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
+            case 'B': return 'bg-sky-500/20 text-sky-300 border-sky-500/40';
+            case 'C': return 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40';
+            case 'S': return 'bg-amber-500/20 text-amber-300 border-amber-500/40';
+            default: return 'bg-rose-500/20 text-rose-300 border-rose-500/40';
+        }
+    };
 
     const getGreeting = () => {
         const hour = currentTime.getHours();
@@ -118,6 +293,7 @@ export default function StudentOverview({ setActiveTab }) {
         if (hour < 18) return 'Good Afternoon';
         return 'Good Evening';
     };
+
 
     // 🔥 Live Class Logic 🔥
     const getLiveClassInfo = (c) => {
@@ -423,8 +599,570 @@ export default function StudentOverview({ setActiveTab }) {
                 </div>
             </div>
 
+            {/* ═══════════════════════════════════════════════════════════════════════════════ */}
+            {/* 🏆 ACADEMIC EXCELLENCE, MULTI-CLASS LEADERBOARD & PAPER HISTORY HUB 🏆 */}
+            {/* ═══════════════════════════════════════════════════════════════════════════════ */}
+            <div className="glass-card rounded-[1.5rem] md:rounded-[2.5rem] p-5 md:p-8 bg-gradient-to-br from-[#0c1322]/95 via-[#0e172a]/95 to-[#151f38]/95 border border-white/15 shadow-[0_12px_40px_rgba(0,0,0,0.35)] mb-6 space-y-6">
+                
+                {/* 1. SECTION HEADER & MULTI-CLASS FILTER CONTROL */}
+                <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 border-b border-white/10 pb-5">
+                    <div>
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold uppercase tracking-widest mb-2 shadow-sm">
+                            <Trophy size={14} className="text-amber-400" /> Academic Performance & Leaderboard
+                        </div>
+                        <h2 className="text-xl md:text-2xl font-black text-white tracking-wide flex items-center gap-2">
+                            <span>මගේ ප්‍රගතිය සහ පේපර් ඉතිහාසය</span>
+                            <Sparkles size={20} className="text-yellow-400 animate-pulse" />
+                        </h2>
+                        <p className="text-white/70 text-xs md:text-sm font-medium mt-0.5">
+                            Track test scores, compare class rankings, and consult your paper guiders in real-time.
+                        </p>
+                    </div>
+
+                    {/* Multi-Class Filter Pills (Classes 2-3 ක ඉන්නවනම් ඒව වෙන් වෙන්ව බැලීමේ හැකියාව) */}
+                    <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                        <span className="text-white/60 text-xs font-bold uppercase tracking-wider hidden sm:inline mr-1">
+                            Class Filter:
+                        </span>
+
+                        {/* All Classes Pill */}
+                        <button
+                            type="button"
+                            onClick={() => setSelectedClassFilter('ALL')}
+                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 ${
+                                selectedClassFilter === 'ALL'
+                                    ? 'bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-lg shadow-red-600/30 ring-1 ring-white/30 scale-105'
+                                    : 'bg-black/25 text-white/70 hover:text-white hover:bg-white/10 border border-white/10'
+                            }`}
+                        >
+                            <span>✨ All Classes (සියල්ල)</span>
+                            <span className="px-1.5 py-0.2 bg-black/30 rounded-full text-[10px]">
+                                {paperData?.recentTests?.length || 0}
+                            </span>
+                        </button>
+
+                        {/* Class-Specific Pills */}
+                        {paperData?.classes?.map((cls) => {
+                            const classTestsCount = (paperData?.recentTests || []).filter(t => 
+                                String(t.courseId) === String(cls.id) || 
+                                String(t.batchId) === String(cls.batchId || cls.id) ||
+                                t.className === cls.name ||
+                                t.classLabel === cls.name
+                            ).length;
+                            const isSelected = String(selectedClassFilter) === String(cls.id) || String(selectedClassFilter) === String(cls.batchId);
+
+                            return (
+                                <button
+                                    key={cls.id}
+                                    type="button"
+                                    onClick={() => setSelectedClassFilter(cls.id)}
+                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 ${
+                                        isSelected
+                                            ? 'bg-gradient-to-r from-sky-600 to-blue-600 text-white shadow-lg shadow-sky-600/30 ring-1 ring-white/30 scale-105'
+                                            : 'bg-black/25 text-white/70 hover:text-white hover:bg-white/10 border border-white/10'
+                                    }`}
+                                >
+                                    <span>{cls.name}</span>
+                                    <span className="px-1.5 py-0.2 bg-black/30 rounded-full text-[10px]">
+                                        {classTestsCount}
+                                    </span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* 2. PROGRESS BAR & ACADEMIC LEVEL DISPLAY */}
+                <div className="bg-gradient-to-r from-black/40 to-black/20 rounded-2xl p-4 md:p-6 border border-white/10 space-y-4">
+                    <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                        <div className="flex items-center gap-3.5">
+                            <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-amber-500/20 via-orange-500/20 to-red-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shadow-inner shrink-0">
+                                <Award size={26} strokeWidth={2.5} />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <span className="px-2.5 py-0.5 rounded-full bg-amber-400/20 text-amber-300 border border-amber-400/30 text-xs font-black uppercase tracking-wider">
+                                        {classMetrics.levelBadge}
+                                    </span>
+                                    <span className="text-white font-extrabold text-sm md:text-base">
+                                        {classMetrics.levelTitle}
+                                    </span>
+                                </div>
+                                <p className="text-white/60 text-xs mt-0.5">
+                                    {selectedClassFilter === 'ALL' ? 'Overall performance across all classes' : `Academic standing in ${paperData?.classes?.find(c => String(c.id) === String(selectedClassFilter))?.name || 'Selected Class'}`}
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* 4 Stat Badges */}
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 w-full md:w-auto">
+                            <div className="bg-black/30 backdrop-blur-sm border border-white/10 rounded-xl px-3.5 py-2 text-center min-w-[90px]">
+                                <span className="text-white/60 text-[11px] font-bold uppercase tracking-wider block">Completed</span>
+                                <span className="text-white font-black text-base md:text-lg">{classMetrics.totalTaken} Tests</span>
+                            </div>
+                            <div className="bg-black/30 backdrop-blur-sm border border-white/10 rounded-xl px-3.5 py-2 text-center min-w-[90px]">
+                                <span className="text-sky-300/80 text-[11px] font-bold uppercase tracking-wider block">Average</span>
+                                <span className="text-sky-400 font-black text-base md:text-lg">{classMetrics.averagePercentage}%</span>
+                            </div>
+                            <div className="bg-black/30 backdrop-blur-sm border border-white/10 rounded-xl px-3.5 py-2 text-center min-w-[90px]">
+                                <span className="text-amber-300/80 text-[11px] font-bold uppercase tracking-wider block">Best Mark</span>
+                                <span className="text-amber-400 font-black text-base md:text-lg">{classMetrics.highestScore}</span>
+                            </div>
+                            <div className="bg-black/30 backdrop-blur-sm border border-white/10 rounded-xl px-3.5 py-2 text-center min-w-[90px]">
+                                <span className="text-emerald-300/80 text-[11px] font-bold uppercase tracking-wider block">Pass Rate</span>
+                                <span className="text-emerald-400 font-black text-base md:text-lg">{classMetrics.passRate}%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Glowing Progress Bar */}
+                    <div className="space-y-1.5 pt-1">
+                        <div className="flex justify-between items-center text-xs font-bold">
+                            <span className="text-white/80 flex items-center gap-1.5">
+                                <TrendingUp size={14} className="text-emerald-400" />
+                                <span>Cumulative Performance Index</span>
+                            </span>
+                            <span className="text-emerald-400 font-extrabold text-sm">{classMetrics.averagePercentage}%</span>
+                        </div>
+                        <div className="w-full h-3.5 bg-black/50 rounded-full overflow-hidden p-0.5 border border-white/15 relative">
+                            <div 
+                                className="h-full rounded-full bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 transition-all duration-1000 shadow-[0_0_15px_rgba(52,211,153,0.5)]"
+                                style={{ width: `${Math.min(100, Math.max(5, classMetrics.averagePercentage))}%` }}
+                            ></div>
+                        </div>
+                        <div className="flex justify-between text-[11px] text-white/50 font-semibold px-1">
+                            <span>Pass (40%)</span>
+                            <span>Credit (65%)</span>
+                            <span>Distinction (75%)</span>
+                            <span>Master (85%+)</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* 3. DUAL PANEL: LEADERBOARD + EXAM HISTORY */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+                    {/* ════ LEFT COLUMN: CLASS LEADERBOARD (5 cols) ════ */}
+                    <div className="lg:col-span-5 flex flex-col gap-4 bg-black/25 rounded-2xl p-4 md:p-5 border border-white/10">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                            <div>
+                                <h3 className="text-white font-black text-base flex items-center gap-2">
+                                    <Trophy size={18} className="text-amber-400" />
+                                    <span>Class Leaderboard</span>
+                                </h3>
+                                <p className="text-white/60 text-xs">
+                                    {activeLeaderboard?.title || 'Ranking Standings'}
+                                </p>
+                            </div>
+                            {loadingLeaderboard && (
+                                <Loader2 size={16} className="text-amber-400 animate-spin" />
+                            )}
+                        </div>
+
+                        {/* Top 3 Podium Showcase */}
+                        {activeLeaderboard?.podium && (
+                            <div className="grid grid-cols-3 gap-2 pt-2 items-end">
+                                {/* 2nd Place */}
+                                <div className="flex flex-col items-center bg-gradient-to-t from-slate-900/90 to-slate-800/60 rounded-xl p-2.5 border border-slate-400/30 text-center relative shadow-md">
+                                    <span className="w-6 h-6 rounded-full bg-slate-300 text-slate-900 font-black text-xs flex items-center justify-center mb-1 shadow">2</span>
+                                    <div className="w-10 h-10 rounded-full bg-slate-700 border-2 border-slate-300 overflow-hidden mb-1 flex items-center justify-center text-white text-xs font-bold">
+                                        {activeLeaderboard.podium.second?.image ? (
+                                            <img src={`${backendBaseUrl}/storage/images/${activeLeaderboard.podium.second.image}`} alt="" className="w-full h-full object-cover" />
+                                        ) : (
+                                            (activeLeaderboard.podium.second?.name || '2nd').charAt(0)
+                                        )}
+                                    </div>
+                                    <p className="text-white font-bold text-xs truncate w-full">{activeLeaderboard.podium.second?.name || 'Contender'}</p>
+                                    <span className="text-slate-300 font-black text-xs">{activeLeaderboard.podium.second?.score || 0} pts</span>
+                                </div>
+
+                                {/* 1st Place (Elevated) */}
+                                <div className="flex flex-col items-center bg-gradient-to-t from-amber-950/90 via-amber-900/50 to-amber-800/40 rounded-xl p-3 border border-amber-400/60 text-center relative shadow-lg -translate-y-2">
+                                    <span className="w-7 h-7 rounded-full bg-amber-400 text-amber-950 font-black text-xs flex items-center justify-center mb-1 shadow-md shadow-amber-500/50">👑 1</span>
+                                    <div className="w-12 h-12 rounded-full bg-amber-700 border-2 border-amber-400 overflow-hidden mb-1 flex items-center justify-center text-white text-sm font-black shadow-[0_0_15px_rgba(251,191,36,0.5)]">
+                                        {activeLeaderboard.podium.first?.image ? (
+                                            <img src={`${backendBaseUrl}/storage/images/${activeLeaderboard.podium.first.image}`} alt="" className="w-full h-full object-cover" />
+                                        ) : (
+                                            (activeLeaderboard.podium.first?.name || '1st').charAt(0)
+                                        )}
+                                    </div>
+                                    <p className="text-white font-black text-xs truncate w-full">{activeLeaderboard.podium.first?.name || 'Champion'}</p>
+                                    <span className="text-amber-300 font-black text-sm">{activeLeaderboard.podium.first?.score || 0} pts</span>
+                                </div>
+
+                                {/* 3rd Place */}
+                                <div className="flex flex-col items-center bg-gradient-to-t from-amber-950/60 to-orange-950/40 rounded-xl p-2.5 border border-amber-600/30 text-center relative shadow-md">
+                                    <span className="w-6 h-6 rounded-full bg-amber-600 text-white font-black text-xs flex items-center justify-center mb-1 shadow">3</span>
+                                    <div className="w-10 h-10 rounded-full bg-amber-800 border-2 border-amber-600 overflow-hidden mb-1 flex items-center justify-center text-white text-xs font-bold">
+                                        {activeLeaderboard.podium.third?.image ? (
+                                            <img src={`${backendBaseUrl}/storage/images/${activeLeaderboard.podium.third.image}`} alt="" className="w-full h-full object-cover" />
+                                        ) : (
+                                            (activeLeaderboard.podium.third?.name || '3rd').charAt(0)
+                                        )}
+                                    </div>
+                                    <p className="text-white font-bold text-xs truncate w-full">{activeLeaderboard.podium.third?.name || 'Contender'}</p>
+                                    <span className="text-amber-400 font-black text-xs">{activeLeaderboard.podium.third?.score || 0} pts</span>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* My Standing Banner */}
+                        {activeLeaderboard?.myStanding ? (
+                            <div className="bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-red-500/20 border border-amber-400/40 rounded-xl p-3 flex items-center justify-between">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-lg bg-amber-400 text-amber-950 font-black text-sm flex items-center justify-center shadow">
+                                        #{activeLeaderboard.myStanding.rank}
+                                    </div>
+                                    <div>
+                                        <p className="text-white font-bold text-xs leading-tight">Your Current Rank</p>
+                                        <p className="text-amber-300 text-[11px] font-medium">
+                                            Score: {activeLeaderboard.myStanding.score} / {activeLeaderboard.totalMarks} ({activeLeaderboard.myStanding.grade || 'A'})
+                                        </p>
+                                    </div>
+                                </div>
+                                <span className="text-xs font-bold text-white/90 bg-white/10 px-2.5 py-1 rounded-lg">
+                                    Standing
+                                </span>
+                            </div>
+                        ) : null}
+
+                        {/* Full Rankings List */}
+                        <div className="space-y-1.5 max-h-[260px] overflow-y-auto custom-scrollbar pr-1">
+                            {(showAllRankings ? activeLeaderboard?.ranks : activeLeaderboard?.ranks?.slice(0, 5))?.map((r, idx) => (
+                                <div 
+                                    key={idx}
+                                    className={`flex items-center justify-between p-2 rounded-xl border transition-colors ${
+                                        String(r.studentId) === String(currentUser?.id || currentUser?.userId)
+                                            ? 'bg-amber-500/20 border-amber-400/50 shadow-sm'
+                                            : 'bg-black/30 border-white/5 hover:bg-white/5'
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-2.5 min-w-0">
+                                        <span className={`w-6 h-6 rounded-lg text-xs font-black flex items-center justify-center shrink-0 ${
+                                            r.rank === 1 ? 'bg-amber-400 text-amber-950' :
+                                            r.rank === 2 ? 'bg-slate-300 text-slate-900' :
+                                            r.rank === 3 ? 'bg-amber-600 text-white' :
+                                            'bg-white/10 text-white/80'
+                                        }`}>
+                                            {r.rank}
+                                        </span>
+                                        <div className="min-w-0">
+                                            <p className="text-white font-bold text-xs truncate">{r.name}</p>
+                                            <p className="text-white/50 text-[10px] truncate">{r.city || 'IMA Campus'}</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                        <span className="text-white font-black text-xs block">{r.score} pts</span>
+                                        <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold border ${getGradeBadgeStyle(r.grade)}`}>
+                                            {r.grade || 'Pass'}
+                                        </span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        {/* Toggle Show All */}
+                        {(activeLeaderboard?.ranks?.length || 0) > 5 && (
+                            <button
+                                type="button"
+                                onClick={() => setShowAllRankings(!showAllRankings)}
+                                className="w-full py-2 bg-white/5 hover:bg-white/10 text-white/80 hover:text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                            >
+                                <span>{showAllRankings ? 'Show Top 5 Only' : `View All Rankings (${activeLeaderboard?.ranks?.length})`}</span>
+                                {showAllRankings ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                            </button>
+                        )}
+                    </div>
+
+                    {/* ════ RIGHT COLUMN: PAPER TEST HISTORY TABLE (7 cols) ════ */}
+                    <div className="lg:col-span-7 flex flex-col gap-4 bg-black/25 rounded-2xl p-4 md:p-5 border border-white/10">
+                        <div className="flex items-center justify-between border-b border-white/10 pb-3">
+                            <div>
+                                <h3 className="text-white font-black text-base flex items-center gap-2">
+                                    <FileText size={18} className="text-sky-400" />
+                                    <span>Paper Examination History ({filteredTests.length})</span>
+                                </h3>
+                                <p className="text-white/60 text-xs">
+                                    Review submitted papers, question-by-question marks & teacher remarks
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* History Table / Cards */}
+                        <div className="space-y-3 max-h-[460px] overflow-y-auto custom-scrollbar pr-1">
+                            {filteredTests.length === 0 ? (
+                                <div className="text-center py-12 px-4 bg-black/20 rounded-2xl border border-white/10">
+                                    <GraduationCap size={36} className="mx-auto text-white/30 mb-2" />
+                                    <p className="text-white/80 font-bold text-sm">No exam papers recorded yet</p>
+                                    <p className="text-white/50 text-xs mt-1 max-w-sm mx-auto">
+                                        Once you submit your weekly or monthly exam papers, your complete marks breakdown and rank will appear right here.
+                                    </p>
+                                </div>
+                            ) : (
+                                filteredTests.map((t) => (
+                                    <div 
+                                        key={t.id}
+                                        className="bg-black/35 hover:bg-white/5 rounded-2xl p-4 border border-white/10 hover:border-white/20 transition-all duration-300 space-y-3"
+                                    >
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                            <div className="min-w-0">
+                                                <div className="flex items-center gap-2 flex-wrap mb-1">
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border ${
+                                                        t.category === 'MONTHLY' 
+                                                            ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' 
+                                                            : 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                                                    }`}>
+                                                        {t.category || 'WEEKLY'}
+                                                    </span>
+                                                    <span className="px-2 py-0.5 rounded-full bg-white/10 text-white/80 text-[10px] font-bold">
+                                                        {t.paperType || 'MCQ'}
+                                                    </span>
+                                                    <span className="text-white/50 text-[11px]">
+                                                        {t.submittedAt ? new Date(t.submittedAt).toLocaleDateString() : 'Recent'}
+                                                    </span>
+                                                </div>
+                                                <h4 className="text-white font-extrabold text-sm md:text-base leading-snug break-words">
+                                                    {t.testTitle}
+                                                </h4>
+                                                <p className="text-white/60 text-xs mt-0.5 font-medium">
+                                                    {t.classLabel || t.courseName || t.batchName || 'General Paper Class'}
+                                                </p>
+                                            </div>
+
+                                            {/* Score & Grade Display */}
+                                            <div className="flex items-center gap-3 shrink-0">
+                                                <div className="text-right">
+                                                    <div className="text-white font-black text-base md:text-lg">
+                                                        {t.score} <span className="text-white/50 text-xs font-normal">/ {t.totalMarks}</span>
+                                                    </div>
+                                                    <div className="text-white/60 text-[11px] font-semibold">
+                                                        {t.percentage}%
+                                                    </div>
+                                                </div>
+                                                <span className={`px-3 py-1 rounded-xl text-sm font-black border ${getGradeBadgeStyle(t.grade)} shadow-sm`}>
+                                                    {t.grade || 'Pass'}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {/* Action Buttons for this paper */}
+                                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/5">
+                                            <div className="flex items-center gap-2">
+                                                {t.rank && (
+                                                    <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-300 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
+                                                        <Trophy size={12} /> Rank #{t.rank} / {t.totalParticipants || '—'}
+                                                    </span>
+                                                )}
+                                                {t.teacherFeedback && (
+                                                    <span className="text-[11px] text-emerald-300/90 font-medium italic truncate max-w-[200px]" title={t.teacherFeedback}>
+                                                        Feedback: "{t.teacherFeedback}"
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            <div className="flex items-center gap-2 ml-auto">
+                                                {/* Leaderboard Button */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => loadPaperLeaderboard(t.paperId)}
+                                                    className="px-3 py-1.5 rounded-xl bg-black/40 hover:bg-white/10 text-white/80 hover:text-white text-xs font-bold border border-white/10 transition-colors flex items-center gap-1 cursor-pointer"
+                                                    title="View this paper's leaderboard"
+                                                >
+                                                    <Trophy size={13} className="text-amber-400" />
+                                                    <span className="hidden sm:inline">Leaderboard</span>
+                                                </button>
+
+                                                {/* Marks Breakdown Button */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSelectedTestForBreakdown(t)}
+                                                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white text-xs font-bold shadow-md shadow-sky-600/30 transition-all flex items-center gap-1.5 cursor-pointer"
+                                                >
+                                                    <Eye size={13} />
+                                                    <span>View Breakdown</span>
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            {/* ═══════════════════════════════════════════════════════════════════════════════ */}
+            {/* 🔍 QUESTION-BY-QUESTION MARKS BREAKDOWN & GUIDER CHAT MODAL 🔍 */}
+            {/* ═══════════════════════════════════════════════════════════════════════════════ */}
+            {selectedTestForBreakdown && (
+                <div 
+                    className="fixed inset-0 z-[500] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-fade-in"
+                    onClick={() => setSelectedTestForBreakdown(null)}
+                >
+                    <div 
+                        className="bg-[#0b1322] border border-white/20 rounded-3xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl relative"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        {/* Modal Header */}
+                        <div className="p-5 md:p-6 bg-gradient-to-r from-slate-900 to-[#0e172a] border-b border-white/10 flex items-start justify-between gap-4">
+                            <div>
+                                <div className="flex items-center gap-2 mb-1.5">
+                                    <span className="px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 border border-sky-500/30 text-xs font-black uppercase">
+                                        {selectedTestForBreakdown.category || 'WEEKLY'} TEST
+                                    </span>
+                                    <span className="text-white/60 text-xs">
+                                        {selectedTestForBreakdown.submittedAt ? new Date(selectedTestForBreakdown.submittedAt).toLocaleDateString() : ''}
+                                    </span>
+                                </div>
+                                <h3 className="text-lg md:text-xl font-black text-white leading-snug">
+                                    {selectedTestForBreakdown.testTitle}
+                                </h3>
+                                <p className="text-white/60 text-xs mt-0.5">
+                                    {selectedTestForBreakdown.classLabel || selectedTestForBreakdown.courseName || 'General Paper Class'}
+                                </p>
+                            </div>
+                            <button
+                                onClick={() => setSelectedTestForBreakdown(null)}
+                                className="text-white/60 hover:text-white p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-colors shrink-0"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        {/* Modal Body */}
+                        <div className="p-5 md:p-6 overflow-y-auto custom-scrollbar space-y-5 flex-1">
+                            {/* Summary Metrics */}
+                            <div className="grid grid-cols-3 gap-3 bg-black/30 p-4 rounded-2xl border border-white/10 text-center">
+                                <div>
+                                    <span className="text-white/60 text-[11px] font-bold uppercase tracking-wider block">Total Score</span>
+                                    <span className="text-white font-black text-lg md:text-xl">{selectedTestForBreakdown.score} / {selectedTestForBreakdown.totalMarks}</span>
+                                </div>
+                                <div>
+                                    <span className="text-sky-400 text-[11px] font-bold uppercase tracking-wider block">Percentage</span>
+                                    <span className="text-sky-300 font-black text-lg md:text-xl">{selectedTestForBreakdown.percentage}%</span>
+                                </div>
+                                <div>
+                                    <span className="text-amber-400 text-[11px] font-bold uppercase tracking-wider block">Grade & Rank</span>
+                                    <div className="flex items-center justify-center gap-1.5 mt-0.5">
+                                        <span className={`px-2 py-0.5 rounded-lg text-xs font-black border ${getGradeBadgeStyle(selectedTestForBreakdown.grade)}`}>
+                                            {selectedTestForBreakdown.grade}
+                                        </span>
+                                        <span className="text-white/80 font-bold text-xs">#{selectedTestForBreakdown.rank}</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Question-by-Question Marks Breakdown (ප්‍රශ්න අනුව ලකුණු විග්‍රහය) */}
+                            <div>
+                                <h4 className="text-white font-bold text-sm mb-3 flex items-center gap-2">
+                                    <FileText size={16} className="text-sky-400" />
+                                    <span>Question-by-Question Marks Breakdown (ප්‍රශ්න අනුව ලකුණු)</span>
+                                </h4>
+
+                                {Array.isArray(selectedTestForBreakdown.questionMarks) && selectedTestForBreakdown.questionMarks.length > 0 ? (
+                                    <div className="space-y-2.5">
+                                        {selectedTestForBreakdown.questionMarks.map((qm, qIdx) => {
+                                            const earned = parseFloat(qm.marks || 0);
+                                            const max = parseFloat(qm.maxMarks || 25);
+                                            const perc = max > 0 ? Math.round((earned / max) * 100) : 0;
+
+                                            return (
+                                                <div 
+                                                    key={qIdx}
+                                                    className="bg-black/40 border border-white/10 rounded-2xl p-3.5 space-y-2"
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="px-2.5 py-0.5 rounded-lg bg-white/10 text-white font-extrabold text-xs">
+                                                                Question {qm.questionNo || qIdx + 1}
+                                                            </span>
+                                                            {perc >= 75 ? (
+                                                                <span className="text-emerald-400 text-[11px] font-bold">Excellent</span>
+                                                            ) : perc >= 50 ? (
+                                                                <span className="text-sky-400 text-[11px] font-bold">Satisfactory</span>
+                                                            ) : (
+                                                                <span className="text-amber-400 text-[11px] font-bold">Needs Attention</span>
+                                                            )}
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <span className="text-white font-black text-sm">{earned}</span>
+                                                            <span className="text-white/50 text-xs"> / {max} ({perc}%)</span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Mini progress bar */}
+                                                    <div className="w-full h-1.5 bg-black/50 rounded-full overflow-hidden">
+                                                        <div 
+                                                            className={`h-full rounded-full transition-all duration-500 ${
+                                                                perc >= 75 ? 'bg-emerald-400' : perc >= 50 ? 'bg-sky-400' : 'bg-amber-400'
+                                                            }`}
+                                                            style={{ width: `${Math.min(100, Math.max(3, perc))}%` }}
+                                                        ></div>
+                                                    </div>
+
+                                                    {/* Specific Question Comment */}
+                                                    {qm.comment && (
+                                                        <p className="text-white/80 text-xs bg-white/5 p-2 rounded-xl italic">
+                                                            💬 Remark: {qm.comment}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="bg-black/30 p-4 rounded-2xl border border-white/10 text-center">
+                                        <p className="text-white/70 text-xs">
+                                            {selectedTestForBreakdown.paperType === 'MCQ'
+                                                ? 'MCQ Section evaluated automatically. Total Earned Marks: ' + selectedTestForBreakdown.score
+                                                : 'Cumulative score recorded: ' + selectedTestForBreakdown.score + ' marks.'}
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Overall Teacher's Feedback */}
+                            {selectedTestForBreakdown.teacherFeedback && (
+                                <div className="bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/30 rounded-2xl p-4 space-y-1">
+                                    <h5 className="text-emerald-400 font-bold text-xs uppercase tracking-wider flex items-center gap-1.5">
+                                        <MessageSquare size={14} /> Teacher's Comprehensive Feedback
+                                    </h5>
+                                    <p className="text-white/90 text-sm leading-relaxed">
+                                        "{selectedTestForBreakdown.teacherFeedback}"
+                                    </p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Modal Action Footer */}
+                        <div className="p-4 md:p-5 bg-gradient-to-r from-slate-900 to-[#0e172a] border-t border-white/10 flex flex-col sm:flex-row items-center justify-between gap-3">
+                            <button
+                                type="button"
+                                onClick={() => loadPaperLeaderboard(selectedTestForBreakdown.paperId)}
+                                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                            >
+                                <Trophy size={14} className="text-amber-400" />
+                                <span>View Test Leaderboard</span>
+                            </button>
+
+                            {/* DIRECT CHAT WITH PAPER GUIDER BUTTON */}
+                            <button
+                                type="button"
+                                onClick={() => handleChatWithGuider(selectedTestForBreakdown)}
+                                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-700 hover:from-sky-500 hover:to-indigo-600 text-white text-xs font-black shadow-lg shadow-sky-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
+                            >
+                                <MessageSquare size={15} />
+                                <span>Chat with Paper Guider About This Paper (ගයිඩර් අමතන්න)</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* MAIN GRID LAYOUT */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
 
                 {/* LEFT COLUMN: Updates + Live Classes */}
                 <div className="lg:col-span-2 flex flex-col gap-6">

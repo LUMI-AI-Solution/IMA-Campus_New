@@ -24,6 +24,13 @@ const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
+    if (typeof config.url === 'string') {
+        if (config.url.startsWith('/api/')) {
+            config.url = config.url.replace(/^\/api/, '');
+        } else if (config.url === '/api') {
+            config.url = '/';
+        }
+    }
     const token = localStorage.getItem('token') || localStorage.getItem('userToken') || localStorage.getItem('admin_token');
     if (token) {
         config.headers.Authorization = `Bearer ${token}`;

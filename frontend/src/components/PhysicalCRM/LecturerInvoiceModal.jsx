@@ -13,7 +13,8 @@ import {
   DollarSign,
   Phone,
   Percent,
-  Loader2
+  Loader2,
+  MinusCircle
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { toast } from 'react-hot-toast';
@@ -269,7 +270,10 @@ export default function LecturerInvoiceModal({
   const grossTotal = activeClass ? activeClass.grossRevenue : summary.grossRevenue;
   const cutPct = teacher.instituteCut || 0;
   const cutAmt = activeClass ? activeClass.instituteCutAmount : summary.instituteCutAmount;
-  const netPayout = activeClass ? activeClass.netTeacherPayout : summary.netTeacherPayout;
+  const totalDeductions = summary.totalDeductions || 0;
+  const deductions = reportData.deductions || [];
+  const netBeforeDeductions = summary.netTeacherPayoutBeforeDeductions || (grossTotal - cutAmt);
+  const finalPayable = activeClass ? Math.max(0, activeClass.netTeacherPayout - totalDeductions) : summary.netTeacherPayout;
   const enrolledCount = activeClass ? activeClass.enrolledCount : summary.totalEnrolledStudents;
   const paidCount = activeClass ? activeClass.paidCount : summary.totalPaidStudents;
   const unpaidCount = enrolledCount - paidCount;
@@ -544,7 +548,12 @@ export default function LecturerInvoiceModal({
                 )}
                 <div>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Lecturer Details</span>
-                  <h3 className="text-base font-extrabold text-slate-900 leading-tight">{teacher.name}</h3>
+                  <h3 className="text-base font-extrabold text-slate-900 leading-tight flex items-center gap-2">
+                    <span>{teacher.name}</span>
+                    <span className="font-mono text-xs px-2 py-0.5 rounded bg-blue-100 text-blue-900 border border-blue-200 font-bold">
+                      {teacher.lecturerId || `IMA-LEC-${1000 + teacher.id}`}
+                    </span>
+                  </h3>
                   <p className="text-xs text-slate-600 font-medium">{teacher.phone || teacher.whatsapp || 'No phone specified'}</p>
                   <p className="text-[11px] text-blue-600 font-bold mt-0.5">
                     Institute Cut Rate: {cutPct}%
@@ -604,14 +613,73 @@ export default function LecturerInvoiceModal({
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="bg-slate-900 text-white font-extrabold text-sm">
-                    <td className="p-3 uppercase tracking-wider" colSpan={4}>TOTAL NET LECTURER PAYOUT</td>
-                    <td className="p-3 text-right">Rs. {grossTotal.toLocaleString()}</td>
-                    <td className="p-3 text-right text-amber-300">- Rs. {cutAmt.toLocaleString()}</td>
-                    <td className="p-3 text-right text-emerald-300 text-base">Rs. {netPayout.toLocaleString()}</td>
+                  <tr className="bg-slate-100 text-slate-800 font-bold text-xs border-t border-slate-300">
+                    <td className="p-2.5 uppercase tracking-wider" colSpan={4}>Gross & Cut Subtotals</td>
+                    <td className="p-2.5 text-right">Rs. {grossTotal.toLocaleString()}</td>
+                    <td className="p-2.5 text-right text-amber-700">- Rs. {cutAmt.toLocaleString()}</td>
+                    <td className="p-2.5 text-right font-bold text-slate-900">Rs. {netBeforeDeductions.toLocaleString()}</td>
+                  </tr>
+                  {totalDeductions > 0 && (
+                    <tr className="bg-rose-50 text-rose-800 font-bold text-xs border-t border-rose-200">
+                      <td className="p-2.5 uppercase tracking-wider" colSpan={6}>
+                        Less: Cash Advances & Operational Deductions
+                      </td>
+                      <td className="p-2.5 text-right font-black text-rose-700">
+                        - Rs. {totalDeductions.toLocaleString()}
+                      </td>
+                    </tr>
+                  )}
+                  <tr className="bg-slate-900 text-white font-extrabold text-sm border-t-2 border-slate-950">
+                    <td className="p-3 uppercase tracking-wider" colSpan={totalDeductions > 0 ? 5 : 4}>
+                      FINAL NET PAYOUT PAYABLE
+                    </td>
+                    {totalDeductions === 0 && (
+                      <>
+                        <td className="p-3 text-right">Rs. {grossTotal.toLocaleString()}</td>
+                        <td className="p-3 text-right text-amber-300">- Rs. {cutAmt.toLocaleString()}</td>
+                      </>
+                    )}
+                    {totalDeductions > 0 && (
+                      <td className="p-3 text-right text-rose-300">- Rs. {totalDeductions.toLocaleString()}</td>
+                    )}
+                    <td className="p-3 text-right text-emerald-300 text-base">
+                      Rs. {finalPayable.toLocaleString()}
+                    </td>
                   </tr>
                 </tfoot>
               </table>
+
+              {/* Itemized Deductions Ledger if any */}
+              {deductions.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-slate-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <h5 className="text-[11px] font-bold uppercase tracking-wider text-rose-700 flex items-center gap-1.5">
+                      <MinusCircle size={13} className="text-rose-600" />
+                      Itemized Cash Advances & Deductions Detail
+                    </h5>
+                  </div>
+                  <table className="w-full text-xs text-left border-collapse border border-rose-200 bg-rose-50/30">
+                    <thead>
+                      <tr className="bg-rose-100/60 text-rose-900 font-bold border-b border-rose-200 text-[10px]">
+                        <th className="p-2">Date</th>
+                        <th className="p-2">Expense Category</th>
+                        <th className="p-2">Description / Note</th>
+                        <th className="p-2 text-right">Deducted Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-rose-200 text-slate-800 text-[11px]">
+                      {deductions.map((d, dIdx) => (
+                        <tr key={d.id || dIdx}>
+                          <td className="p-2 font-medium">{d.date ? new Date(d.date).toLocaleDateString('en-GB') : '-'}</td>
+                          <td className="p-2 font-bold text-rose-800">{d.category}</td>
+                          <td className="p-2 text-slate-600">{d.description || '-'}</td>
+                          <td className="p-2 text-right font-bold text-rose-700">- Rs. {(d.amount || 0).toLocaleString()}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             {/* DUAL E-SIGNATURE SECTION */}

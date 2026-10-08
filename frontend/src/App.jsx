@@ -57,8 +57,10 @@ import TestInjector from './components/admin/TestInjector';
 import DataExportDashboard from './components/DataExport/DataExportDashboard';
 import ZoomAccountManager from './pages/admin/ZoomAccountManager';
 import WhatsAppCallTest from './pages/admin/WhatsAppCallTest';
+import WhatsAppBillingDashboard from './pages/admin/WhatsAppBillingDashboard';
 import CallTreeManager from './pages/admin/CallTreeManager';
 import PaperMarkerDashboard from './components/paperMarker/PaperMarkerDashboard';
+import PaperGuiderHub from './pages/admin/PaperGuiderHub';
 
 // Coordinator CRM Dashboard (For Manager & Staff)
 import CoordinatorDashboard from './pages/ClassCoordinator/CoordinatorDashboard';
@@ -167,9 +169,10 @@ export default function App() {
 
     if (role === 'STUDENT' || role === 'USER') return '/student/dashboard';
 
+    if (role === 'PAPER_GUIDER') return '/paper-guider/hub';
     if (role === 'PAPER_MARKER') return '/paper-marker/dashboard';
 
-    if (role === 'LECTURE' || role === 'LECTURER' || role === 'PAPER_GUIDER') return '/manager/dashboard';
+    if (role === 'LECTURE' || role === 'LECTURER') return '/manager/dashboard';
 
     if (role === 'CALLER') return '/workspace/crm';
     if (role === 'CALL_CENTER_AGENT' || role === 'CALL CENTER AGENT') return '/call-center/agent/overview';
@@ -303,6 +306,7 @@ export default function App() {
               <Route path="/admin/test-injector" element={<TestInjector />} />
               <Route path="/admin/zoom-accounts" element={<ZoomAccountManager />} />
               <Route path="/admin/whatsapp-call-test" element={<WhatsAppCallTest loggedInUser={loggedInUser} />} />
+              <Route path="/admin/whatsapp-billing" element={<WhatsAppBillingDashboard loggedInUser={loggedInUser} />} />
               <Route path="/admin/call-tree" element={<CallTreeManager loggedInUser={loggedInUser} />} />
               {/* Note: theme-showcase route duplicated, removed one instance implicitly */}
 
@@ -344,6 +348,11 @@ export default function App() {
               {/* Paper Marker Routes */}
               <Route path="/paper-marker/dashboard" element={<PaperMarkerDashboard loggedInUser={loggedInUser} activeTab="overview" />} />
               <Route path="/paper-marker/workplace" element={<PaperMarkerDashboard loggedInUser={loggedInUser} activeTab="workplace" />} />
+
+              {/* Paper Guider & Ranking Hub Routes */}
+              <Route path="/paper-guider/hub" element={<PaperGuiderHub loggedInUser={loggedInUser} />} />
+              <Route path="/paper-guider/dashboard" element={<PaperGuiderHub loggedInUser={loggedInUser} />} />
+              <Route path="/admin/paper-guider-hub" element={<PaperGuiderHub loggedInUser={loggedInUser} />} />
             </Route>
 
             {/* ✅ STUDENT ROUTES ✅ */}

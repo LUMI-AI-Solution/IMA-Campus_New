@@ -194,6 +194,7 @@ app.use('/api/technical', require('./routes/technicalRoutes'));
 app.use('/api/notes', require('./routes/noteRoutes'));
 app.use('/api/admin/whatsapp-call', require('./routes/whatsappCallRoutes'));
 app.use('/api/admin/call-campaign-audit', require('./routes/callCampaignAuditRoutes'));
+app.use('/api/admin/whatsapp-billing', require('./routes/whatsappBillingRoutes'));
 
 
 // 🔥 NEW: Add Data Export Route here 🔥
@@ -580,18 +581,13 @@ let lastAiVerificationRunMinute = -1;
 
 cron.schedule('* * * * *', async () => {
     try {
-        const { PrismaClient } = require('@prisma/client');
-        const prismaLocal = new PrismaClient();
-        
-        const configSetting = await prismaLocal.appSetting.findUnique({ where: { key: 'AI_SLIP_VERIFICATION_SCHEDULE' } });
+        const configSetting = await prismaTaskGen.appSetting.findUnique({ where: { key: 'AI_SLIP_VERIFICATION_SCHEDULE' } });
         if (!configSetting || !configSetting.value) {
-            await prismaLocal.$disconnect();
             return;
         }
         
         const scheduleConfig = JSON.parse(configSetting.value);
         if (!scheduleConfig || typeof scheduleConfig !== 'object') {
-            await prismaLocal.$disconnect();
             return;
         }
         
@@ -606,7 +602,6 @@ cron.schedule('* * * * *', async () => {
 
         const currentMinuteNum = parseInt(currentTimeStr.split(':')[1], 10);
         if (lastAiVerificationRunMinute === currentMinuteNum) {
-            await prismaLocal.$disconnect();
             return;
         }
 
@@ -631,8 +626,6 @@ cron.schedule('* * * * *', async () => {
                 await aiVerificationController.startScheduledBulkVerification('noMatch');
             }
         }
-
-        await prismaLocal.$disconnect();
     } catch (err) {
         console.error("❌ Error in AI Schedule Cron:", err);
     }

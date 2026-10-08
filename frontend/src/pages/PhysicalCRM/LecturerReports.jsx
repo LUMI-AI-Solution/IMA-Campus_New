@@ -26,10 +26,16 @@ import {
   Check,
   X,
   ChevronDown,
-  GraduationCap
+  GraduationCap,
+  Plus,
+  Wallet,
+  MinusCircle,
+  ClipboardCheck
 } from 'lucide-react';
 import physicalCrmService from '../../api/physicalCrm';
+import { physicalFinanceService } from '../../api/physicalFinance';
 import LecturerInvoiceModal from '../../components/PhysicalCRM/LecturerInvoiceModal';
+import LecturerAttendanceSheetModal from '../../components/PhysicalCRM/LecturerAttendanceSheetModal';
 import { toast } from 'react-hot-toast';
 
 // Robust Teacher Image URL Helper matching ClassTeacherManagement.jsx
@@ -93,8 +99,19 @@ export default function LecturerReports() {
   const monthDropdownRef = useRef(null);
   const statusDropdownRef = useRef(null);
 
-  // Invoice Modal State
+  // Invoice & Attendance Sheet Modal State
   const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
+  const [isAttendanceSheetOpen, setIsAttendanceSheetOpen] = useState(false);
+
+  // Advance Modal State
+  const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
+  const [advanceForm, setAdvanceForm] = useState({
+    amount: '',
+    category: 'Teacher Advance',
+    description: '',
+    date: format(new Date(), 'yyyy-MM-dd')
+  });
+  const [savingAdvance, setSavingAdvance] = useState(false);
 
   useEffect(() => {
     fetchInitialData();
@@ -247,12 +264,45 @@ export default function LecturerReports() {
     }
   };
 
+  // Record Teacher Advance directly into Cash Flow
+  const handleSaveAdvance = async (e) => {
+    e.preventDefault();
+    if (!advanceForm.amount || parseFloat(advanceForm.amount) <= 0) {
+      toast.error('Please enter a valid advance amount');
+      return;
+    }
+    setSavingAdvance(true);
+    try {
+      await physicalFinanceService.addTransaction({
+        type: 'EXPENSE',
+        category: advanceForm.category,
+        amount: parseFloat(advanceForm.amount),
+        description: advanceForm.description || `Teacher advance for ${reportData.teacher.name} (${selectedMonth})`,
+        teacherId: reportData.teacher.id,
+        billingMonth: selectedMonth,
+        isTeacherAdvance: true,
+        date: advanceForm.date
+      });
+      toast.success(`Advance of Rs. ${parseFloat(advanceForm.amount).toLocaleString()} saved and deducted from ${formatMonthYear(selectedMonth)} payout!`);
+      setIsAdvanceModalOpen(false);
+      setAdvanceForm({ amount: '', category: 'Teacher Advance', description: '', date: format(new Date(), 'yyyy-MM-dd') });
+      loadTeacherReport(selectedTeacher.id, selectedMonth, selectedClassId);
+    } catch (err) {
+      toast.error('Failed to save advance: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setSavingAdvance(false);
+    }
+  };
+
   // Filtered Lecturers List for Directory
-  const filteredTeachers = teachers.filter(t => 
-    t.name.toLowerCase().includes(teacherSearch.toLowerCase()) ||
-    (t.phone && t.phone.includes(teacherSearch)) ||
-    (t.classes && t.classes.some(c => c.name.toLowerCase().includes(teacherSearch.toLowerCase())))
-  );
+  const filteredTeachers = teachers.filter(t => {
+    const q = teacherSearch.toLowerCase();
+    const lId = (t.lecturerId || `IMA-LEC-${1000 + t.id}`).toLowerCase();
+    return t.name.toLowerCase().includes(q) ||
+      lId.includes(q) ||
+      (t.phone && t.phone.includes(teacherSearch)) ||
+      (t.classes && t.classes.some(c => c.name.toLowerCase().includes(q)));
+  });
 
   // Active class name helper
   const getSelectedClassName = () => {
@@ -351,9 +401,14 @@ export default function LecturerReports() {
                       )}
 
                       <div className="flex-1 min-w-0">
-                        <h3 className="text-base font-extrabold text-white group-hover:text-blue-400 transition-colors truncate">
-                          {t.name}
-                        </h3>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="text-base font-extrabold text-white group-hover:text-blue-400 transition-colors truncate">
+                            {t.name}
+                          </h3>
+                          <span className="font-mono text-[10px] bg-blue-500/20 text-blue-300 font-bold px-2 py-0.5 rounded border border-blue-500/30">
+                            {t.lecturerId || `IMA-LEC-${1000 + t.id}`}
+                          </span>
+                        </div>
                         <p className="text-xs text-slate-400 flex items-center gap-1.5 mt-0.5">
                           <Phone size={12} className="text-blue-400" /> {t.phone || t.whatsapp || 'No contact set'}
                         </p>
@@ -452,9 +507,15 @@ export default function LecturerReports() {
                 <span className="text-[10px] font-bold uppercase tracking-widest text-blue-400 block mb-0.5">
                   Academic Lecturer
                 </span>
-                <h2 className="text-2xl font-black text-white tracking-tight">
-                  {reportData.teacher.name}
-                </h2>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h2 className="text-2xl font-black text-white tracking-tight">
+                    {reportData.teacher.name}
+                  </h2>
+                  <span className="px-3 py-1 rounded-xl bg-blue-500/20 text-blue-300 font-mono font-bold text-xs border border-blue-500/30 shadow-sm flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                    {reportData.teacher.lecturerId || `IMA-LEC-${1000 + reportData.teacher.id}`}
+                  </span>
+                </div>
                 <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs text-slate-400">
                   {reportData.teacher.phone && (
                     <span className="flex items-center gap-1">
@@ -473,13 +534,23 @@ export default function LecturerReports() {
               </div>
             </div>
 
-            {/* Right: Generate Invoice CTA */}
-            <div className="w-full md:w-auto">
+            {/* Right: Actions (Attendance Sheet + Invoice) */}
+            <div className="w-full md:w-auto flex flex-col sm:flex-row items-center gap-2.5">
+              <button
+                onClick={() => setIsAttendanceSheetOpen(true)}
+                className="w-full sm:w-auto px-5 py-3.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 hover:text-white rounded-2xl font-bold text-xs shadow-lg shadow-emerald-950/40 transition-all flex items-center justify-center gap-2 border border-emerald-500/30"
+                title="Generate monthly student attendance sheet for lecturer signature"
+              >
+                <ClipboardCheck size={16} className="text-emerald-400" />
+                <span>Monthly Attendance Sheet</span>
+              </button>
+
               <button
                 onClick={() => setIsInvoiceOpen(true)}
-                className="w-full md:w-auto px-6 py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2.5"
+                className="w-full sm:w-auto px-5 py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-xs shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2"
               >
-                <FileText size={18} /> Generate Month-End Payout Invoice
+                <FileText size={16} />
+                <span>Month-End Payout Invoice</span>
               </button>
             </div>
           </div>
@@ -540,7 +611,7 @@ export default function LecturerReports() {
               </button>
 
               {monthDropdownOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 py-1.5 max-h-56 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
+                <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 py-1.5 max-h-64 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
                   {reportData.availableMonths && reportData.availableMonths.length > 0 ? (
                     reportData.availableMonths.map(m => (
                       <div
@@ -555,6 +626,19 @@ export default function LecturerReports() {
                   ) : (
                     <div className="px-3.5 py-2 text-xs text-slate-400 italic">No months available</div>
                   )}
+
+                  {/* Pick any custom month */}
+                  <div className="p-2 border-t border-slate-800 bg-slate-950/80">
+                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Pick Another Month</label>
+                    <input 
+                      type="month"
+                      value={selectedMonth}
+                      onChange={(e) => {
+                        if (e.target.value) handleMonthChange(e.target.value);
+                      }}
+                      className="w-full px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold text-white outline-none focus:border-blue-500 cursor-pointer"
+                    />
+                  </div>
                 </div>
               )}
             </div>
@@ -612,10 +696,10 @@ export default function LecturerReports() {
 
           </div>
 
-          {/* Financial & Operational KPI Cards (Clean Typography - Zero Monospace) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+          {/* Financial Summary Metric Cards (Responsive 6-Card Grid) */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
             
-            {/* 1. Enrolled Students */}
+            {/* 1. Total Enrolled */}
             <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl shadow-sm">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
                 Total Enrolled
@@ -664,7 +748,20 @@ export default function LecturerReports() {
               <p className="text-[10px] text-slate-500 mt-0.5">Deducted cut</p>
             </div>
 
-            {/* 5. NET LECTURER PAYOUT */}
+            {/* 5. Teacher Advances & Deductions */}
+            <div className="bg-slate-900/80 border border-rose-500/30 p-4 rounded-2xl shadow-sm">
+              <span className="text-[10px] font-bold text-rose-400 uppercase tracking-wider block">
+                Advances / Deductions
+              </span>
+              <h3 className="text-2xl font-extrabold text-rose-400 mt-1 tracking-tight">
+                - Rs. {(reportData.summary.totalDeductions || 0).toLocaleString()}
+              </h3>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {reportData.deductions?.length || 0} Cash Flow advances
+              </p>
+            </div>
+
+            {/* 6. NET LECTURER PAYOUT */}
             <div className="bg-emerald-950/40 border-2 border-emerald-500/50 p-4 rounded-2xl shadow-md">
               <span className="text-[10px] font-black text-emerald-300 uppercase tracking-wider block">
                 Net Lecturer Payout
@@ -672,9 +769,84 @@ export default function LecturerReports() {
               <h3 className="text-2xl font-black text-emerald-300 mt-1 tracking-tight">
                 Rs. {reportData.summary.netTeacherPayout.toLocaleString()}
               </h3>
-              <p className="text-[10px] text-emerald-400/80 mt-0.5 font-semibold">Actual net remittance</p>
+              <p className="text-[10px] text-emerald-400/80 mt-0.5 font-semibold">After cuts & advances</p>
             </div>
 
+          </div>
+
+          {/* ========================================================================= */}
+          {/* SECTION: CASH FLOW ADVANCES & DEDUCTIONS FOR THIS LECTURER                */}
+          {/* ========================================================================= */}
+          <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-5 rounded-3xl shadow-xl space-y-4">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Wallet size={18} className="text-rose-400" />
+                  Lecturer Advances & Expense Deductions ({formatMonthYear(selectedMonth)})
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Cash Flow expenses and advances linked to this lecturer that automatically deduct from this month's salary/payout.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsAdvanceModalOpen(true)}
+                className="px-3.5 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer shrink-0"
+              >
+                <Plus size={14} /> + Record Teacher Advance
+              </button>
+            </div>
+
+            {reportData.deductions && reportData.deductions.length > 0 ? (
+              <div className="overflow-x-auto custom-scrollbar border border-slate-800 rounded-2xl">
+                <table className="w-full text-xs text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-800 text-slate-300 font-bold border-b border-slate-700 text-[11px]">
+                      <th className="p-3">Date</th>
+                      <th className="p-3">Category</th>
+                      <th className="p-3">Description / Remarks</th>
+                      <th className="p-3 text-right">Deducted Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 text-slate-200">
+                    {reportData.deductions.map((d, dIdx) => (
+                      <tr key={d.id || dIdx} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="p-3 font-semibold text-slate-300">
+                          {d.date ? format(new Date(d.date), 'dd MMM yyyy') : '-'}
+                        </td>
+                        <td className="p-3">
+                          <span className="px-2.5 py-1 bg-rose-500/15 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-bold">
+                            {d.category || 'Teacher Advance'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-slate-300">
+                          {d.description || `Teacher advance for ${reportData.teacher.name}`}
+                        </td>
+                        <td className="p-3 text-right font-extrabold text-rose-400 text-sm">
+                          - Rs. {(d.amount || 0).toLocaleString()}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-800/80 font-bold text-slate-300 border-t border-slate-700 text-xs">
+                      <td colSpan={3} className="p-3 text-right uppercase tracking-wider text-slate-400">
+                        Total Deductions for {formatMonthYear(selectedMonth)}:
+                      </td>
+                      <td className="p-3 text-right font-black text-rose-400 text-sm">
+                        - Rs. {(reportData.summary.totalDeductions || 0).toLocaleString()}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            ) : (
+              <div className="p-4 bg-slate-950/40 border border-slate-800/80 rounded-2xl text-center text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-2">
+                <span>No advances or expenses recorded for this lecturer in {formatMonthYear(selectedMonth)}.</span>
+                <span className="text-[11px] text-emerald-400 font-semibold">Full net payout will be remitted without deductions.</span>
+              </div>
+            )}
           </div>
 
           {/* View Mode Switcher (If a specific class is selected, can toggle between Student Roster and Full Calendar Matrix) */}
@@ -823,7 +995,6 @@ export default function LecturerReports() {
                       <th className="p-3">Student Reg ID</th>
                       <th className="p-3">Student Name</th>
                       <th className="p-3">Class</th>
-                      <th className="p-3 text-center">Registration Fee</th>
                       <th className="p-3 text-center">Class Fee ({formatMonthYear(selectedMonth)})</th>
                       <th className="p-3 text-right">Action</th>
                     </tr>
@@ -854,11 +1025,6 @@ export default function LecturerReports() {
                         </td>
                         <td className="p-3 text-slate-300">
                           {st.className} <span className="text-[10px] text-slate-500">({st.grade})</span>
-                        </td>
-                        <td className="p-3 text-center">
-                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold uppercase ${st.registrationFeeStatus === 'PAID' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
-                            {st.registrationFeeStatus}
-                          </span>
                         </td>
                         <td className="p-3 text-center">
                           <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${st.feeStatus === 'PAID' ? 'bg-emerald-600 text-white' : (st.feeStatus === 'FREE_CARD' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700')}`}>
@@ -892,6 +1058,127 @@ export default function LecturerReports() {
             selectedClassId={selectedClassId}
             classesList={classes}
           />
+
+          {/* Monthly Class Attendance Sheet Modal */}
+          <LecturerAttendanceSheetModal
+            isOpen={isAttendanceSheetOpen}
+            onClose={() => setIsAttendanceSheetOpen(false)}
+            reportData={reportData}
+            selectedMonth={selectedMonth}
+            selectedClassId={selectedClassId}
+            onMonthChange={(newMonth) => {
+              setSelectedMonth(newMonth);
+              loadTeacherReport(reportData.teacher.id, newMonth, selectedClassId);
+            }}
+            onClassChange={(newClassId) => {
+              setSelectedClassId(newClassId);
+              loadTeacherReport(reportData.teacher.id, selectedMonth, newClassId);
+            }}
+            classesList={classes}
+          />
+
+          {/* Record Teacher Advance Modal */}
+          {isAdvanceModalOpen && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex justify-center items-center p-4">
+              <div className="bg-[#151522] border border-rose-500/30 p-6 rounded-3xl w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200 text-white">
+                <button 
+                  onClick={() => setIsAdvanceModalOpen(false)} 
+                  className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors bg-white/5 p-2 rounded-xl"
+                >
+                  <X size={18} />
+                </button>
+
+                <div className="flex items-center gap-3 mb-5">
+                  <div className="w-11 h-11 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30">
+                    <Wallet size={22} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold">Record Teacher Advance</h3>
+                    <p className="text-xs text-slate-400">{reportData.teacher.name} • {formatMonthYear(selectedMonth)}</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSaveAdvance} className="space-y-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">
+                      Target Billing Month (අදාළ මාසය)
+                    </label>
+                    <input 
+                      type="text" 
+                      disabled
+                      value={`${formatMonthYear(selectedMonth)} (${selectedMonth})`}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white/70 font-bold text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">
+                      Expense Category (වියදම් වර්ගය) *
+                    </label>
+                    <select
+                      value={advanceForm.category}
+                      onChange={(e) => setAdvanceForm({ ...advanceForm, category: e.target.value })}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white font-bold text-xs outline-none focus:border-rose-400"
+                    >
+                      <option value="Teacher Advance" className="text-black">Teacher Advance (ගුරු අත්තිකාරම්)</option>
+                      <option value="Teacher Payout" className="text-black">Teacher Payout (ගුරු වැටුප් ගෙවීම්)</option>
+                      <option value="Lecturer Allowance" className="text-black">Lecturer Allowance (දීමනා)</option>
+                      <option value="Supplies" className="text-black">Class Supplies / Tute Printing (මුද්‍රණ වියදම්)</option>
+                      <option value="Other Expense" className="text-black">Other Expense (වෙනත්)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">
+                      Advance Amount (රුපියල්) *
+                    </label>
+                    <input 
+                      type="number"
+                      step="any"
+                      required
+                      placeholder="0.00"
+                      value={advanceForm.amount}
+                      onChange={(e) => setAdvanceForm({ ...advanceForm, amount: e.target.value })}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-rose-500/40 text-xl font-black shadow-inner"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">
+                      Date of Payment (ගෙවූ දිනය) *
+                    </label>
+                    <input 
+                      type="date"
+                      required
+                      value={advanceForm.date}
+                      onChange={(e) => setAdvanceForm({ ...advanceForm, date: e.target.value })}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs font-bold shadow-inner cursor-pointer"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">
+                      Description / Note (විස්තරය)
+                    </label>
+                    <textarea 
+                      value={advanceForm.description}
+                      onChange={(e) => setAdvanceForm({ ...advanceForm, description: e.target.value })}
+                      placeholder={`Reason for advance (e.g. Early payment requested, Tute printing expenses, etc.)...`}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-rose-500/40 min-h-[70px] shadow-inner text-xs"
+                    />
+                  </div>
+
+                  <button 
+                    type="submit" 
+                    disabled={savingAdvance}
+                    className="w-full py-3.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold shadow-lg shadow-rose-500/30 transition-all text-sm tracking-wide mt-2 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                  >
+                    {savingAdvance ? 'Saving Advance...' : 'Record Advance & Deduct from Payout'}
+                  </button>
+                </form>
+              </div>
+            </div>
+          )}
 
         </div>
       )}

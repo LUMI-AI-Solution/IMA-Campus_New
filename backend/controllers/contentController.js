@@ -153,7 +153,7 @@ exports.getBatchesByBusiness = async (req, res) => {
     try {
         const batches = await prisma.batch.findMany({
             where: { businessId: parseInt(req.params.bizId) },
-            include: { groups: { include: { courses: true } } }
+            include: { groups: { include: { courses: true }, orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }] } }
         });
         const safeData = JSON.parse(JSON.stringify(batches, (key, value) => typeof value === 'bigint' ? value.toString() : value));
         console.log("SENDING BATCHES-FULL:", JSON.stringify(safeData).substring(0, 500)); res.status(200).json({ batches: safeData });
@@ -347,6 +347,35 @@ exports.createSubject = async (req, res) => {
         });
 
         await Promise.all(coursePromises);
+
+        // 🚚 AUTO-CREATE DELIVERIES FOR APPROVED PAYMENTS IN NEWLY CREATED GROUPS
+        try {
+            const affectedGroupIds = parsedPrices.map(gp => parseInt(gp.groupId)).filter(Boolean);
+            if (affectedGroupIds.length > 0) {
+                const { createAutoDeliveryForPayment } = require('./paymentController');
+                const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+                const unhandledPayments = await prisma.payment.findMany({
+                    where: {
+                        status: 1,
+                        delivery: null,
+                        subjects: { not: null },
+                        created_at: { gte: thirtyDaysAgo },
+                        groupId: { in: affectedGroupIds }
+                    }
+                });
+
+                for (const unhandled of unhandledPayments) {
+                    try {
+                        await createAutoDeliveryForPayment(unhandled);
+                    } catch (createErr) {
+                        console.error(`[CONTENT-HUB CREATE AUTO-DELIVERY ERROR] Payment #${unhandled.id}:`, createErr);
+                    }
+                }
+            }
+        } catch (syncErr) {
+            console.error("[CONTENT-HUB CREATE AUTO-DELIVERY ERROR]:", syncErr);
+        }
+
         res.status(201).json({ message: "Created in all selected groups" });
     } catch (e) { 
         console.error(e);
@@ -546,6 +575,30 @@ exports.updateSubject = async (req, res) => {
                                 }))
                             })
                         ]);
+                    }
+                }
+
+                // 🚚 AUTO-CREATE DELIVERIES FOR APPROVED PAYMENTS THAT HAVE NO DELIVERY YET
+                // (e.g. slips approved before tute/deliverTute was configured in Content Hub)
+                const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+                const unhandledPayments = await prisma.payment.findMany({
+                    where: {
+                        status: 1,
+                        delivery: null,
+                        subjects: { not: null },
+                        created_at: { gte: thirtyDaysAgo },
+                        groupId: { in: affectedGroupIds }
+                    }
+                });
+
+                if (unhandledPayments.length > 0) {
+                    const { createAutoDeliveryForPayment } = require('./paymentController');
+                    for (const unhandled of unhandledPayments) {
+                        try {
+                            await createAutoDeliveryForPayment(unhandled);
+                        } catch (createErr) {
+                            console.error(`[CONTENT-HUB AUTO-CREATE ERROR] Payment #${unhandled.id}:`, createErr);
+                        }
                     }
                 }
             }
@@ -971,6 +1024,9 @@ exports.addContentMassAssign = async (req, res) => {
                 const parsedCategory = (category || paperCategory) && ['WEEKLY', 'MONTHLY'].includes(String(category || paperCategory).toUpperCase())
                     ? String(category || paperCategory).toUpperCase()
                     : 'WEEKLY';
+                const parsedHasLeaderboard = req.body.hasLeaderboard !== undefined 
+                    ? (req.body.hasLeaderboard === 'true' || req.body.hasLeaderboard === '1' || req.body.hasLeaderboard === true)
+                    : true;
                 const parsedParticipantCount = (manualParticipantCount !== undefined && manualParticipantCount !== null && manualParticipantCount !== '')
                     ? parseInt(manualParticipantCount)
                     : null;
@@ -986,6 +1042,7 @@ exports.addContentMassAssign = async (req, res) => {
                         contentId: newContent.id,
                         paperType: resolvedPaperType,
                         category: parsedCategory,
+                        hasLeaderboard: parsedHasLeaderboard,
                         manualParticipantCount: parsedParticipantCount,
                         durationMinutes: parsedTotalDur,
                         mcqDurationMinutes: parsedMcqDur,
@@ -1010,6 +1067,7 @@ exports.addContentMassAssign = async (req, res) => {
                     update: {
                         paperType: resolvedPaperType,
                         category: parsedCategory,
+                        hasLeaderboard: parsedHasLeaderboard,
                         manualParticipantCount: parsedParticipantCount,
                         durationMinutes: parsedTotalDur,
                         mcqDurationMinutes: parsedMcqDur,
@@ -1169,6 +1227,9 @@ exports.updateContentMassAssign = async (req, res) => {
             const parsedCategory = (category || paperCategory) && ['WEEKLY', 'MONTHLY'].includes(String(category || paperCategory).toUpperCase())
                 ? String(category || paperCategory).toUpperCase()
                 : 'WEEKLY';
+            const parsedHasLeaderboard = req.body.hasLeaderboard !== undefined 
+                ? (req.body.hasLeaderboard === 'true' || req.body.hasLeaderboard === '1' || req.body.hasLeaderboard === true)
+                : undefined;
             const parsedParticipantCount = (manualParticipantCount !== undefined && manualParticipantCount !== null && manualParticipantCount !== '')
                 ? parseInt(manualParticipantCount)
                 : null;
@@ -1184,6 +1245,7 @@ exports.updateContentMassAssign = async (req, res) => {
                     contentId: updated.id,
                     paperType: resolvedPaperType || 'MCQ',
                     category: parsedCategory,
+                    hasLeaderboard: parsedHasLeaderboard !== undefined ? parsedHasLeaderboard : true,
                     manualParticipantCount: parsedParticipantCount,
                     durationMinutes: parsedTotalDur || 60,
                     mcqDurationMinutes: parsedMcqDur !== undefined ? parsedMcqDur : 30,
@@ -1208,6 +1270,7 @@ exports.updateContentMassAssign = async (req, res) => {
                 update: {
                     ...(resolvedPaperType ? { paperType: resolvedPaperType } : {}),
                     category: parsedCategory,
+                    ...(parsedHasLeaderboard !== undefined ? { hasLeaderboard: parsedHasLeaderboard } : {}),
                     ...(manualParticipantCount !== undefined ? { manualParticipantCount: parsedParticipantCount } : {}),
                     ...(parsedTotalDur !== undefined ? { durationMinutes: parsedTotalDur } : {}),
                     ...(parsedMcqDur !== undefined ? { mcqDurationMinutes: parsedMcqDur } : {}),
@@ -1586,7 +1649,8 @@ exports.getBatchesFull = async (req, res) => {
             include: { 
                 business: true, 
                 groups: { 
-                    include: { courses: true } 
+                    include: { courses: true },
+                    orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }]
                 } 
             } 
         });

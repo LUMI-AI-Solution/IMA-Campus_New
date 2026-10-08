@@ -42,6 +42,32 @@ const calculateGrade = (score, totalMarks, gradingScale) => {
     return 'F';
 };
 
+// Helper to safely parse teacherFeedback payload that may contain essay questionMarks
+const parseTeacherFeedbackPayload = (rawFeedback) => {
+    if (!rawFeedback) return { text: '', questionMarks: null };
+    if (typeof rawFeedback === 'object') {
+        return {
+            text: rawFeedback.text || '',
+            questionMarks: Array.isArray(rawFeedback.questionMarks) ? rawFeedback.questionMarks : null
+        };
+    }
+    if (typeof rawFeedback === 'string') {
+        const trimmed = rawFeedback.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+            try {
+                const parsed = JSON.parse(trimmed);
+                if (parsed && typeof parsed === 'object' && ('questionMarks' in parsed || 'text' in parsed)) {
+                    return {
+                        text: parsed.text || '',
+                        questionMarks: Array.isArray(parsed.questionMarks) ? parsed.questionMarks : null
+                    };
+                }
+            } catch (e) {}
+        }
+    }
+    return { text: rawFeedback, questionMarks: null };
+};
+
 // 1. Get Paper Config & Details
 exports.getPaperByContentId = async (req, res) => {
     try {
@@ -185,34 +211,39 @@ exports.getPaperByContentId = async (req, res) => {
                 passMarks: paper.passMarks || 40,
                 gradingScale: paper.gradingScale ? (typeof paper.gradingScale === 'string' ? JSON.parse(paper.gradingScale) : paper.gradingScale) : null,
                 category: paper.category || 'WEEKLY',
+                hasLeaderboard: paper.hasLeaderboard !== undefined ? paper.hasLeaderboard : true,
                 manualParticipantCount: paper.manualParticipantCount || null,
                 instructions: paper.instructions,
                 mcqPaperFile: paper.mcqPaperFile,
                 structuredPaperFile: paper.structuredPaperFile || content.fileName,
                 questions: sanitizedQuestions
             },
-            userSubmission: userSubmission ? {
-                id: userSubmission.id,
-                startedAt: userSubmission.startedAt,
-                submittedAt: userSubmission.submittedAt,
-                mcqSubmittedAt: userSubmission.mcqSubmittedAt,
-                structuredStartedAt: userSubmission.structuredStartedAt,
-                structuredSubmittedAt: userSubmission.structuredSubmittedAt,
-                isUploadLocked: Boolean(userSubmission.isUploadLocked),
-                status: userSubmission.status,
-                score: userSubmission.score,
-                grade: calculateGrade(userSubmission.score, paper.totalMarks, paper.gradingScale),
-                mcqScore: userSubmission.mcqScore,
-                structuredScore: userSubmission.structuredScore,
-                totalQuestions: userSubmission.totalQuestions,
-                correctAnswers: userSubmission.correctAnswers,
-                answerFile: userSubmission.answerFile,
-                answerImages: userSubmission.answerImages ? JSON.parse(userSubmission.answerImages) : [],
-                teacherFeedback: userSubmission.teacherFeedback,
-                gradedBy: userSubmission.gradedBy,
-                gradedAt: userSubmission.gradedAt,
-                answers: userSubmission.answers
-            } : null,
+            userSubmission: userSubmission ? (() => {
+                const fb = parseTeacherFeedbackPayload(userSubmission.teacherFeedback);
+                return {
+                    id: userSubmission.id,
+                    startedAt: userSubmission.startedAt,
+                    submittedAt: userSubmission.submittedAt,
+                    mcqSubmittedAt: userSubmission.mcqSubmittedAt,
+                    structuredStartedAt: userSubmission.structuredStartedAt,
+                    structuredSubmittedAt: userSubmission.structuredSubmittedAt,
+                    isUploadLocked: Boolean(userSubmission.isUploadLocked),
+                    status: userSubmission.status,
+                    score: userSubmission.score,
+                    grade: calculateGrade(userSubmission.score, paper.totalMarks, paper.gradingScale),
+                    mcqScore: userSubmission.mcqScore,
+                    structuredScore: userSubmission.structuredScore,
+                    totalQuestions: userSubmission.totalQuestions,
+                    correctAnswers: userSubmission.correctAnswers,
+                    answerFile: userSubmission.answerFile,
+                    answerImages: userSubmission.answerImages ? JSON.parse(userSubmission.answerImages) : [],
+                    teacherFeedback: fb.text,
+                    questionMarks: fb.questionMarks,
+                    gradedBy: userSubmission.gradedBy,
+                    gradedAt: userSubmission.gradedAt,
+                    answers: userSubmission.answers
+                };
+            })() : null,
             serverTime: new Date()
         });
 
@@ -246,6 +277,8 @@ exports.savePaperConfig = async (req, res) => {
             instructions,
             gradingScale,
             category,
+            hasLeaderboard,
+            questionCount,
             manualParticipantCount,
             mcqPaperFile,
             structuredPaperFile
@@ -264,6 +297,7 @@ exports.savePaperConfig = async (req, res) => {
         const resolvedStructTimer = structuredTimerMode || timerMode || 'FLEXIBLE';
 
         const parsedCategory = category && ['WEEKLY', 'MONTHLY'].includes(String(category).toUpperCase()) ? String(category).toUpperCase() : 'WEEKLY';
+        const parsedHasLeaderboard = hasLeaderboard !== undefined ? (hasLeaderboard === true || hasLeaderboard === 'true' || hasLeaderboard === 1 || hasLeaderboard === '1') : true;
         const parsedParticipantCount = manualParticipantCount !== undefined && manualParticipantCount !== null && manualParticipantCount !== '' ? parseInt(manualParticipantCount) : null;
 
         let parsedGradingScale = undefined;
@@ -274,6 +308,7 @@ exports.savePaperConfig = async (req, res) => {
         const updateData = {
             paperType: validPaperType,
             category: parsedCategory,
+            hasLeaderboard: parsedHasLeaderboard,
             manualParticipantCount: parsedParticipantCount,
             timerMode: timerMode || (resolvedMcqTimer === 'SCHEDULED' || resolvedStructTimer === 'SCHEDULED' ? 'SCHEDULED' : 'FLEXIBLE'),
             scheduledStartTime: parsedStartTime || parsedMcqStartTime || parsedStructStartTime,
@@ -305,16 +340,62 @@ exports.savePaperConfig = async (req, res) => {
             }
         });
 
-        // Also sync durationMinutes back to Content.paperTime
+        // Also sync durationMinutes and questionCount back to Content
+        const contentUpdateData = { paperTime: parsedDuration };
+        if (questionCount !== undefined && questionCount !== null && questionCount !== '') {
+            contentUpdateData.questionCount = parseInt(questionCount) || null;
+        }
         await prisma.content.update({
             where: { id: parsedContentId },
-            data: { paperTime: parsedDuration }
+            data: contentUpdateData
         });
 
         res.json({ message: "Paper settings saved successfully", paper });
     } catch (err) {
         console.error("savePaperConfig Error:", err);
         res.status(500).json({ error: "Failed to save paper configuration" });
+    }
+};
+
+// Upload Master Question Paper PDF
+exports.uploadMasterSheet = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "No file uploaded" });
+        }
+        const { contentId, paperType } = req.body;
+        const filename = req.file.filename;
+
+        if (contentId) {
+            const parsedId = parseInt(contentId);
+            // Update content fileName so students can access master file
+            await prisma.content.update({
+                where: { id: parsedId },
+                data: { fileName: filename }
+            });
+
+            // Update paper structuredPaperFile
+            await prisma.paper.upsert({
+                where: { contentId: parsedId },
+                create: {
+                    contentId: parsedId,
+                    structuredPaperFile: filename,
+                    paperType: paperType || 'STRUCTURED'
+                },
+                update: {
+                    structuredPaperFile: filename
+                }
+            });
+        }
+
+        res.json({
+            message: "Master question paper uploaded successfully",
+            filename,
+            fileUrl: `/storage/documents/${filename}`
+        });
+    } catch (err) {
+        console.error("uploadMasterSheet Error:", err);
+        res.status(500).json({ error: "Failed to upload master question paper" });
     }
 };
 
@@ -860,11 +941,16 @@ exports.getPaperSubmissions = async (req, res) => {
             orderBy: { submittedAt: 'desc' }
         });
 
-        const formatted = submissions.map(sub => ({
-            ...sub,
-            grade: calculateGrade(sub.score, sub.paper?.totalMarks, sub.paper?.gradingScale),
-            answerImages: sub.answerImages ? JSON.parse(sub.answerImages) : []
-        }));
+        const formatted = submissions.map(sub => {
+            const fb = parseTeacherFeedbackPayload(sub.teacherFeedback);
+            return {
+                ...sub,
+                teacherFeedback: fb.text,
+                questionMarks: fb.questionMarks,
+                grade: calculateGrade(sub.score, sub.paper?.totalMarks, sub.paper?.gradingScale),
+                answerImages: sub.answerImages ? JSON.parse(sub.answerImages) : []
+            };
+        });
 
         res.json({ submissions: formatted });
     } catch (err) {
@@ -877,7 +963,7 @@ exports.getPaperSubmissions = async (req, res) => {
 exports.gradeStructuredSubmission = async (req, res) => {
     try {
         const submissionId = parseInt(req.params.submissionId);
-        const { score, teacherFeedback } = req.body;
+        const { score, teacherFeedback, questionMarks } = req.body;
 
         if (!submissionId) return res.status(400).json({ error: "submissionId is required" });
 
@@ -897,22 +983,35 @@ exports.gradeStructuredSubmission = async (req, res) => {
 
         const markerId = req.user?.userId || req.user?.id;
 
+        // Bundle questionMarks and teacherFeedback into a structured JSON string
+        let feedbackToStore = teacherFeedback || null;
+        if (questionMarks !== undefined && questionMarks !== null) {
+            feedbackToStore = JSON.stringify({
+                text: teacherFeedback || '',
+                questionMarks: questionMarks
+            });
+        }
+
         const updated = await prisma.paperSubmission.update({
             where: { id: submissionId },
             data: {
                 structuredScore: parsedStructuredScore,
                 score: finalScore,
-                teacherFeedback: teacherFeedback || null,
+                teacherFeedback: feedbackToStore,
                 status: "GRADED",
                 gradedBy: markerId ? parseInt(markerId) : null,
                 gradedAt: new Date()
             }
         });
 
+        const fb = parseTeacherFeedbackPayload(updated.teacherFeedback);
+
         res.json({ 
             message: "Submission graded successfully", 
             submission: {
                 ...updated,
+                teacherFeedback: fb.text,
+                questionMarks: fb.questionMarks,
                 answerImages: updated.answerImages ? JSON.parse(updated.answerImages) : []
             } 
         });
@@ -1030,6 +1129,7 @@ exports.getPaperLeaderboard = async (req, res) => {
                 title: paper.content?.title || 'Ranking Test',
                 paperType: paper.paperType,
                 category: paper.category || 'WEEKLY',
+                hasLeaderboard: paper.hasLeaderboard ?? true,
                 totalMarks: paper.totalMarks || 100,
                 passMarks: paper.passMarks || 40,
                 gradingScale: paper.gradingScale ? (() => {
@@ -1083,6 +1183,23 @@ exports.getStudentPaperProgress = async (req, res) => {
             orderBy: { submittedAt: 'desc' }
         });
 
+        // Fetch course and batch names for all submissions
+        const courseIds = [...new Set(submissions.map(s => s.paper?.content?.courseId).filter(Boolean))];
+        const batchIds = [...new Set(submissions.map(s => s.paper?.content?.batchId).filter(Boolean))];
+
+        const courses = courseIds.length > 0 ? await prisma.course.findMany({
+            where: { id: { in: courseIds } },
+            select: { id: true, name: true, code: true }
+        }) : [];
+
+        const batches = batchIds.length > 0 ? await prisma.batch.findMany({
+            where: { id: { in: batchIds } },
+            select: { id: true, name: true }
+        }) : [];
+
+        const courseMap = new Map(courses.map(c => [c.id, c.name]));
+        const batchMap = new Map(batches.map(b => [b.id, b.name]));
+
         // Compute rank and total participants for each submission
         const enrichedSubmissions = await Promise.all(submissions.map(async (s) => {
             const higherScoreCount = await prisma.paperSubmission.count({
@@ -1109,6 +1226,13 @@ exports.getStudentPaperProgress = async (req, res) => {
             const category = s.paper?.category || 'WEEKLY';
             const paperType = s.paper?.paperType || 'MCQ';
 
+            const fb = parseTeacherFeedbackPayload(s.teacherFeedback);
+            const cId = s.paper?.content?.courseId || null;
+            const bId = s.paper?.content?.batchId || null;
+            const courseName = cId ? courseMap.get(cId) : null;
+            const batchName = bId ? batchMap.get(bId) : null;
+            const classLabel = courseName || batchName || 'General Paper Class';
+
             return {
                 id: s.id,
                 paperId: s.paperId,
@@ -1116,6 +1240,11 @@ exports.getStudentPaperProgress = async (req, res) => {
                 testTitle: s.paper?.content?.title || 'Ranking Test',
                 category,
                 paperType,
+                courseId: cId,
+                courseName,
+                batchId: bId,
+                batchName,
+                classLabel,
                 score: s.score || 0,
                 mcqScore: s.mcqScore || 0,
                 structuredScore: s.structuredScore || 0,
@@ -1128,7 +1257,8 @@ exports.getStudentPaperProgress = async (req, res) => {
                 isPassed: (s.score || 0) >= (s.paper?.passMarks || 40),
                 status: s.status,
                 submittedAt: s.submittedAt,
-                teacherFeedback: s.teacherFeedback
+                teacherFeedback: fb.text,
+                questionMarks: fb.questionMarks
             };
         }));
 
@@ -1154,6 +1284,84 @@ exports.getStudentPaperProgress = async (req, res) => {
             };
         };
 
+        // Also fetch all enrolled courses for this student to build complete class filter list
+        const validPayments = await prisma.payment.findMany({
+            where: { studentId: parseInt(studentId), status: { in: [1, 4] } },
+            select: { subjects: true }
+        });
+        const rawSubjectIds = [];
+        validPayments.forEach(p => {
+            if (p.subjects) {
+                try {
+                    const raw = typeof p.subjects === 'string' ? JSON.parse(p.subjects) : p.subjects;
+                    if (Array.isArray(raw)) {
+                        raw.forEach(id => {
+                            const num = parseInt(id, 10);
+                            if (!isNaN(num) && num > 0) rawSubjectIds.push(num);
+                        });
+                    }
+                } catch(e) {}
+            }
+        });
+        const enrolledCourses = rawSubjectIds.length > 0 ? await prisma.course.findMany({
+            where: { id: { in: rawSubjectIds } },
+            select: { id: true, name: true, code: true }
+        }) : [];
+
+        // Build distinct class options (combining tested courses + enrolled courses)
+        const classOptionsMap = new Map();
+        courses.forEach(c => classOptionsMap.set(c.id, { id: c.id, name: c.name, code: c.code, type: 'course' }));
+        enrolledCourses.forEach(c => {
+            if (!classOptionsMap.has(c.id)) {
+                classOptionsMap.set(c.id, { id: c.id, name: c.name, code: c.code, type: 'course' });
+            }
+        });
+        // Also add any distinct batch names if not covered by course
+        batches.forEach(b => {
+            if (!classOptionsMap.has(`batch_${b.id}`)) {
+                classOptionsMap.set(`batch_${b.id}`, { id: `batch_${b.id}`, batchId: b.id, name: b.name, type: 'batch' });
+            }
+        });
+
+        // Compute latest leaderboard for student's most recent paper
+        let latestLeaderboard = null;
+        if (enrichedSubmissions.length > 0) {
+            const latestPaperId = enrichedSubmissions[0].paperId;
+            const paperInfo = await prisma.paper.findUnique({
+                where: { id: latestPaperId },
+                include: { content: { select: { title: true, courseId: true, batchId: true } } }
+            });
+            const subList = await prisma.paperSubmission.findMany({
+                where: { paperId: latestPaperId, status: { in: ['SUBMITTED', 'GRADED', 'PENDING_EVALUATION'] } },
+                include: { student: { select: { id: true, firstName: true, lastName: true, image: true, city: true, district: true } } },
+                orderBy: [{ score: 'desc' }, { submittedAt: 'asc' }],
+                take: 15
+            });
+            let cRank = 0;
+            let lScore = null;
+            latestLeaderboard = {
+                paperId: latestPaperId,
+                testTitle: paperInfo?.content?.title || enrichedSubmissions[0].testTitle,
+                totalMarks: paperInfo?.totalMarks || 100,
+                ranks: subList.map((sb, i) => {
+                    if (sb.score !== lScore) {
+                        cRank = i + 1;
+                        lScore = sb.score;
+                    }
+                    return {
+                        rank: cRank,
+                        studentId: sb.student?.id,
+                        name: `${sb.student?.firstName || ''} ${sb.student?.lastName || ''}`.trim() || 'Student',
+                        firstName: sb.student?.firstName,
+                        image: sb.student?.image,
+                        city: sb.student?.city || sb.student?.district || 'IMA Campus',
+                        score: sb.score || 0,
+                        grade: calculateGrade(sb.score, paperInfo?.totalMarks || 100, paperInfo?.gradingScale)
+                    };
+                })
+            };
+        }
+
         const weeklyList = enrichedSubmissions.filter(s => s.category === 'WEEKLY');
         const monthlyList = enrichedSubmissions.filter(s => s.category === 'MONTHLY');
 
@@ -1168,6 +1376,9 @@ exports.getStudentPaperProgress = async (req, res) => {
             testTitle: item.testTitle,
             category: item.category,
             paperType: item.paperType,
+            courseId: item.courseId,
+            batchId: item.batchId,
+            classLabel: item.classLabel,
             score: item.score,
             percentage: item.percentage,
             rank: item.rank,
@@ -1184,12 +1395,132 @@ exports.getStudentPaperProgress = async (req, res) => {
                 structured: computeGroupSummary(structList),
                 both: computeGroupSummary(bothList)
             },
+            classes: Array.from(classOptionsMap.values()),
             chartData,
-            recentTests: enrichedSubmissions.slice(0, 10)
+            recentTests: enrichedSubmissions,
+            latestLeaderboard
         });
     } catch (err) {
         console.error("getStudentPaperProgress Error:", err);
         res.status(500).json({ error: "Failed to load student progress" });
+    }
+};
+
+// 9.1 Check Student Paper Class Enrollment & Available Paper Classes for Guider Chat
+exports.getStudentPaperClassAccess = async (req, res) => {
+    try {
+        const studentId = req.user?.userId || req.user?.id;
+        if (!studentId) return res.status(401).json({ error: "Unauthorized" });
+
+        // 1. Check valid payments for groups with classType === 2 (Paper Class)
+        const paperPayments = await prisma.payment.findMany({
+            where: {
+                studentId: parseInt(studentId),
+                status: { in: [0, 1, 4] },
+                group: { classType: 2 }
+            },
+            include: {
+                business: { select: { id: true, name: true, logo: true } },
+                batch: { select: { id: true, name: true } },
+                group: { select: { id: true, name: true, classType: true } }
+            }
+        });
+
+        // 2. Also check enrolled courses with 'paper' in the title or course group classType === 2
+        const allValidPayments = await prisma.payment.findMany({
+            where: { studentId: parseInt(studentId), status: { in: [1, 4] } },
+            select: { subjects: true }
+        });
+        const rawSubjectIds = [];
+        allValidPayments.forEach(p => {
+            if (p.subjects) {
+                try {
+                    const raw = typeof p.subjects === 'string' ? JSON.parse(p.subjects) : p.subjects;
+                    if (Array.isArray(raw)) {
+                        raw.forEach(id => {
+                            const num = parseInt(id, 10);
+                            if (!isNaN(num) && num > 0) rawSubjectIds.push(num);
+                        });
+                    }
+                } catch(e) {}
+            }
+        });
+
+        const enrolledCourses = rawSubjectIds.length > 0 ? await prisma.course.findMany({
+            where: { id: { in: rawSubjectIds } },
+            include: {
+                group: {
+                    include: {
+                        batch: {
+                            include: { business: true }
+                        }
+                    }
+                }
+            }
+        }) : [];
+
+        const paperCourses = enrolledCourses.filter(c => 
+            c.group?.classType === 2 || 
+            (c.name && c.name.toLowerCase().includes('paper')) ||
+            (c.group?.name && c.group?.name.toLowerCase().includes('paper')) ||
+            (c.group?.batch?.name && c.group?.batch?.name.toLowerCase().includes('paper'))
+        );
+
+        // 3. Also check if student has any paper submissions
+        const submissionCount = await prisma.paperSubmission.count({
+            where: { studentId: parseInt(studentId) }
+        });
+
+        const isEnrolledInPaperClass = paperPayments.length > 0 || paperCourses.length > 0 || submissionCount > 0;
+
+        // Build unique list of paper classes available to this student
+        const paperClassesMap = new Map();
+        paperCourses.forEach(pc => {
+            paperClassesMap.set(pc.id, {
+                id: pc.id,
+                name: pc.name,
+                code: pc.code,
+                businessId: pc.group?.batch?.business?.id || pc.group?.batch?.businessId || 1,
+                businessName: pc.group?.batch?.business?.name || "IMA Campus",
+                batchName: pc.group?.batch?.name || "",
+                groupName: pc.group?.name || ""
+            });
+        });
+
+        paperPayments.forEach(pp => {
+            if (pp.group?.id && !paperClassesMap.has(pp.groupId)) {
+                paperClassesMap.set(pp.groupId, {
+                    id: pp.groupId,
+                    name: `${pp.batch?.name || ''} - ${pp.group?.name || 'Paper Class'}`.trim(),
+                    businessId: pp.businessId || pp.business?.id || 1,
+                    businessName: pp.business?.name || "IMA Campus",
+                    batchName: pp.batch?.name || "",
+                    groupName: pp.group?.name || ""
+                });
+            }
+        });
+
+        // Fallback: if student has submitted papers but payment classType wasn't marked 2
+        if (paperClassesMap.size === 0 && isEnrolledInPaperClass) {
+            paperClassesMap.set(0, {
+                id: 0,
+                name: "General Paper Class / Tests",
+                businessId: 1,
+                businessName: "IMA Campus",
+                batchName: "Paper Program",
+                groupName: "All Batches"
+            });
+        }
+
+        res.json({
+            success: true,
+            isEnrolledInPaperClass,
+            paperClasses: Array.from(paperClassesMap.values()),
+            totalSubmissions: submissionCount
+        });
+    } catch (err) {
+        console.error("getStudentPaperClassAccess Error:", err);
+        res.status(500).json({ error: "Failed to verify paper class enrollment" });
     }
 };
 
@@ -1265,10 +1596,15 @@ exports.getMarkerSubmissionsList = async (req, res) => {
             });
         }
 
-        const formatted = filteredSubmissions.map(s => ({
-            ...s,
-            answerImages: s.answerImages ? JSON.parse(s.answerImages) : []
-        }));
+        const formatted = filteredSubmissions.map(s => {
+            const fb = parseTeacherFeedbackPayload(s.teacherFeedback);
+            return {
+                ...s,
+                teacherFeedback: fb.text,
+                questionMarks: fb.questionMarks,
+                answerImages: s.answerImages ? JSON.parse(s.answerImages) : []
+            };
+        });
 
         res.json({ submissions: formatted });
     } catch (err) {
