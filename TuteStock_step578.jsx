@@ -1,8 +1,0 @@
-- [ ] Step 1: Delete `MasterTuteManager.jsx` and its import from `TuteStock.jsx`.
-- [ ] Step 2: Fetch `/admin/delivery/master-tutes` in `TuteStock.jsx`'s `fetchInitialData` and keep it in state.
-- [ ] Step 3: Compute the unified `lecturers` array by merging `globalStock` lecturers with `masterTutes`.
-- [ ] Step 4: Add Lecturer Search Bar and "Create Lecturer" button to View Level 1 (Lecturers view).
-- [ ] Step 5: Implement Create, Edit, Delete modals and logic for Master Lecturers in `TuteStock.jsx`.
-- [ ] Step 6: Refactor View Level 2 (when inside a Lecturer) to show a "Master Tutes" section alongside the existing "Allocated Stock" section.
-- [ ] Step 7: Implement Create, Edit, Delete modals and logic for Master Tutes inside View Level 2.
-- [ ] Step 8: Verify changes and update Walkthrough.

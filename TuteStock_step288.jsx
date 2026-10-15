@@ -1,4 +1,0 @@
-- [ ] Step 1: Remove Tute Name and Tute Cover upload UI from `ContentHub.jsx`.
-- [ ] Step 2: Create new backend endpoint `allocateTute` in `deliveryController.js` and `deliveryRoutes.js`.
-- [ ] Step 3: Build the Allocation UI (Modal with cascading dropdowns) in `TuteStock.jsx`.
-- [ ] Step 4: Verify that Tute allocation updates `groupPrices` and `TuteStock`, and test the UI.
