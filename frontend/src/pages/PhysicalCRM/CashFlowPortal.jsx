@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { physicalFinanceService } from '../../api/physicalFinance';
 import physicalCrmService from '../../api/physicalCrm';
-import { Wallet, TrendingUp, TrendingDown, Plus, Trash2, Calendar, Settings, Edit2, Check, X, Tag, Printer, RotateCcw, AlertTriangle, Archive, FileText, Search, Coins, UserCheck, DollarSign, GraduationCap } from 'lucide-react';
+import { Wallet, TrendingUp, TrendingDown, Plus, Trash2, Calendar, Settings, Edit2, Check, X, Tag, Printer, RotateCcw, AlertTriangle, Archive, FileText, Search, Coins, UserCheck, DollarSign, GraduationCap, Bell, Clock, CalendarDays, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format } from 'date-fns';
 import ThermalReceiptModal from '../../components/PhysicalCRM/ThermalReceiptModal';
@@ -34,6 +34,10 @@ export default function CashFlowPortal() {
     const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+
+    // Installment Reminders State
+    const [reminders, setReminders] = useState([]);
+    const [isRemindersModalOpen, setIsRemindersModalOpen] = useState(false);
 
     // Opening Balance Modal State
     const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
@@ -85,7 +89,12 @@ export default function CashFlowPortal() {
         date: format(new Date(), 'yyyy-MM-dd'),
         teacherId: '',
         billingMonth: format(new Date(), 'yyyy-MM'),
-        isTeacherAdvance: false
+        isTeacherAdvance: false,
+        paymentMethod: 'CASH', // 'CASH' | 'BANK' | 'CHEQUE' | 'ONLINE' | 'OTHER'
+        affectsCash: true, // true = Deducts/Adds from drawer cash, false = Bank/Non-cash
+        isInstallment: false,
+        installmentCount: 3,
+        installments: []
     });
 
     useEffect(() => {
@@ -93,7 +102,17 @@ export default function CashFlowPortal() {
         fetchCategories();
         fetchTrashData();
         fetchTeachers();
+        fetchReminders();
     }, [selectedDate]);
+
+    const fetchReminders = async () => {
+        try {
+            const data = await physicalFinanceService.getInstallmentReminders();
+            setReminders(Array.isArray(data) ? data : []);
+        } catch (err) {
+            console.error('Failed to load installment reminders', err);
+        }
+    };
 
     const fetchTeachers = async () => {
         try {
@@ -269,6 +288,91 @@ export default function CashFlowPortal() {
         }));
     };
 
+    // Generate Installment Rows Helper
+    const generateInstallmentRows = (count, totalAmount, startDate, method, affectsCashImpact) => {
+        const num = Math.max(2, Math.min(12, parseInt(count) || 3));
+        const total = parseFloat(totalAmount) || 0;
+        const splitAmount = total > 0 ? Math.round((total / num) * 100) / 100 : 0;
+        const baseDate = startDate ? new Date(startDate) : new Date();
+
+        const rows = [];
+        for (let i = 0; i < num; i++) {
+            const d = new Date(baseDate);
+            d.setMonth(d.getMonth() + i);
+            const dateStr = format(d, 'yyyy-MM-dd');
+            const amt = (i === num - 1 && total > 0) 
+                ? Math.round((total - splitAmount * (num - 1)) * 100) / 100 
+                : splitAmount;
+
+            rows.push({
+                installmentNo: i + 1,
+                dueDate: dateStr,
+                amount: amt > 0 ? String(amt) : '',
+                paymentMethod: method || 'CASH',
+                affectsCash: affectsCashImpact !== undefined ? affectsCashImpact : true,
+                description: `Installment ${i + 1}/${num}`,
+                isVerified: i === 0 && dateStr === format(new Date(), 'yyyy-MM-dd')
+            });
+        }
+        return rows;
+    };
+
+    const handleToggleInstallment = (enabled) => {
+        setFormData(prev => {
+            const newCount = prev.installmentCount || 3;
+            const newRows = enabled 
+                ? generateInstallmentRows(newCount, prev.amount, prev.date, prev.paymentMethod, prev.affectsCash) 
+                : [];
+            return {
+                ...prev,
+                isInstallment: enabled,
+                installmentCount: newCount,
+                installments: newRows
+            };
+        });
+    };
+
+    const handleInstallmentCountChange = (count) => {
+        const num = Math.max(2, Math.min(12, parseInt(count) || 3));
+        setFormData(prev => ({
+            ...prev,
+            installmentCount: num,
+            installments: generateInstallmentRows(num, prev.amount, prev.date, prev.paymentMethod, prev.affectsCash)
+        }));
+    };
+
+    const handleInstallmentFieldChange = (index, field, value) => {
+        setFormData(prev => {
+            const updated = [...prev.installments];
+            updated[index] = { ...updated[index], [field]: value };
+            return { ...prev, installments: updated };
+        });
+    };
+
+    const handleDistributeEvenly = () => {
+        const rows = generateInstallmentRows(
+            formData.installmentCount,
+            formData.amount,
+            formData.date,
+            formData.paymentMethod,
+            formData.affectsCash
+        );
+        setFormData(prev => ({ ...prev, installments: rows }));
+        toast.success('Amounts distributed evenly across installments');
+    };
+
+    // Verify / Settle Transaction Handler
+    const handleVerifyTransaction = async (id, currentVerifiedState) => {
+        try {
+            await physicalFinanceService.verifyTransaction(id, !currentVerifiedState);
+            toast.success(!currentVerifiedState ? 'Transaction verified and settled into cash flow!' : 'Marked as pending verification');
+            fetchData();
+            fetchReminders();
+        } catch (err) {
+            toast.error('Failed to update verification status');
+        }
+    };
+
     const handleAddTransaction = async (e) => {
         e.preventDefault();
         if (!formData.category) {
@@ -284,17 +388,42 @@ export default function CashFlowPortal() {
             return;
         }
 
+        if (formData.isInstallment) {
+            if (!formData.installments || formData.installments.length < 2) {
+                toast.error('Please configure at least 2 installments');
+                return;
+            }
+            const totalPlanned = parseFloat(formData.amount) || 0;
+            const sumInstallments = formData.installments.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+            if (totalPlanned > 0 && Math.abs(sumInstallments - totalPlanned) > 1) {
+                toast.error(`Installments total (Rs. ${sumInstallments.toLocaleString()}) does not match Total Amount (Rs. ${totalPlanned.toLocaleString()})`);
+                return;
+            }
+        } else {
+            if (!formData.amount || parseFloat(formData.amount) <= 0) {
+                toast.error('Please enter a valid amount');
+                return;
+            }
+        }
+
         try {
             const txDate = formData.date || selectedDate;
-            const createdTx = await physicalFinanceService.addTransaction({
+            const payload = {
                 ...formData,
                 date: txDate,
                 teacherId: formData.teacherId ? parseInt(formData.teacherId) : null,
                 billingMonth: formData.teacherId ? (formData.billingMonth || txDate.slice(0, 7)) : null,
-                isTeacherAdvance: isLectCat
-            });
-            toast.success('Transaction added successfully!');
+                isTeacherAdvance: isLectCat,
+                paymentMethod: formData.paymentMethod || 'CASH',
+                affectsCash: formData.affectsCash !== undefined ? Boolean(formData.affectsCash) : true,
+                isInstallment: Boolean(formData.isInstallment),
+                installments: formData.isInstallment ? formData.installments : undefined
+            };
+
+            const createdTx = await physicalFinanceService.addTransaction(payload);
+            toast.success(formData.isInstallment ? 'Installment plan scheduled successfully!' : 'Transaction added successfully!');
             setIsAddModalOpen(false);
+
             const savedData = {
                 ...(createdTx || {}),
                 type: formData.type,
@@ -305,6 +434,7 @@ export default function CashFlowPortal() {
                 teacher: formData.teacherId ? teachers.find(t => t.id === parseInt(formData.teacherId)) : null,
                 billingMonth: formData.billingMonth
             };
+
             const currentCat = formData.category;
             const currentType = formData.type;
             setFormData({ 
@@ -315,7 +445,12 @@ export default function CashFlowPortal() {
                 date: selectedDate,
                 teacherId: '',
                 billingMonth: format(new Date(), 'yyyy-MM'),
-                isTeacherAdvance: false
+                isTeacherAdvance: false,
+                paymentMethod: 'CASH',
+                affectsCash: true,
+                isInstallment: false,
+                installmentCount: 3,
+                installments: []
             });
             
             if (txDate !== selectedDate) {
@@ -323,9 +458,11 @@ export default function CashFlowPortal() {
             } else {
                 fetchData();
             }
+            fetchReminders();
 
-            // Automatically open receipt/voucher modal for print preview
-            handlePrintReceipt(savedData);
+            if (!formData.isInstallment) {
+                handlePrintReceipt(savedData);
+            }
         } catch (err) {
             toast.error('Failed to add transaction: ' + (err.response?.data?.error || err.message));
         }
@@ -372,6 +509,24 @@ export default function CashFlowPortal() {
             fetchTrashData();
         } catch (err) {
             toast.error('Failed to restore transaction');
+        }
+    };
+
+    // Toggle Real Cash vs Non-Cash Impact for any existing transaction
+    const handleToggleTxCashImpact = async (t) => {
+        const nextState = !t.affectsCash;
+        const msg = nextState 
+            ? `Change transaction "${t.category} - Rs. ${Number(t.amount).toLocaleString()}" to Real Cash In Hand (Will affect Drawer Balance)?` 
+            : `Change transaction "${t.category} - Rs. ${Number(t.amount).toLocaleString()}" to Non-Cash / Bank (Drawer Balance unaffected)?`;
+        if (!window.confirm(msg)) return;
+
+        const loadToast = toast.loading('Updating Cash Drawer Impact...');
+        try {
+            await physicalFinanceService.toggleCashImpact(t.id);
+            toast.success(`Updated: ${nextState ? '💵 Real Cash in Hand' : '🏦 Non-Cash (Bank)'}`, { id: loadToast });
+            fetchData();
+        } catch (err) {
+            toast.error(err.response?.data?.error || 'Failed to update cash impact', { id: loadToast });
         }
     };
 
@@ -486,6 +641,24 @@ export default function CashFlowPortal() {
                 </div>
                 
                 <div className="flex flex-wrap items-center gap-3">
+                    {/* Installment Reminders Button */}
+                    <button 
+                        onClick={() => {
+                            fetchReminders();
+                            setIsRemindersModalOpen(true);
+                        }}
+                        className="bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 border border-amber-500/30 shadow-md transition-all text-xs relative cursor-pointer"
+                        title="View pending & scheduled installment payments requiring verification"
+                    >
+                        <Bell size={15} className="text-amber-400" />
+                        <span>Installment Reminders</span>
+                        {reminders.length > 0 && (
+                            <span className="bg-amber-500 text-black text-[10px] font-black px-2 py-0.5 rounded-full shadow animate-pulse">
+                                {reminders.length}
+                            </span>
+                        )}
+                    </button>
+
                     <button 
                         onClick={() => {
                             fetchTrashData();
@@ -544,7 +717,6 @@ export default function CashFlowPortal() {
                     
                     <button 
                         onClick={() => {
-                            // Ensure default category is selected
                             const available = categories.filter(c => c.type === formData.type);
                             if (available.length > 0 && !formData.category) {
                                 setFormData(prev => ({ 
@@ -563,6 +735,39 @@ export default function CashFlowPortal() {
                     </button>
                 </div>
             </div>
+
+            {/* Installments Due / Pending Verification Alert Banner */}
+            {reminders.length > 0 && (
+                <div className="bg-gradient-to-r from-amber-950/80 via-amber-900/40 to-black/70 border border-amber-500/40 p-4 rounded-3xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-lg shadow-amber-950/30 animate-in fade-in">
+                    <div className="flex items-center gap-3.5">
+                        <div className="w-11 h-11 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center border border-amber-500/40 shrink-0">
+                            <AlertTriangle size={22} />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className="text-sm font-black text-amber-200">
+                                    {reminders.length} Scheduled Installment{reminders.length > 1 ? 's' : ''} Pending Verification
+                                </h4>
+                                <span className="text-[10px] bg-amber-400 text-black px-2 py-0.5 rounded-full font-black uppercase">
+                                    Action Required
+                                </span>
+                            </div>
+                            <p className="text-xs text-white/60 mt-0.5">
+                                වාරික වශයෙන් යොදවා ඇති වියදම් / ආදායම් අදාළ දිනට ගෙවූ බව හෝ ලැබුණු බව තහවුරු (Verify) කරන්න.
+                            </p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => {
+                            fetchReminders();
+                            setIsRemindersModalOpen(true);
+                        }}
+                        className="bg-amber-500 hover:bg-amber-400 text-black px-4 py-2 rounded-xl text-xs font-black transition-all shrink-0 shadow-lg shadow-amber-500/20 flex items-center gap-1.5 cursor-pointer active:scale-95"
+                    >
+                        <CheckCircle size={14} /> Review & Verify ({reminders.length})
+                    </button>
+                </div>
+            )}
 
             {/* Summary Cards */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-5">
@@ -601,28 +806,44 @@ export default function CashFlowPortal() {
                 <div className="bg-emerald-500/10 border border-emerald-500/30 p-5 rounded-3xl flex flex-col justify-between relative overflow-hidden shadow-[0_4px_20px_rgba(16,185,129,0.15)]">
                     <div className="absolute -right-3 -bottom-3 text-emerald-500/10 pointer-events-none"><TrendingUp size={110} /></div>
                     <div>
-                        <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider mb-2 relative z-10">Total Income</p>
+                        <div className="flex justify-between items-start mb-2 relative z-10">
+                            <p className="text-emerald-400 text-xs font-bold uppercase tracking-wider">Total Income (Inflow)</p>
+                            <span className="text-[10px] font-mono text-emerald-300/80 bg-emerald-500/20 px-2 py-0.5 rounded-md font-bold">
+                                {transactions.filter(t => t.type === 'INCOME').length} Txns
+                            </span>
+                        </div>
                         <h3 className="text-3xl font-black text-white relative z-10 drop-shadow-md">
                             Rs. {(summary.totalIncome || 0).toLocaleString()}
                         </h3>
                     </div>
-                    <p className="text-[10px] text-emerald-300/70 font-semibold mt-3 relative z-10">
-                        {transactions.filter(t => t.type === 'INCOME').length} incoming entries
-                    </p>
+                    <div className="mt-3 relative z-10 pt-2 border-t border-emerald-500/20 flex flex-wrap justify-between text-[10px] text-emerald-300 font-semibold gap-1">
+                        <span>💵 Cash: Rs. {(summary.cashIncome !== undefined ? summary.cashIncome : summary.totalIncome).toLocaleString()}</span>
+                        {(summary.nonCashIncome || 0) > 0 && (
+                            <span className="text-blue-300">🏦 Bank: Rs. {(summary.nonCashIncome || 0).toLocaleString()}</span>
+                        )}
+                    </div>
                 </div>
 
                 {/* 3. Total Expenses Card */}
                 <div className="bg-red-500/10 border border-red-500/30 p-5 rounded-3xl flex flex-col justify-between relative overflow-hidden shadow-[0_4px_20px_rgba(239,68,68,0.15)]">
                     <div className="absolute -right-3 -bottom-3 text-red-500/10 pointer-events-none"><TrendingDown size={110} /></div>
                     <div>
-                        <p className="text-red-400 text-xs font-bold uppercase tracking-wider mb-2 relative z-10">Total Expenses</p>
+                        <div className="flex justify-between items-start mb-2 relative z-10">
+                            <p className="text-red-400 text-xs font-bold uppercase tracking-wider">Total Expense (Outflow)</p>
+                            <span className="text-[10px] font-mono text-red-300/80 bg-red-500/20 px-2 py-0.5 rounded-md font-bold">
+                                {transactions.filter(t => t.type === 'EXPENSE').length} Txns
+                            </span>
+                        </div>
                         <h3 className="text-3xl font-black text-white relative z-10 drop-shadow-md">
                             Rs. {(summary.totalExpense || 0).toLocaleString()}
                         </h3>
                     </div>
-                    <p className="text-[10px] text-red-300/70 font-semibold mt-3 relative z-10">
-                        {transactions.filter(t => t.type === 'EXPENSE').length} outgoing entries
-                    </p>
+                    <div className="mt-3 relative z-10 pt-2 border-t border-red-500/20 flex flex-wrap justify-between text-[10px] text-red-300 font-semibold gap-1">
+                        <span>💵 Cash: Rs. {(summary.cashExpense !== undefined ? summary.cashExpense : summary.totalExpense).toLocaleString()}</span>
+                        {(summary.nonCashExpense || 0) > 0 && (
+                            <span className="text-blue-300">🏦 Bank: Rs. {(summary.nonCashExpense || 0).toLocaleString()}</span>
+                        )}
+                    </div>
                 </div>
 
                 {/* 4. Day's Closing Balance / Cash in Hand */}
@@ -633,15 +854,20 @@ export default function CashFlowPortal() {
                 }`}>
                     <div className="absolute -right-3 -bottom-3 text-white/10 pointer-events-none"><Wallet size={110} /></div>
                     <div>
-                        <p className="text-blue-100 text-xs font-bold uppercase tracking-wider mb-2 relative z-10">
-                            Day's Closing Balance
-                        </p>
+                        <div className="flex justify-between items-start mb-2 relative z-10">
+                            <p className="text-blue-100 text-xs font-bold uppercase tracking-wider">
+                                Closing Cash In Hand
+                            </p>
+                            <span className="text-[10px] font-bold text-white bg-white/20 px-2 py-0.5 rounded-md">
+                                Drawer
+                            </span>
+                        </div>
                         <h3 className="text-3xl font-black text-white relative z-10 drop-shadow-lg">
                             Rs. {(summary.closingBalance !== undefined ? summary.closingBalance : summary.netCash || 0).toLocaleString()}
                         </h3>
                     </div>
-                    <p className="text-[10px] text-blue-100/80 font-bold mt-3 relative z-10 flex items-center gap-1">
-                        ↳ Carries forward to next day
+                    <p className="text-[10px] text-blue-100/90 font-bold mt-3 relative z-10 flex items-center gap-1">
+                        ↳ Matches Physical Drawer Cash (අතැති මුදල)
                     </p>
                 </div>
             </div>
@@ -699,8 +925,9 @@ export default function CashFlowPortal() {
                                     <th className="pb-3 font-semibold">Type</th>
                                     <th className="pb-3 font-semibold">Category</th>
                                     <th className="pb-3 font-semibold">Description / Student</th>
+                                    <th className="pb-3 font-semibold text-center">Drawer Impact / Mode</th>
                                     <th className="pb-3 font-semibold text-right">Amount (Rs)</th>
-                                    <th className="pb-3 font-semibold text-center">Action</th>
+                                    <th className="pb-3 font-semibold text-center">Action / Status</th>
                                 </tr>
                             </thead>
                             <tbody className="text-sm">
@@ -748,11 +975,51 @@ export default function CashFlowPortal() {
                                                 </div>
                                             )}
                                         </td>
+                                        <td className="py-4 text-center">
+                                            <div className="flex flex-col items-center justify-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleToggleTxCashImpact(t)}
+                                                    title="Click to toggle: Real Cash in Hand vs Non-Cash (Bank)"
+                                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-black border transition-all cursor-pointer hover:scale-105 active:scale-95 shadow-sm ${
+                                                        t.affectsCash === false 
+                                                            ? 'bg-blue-500/20 text-blue-300 border-blue-500/40 hover:bg-blue-500/30' 
+                                                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30'
+                                                    }`}
+                                                >
+                                                    {t.affectsCash === false ? (
+                                                        <>🏦 Non-Cash ({t.paymentMethod || 'Bank'})</>
+                                                    ) : (
+                                                        <>💵 Real Cash</>
+                                                    )}
+                                                </button>
+                                                {t.installmentPlanId && (
+                                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[9px] font-black bg-amber-500/20 text-amber-300 border border-amber-500/35">
+                                                        🗓️ Inst {t.installmentNo}/{t.totalInstallments}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
                                         <td className={`py-4 text-right font-black text-base ${t.type === 'INCOME' ? 'text-emerald-400' : 'text-red-400'}`}>
                                             {t.type === 'INCOME' ? '+' : '-'}{t.amount.toLocaleString()}
                                         </td>
                                         <td className="py-4 text-center">
-                                            <div className="flex items-center justify-center gap-1.5">
+                                            <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                                {/* If pending verification: Show prominent verify button */}
+                                                {(t.isVerified === false || t.status === 'PENDING_VERIFICATION') ? (
+                                                    <button 
+                                                        onClick={() => handleVerifyTransaction(t.id, false)} 
+                                                        className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black rounded-lg text-[10px] font-black transition-all flex items-center gap-1 shadow-md shadow-amber-500/20 cursor-pointer active:scale-95"
+                                                        title="Click to verify and apply this installment to Cash Flow"
+                                                    >
+                                                        <Check size={12} /> Verify & Settle
+                                                    </button>
+                                                ) : t.installmentPlanId ? (
+                                                    <span className="px-2 py-0.5 rounded text-[10px] font-bold text-emerald-300 bg-emerald-500/20 border border-emerald-500/30">
+                                                        ✓ Settled
+                                                    </span>
+                                                ) : null}
+
                                                 <button 
                                                     onClick={() => handlePrintReceipt(t)} 
                                                     className={`${t.type === 'EXPENSE' ? 'text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20' : 'text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20'} p-2 rounded-lg transition-all`}
@@ -823,75 +1090,75 @@ export default function CashFlowPortal() {
 
             {/* Add Transaction Modal */}
             {isAddModalOpen && (
-                <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex justify-center items-center p-4">
-                    <div className="bg-[#151524] border border-white/20 p-6 md:p-8 rounded-[2rem] w-full max-w-2xl max-h-[92vh] overflow-y-auto custom-scrollbar shadow-2xl relative animate-in fade-in zoom-in duration-200 text-white">
+                <div className="fixed inset-0 bg-black/75 backdrop-blur-md z-50 flex justify-center items-center p-3 md:p-6">
+                    <div className="bg-[#151524] border border-white/20 p-6 md:p-9 lg:p-10 rounded-[2.2rem] w-full max-w-5xl xl:max-w-6xl max-h-[92vh] overflow-y-auto custom-scrollbar shadow-2xl relative animate-in fade-in zoom-in duration-200 text-white">
                         <button 
                             onClick={() => {
                                 setIsAddModalOpen(false);
                                 setLecturerSearchTerm('');
                                 setIsSelectingLecturer(false);
                             }} 
-                            className="absolute top-5 right-5 text-white/50 hover:text-white transition-colors bg-white/5 hover:bg-white/10 p-2 rounded-xl"
+                            className="absolute top-6 right-6 text-white/60 hover:text-white transition-colors bg-white/5 hover:bg-white/10 p-3 rounded-2xl cursor-pointer"
                         >
-                            <X size={20} />
+                            <X size={24} />
                         </button>
                         
-                        <div className="flex items-center gap-3 mb-6 pb-4 border-b border-white/10">
-                            <div className="w-11 h-11 rounded-2xl bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30">
-                                <Plus size={24} />
+                        <div className="flex items-center gap-4 mb-7 pb-5 border-b border-white/10">
+                            <div className="w-14 h-14 rounded-2xl bg-blue-500/20 text-blue-400 flex items-center justify-center border border-blue-500/30 shrink-0 shadow-lg shadow-blue-500/10">
+                                <Plus size={30} />
                             </div>
                             <div>
-                                <h2 className="text-2xl font-black text-white">Record Transaction Entry</h2>
-                                <p className="text-xs text-white/50">Add daily cash flow income, operational expense, or teacher advance.</p>
+                                <h2 className="text-2xl md:text-3xl lg:text-4xl font-black text-white tracking-wide">Record Transaction Entry</h2>
+                                <p className="text-sm md:text-base text-white/70 mt-1">Add daily cash flow income, operational expense, or teacher advance.</p>
                             </div>
                         </div>
                         
-                        <form onSubmit={handleAddTransaction} className="space-y-5">
+                        <form onSubmit={handleAddTransaction} className="space-y-6 md:space-y-7">
                             {/* Row 1: Date & Type */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6">
                                 <div>
-                                    <label className="block text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5">
+                                    <label className="block text-sm md:text-base font-extrabold text-white/85 uppercase tracking-wider mb-2.5">
                                         Date (දිනය) *
                                     </label>
                                     <div className="relative">
-                                        <Calendar size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none" />
+                                        <Calendar size={20} className="absolute left-4 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none" />
                                         <input 
                                             type="date" 
                                             required
                                             value={formData.date || selectedDate}
                                             onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                                            className="w-full bg-black/40 border border-white/10 rounded-xl pl-10 pr-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-bold text-sm shadow-inner"
+                                            className="w-full bg-black/40 border border-white/15 rounded-xl pl-12 pr-4 py-4 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 font-bold text-base md:text-lg shadow-inner cursor-pointer"
                                         />
                                     </div>
                                 </div>
 
                                 <div>
-                                    <label className="block text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5">
+                                    <label className="block text-sm md:text-base font-extrabold text-white/85 uppercase tracking-wider mb-2.5">
                                         Entry Type (වර්ගය) *
                                     </label>
-                                    <div className="grid grid-cols-2 gap-2">
+                                    <div className="grid grid-cols-2 gap-3">
                                         <button
                                             type="button"
                                             onClick={() => handleTypeChange('INCOME')}
-                                            className={`py-3 px-3 rounded-xl font-black text-xs transition-all border flex items-center justify-center gap-1.5 ${
+                                            className={`py-4 px-5 rounded-xl font-black text-base md:text-lg transition-all border flex items-center justify-center gap-2.5 cursor-pointer ${
                                                 formData.type === 'INCOME'
                                                     ? 'bg-emerald-600/30 text-emerald-300 border-emerald-500/60 shadow-lg shadow-emerald-950/40'
                                                     : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
                                             }`}
                                         >
-                                            <TrendingUp size={14} className="text-emerald-400" />
+                                            <TrendingUp size={22} className="text-emerald-400" />
                                             <span>INCOME</span>
                                         </button>
                                         <button
                                             type="button"
                                             onClick={() => handleTypeChange('EXPENSE')}
-                                            className={`py-3 px-3 rounded-xl font-black text-xs transition-all border flex items-center justify-center gap-1.5 ${
+                                            className={`py-4 px-5 rounded-xl font-black text-base md:text-lg transition-all border flex items-center justify-center gap-2.5 cursor-pointer ${
                                                 formData.type === 'EXPENSE'
                                                     ? 'bg-red-600/30 text-red-300 border-red-500/60 shadow-lg shadow-red-950/40'
                                                     : 'bg-white/5 text-white/60 border-white/10 hover:bg-white/10'
                                             }`}
                                         >
-                                            <TrendingDown size={14} className="text-red-400" />
+                                            <TrendingDown size={22} className="text-red-400" />
                                             <span>EXPENSE</span>
                                         </button>
                                     </div>
@@ -900,26 +1167,26 @@ export default function CashFlowPortal() {
 
                             {/* Row 2: Category */}
                             <div>
-                                <div className="flex justify-between items-center mb-1.5">
-                                    <label className="block text-[11px] font-bold text-white/60 uppercase tracking-wider">
+                                <div className="flex justify-between items-center mb-2.5">
+                                    <label className="block text-sm md:text-base font-extrabold text-white/85 uppercase tracking-wider">
                                         Finance Category (කාණ්ඩය) *
                                     </label>
                                     <button 
                                         type="button" 
                                         onClick={() => setIsCategoryModalOpen(true)}
-                                        className="text-[11px] text-blue-400 hover:text-blue-300 font-bold flex items-center gap-1 bg-blue-500/10 px-2 py-0.5 rounded-md border border-blue-500/20"
+                                        className="text-xs md:text-sm text-blue-400 hover:text-blue-300 font-bold flex items-center gap-2 bg-blue-500/10 px-3.5 py-1.5 rounded-xl border border-blue-500/20 transition-all cursor-pointer hover:bg-blue-500/20"
                                     >
-                                        <Settings size={12} /> Manage Categories
+                                        <Settings size={15} /> Manage Categories
                                     </button>
                                 </div>
                                 <select 
                                     required
                                     value={formData.category}
                                     onChange={(e) => handleCategoryChange(e.target.value)}
-                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none font-bold text-sm shadow-inner"
+                                    className="w-full bg-black/40 border border-white/15 rounded-xl px-4 py-4 text-white focus:outline-none focus:ring-2 focus:ring-blue-500/50 appearance-none font-bold text-base md:text-lg shadow-inner cursor-pointer"
                                 >
                                     {activeTypeCategories.map(cat => (
-                                        <option key={cat.id} value={cat.name} className="text-black">
+                                        <option key={cat.id} value={cat.name} className="text-black text-base">
                                             {cat.name} {cat.isLecturerCategory ? '★ [Lecturer Expense - Deductible]' : ''}
                                         </option>
                                     ))}
@@ -931,9 +1198,9 @@ export default function CashFlowPortal() {
 
                             {/* Lecturer / Teacher Expense Association Box */}
                             {formData.type === 'EXPENSE' && (
-                                <div className="bg-gradient-to-br from-purple-950/40 via-purple-900/20 to-black/50 border border-purple-500/35 rounded-2xl p-4 md:p-5 space-y-4 shadow-lg shadow-purple-950/30">
+                                <div className="bg-gradient-to-br from-purple-950/40 via-purple-900/20 to-black/50 border border-purple-500/35 rounded-2xl p-5 md:p-6 space-y-4 shadow-lg shadow-purple-950/30">
                                     <div className="flex items-center justify-between">
-                                        <label className="text-xs md:text-sm font-black text-purple-200 flex items-center gap-2.5 cursor-pointer">
+                                        <label className="text-sm md:text-base font-black text-purple-200 flex items-center gap-3 cursor-pointer">
                                             <input 
                                                 type="checkbox"
                                                 checked={formData.isTeacherAdvance || Boolean(formData.teacherId)}
@@ -950,11 +1217,11 @@ export default function CashFlowPortal() {
                                                         setLecturerSearchTerm('');
                                                     }
                                                 }}
-                                                className="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 border-white/20 accent-purple-500"
+                                                className="w-5 h-5 rounded text-purple-600 focus:ring-purple-500 border-white/20 accent-purple-500 cursor-pointer"
                                             />
                                             <span>👨‍🏫 Link to Lecturer / Teacher Expense (Advance / Payout)</span>
                                         </label>
-                                        <span className="text-[10px] text-purple-300 font-extrabold bg-purple-500/20 px-2.5 py-1 rounded-full border border-purple-500/40">
+                                        <span className="text-xs text-purple-300 font-extrabold bg-purple-500/20 px-3 py-1 rounded-full border border-purple-500/40">
                                             Auto-Deduct from Salary
                                         </span>
                                     </div>
@@ -964,7 +1231,7 @@ export default function CashFlowPortal() {
                                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                                 {/* Searchable Lecturer Selector */}
                                                 <div>
-                                                    <label className="block text-[11px] font-bold text-purple-200 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                                                    <label className="block text-xs md:text-sm font-bold text-purple-200 uppercase tracking-wider mb-2 flex items-center justify-between">
                                                         <span>Select Lecturer (ආචාර්යවරයා) *</span>
                                                         {formData.teacherId && (
                                                             <button
@@ -973,7 +1240,7 @@ export default function CashFlowPortal() {
                                                                     setIsSelectingLecturer(true);
                                                                     setLecturerSearchTerm('');
                                                                 }}
-                                                                className="text-[10px] text-purple-300 hover:text-white underline font-semibold"
+                                                                className="text-xs text-purple-300 hover:text-white underline font-bold"
                                                             >
                                                                 Change
                                                             </button>
@@ -982,16 +1249,16 @@ export default function CashFlowPortal() {
 
                                                     {formData.teacherId && !isSelectingLecturer ? (
                                                         // Selected Lecturer Badge Card
-                                                        <div className="bg-black/60 border border-purple-500/40 rounded-xl p-3 flex items-center justify-between">
-                                                            <div className="flex items-center gap-2.5 min-w-0">
-                                                                <div className="w-8 h-8 rounded-lg bg-purple-500/30 text-purple-200 flex items-center justify-center font-black text-xs shrink-0">
+                                                        <div className="bg-black/60 border border-purple-500/40 rounded-xl p-3.5 flex items-center justify-between">
+                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                <div className="w-9 h-9 rounded-lg bg-purple-500/30 text-purple-200 flex items-center justify-center font-black text-xs shrink-0">
                                                                     LEC
                                                                 </div>
                                                                 <div className="min-w-0">
-                                                                    <div className="font-bold text-xs text-white truncate">
+                                                                    <div className="font-bold text-sm md:text-base text-white truncate">
                                                                         {teachers.find(t => String(t.id) === String(formData.teacherId))?.name || 'Selected Lecturer'}
                                                                     </div>
-                                                                    <div className="text-[10px] font-mono text-purple-300">
+                                                                    <div className="text-xs font-mono text-purple-300">
                                                                         {teachers.find(t => String(t.id) === String(formData.teacherId))?.lecturerId || (`IMA-LEC-${1000 + parseInt(formData.teacherId)}`)}
                                                                     </div>
                                                                 </div>
@@ -1002,7 +1269,7 @@ export default function CashFlowPortal() {
                                                                     setIsSelectingLecturer(true);
                                                                     setLecturerSearchTerm('');
                                                                 }}
-                                                                className="text-xs bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 px-2.5 py-1 rounded-lg border border-purple-500/30 font-bold transition-all shrink-0 ml-2"
+                                                                className="text-xs md:text-sm bg-purple-500/20 hover:bg-purple-500/30 text-purple-200 px-3 py-1.5 rounded-lg border border-purple-500/30 font-bold transition-all shrink-0 ml-2"
                                                             >
                                                                 Search / Change
                                                             </button>
@@ -1011,18 +1278,18 @@ export default function CashFlowPortal() {
                                                         // Searchable Combobox
                                                         <div className="space-y-2">
                                                             <div className="relative">
-                                                                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-400 pointer-events-none" />
+                                                                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-purple-400 pointer-events-none" />
                                                                 <input
                                                                     type="text"
                                                                     autoFocus
                                                                     placeholder="Search lecturer by name or ID (e.g. Shehan, 1006)..."
                                                                     value={lecturerSearchTerm}
                                                                     onChange={(e) => setLecturerSearchTerm(e.target.value)}
-                                                                    className="w-full bg-black/60 border border-purple-500/40 rounded-xl pl-9 pr-3 py-2 text-xs font-medium text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-purple-500/60 shadow-inner"
+                                                                    className="w-full bg-black/60 border border-purple-500/40 rounded-xl pl-10 pr-3.5 py-2.5 text-sm font-medium text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-purple-500/60 shadow-inner"
                                                                 />
                                                             </div>
 
-                                                            <div className="max-h-36 overflow-y-auto custom-scrollbar bg-black/70 border border-purple-500/30 rounded-xl divide-y divide-white/5">
+                                                            <div className="max-h-44 overflow-y-auto custom-scrollbar bg-black/70 border border-purple-500/30 rounded-xl divide-y divide-white/5">
                                                                 {teachers
                                                                     .filter(t => {
                                                                         if (!lecturerSearchTerm.trim()) return true;
@@ -1042,15 +1309,15 @@ export default function CashFlowPortal() {
                                                                                     setIsSelectingLecturer(false);
                                                                                     setLecturerSearchTerm('');
                                                                                 }}
-                                                                                className={`w-full text-left px-3 py-2 flex items-center justify-between hover:bg-purple-500/20 transition-colors ${
+                                                                                className={`w-full text-left px-3.5 py-2.5 flex items-center justify-between hover:bg-purple-500/20 transition-colors ${
                                                                                     isSelected ? 'bg-purple-500/25 text-purple-200' : 'text-white'
                                                                                 }`}
                                                                             >
                                                                                 <div className="min-w-0 pr-2">
-                                                                                    <div className="font-bold text-xs truncate">{t.name}</div>
-                                                                                    <div className="text-[10px] font-mono text-purple-300/80">{customId}</div>
+                                                                                    <div className="font-bold text-sm truncate">{t.name}</div>
+                                                                                    <div className="text-xs font-mono text-purple-300/80">{customId}</div>
                                                                                 </div>
-                                                                                <span className="text-[10px] font-bold bg-white/5 px-2 py-0.5 rounded border border-white/10 shrink-0">
+                                                                                <span className="text-xs font-bold bg-white/5 px-2.5 py-1 rounded border border-white/10 shrink-0">
                                                                                     Select
                                                                                 </span>
                                                                             </button>
@@ -1066,7 +1333,7 @@ export default function CashFlowPortal() {
 
                                                 {/* Deductible Billing Month */}
                                                 <div>
-                                                    <label className="block text-[11px] font-bold text-purple-200 uppercase tracking-wider mb-1.5">
+                                                    <label className="block text-xs md:text-sm font-bold text-purple-200 uppercase tracking-wider mb-2">
                                                         Deductible Billing Month *
                                                     </label>
                                                     <input
@@ -1074,9 +1341,9 @@ export default function CashFlowPortal() {
                                                         required
                                                         value={formData.billingMonth || (formData.date ? formData.date.slice(0, 7) : format(new Date(), 'yyyy-MM'))}
                                                         onChange={(e) => setFormData(prev => ({ ...prev, billingMonth: e.target.value }))}
-                                                        className="w-full bg-black/60 border border-purple-500/40 rounded-xl px-4 py-2.5 text-xs font-bold text-white outline-none focus:border-purple-400 cursor-pointer shadow-inner"
+                                                        className="w-full bg-black/60 border border-purple-500/40 rounded-xl px-4 py-3 text-sm md:text-base font-bold text-white outline-none focus:border-purple-400 cursor-pointer shadow-inner"
                                                     />
-                                                    <p className="text-[10px] text-purple-300/80 mt-1.5 leading-snug">
+                                                    <p className="text-xs md:text-sm text-purple-300/90 mt-2 leading-relaxed">
                                                         💡 මෙම මුදල මෙම ආචාර්යවරයාගේ තෝරාගත් මාසයේ Salary Invoice එකෙන් Auto-Deduct වේ.
                                                     </p>
                                                 </div>
@@ -1086,61 +1353,468 @@ export default function CashFlowPortal() {
                                 </div>
                             )}
 
-                            {/* Row 3: Amount */}
-                            <div>
-                                <label className="block text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5">
-                                    Amount in LKR (මුදල - රුපියල්) *
-                                </label>
-                                <div className="relative">
-                                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-white/40 font-black text-base pointer-events-none">
-                                        Rs.
-                                    </span>
-                                    <input 
-                                        type="number" 
-                                        required 
-                                        step="any"
-                                        value={formData.amount}
-                                        onChange={(e) => setFormData({...formData, amount: e.target.value})}
-                                        className="w-full bg-black/40 border border-white/10 rounded-xl pl-12 pr-4 py-3 text-white placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-xl font-black shadow-inner"
-                                        placeholder="0.00"
-                                    />
+                            {/* Row 3: Amount & Payment Method / Drawer Impact */}
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="block text-sm md:text-base font-extrabold text-white/85 uppercase tracking-wider mb-2.5">
+                                        Total Amount in LKR (මුළු මුදල) *
+                                    </label>
+                                    <div className="relative">
+                                        <span className="absolute left-5 top-1/2 -translate-y-1/2 text-white/40 font-black text-2xl md:text-3xl pointer-events-none">
+                                            Rs.
+                                        </span>
+                                        <input 
+                                            type="number" 
+                                            required 
+                                            step="any"
+                                            value={formData.amount}
+                                            onChange={(e) => {
+                                                const val = e.target.value;
+                                                setFormData(prev => {
+                                                    const updated = { ...prev, amount: val };
+                                                    if (prev.isInstallment && prev.installmentCount) {
+                                                        updated.installments = generateInstallmentRows(prev.installmentCount, val, prev.date, prev.paymentMethod, prev.affectsCash);
+                                                    }
+                                                    return updated;
+                                                });
+                                            }}
+                                            className="w-full bg-black/40 border border-white/15 rounded-2xl pl-20 pr-5 py-4 text-white placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-blue-500/50 text-3xl md:text-4xl font-black shadow-inner"
+                                            placeholder="0.00"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Real Cash Impact Tick Box (Drawer Cash Decision) */}
+                                <div className={`p-6 md:p-7 rounded-2xl border transition-all duration-200 ${
+                                    formData.affectsCash
+                                        ? 'bg-gradient-to-br from-emerald-950/40 via-slate-900/60 to-black/80 border-emerald-500/50 shadow-xl shadow-emerald-950/30'
+                                        : 'bg-gradient-to-br from-blue-950/30 via-slate-900/60 to-black/80 border-blue-500/40 shadow-xl shadow-blue-950/30'
+                                }`}>
+                                    <div className="flex items-start justify-between gap-3.5">
+                                        <label className="flex items-start gap-4 cursor-pointer select-none flex-1">
+                                            <input 
+                                                type="checkbox"
+                                                id="affectsRealCashTick"
+                                                checked={formData.affectsCash}
+                                                onChange={(e) => {
+                                                    const checked = e.target.checked;
+                                                    setFormData(prev => ({
+                                                        ...prev,
+                                                        affectsCash: checked,
+                                                        paymentMethod: checked ? 'CASH' : (prev.paymentMethod === 'CASH' ? 'BANK' : prev.paymentMethod),
+                                                        installments: prev.isInstallment 
+                                                            ? prev.installments.map(ins => ({ 
+                                                                ...ins, 
+                                                                affectsCash: checked, 
+                                                                paymentMethod: checked ? 'CASH' : (ins.paymentMethod === 'CASH' ? 'BANK' : ins.paymentMethod) 
+                                                              })) 
+                                                            : prev.installments
+                                                    }));
+                                                }}
+                                                className="w-6 h-6 mt-0.5 rounded-md text-emerald-500 focus:ring-emerald-500 border-white/20 accent-emerald-500 cursor-pointer shrink-0"
+                                            />
+                                            <div className="flex-1 min-w-0">
+                                                <div className="flex items-center gap-3 flex-wrap">
+                                                    <span className="text-base md:text-lg lg:text-xl font-black text-white">
+                                                        {formData.affectsCash 
+                                                            ? '💵 Affects Real Cash (භෞතික Cash Drawer එකට බලපෑමක් වේ)' 
+                                                            : '🏦 Non-Cash (Cash Drawer එකට බලපෑමක් නැත)'}
+                                                    </span>
+                                                    <span className={`text-xs md:text-sm font-black uppercase px-3.5 py-1 rounded-full border ${
+                                                        formData.affectsCash 
+                                                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm' 
+                                                            : 'bg-blue-500/20 text-blue-300 border-blue-500/40 shadow-sm'
+                                                    }`}>
+                                                        {formData.affectsCash ? '✓ REAL CASH IN HAND' : 'NON-CASH / BANK'}
+                                                    </span>
+                                                </div>
+                                                <p className="text-sm md:text-base text-white/90 mt-2 leading-relaxed">
+                                                    {formData.affectsCash ? (
+                                                        <span className="text-emerald-300 font-semibold">
+                                                            💡 මෙම මුදල සැබෑ Physical Cash Drawer එකෙන් {formData.type === 'EXPENSE' ? 'අඩු වේ (Deduct වේ)' : 'එකතු වේ (Add වේ)'}. දවසේ Cash-in-Hand ශේෂය වෙනස් වේ.
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-blue-300 font-semibold">
+                                                            💡 Bank Transfer / Cheque / Online / Slip මඟින් සිදු වූවක් බැවින් Physical Drawer ශේෂය වෙනස් නොවේ.
+                                                        </span>
+                                                    )}
+                                                </p>
+                                            </div>
+                                        </label>
+                                    </div>
+
+                                    <div className="mt-5 pt-4 border-t border-white/10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-xs md:text-sm font-bold text-white/60 uppercase tracking-wider">Quick Select:</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setFormData(prev => ({
+                                                        ...prev,
+                                                        affectsCash: true,
+                                                        paymentMethod: 'CASH',
+                                                        installments: prev.isInstallment ? prev.installments.map(ins => ({ ...ins, affectsCash: true, paymentMethod: 'CASH' })) : prev.installments
+                                                    }));
+                                                }}
+                                                className={`px-5 py-2.5 rounded-xl text-sm md:text-base font-bold transition-all border flex items-center gap-2 cursor-pointer ${
+                                                    formData.affectsCash
+                                                        ? 'bg-emerald-600/30 border-emerald-500/60 text-emerald-200 shadow-md'
+                                                        : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
+                                                }`}
+                                            >
+                                                <span>💵 Real Cash</span>
+                                                {formData.affectsCash && <Check size={16} className="text-emerald-400" />}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setFormData(prev => ({
+                                                        ...prev,
+                                                        affectsCash: false,
+                                                        paymentMethod: 'BANK',
+                                                        installments: prev.isInstallment ? prev.installments.map(ins => ({ ...ins, affectsCash: false, paymentMethod: 'BANK' })) : prev.installments
+                                                    }));
+                                                }}
+                                                className={`px-5 py-2.5 rounded-xl text-sm md:text-base font-bold transition-all border flex items-center gap-2 cursor-pointer ${
+                                                    !formData.affectsCash
+                                                        ? 'bg-blue-600/30 border-blue-500/60 text-blue-200 shadow-md'
+                                                        : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
+                                                }`}
+                                            >
+                                                <span>🏦 Bank / Non-Cash</span>
+                                                {!formData.affectsCash && <Check size={16} className="text-blue-400" />}
+                                            </button>
+                                        </div>
+
+                                        {!formData.affectsCash && (
+                                            <div className="flex items-center gap-3 w-full sm:w-auto">
+                                                <span className="text-xs md:text-sm font-bold text-blue-300 uppercase shrink-0">Channel:</span>
+                                                <select
+                                                    value={formData.paymentMethod === 'CASH' ? 'BANK' : formData.paymentMethod}
+                                                    onChange={(e) => setFormData(prev => ({ ...prev, paymentMethod: e.target.value }))}
+                                                    className="bg-black/60 border border-blue-500/40 rounded-xl px-4 py-2 text-sm md:text-base font-bold text-blue-200 outline-none cursor-pointer w-full sm:w-auto"
+                                                >
+                                                    <option value="BANK" className="text-black">Bank Transfer</option>
+                                                    <option value="ONLINE" className="text-black">Online / Gateway</option>
+                                                    <option value="CHEQUE" className="text-black">Cheque</option>
+                                                    <option value="SLIP" className="text-black">Bank Deposit Slip</option>
+                                                    <option value="OTHER" className="text-black">Other Non-Drawer</option>
+                                                </select>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 
-                            {/* Row 4: Description */}
+                            {/* Row 4: Installment Scheduling Toggle & Dynamic Plan Generator */}
+                            <div className="bg-gradient-to-br from-amber-950/30 via-slate-900/50 to-black/60 border border-amber-500/30 rounded-2xl p-5 md:p-7 space-y-5 shadow-lg shadow-amber-950/20">
+                                <div className="flex items-center justify-between flex-wrap gap-3">
+                                    <label className="text-base md:text-lg font-black text-amber-200 flex items-center gap-3 cursor-pointer select-none">
+                                        <input 
+                                            type="checkbox"
+                                            checked={formData.isInstallment}
+                                            onChange={(e) => handleToggleInstallment(e.target.checked)}
+                                            className="w-5 h-5 rounded text-amber-500 focus:ring-amber-500 border-white/20 accent-amber-500 cursor-pointer"
+                                        />
+                                        <span>🗓️ Plan in Installments (වාරික වශයෙන් ගෙවීම / ලැබීම)</span>
+                                    </label>
+                                    <span className="text-xs md:text-sm text-amber-300 font-extrabold bg-amber-500/20 px-3.5 py-1.5 rounded-full border border-amber-500/40">
+                                        Multi-Part Schedule
+                                    </span>
+                                </div>
+
+                                {formData.isInstallment && (
+                                    <div className="space-y-4 pt-4 border-t border-amber-500/20">
+                                        {/* Installment Controls Bar */}
+                                        <div className="flex flex-wrap items-center justify-between gap-3 bg-black/40 p-4 rounded-xl border border-white/10">
+                                            <div className="flex items-center gap-3">
+                                                <span className="text-sm md:text-base font-bold text-white/80">Number of Installments:</span>
+                                                <select
+                                                    value={formData.installmentCount}
+                                                    onChange={(e) => handleInstallmentCountChange(e.target.value)}
+                                                    className="bg-black/60 border border-amber-500/40 rounded-xl px-4 py-2 text-sm md:text-base font-black text-amber-300 outline-none cursor-pointer"
+                                                >
+                                                    {[2, 3, 4, 5, 6, 8, 10, 12].map(num => (
+                                                        <option key={num} value={num} className="text-black">
+                                                            {num} Installments
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+
+                                            <div className="flex items-center gap-2.5">
+                                                <button
+                                                    type="button"
+                                                    onClick={handleDistributeEvenly}
+                                                    className="px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-sm md:text-base font-bold transition-all cursor-pointer"
+                                                >
+                                                    Distribute Evenly
+                                                </button>
+                                                {/* Sum vs Total planned status */}
+                                                {(() => {
+                                                    const targetTotal = parseFloat(formData.amount) || 0;
+                                                    const sumInst = formData.installments.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
+                                                    const diff = targetTotal - sumInst;
+                                                    const isBalanced = targetTotal > 0 && Math.abs(diff) < 0.01;
+                                                    return (
+                                                        <span className={`text-xs md:text-sm font-black px-3.5 py-2 rounded-xl border ${
+                                                            isBalanced 
+                                                                ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' 
+                                                                : 'bg-rose-500/20 text-rose-300 border-rose-500/40'
+                                                        }`}>
+                                                            {isBalanced ? '✓ Balanced (Rs. ' + targetTotal.toLocaleString() + ')' : `Balance Remainder: Rs. ${diff.toLocaleString()}`}
+                                                        </span>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </div>
+
+                                        {/* Dynamic Installments Table */}
+                                        <div className="max-h-64 overflow-y-auto custom-scrollbar border border-white/10 rounded-xl bg-black/50">
+                                            <table className="w-full text-left border-collapse text-sm md:text-base">
+                                                <thead className="bg-white/5 sticky top-0 text-white/80 font-bold border-b border-white/10">
+                                                    <tr>
+                                                        <th className="py-3 px-3.5 w-12 text-center">#</th>
+                                                        <th className="py-3 px-3.5">Due Date (ගෙවිය යුතු දිනය)</th>
+                                                        <th className="py-3 px-3.5">Amount (මුදල - Rs)</th>
+                                                        <th className="py-3 px-3.5">Mode & Drawer Impact</th>
+                                                        <th className="py-3 px-3.5">Note / Details</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody className="divide-y divide-white/5">
+                                                    {formData.installments.map((inst, idx) => (
+                                                        <tr key={idx} className="hover:bg-white/5 transition-colors">
+                                                            <td className="py-3 px-3.5 text-center font-bold text-amber-400">
+                                                                #{idx + 1}
+                                                            </td>
+                                                            <td className="py-3 px-3.5">
+                                                                <input 
+                                                                    type="date" 
+                                                                    required
+                                                                    value={inst.dueDate}
+                                                                    onChange={(e) => handleInstallmentFieldChange(idx, 'dueDate', e.target.value)}
+                                                                    className="bg-black/60 border border-white/15 rounded-lg px-3 py-2 text-sm md:text-base font-bold text-white outline-none w-40 cursor-pointer"
+                                                                />
+                                                            </td>
+                                                            <td className="py-3 px-3.5">
+                                                                <input 
+                                                                    type="number" 
+                                                                    required 
+                                                                    step="any"
+                                                                    placeholder="0.00"
+                                                                    value={inst.amount}
+                                                                    onChange={(e) => handleInstallmentFieldChange(idx, 'amount', e.target.value)}
+                                                                    className="bg-black/60 border border-white/15 rounded-lg px-3 py-2 text-sm md:text-base font-black text-amber-300 outline-none w-36"
+                                                                />
+                                                            </td>
+                                                            <td className="py-3 px-3.5">
+                                                                <select
+                                                                    value={inst.affectsCash ? 'CASH' : 'BANK'}
+                                                                    onChange={(e) => {
+                                                                        const isCash = e.target.value === 'CASH';
+                                                                        handleInstallmentFieldChange(idx, 'affectsCash', isCash);
+                                                                        handleInstallmentFieldChange(idx, 'paymentMethod', isCash ? 'CASH' : 'BANK');
+                                                                    }}
+                                                                    className="bg-black/60 border border-white/15 rounded-lg px-3 py-2 text-sm md:text-base font-bold text-white outline-none cursor-pointer"
+                                                                >
+                                                                    <option value="CASH" className="text-black">💵 Cash In Hand (Drawer)</option>
+                                                                    <option value="BANK" className="text-black">🏦 Bank / Non-Drawer</option>
+                                                                </select>
+                                                            </td>
+                                                            <td className="py-3 px-3.5">
+                                                                <input 
+                                                                    type="text" 
+                                                                    placeholder="e.g. Advance, Cheque No, Final"
+                                                                    value={inst.description}
+                                                                    onChange={(e) => handleInstallmentFieldChange(idx, 'description', e.target.value)}
+                                                                    className="bg-black/60 border border-white/15 rounded-lg px-3 py-2 text-sm md:text-base text-white placeholder:text-white/20 outline-none w-full"
+                                                                />
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <p className="text-xs md:text-sm text-amber-300/90 leading-relaxed font-medium">
+                                            💡 මෙම සෑම වාරිකයක්ම අදාළ Due Date එකේදී Cash Flow එකට එකතු වන අතර, දිනපතා Reminders මගින් තහවුරු (Verify) කිරීමට මතක් කරනු ලැබේ.
+                                        </p>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Row 5: Description */}
                             <div>
-                                <label className="block text-[11px] font-bold text-white/60 uppercase tracking-wider mb-1.5">
+                                <label className="block text-sm md:text-base font-extrabold text-white/85 uppercase tracking-wider mb-2.5">
                                     Description / Remarks (විස්තරය)
                                 </label>
                                 <textarea 
                                     rows={2}
                                     value={formData.description}
                                     onChange={(e) => setFormData({...formData, description: e.target.value})}
-                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500/50 min-h-[60px] shadow-inner text-xs"
-                                    placeholder="Optional details (e.g. October Salary Advance, Paper printing costs, Transport allowance)..."
+                                    className="w-full bg-black/40 border border-white/15 rounded-xl px-4 py-3.5 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-blue-500/50 min-h-[90px] shadow-inner text-base md:text-lg"
+                                    placeholder="Optional details (e.g. October Salary Advance, Paper printing costs, Transport allowance, Cheque number)..."
                                 ></textarea>
                             </div>
 
-                            <div className="flex items-center gap-3 pt-2">
+                            <div className="flex items-center gap-4 pt-3">
                                 <button 
                                     type="button" 
                                     onClick={() => {
                                         setIsAddModalOpen(false);
                                         setLecturerSearchTerm('');
                                         setIsSelectingLecturer(false);
-                                    }}
-                                    className="flex-1 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-xs transition-all"
+                                    }} 
+                                    className="flex-1 py-4 bg-white/10 hover:bg-white/20 text-white font-bold rounded-xl text-base transition-all cursor-pointer"
                                 >
                                     Cancel
                                 </button>
                                 <button 
                                     type="submit" 
-                                    className="flex-2 py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black shadow-lg shadow-blue-500/30 transition-all text-xs tracking-wider flex items-center justify-center gap-2 cursor-pointer"
+                                    className="flex-2 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-black shadow-lg shadow-blue-500/30 transition-all text-base md:text-lg tracking-wider flex items-center justify-center gap-2.5 cursor-pointer active:scale-95"
                                 >
-                                    <Plus size={16} /> Save Transaction Entry
+                                    <Plus size={22} /> 
+                                    {formData.isInstallment ? `Schedule ${formData.installmentCount} Installments` : 'Save Transaction Entry'}
                                 </button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            )}
+
+            {/* INSTALLMENT REMINDERS & VERIFICATION MODAL */}
+            {isRemindersModalOpen && (
+                <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex justify-center items-center p-4">
+                    <div className="bg-[#151522] border border-amber-500/30 p-6 md:p-8 rounded-[2rem] w-full max-w-3xl max-h-[92vh] overflow-hidden flex flex-col shadow-2xl relative animate-in fade-in zoom-in duration-200 text-white">
+                        <button 
+                            onClick={() => setIsRemindersModalOpen(false)} 
+                            className="absolute top-5 right-5 text-white/50 hover:text-white transition-colors bg-white/5 hover:bg-white/10 p-2 rounded-xl"
+                        >
+                            <X size={20} />
+                        </button>
+
+                        <div className="flex items-center gap-3.5 mb-6 pb-4 border-b border-white/10">
+                            <div className="w-12 h-12 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center border border-amber-500/40 shadow">
+                                <Bell size={24} />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h3 className="text-xl font-black text-white">Scheduled Installment Reminders</h3>
+                                    <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2.5 py-0.5 rounded-full text-xs font-bold">
+                                        {reminders.length} Pending
+                                    </span>
+                                </div>
+                                <p className="text-xs text-white/50 mt-0.5">
+                                    Verify scheduled installments to confirm payment receipt or outflow into physical cash flow.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* Reminders List */}
+                        <div className="flex-1 overflow-y-auto custom-scrollbar pr-1">
+                            {reminders.length === 0 ? (
+                                <div className="text-center py-16 text-white/40 flex flex-col items-center gap-2">
+                                    <CheckCircle size={44} className="text-emerald-400/50 mb-2" />
+                                    <span className="font-bold text-white/80">No Pending Installment Reminders</span>
+                                    <span className="text-xs text-white/40">All scheduled installments have been verified and settled.</span>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {reminders.map((rem) => {
+                                        const dueD = rem.dueDate ? new Date(rem.dueDate) : new Date(rem.date);
+                                        const now = new Date();
+                                        const isDueToday = rem.dueDate && format(dueD, 'yyyy-MM-dd') === format(now, 'yyyy-MM-dd');
+                                        const isOverdue = dueD < new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+                                        return (
+                                            <div 
+                                                key={rem.id} 
+                                                className={`p-4 rounded-2xl border transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                                                    isOverdue 
+                                                        ? 'bg-rose-950/20 border-rose-500/30' 
+                                                        : isDueToday 
+                                                            ? 'bg-amber-950/30 border-amber-500/40 shadow-md shadow-amber-950/20' 
+                                                            : 'bg-white/5 border-white/10'
+                                                }`}
+                                            >
+                                                <div className="space-y-1.5 flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-black ${
+                                                            rem.type === 'INCOME' ? 'text-emerald-300 bg-emerald-500/20' : 'text-rose-300 bg-rose-500/20'
+                                                        }`}>
+                                                            {rem.type}
+                                                        </span>
+                                                        <span className="font-black text-xs text-white">
+                                                            {rem.category}
+                                                        </span>
+                                                        <span className="text-[10px] bg-amber-400/20 text-amber-300 border border-amber-400/30 px-2 py-0.5 rounded font-black">
+                                                            Inst {rem.installmentNo}/{rem.totalInstallments}
+                                                        </span>
+                                                        {isOverdue && (
+                                                            <span className="text-[10px] bg-rose-500 text-white px-2 py-0.5 rounded-full font-black animate-pulse">
+                                                                ⚠️ OVERDUE
+                                                            </span>
+                                                        )}
+                                                        {isDueToday && (
+                                                            <span className="text-[10px] bg-amber-400 text-black px-2 py-0.5 rounded-full font-black">
+                                                                🔔 DUE TODAY
+                                                            </span>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="text-xs text-white/90 font-medium truncate">
+                                                        {rem.description || 'Installment Payment'}
+                                                    </div>
+
+                                                    <div className="flex items-center gap-3 text-[11px] text-white/50 flex-wrap">
+                                                        <span className="flex items-center gap-1 font-semibold text-white/70">
+                                                            <Calendar size={12} className="text-amber-400" /> 
+                                                            Due: {format(dueD, 'dd MMM yyyy')}
+                                                        </span>
+                                                        <span>•</span>
+                                                        <span>
+                                                            {rem.affectsCash === false ? '🏦 Bank / Non-Cash' : '💵 Cash in Hand'}
+                                                        </span>
+                                                        {rem.teacher && (
+                                                            <>
+                                                                <span>•</span>
+                                                                <span className="text-purple-300 font-semibold">👨‍🏫 {rem.teacher.name}</span>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex sm:flex-col items-center sm:items-end justify-between w-full sm:w-auto gap-2 shrink-0">
+                                                    <div className="text-right">
+                                                        <span className="text-[10px] text-white/40 block">Amount</span>
+                                                        <span className={`text-base font-black ${rem.type === 'INCOME' ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                            Rs. {rem.amount.toLocaleString()}
+                                                        </span>
+                                                    </div>
+
+                                                    <button
+                                                        onClick={async () => {
+                                                            await handleVerifyTransaction(rem.id, false);
+                                                        }}
+                                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-black shadow-lg shadow-emerald-600/30 transition-all flex items-center gap-1.5 cursor-pointer active:scale-95"
+                                                    >
+                                                        <Check size={14} /> Verify & Settle
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="mt-4 pt-4 border-t border-white/10 flex justify-end">
+                            <button
+                                onClick={() => setIsRemindersModalOpen(false)}
+                                className="px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition-all cursor-pointer"
+                            >
+                                Close
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

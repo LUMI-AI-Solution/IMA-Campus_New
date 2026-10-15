@@ -1687,10 +1687,16 @@ exports.receiveMessage = async (req, res) => {
 exports.getMessages = async (req, res) => {
     try {
         const { leadId } = req.params;
-        await prisma.lead.update({ where: { id: parseInt(leadId) }, data: { unreadCount: 0 } });
-        const messages = await prisma.chatMessage.findMany({ where: { leadId: parseInt(leadId) }, orderBy: { createdAt: 'asc' } });
+        const parsedLeadId = parseInt(leadId);
+        if (isNaN(parsedLeadId)) return res.status(400).json({ error: "Invalid lead ID" });
+
+        await prisma.lead.update({ where: { id: parsedLeadId }, data: { unreadCount: 0 } }).catch(() => {});
+        const messages = await prisma.chatMessage.findMany({ where: { leadId: parsedLeadId }, orderBy: { createdAt: 'asc' } });
         res.status(200).json(messages);
-    } catch (error) { res.status(500).json({ error: "Failed to fetch messages" }); }
+    } catch (error) { 
+        console.error("Error in freeSeminar getMessages:", error);
+        res.status(500).json({ error: "Failed to fetch messages" }); 
+    }
 };
 
 // ==========================================

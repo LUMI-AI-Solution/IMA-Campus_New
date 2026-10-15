@@ -1564,7 +1564,7 @@ exports.toggleStudentFeePayment = async (req, res) => {
       update: {
         status: finalStatus,
         amount: paidAmount,
-        paidDate: new Date(),
+        paidDate: (existingPayment && (existingPayment.status === 'PAID' || existingPayment.status === 'HALF_PAYMENT') && existingPayment.paidDate) ? existingPayment.paidDate : new Date(),
         paymentMethod: paymentMethod || 'CASH',
         remark: remark || null
       },
@@ -1834,7 +1834,7 @@ exports.bulkStudentFeePayment = async (req, res) => {
         update: {
           status: finalStatus,
           amount: paidAmount,
-          paidDate: new Date(),
+          paidDate: (existingPayment && (existingPayment.status === 'PAID' || existingPayment.status === 'HALF_PAYMENT') && existingPayment.paidDate) ? existingPayment.paidDate : new Date(),
           paymentMethod: paymentMethod || 'CASH',
           remark: remark || item.remark || null
         },
@@ -2291,11 +2291,14 @@ exports.getTeacherReport = async (req, res) => {
     if (classIds.length > 0) {
       const classPaymentMonths = await prisma.physicalClassFeePayment.findMany({
         where: { classId: { in: classIds } },
-        select: { month: true },
-        distinct: ['month']
+        select: { month: true, paidDate: true }
       });
       classPaymentMonths.forEach(p => {
         if (p.month && p.month.trim()) allMonthsSet.add(p.month.trim());
+        if (p.paidDate) {
+          const pdStr = p.paidDate.toISOString().slice(0, 7);
+          allMonthsSet.add(pdStr);
+        }
       });
     }
 
@@ -2339,17 +2342,55 @@ exports.getTeacherReport = async (req, res) => {
     const startOfMonth = new Date(Date.UTC(selYear, selMonthNum - 1, 1, 0, 0, 0));
     const endOfMonth = new Date(Date.UTC(selYear, selMonthNum, 0, 23, 59, 59, 999));
 
-    // Fetch payments for these classes in the selected month
-    const feePayments = await prisma.physicalClassFeePayment.findMany({
+    // 1. Fetch Regular Payments for selectedMonth (collected on or before the end of selectedMonth)
+    const regularFeePayments = await prisma.physicalClassFeePayment.findMany({
       where: {
         classId: { in: classIds },
-        month: selectedMonth
+        month: selectedMonth,
+        paidDate: { lte: endOfMonth }
+      },
+      include: {
+        student: true,
+        class: true
       }
     });
 
-    const paymentKeyMap = new Map();
-    feePayments.forEach(p => {
-      paymentKeyMap.set(`${p.studentId}_${p.classId}`, p);
+    // 2. Fetch Late Class Fees: Payments for past months (month < selectedMonth) collected during selectedMonth
+    const lateFeePaymentsRaw = await prisma.physicalClassFeePayment.findMany({
+      where: {
+        classId: { in: classIds },
+        month: { lt: selectedMonth },
+        paidDate: { gte: startOfMonth, lte: endOfMonth },
+        status: { in: ['PAID', 'HALF_PAYMENT', 'PARTIAL'] }
+      },
+      include: {
+        student: true,
+        class: true
+      },
+      orderBy: { paidDate: 'desc' }
+    });
+
+    const validLatePayments = lateFeePaymentsRaw.filter(p => (p.amount || 0) > 0);
+
+    const regularPaymentKeyMap = new Map();
+    regularFeePayments.forEach(p => {
+      regularPaymentKeyMap.set(`${p.studentId}_${p.classId}`, p);
+    });
+
+    // Group late payments by class and by student
+    const latePaymentsByClass = new Map();
+    classIds.forEach(cid => latePaymentsByClass.set(cid, []));
+
+    const latePaymentsByStudentClass = new Map();
+    validLatePayments.forEach(p => {
+      if (latePaymentsByClass.has(p.classId)) {
+        latePaymentsByClass.get(p.classId).push(p);
+      }
+      const key = `${p.studentId}_${p.classId}`;
+      if (!latePaymentsByStudentClass.has(key)) {
+        latePaymentsByStudentClass.set(key, []);
+      }
+      latePaymentsByStudentClass.get(key).push(p);
     });
 
     // Fetch physical attendance records for these classes in this month
@@ -2421,16 +2462,18 @@ exports.getTeacherReport = async (req, res) => {
     });
 
     let totalEnrolled = 0;
-    let totalPaidStudents = 0;
-    let totalGrossRevenue = 0;
+    let totalRegularPaidStudents = 0;
+    let totalRegularGrossRevenue = 0;
+    let totalLateFeeGrossRevenue = 0;
+    let totalLateFeePaymentsCount = validLatePayments.length;
 
     const classBreakdowns = relevantClasses.map(cls => {
       const students = classStudentMap.get(cls.id) || [];
       const enrolledCount = students.length;
       totalEnrolled += enrolledCount;
 
-      let clsPaidCount = 0;
-      let clsGross = 0;
+      let clsRegularPaidCount = 0;
+      let clsRegularGross = 0;
 
       // Identify legitimate conducted sessions for this class (filtering out gate stray scans and cross-batch makeup noise)
       const scheduledDays = getScheduledDaysForClass(cls);
@@ -2464,15 +2507,17 @@ exports.getTeacherReport = async (req, res) => {
       const clsDatesArray = validDates;
 
       const studentList = students.map(st => {
-        const pay = paymentKeyMap.get(`${st.id}_${cls.id}`);
-        const isPaid = pay && pay.status === 'PAID';
+        const pay = regularPaymentKeyMap.get(`${st.id}_${cls.id}`);
+        const isPaid = pay && (pay.status === 'PAID' || pay.status === 'HALF_PAYMENT' || pay.status === 'PARTIAL') && ((pay.amount || 0) > 0 || pay.status === 'PAID');
         const isFree = pay && pay.status === 'FREE_CARD';
-        const fee = isPaid ? (pay.amount || cls.monthlyFee || 0) : (cls.monthlyFee || 0);
+        const fee = isPaid ? ((pay.amount !== undefined && pay.amount !== null) ? pay.amount : (cls.monthlyFee || 0)) : (cls.monthlyFee || 0);
 
         if (isPaid) {
-          clsPaidCount++;
-          clsGross += fee;
+          clsRegularPaidCount++;
+          clsRegularGross += fee;
         }
+
+        const lateFeesForStudent = latePaymentsByStudentClass.get(`${st.id}_${cls.id}`) || [];
 
         const rawAttendedDatesSet = studentAttendanceMap.get(`${st.id}_${cls.id}`) || new Set();
         // Valid conducted sessions attended by this student
@@ -2491,10 +2536,19 @@ exports.getTeacherReport = async (req, res) => {
           guardianPhone: st.guardianPhone,
           school: st.school ? st.school.name : null,
           registrationFeeStatus: st.registrationFeeStatus || 'PENDING',
-          feeStatus: isPaid ? 'PAID' : (isFree ? 'FREE_CARD' : 'PENDING'),
+          feeStatus: isPaid ? (pay.status === 'HALF_PAYMENT' ? 'HALF_PAYMENT' : (pay.status === 'PARTIAL' ? 'PARTIAL' : 'PAID')) : (isFree ? 'FREE_CARD' : 'PENDING'),
           amount: fee,
           paidDate: pay ? pay.paidDate : null,
           paymentMethod: pay ? pay.paymentMethod : null,
+          lateFees: lateFeesForStudent.map(lf => ({
+            id: lf.id,
+            feeMonth: lf.month,
+            amount: lf.amount || 0,
+            paidDate: lf.paidDate,
+            paymentMethod: lf.paymentMethod || 'CASH',
+            status: lf.status,
+            remark: lf.remark
+          })),
           attendance: {
             attendedSessions: attendedCount,
             totalSessions: totalConducted,
@@ -2504,12 +2558,19 @@ exports.getTeacherReport = async (req, res) => {
         };
       });
 
-      totalPaidStudents += clsPaidCount;
-      totalGrossRevenue += clsGross;
+      // Class late fee calculations
+      const clsLatePayments = latePaymentsByClass.get(cls.id) || [];
+      const clsLateGross = clsLatePayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+      const clsLatePaidCount = clsLatePayments.length;
 
+      const clsTotalGross = clsRegularGross + clsLateGross;
       const instCutPct = teacher.instituteCut || 0;
-      const instCutAmt = (clsGross * instCutPct) / 100;
-      const netPayout = clsGross - instCutAmt;
+      const instCutAmt = (clsTotalGross * instCutPct) / 100;
+      const netPayout = clsTotalGross - instCutAmt;
+
+      totalRegularPaidStudents += clsRegularPaidCount;
+      totalRegularGrossRevenue += clsRegularGross;
+      totalLateFeeGrossRevenue += clsLateGross;
 
       return {
         classId: cls.id,
@@ -2519,9 +2580,25 @@ exports.getTeacherReport = async (req, res) => {
         subject: cls.subject,
         monthlyFee: cls.monthlyFee || 0,
         enrolledCount,
-        paidCount: clsPaidCount,
-        unpaidCount: enrolledCount - clsPaidCount,
-        grossRevenue: clsGross,
+        paidCount: clsRegularPaidCount,
+        unpaidCount: enrolledCount - clsRegularPaidCount,
+        regularPaidCount: clsRegularPaidCount,
+        regularGrossRevenue: clsRegularGross,
+        lateFeePaidCount: clsLatePaidCount,
+        lateFeeGrossRevenue: clsLateGross,
+        lateFeePayments: clsLatePayments.map(p => ({
+          id: p.id,
+          studentId: p.studentId,
+          studentRegId: p.student?.studentId,
+          studentName: p.student?.studentName || `${p.student?.firstName || ''} ${p.student?.lastName || ''}`.trim(),
+          feeMonth: p.month,
+          amount: p.amount || 0,
+          status: p.status,
+          paidDate: p.paidDate,
+          paymentMethod: p.paymentMethod || 'CASH',
+          remark: p.remark
+        })),
+        grossRevenue: clsTotalGross,
         instituteCutPercent: instCutPct,
         instituteCutAmount: instCutAmt,
         netTeacherPayout: netPayout,
@@ -2531,15 +2608,15 @@ exports.getTeacherReport = async (req, res) => {
       };
     });
 
+    const totalGrossRevenue = totalRegularGrossRevenue + totalLateFeeGrossRevenue;
     const overallInstCutPct = teacher.instituteCut || 0;
     const overallInstCutAmt = (totalGrossRevenue * overallInstCutPct) / 100;
     const netPayoutBeforeDeductions = totalGrossRevenue - overallInstCutAmt;
 
-    // Fetch Teacher Advances / Expense Deductions for this month from PhysicalTransaction
-    const deductionsTxns = await prisma.physicalTransaction.findMany({
+    // Fetch Teacher Advances / Expense Deductions / Incomes for this month from PhysicalTransaction
+    const teacherTxns = await prisma.physicalTransaction.findMany({
       where: {
         teacherId: tId,
-        type: 'EXPENSE',
         isDeleted: false,
         OR: [
           { billingMonth: selectedMonth },
@@ -2554,7 +2631,20 @@ exports.getTeacherReport = async (req, res) => {
       orderBy: { date: 'desc' }
     });
 
-    const totalDeductions = deductionsTxns.reduce((sum, d) => sum + (d.amount || 0), 0);
+    // BOTH Teacher Advances (Cash Outflow) and Institute Income Charges (Deducted from Teacher) reduce teacher payout
+    let totalTeacherAdvances = 0;
+    let totalInstituteIncomeDeductions = 0;
+
+    teacherTxns.forEach(d => {
+      const amt = Number(d.amount) || 0;
+      if (d.type === 'INCOME') {
+        totalInstituteIncomeDeductions += amt;
+      } else {
+        totalTeacherAdvances += amt;
+      }
+    });
+
+    const totalDeductions = totalTeacherAdvances + totalInstituteIncomeDeductions;
     const overallNetPayout = Math.max(0, netPayoutBeforeDeductions - totalDeductions);
 
     res.json({
@@ -2574,22 +2664,45 @@ exports.getTeacherReport = async (req, res) => {
       summary: {
         totalClasses: relevantClasses.length,
         totalEnrolledStudents: totalEnrolled,
-        totalPaidStudents,
-        totalUnpaidStudents: totalEnrolled - totalPaidStudents,
+        totalPaidStudents: totalRegularPaidStudents,
+        totalUnpaidStudents: totalEnrolled - totalRegularPaidStudents,
+        regularGrossRevenue: totalRegularGrossRevenue,
+        lateFeeGrossRevenue: totalLateFeeGrossRevenue,
+        lateFeePaymentsCount: totalLateFeePaymentsCount,
         grossRevenue: totalGrossRevenue,
         instituteCutPercent: overallInstCutPct,
         instituteCutAmount: overallInstCutAmt,
         netTeacherPayoutBeforeDeductions: netPayoutBeforeDeductions,
         totalDeductions,
+        totalTeacherAdvances,
+        totalInstituteIncomeDeductions,
         netTeacherPayout: overallNetPayout
       },
-      deductions: deductionsTxns.map(d => ({
+      lateFeeCollections: validLatePayments.map(p => ({
+        id: p.id,
+        studentId: p.studentId,
+        studentRegId: p.student?.studentId,
+        studentName: p.student?.studentName || `${p.student?.firstName || ''} ${p.student?.lastName || ''}`.trim(),
+        classId: p.classId,
+        className: p.class?.name,
+        feeMonth: p.month,
+        amount: p.amount || 0,
+        status: p.status,
+        paidDate: p.paidDate,
+        paymentMethod: p.paymentMethod || 'CASH',
+        remark: p.remark
+      })),
+      deductions: teacherTxns.map(d => ({
         id: d.id,
+        recordType: d.type === 'INCOME' ? 'INSTITUTE_INCOME' : 'TEACHER_ADVANCE',
+        type: d.type || 'EXPENSE',
         category: d.category,
         amount: d.amount,
         description: d.description,
         date: d.date,
-        billingMonth: d.billingMonth || selectedMonth
+        billingMonth: d.billingMonth || selectedMonth,
+        paymentMethod: 'CASH',
+        affectsCash: true
       })),
       classes: classBreakdowns
     });

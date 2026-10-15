@@ -1575,8 +1575,15 @@ export default function ContentHubModals({ state, actions }) {
                                                                     <input type="checkbox" className="hidden" 
                                                                         checked={selectedBatchesForContent.includes(b.id)} 
                                                                         onChange={(e) => {
-                                                                            if(e.target.checked) setSelectedBatchesForContent([...selectedBatchesForContent, b.id]);
-                                                                            else setSelectedBatchesForContent(selectedBatchesForContent.filter(id => id !== b.id));
+                                                                            if(e.target.checked) {
+                                                                                setSelectedBatchesForContent([...selectedBatchesForContent, b.id]);
+                                                                            } else {
+                                                                                setSelectedBatchesForContent(selectedBatchesForContent.filter(id => id !== b.id));
+                                                                                // Remove courses belonging to this batch from massAssignSubjects
+                                                                                const batchCourseIds = new Set();
+                                                                                b.groups?.forEach(g => g.courses?.forEach(c => batchCourseIds.add(c.id)));
+                                                                                setMassAssignSubjects(prev => prev.filter(cId => !batchCourseIds.has(cId)));
+                                                                            }
                                                                         }} 
                                                                     />
                                                                     <div className={`w-5 h-5 rounded-lg border-2 flex items-center justify-center transition-colors ${selectedBatchesForContent.includes(b.id) ? 'bg-blue-500 border-blue-500' : 'border-slate-500'}`}>

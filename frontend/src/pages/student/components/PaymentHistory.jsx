@@ -128,7 +128,8 @@ export default function PaymentHistory({ isActive = true }) {
     const formatDate = (ds) => ds ? new Date(ds).toISOString().split('T')[0] : 'N/A';
 
     const handleFileChange = (e) => {
-        const newFiles = Array.from(e.target.files);
+        const newFiles = Array.from(e.target.files || []);
+        if (newFiles.length === 0) return;
         const totalFiles = [...slipFiles, ...newFiles];
         
         if (totalFiles.length > 4) {
@@ -137,6 +138,7 @@ export default function PaymentHistory({ isActive = true }) {
         } else {
             setSlipFiles(totalFiles);
         }
+        e.target.value = '';
     };
 
     const removeFile = (indexToRemove) => {
@@ -514,7 +516,7 @@ export default function PaymentHistory({ isActive = true }) {
                                                 onChange={(e) => setAgreedToTerms(e.target.checked)}
                                             />
                                             <span className="text-xs text-white/80 leading-snug">
-                                                මා <a href="/terms" target="_blank" onClick={(e) => e.stopPropagation()} className="text-blue-400 font-bold hover:underline">නියමයන් සහ කොන්දේසි</a> කියවා ඊට එකඟ වෙමි. අන්තර්ජාලය හරහා කරන සියලුම ගෙවීම් ආපසු ලබා නොදෙන බව මම තේරුම් ගතිමි.
+                                                I have read and agree to the <a href="/terms" target="_blank" onClick={(e) => e.stopPropagation()} className="text-blue-400 font-bold hover:underline">Terms and Conditions</a>. I understand that all online payments are non-refundable.
                                             </span>
                                         </label>
                                     </div>
@@ -522,16 +524,41 @@ export default function PaymentHistory({ isActive = true }) {
                                     <>
                                         <div className="border-2 border-dashed border-white/20 bg-black/20 backdrop-blur-xl rounded-[1.5rem] p-6 text-center hover:border-red-500/50 hover:bg-red-500/5 transition-colors cursor-pointer mb-4 group relative" onClick={openSlipInstructions}>
                                             <div className="absolute top-3 right-3 bg-blue-500 text-white p-1.5 rounded-full"><Info size={14}/></div>
-                                            <input type="file" id="slip-upload-due" className="hidden" multiple accept="image/*,application/pdf" capture="environment" onChange={handleFileChange} />
+                                            {/* Primary File Input: Opens Gallery / Files (NO capture="environment") */}
+                                            <input type="file" id="slip-upload-due" className="hidden" multiple accept="image/*,application/pdf" onChange={handleFileChange} />
+                                            {/* Dedicated Direct Camera Input */}
+                                            <input type="file" id="slip-upload-due-camera" className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
                                             <div className="flex flex-col items-center w-full">
-                                                <div className="flex gap-3 mb-3 text-white/80 group-hover:text-red-500 transition-colors">
-                                                    <UploadCloud size={32} />
-                                                    <Camera size={32} />
+                                                <div className="flex gap-3 mb-2 text-white/80 group-hover:text-red-500 transition-colors">
+                                                    <UploadCloud size={30} />
+                                                    <Camera size={30} />
                                                 </div>
                                                 <span className="text-white font-bold text-sm mb-1">
                                                     {slipFiles.length > 0 ? `${slipFiles.length} File(s) Selected` : 'Click to Upload Slip'}
                                                 </span>
-                                                <span className="text-[10px] text-white/80 font-medium">Max 4 slips. PNG, JPG, PDF</span>
+                                                <span className="text-[10px] text-white/70 font-medium mb-3">
+                                                    Select from Gallery, Files, or snap a live photo (Max 4 slips. PNG, JPG, PDF)
+                                                </span>
+
+                                                {/* Direct Action Buttons */}
+                                                <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => document.getElementById('slip-upload-due')?.click()}
+                                                        className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 border border-white/20 shadow-sm transition-all active:scale-95"
+                                                    >
+                                                        <UploadCloud size={14} className="text-blue-400" />
+                                                        <span>Gallery / Files</span>
+                                                    </button>
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => document.getElementById('slip-upload-due-camera')?.click()}
+                                                        className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 border border-white/20 shadow-sm transition-all active:scale-95"
+                                                    >
+                                                        <Camera size={14} className="text-emerald-400" />
+                                                        <span>Camera</span>
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                         
@@ -606,49 +633,54 @@ export default function PaymentHistory({ isActive = true }) {
             {showSlipInstructions && createPortal(
                 <div className="fixed inset-0 z-[99999] flex items-center justify-center bg-black/95 p-4 animate-in fade-in duration-200">
                     <div className="bg-[#1a1f2e]/95 backdrop-blur-3xl border border-white/10 p-5 md:p-8 rounded-[2rem] max-w-2xl w-full shadow-2xl relative overflow-y-auto max-h-[90vh] custom-scrollbar">
-                        <h3 className="text-lg md:text-2xl font-extrabold text-white mb-4 md:mb-6 border-b border-white/20 pb-3 md:pb-4">ස්ලිප් පත් උඩුගත කිරීමේ උපදෙස් (Slip Upload Instructions)</h3>
+                        <h3 className="text-lg md:text-2xl font-extrabold text-white mb-4 md:mb-6 border-b border-white/20 pb-3 md:pb-4">Slip Upload Guidelines</h3>
                         
                         <div className="space-y-4 md:space-y-6">
                             <div className="bg-black/20 backdrop-blur-xl p-4 md:p-5 rounded-2xl border border-white/20">
-                                <h4 className="text-red-400 font-bold mb-2 md:mb-3 flex items-center gap-2 text-sm md:text-base"><Camera size={16}/> බැංකු ස්ලිප් (CDM / Bank Deposit)</h4>
+                                <h4 className="text-red-400 font-bold mb-2 md:mb-3 flex items-center gap-2 text-sm md:text-base"><Camera size={16}/> Bank Deposit / CDM Slips</h4>
                                 <ul className="text-xs md:text-sm text-white/70 list-disc pl-4 md:pl-5 space-y-1 md:space-y-2 leading-relaxed mb-4">
-                                    <li>ස්ලිප් පතෙහි <strong className="text-white">මුලු 4ම (4 corners)</strong> පැහැදිලිව පෙනෙන සේ ඡායාරූපය ගන්න.</li>
-                                    <li>ඡායාරූපය <strong className="text-white">බොඳ නොවී ඉතා පැහැදිලිව</strong> තිබිය යුතුය.</li>
-                                    <li><strong className="text-white">Reference Number, දිනය සහ වේලාව</strong> හොඳින් කියවිය හැකි විය යුතුය.</li>
+                                    <li>Capture the image clearly showing <strong className="text-white">all 4 corners</strong> of the slip.</li>
+                                    <li>The photo must be <strong className="text-white">clear and not blurry</strong>.</li>
+                                    <li><strong className="text-white">Reference number, date, and time</strong> must be clearly visible and legible.</li>
                                 </ul>
                                 <div className="flex gap-2 md:gap-4">
                                     <div className="flex-1 bg-black/20 backdrop-blur-xl border border-green-500/50 rounded-xl p-2 md:p-3 text-center flex flex-col justify-between">
                                         <img src={correctCdmImg} className="w-full h-20 md:h-28 object-contain rounded-lg mb-2" alt="Correct"/>
-                                        <span className="text-green-400 text-[9px] md:text-xs font-bold uppercase flex justify-center items-center gap-1"><CheckCircle size={10}/> නිවැරදියි (Correct)</span>
+                                        <span className="text-green-400 text-[9px] md:text-xs font-bold uppercase flex justify-center items-center gap-1"><CheckCircle size={10}/> Correct</span>
                                     </div>
                                     <div className="flex-1 bg-black/20 backdrop-blur-xl border border-red-500/50 rounded-xl p-2 md:p-3 text-center flex flex-col justify-between">
                                         <img src={wrongCdmImg} className="w-full h-20 md:h-28 object-contain rounded-lg mb-2 opacity-50" alt="Wrong"/>
-                                        <span className="text-red-400 text-[9px] md:text-xs font-bold uppercase flex justify-center items-center gap-1"><X size={10}/> වැරදියි (Incorrect)</span>
+                                        <span className="text-red-400 text-[9px] md:text-xs font-bold uppercase flex justify-center items-center gap-1"><X size={10}/> Incorrect</span>
                                     </div>
                                 </div>
                             </div>
                             <div className="bg-black/20 backdrop-blur-xl p-4 md:p-5 rounded-2xl border border-white/20">
-                                <h4 className="text-blue-400 font-bold mb-2 md:mb-3 flex items-center gap-2 text-sm md:text-base"><MonitorPlay size={16}/> Online Transfers / e-Receipts</h4>
+                                <h4 className="text-blue-400 font-bold mb-2 md:mb-3 flex items-center gap-2 text-sm md:text-base"><MonitorPlay size={16}/> Online Transfers & E-Receipts</h4>
                                 <ul className="text-xs md:text-sm text-white/70 list-disc pl-4 md:pl-5 space-y-1 md:space-y-2 leading-relaxed mb-4">
-                                    <li><strong className="text-white">Reference Number, දිනය සහ වේලාව</strong> අනිවාර්යයෙන්ම දිස්විය යුතුය.</li>
-                                    <li>ස්ක්‍රීන්ෂොට් එක (Screenshot) කපා-කොටා (crop) නොමැතිව <strong className="text-white">සම්පූර්ණයෙන්ම</strong> උඩුගත කරන්න.</li>
+                                    <li><strong className="text-white">Reference number, date, and time</strong> must be fully visible.</li>
+                                    <li>Upload the full screenshot or receipt without cropping essential details.</li>
                                 </ul>
                                  <div className="flex gap-2 md:gap-4">
                                     <div className="flex-1 bg-black/20 backdrop-blur-xl border border-green-500/50 rounded-xl p-2 md:p-3 text-center flex flex-col justify-between">
                                         <img src={correctReceiptImg} className="w-full h-20 md:h-28 object-contain rounded-lg mb-2 border border-white/20" alt="Correct"/>
-                                        <span className="text-green-400 text-[9px] md:text-xs font-bold uppercase flex justify-center items-center gap-1"><CheckCircle size={10}/> නිවැරදියි (Correct)</span>
+                                        <span className="text-green-400 text-[9px] md:text-xs font-bold uppercase flex justify-center items-center gap-1"><CheckCircle size={10}/> Correct</span>
                                     </div>
                                     <div className="flex-1 bg-black/20 backdrop-blur-xl border border-red-500/50 rounded-xl p-2 md:p-3 text-center flex flex-col justify-between">
                                         <img src={wrongReceiptImg} className="w-full h-20 md:h-28 object-contain rounded-lg mb-2 opacity-50 border border-white/20" alt="Wrong"/>
-                                        <span className="text-red-400 text-[9px] md:text-xs font-bold uppercase flex justify-center items-center gap-1"><X size={10}/> වැරදියි (Incorrect)</span>
+                                        <span className="text-red-400 text-[9px] md:text-xs font-bold uppercase flex justify-center items-center gap-1"><X size={10}/> Incorrect</span>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="mt-6 md:mt-8 flex justify-end gap-3 md:gap-4">
-                            <button onClick={() => setShowSlipInstructions(false)} className="px-4 md:px-6 py-2.5 md:py-3 rounded-xl bg-black/20 backdrop-blur-xl text-white/70 font-medium text-xs md:text-sm font-bold hover:bg-black/20 backdrop-blur-xl hover:text-white transition-colors">අවලංගු කරන්න (Cancel)</button>
-                            <button onClick={confirmSlipInstructions} className="px-4 md:px-6 py-2.5 md:py-3 rounded-xl bg-red-600 text-white text-xs md:text-sm font-bold hover:bg-red-500 shadow-lg shadow-red-500/20 transition-colors">මම තේරුම් ගත්තා (Upload)</button>
+                        <div className="mt-6 md:mt-8 flex flex-wrap justify-end gap-3 md:gap-4">
+                            <button onClick={() => setShowSlipInstructions(false)} className="px-4 md:px-6 py-2.5 md:py-3 rounded-xl bg-black/20 backdrop-blur-xl text-white/70 font-medium text-xs md:text-sm font-bold hover:bg-black/20 backdrop-blur-xl hover:text-white transition-colors">Cancel</button>
+                            <button onClick={() => { document.getElementById('slip-upload-due')?.click(); setShowSlipInstructions(false); }} className="px-4 md:px-5 py-2.5 md:py-3 rounded-xl bg-blue-600 text-white text-xs md:text-sm font-bold hover:bg-blue-500 shadow-lg shadow-blue-500/20 transition-colors flex items-center gap-2">
+                                <UploadCloud size={16} /> Choose from Gallery / Files
+                            </button>
+                            <button onClick={() => { document.getElementById('slip-upload-due-camera')?.click(); setShowSlipInstructions(false); }} className="px-4 md:px-5 py-2.5 md:py-3 rounded-xl bg-emerald-600 text-white text-xs md:text-sm font-bold hover:bg-emerald-500 shadow-lg shadow-emerald-500/20 transition-colors flex items-center gap-2">
+                                <Camera size={16} /> Take Photo (Camera)
+                            </button>
                         </div>
                     </div>
                 </div>,

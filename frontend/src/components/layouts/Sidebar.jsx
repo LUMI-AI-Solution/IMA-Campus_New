@@ -12,7 +12,7 @@ import {
   BrainCircuit, MessageSquareText, BookOpen, Bot, Briefcase, Trophy, CreditCard
 } from 'lucide-react';
 
-export default function Sidebar({ userRole, loggedInUser, handleLogout, isSidebarOpen, setIsSidebarOpen, currentBg, setBgImage, isSpotifyOpen, setIsSpotifyOpen, isSocialMedia, isDarkMode, toggleThemeMode }) {
+export default function Sidebar({ userRole, loggedInUser, handleLogout, isSidebarOpen, setIsSidebarOpen, currentBg, setBgImage, isSpotifyOpen, setIsSpotifyOpen, isSocialMedia, isDarkMode, toggleThemeMode, uiTheme = 'glass', setUiTheme }) {
   const location = useLocation();
   const displayName = loggedInUser?.firstName || 'User';
   const rawRole = loggedInUser?.role || 'Staff';
@@ -594,43 +594,97 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
         </button>
 
         {isThemeOpen && (
-          <div className={`absolute bottom-full left-0 mb-3 bg-[#0B1120]/95 backdrop-blur-2xl border border-white/10 p-4 rounded-2xl shadow-2xl z-50 transition-all ${isSidebarOpen ? 'w-[260px]' : 'w-[220px] left-16 mb-0 bottom-12'}`}>
-            <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-2">
+          <div className={`absolute bottom-full left-0 mb-3 bg-[#0B1120]/95 backdrop-blur-2xl border border-white/10 p-4 rounded-2xl shadow-2xl z-50 transition-all ${isSidebarOpen ? 'w-[280px]' : 'w-[250px] left-16 mb-0 bottom-12'}`}>
+            <div className="flex justify-between items-center mb-3 border-b border-white/10 pb-2">
               <p className="text-xs font-bold text-gray-300 uppercase tracking-widest flex items-center gap-1.5">
-                <Palette size={14} /> Backgrounds
+                <Palette size={14} /> Themes & Appearance
               </p>
               <button onClick={() => setIsThemeOpen(false)} className="text-gray-500 hover:text-white transition-colors"><X size={16} /></button>
             </div>
 
-            <p className="text-[10px] text-gray-400 mb-2">Solid & Gradients</p>
-            <div className="flex gap-2 flex-wrap mb-4">
-              <button onClick={() => setBgImage('color1')} title="Light Blue" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'color1' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-[#60A5FA] transition-all`}></button>
-              <button onClick={() => setBgImage('color2')} title="Purple" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'color2' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-[#A78BFA] transition-all`}></button>
-              <button onClick={() => setBgImage('color3')} title="Plum Mix" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'color3' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-[#D946EF] transition-all`}></button>
-              <button onClick={() => setBgImage('grad1')} title="Blue-Red Mix" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'grad1' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-gradient-to-br from-[#1E40AF] to-[#B91C1C] transition-all`}></button>
-              <button onClick={() => setBgImage('grad2')} title="Green Gradient" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'grad2' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-gradient-to-br from-[#065F46] to-[#10B981] transition-all`}></button>
-              <button onClick={() => setBgImage('grad3')} title="Ash-Red Mix" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'grad3' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-gradient-to-br from-[#374151] to-[#EF4444] transition-all`}></button>
+            {/* Themes Group */}
+            <p className="text-[10px] text-gray-400 mb-2 font-bold uppercase tracking-wider">UI Theme</p>
+            <div className="grid grid-cols-3 gap-1.5 mb-4">
+              <button
+                type="button"
+                onClick={() => setUiTheme && setUiTheme('glass')}
+                className={`py-2 px-1 rounded-xl text-[11px] font-bold transition-all text-center border flex flex-col items-center justify-center gap-1 ${
+                  uiTheme === 'glass'
+                    ? 'bg-brand-accent text-white border-brand-accent shadow-md scale-102'
+                    : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
+                }`}
+                title="Classic Glass Theme (Default)"
+              >
+                <Sparkles size={13} />
+                <span>Classic</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setUiTheme && setUiTheme('aurora')}
+                className={`py-2 px-1 rounded-xl text-[11px] font-bold transition-all text-center border flex flex-col items-center justify-center gap-1 ${
+                  (uiTheme === 'aurora' || uiTheme === 'chatline')
+                    ? 'bg-teal-500 text-gray-950 border-teal-300 shadow-[0_0_15px_rgba(20,184,166,0.6)] scale-102 font-extrabold'
+                    : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
+                }`}
+                title="Aurora Theme (Glowing Teal Frosted Glass ERP)"
+              >
+                <Sparkles size={13} className={(uiTheme === 'aurora' || uiTheme === 'chatline') ? 'text-gray-950' : 'text-teal-400'} />
+                <span>Aurora</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setUiTheme && setUiTheme('bento')}
+                className={`py-2 px-1 rounded-xl text-[11px] font-bold transition-all text-center border flex flex-col items-center justify-center gap-1 ${
+                  uiTheme === 'bento'
+                    ? 'bg-[#075E54] text-white border-[#075E54] shadow-md scale-102'
+                    : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
+                }`}
+                title="Bento Theme (Floating rounded tiles, island sidebar)"
+              >
+                <Layers size={13} />
+                <span>Bento</span>
+              </button>
             </div>
 
-            <p className="text-[10px] text-gray-400 mb-2">Live Animations</p>
-            <div className="flex gap-2 flex-wrap mb-4">
-              <button onClick={() => setBgImage('anim1')} title="Live Sky" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'anim1' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-gradient-to-b from-blue-400 to-orange-300 transition-all flex items-center justify-center overflow-hidden`}><span className="text-[10px]">⛅</span></button>
-              <button onClick={() => setBgImage('anim2')} title="Slow Color Shift" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'anim2' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-gradient-to-r from-blue-500 via-red-500 to-yellow-400 transition-all flex items-center justify-center`}><span className="text-[10px]">🌈</span></button>
-              <button onClick={() => setBgImage('anim3')} title="Floating Balls" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'anim3' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-blue-900 transition-all flex items-center justify-center`}><span className="text-[10px]">🎾</span></button>
-            </div>
+            {/* Backgrounds Group: visible ONLY when Classic Glass is active */}
+            {uiTheme === 'glass' ? (
+              <>
+                <p className="text-[10px] text-gray-400 mb-2 font-bold uppercase tracking-wider">Background Wallpapers</p>
+                <p className="text-[10px] text-gray-400 mb-1.5">Solid & Gradients</p>
+                <div className="flex gap-2 flex-wrap mb-3">
+                  <button onClick={() => setBgImage('color1')} title="Light Blue" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'color1' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-[#60A5FA] transition-all`}></button>
+                  <button onClick={() => setBgImage('color2')} title="Purple" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'color2' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-[#A78BFA] transition-all`}></button>
+                  <button onClick={() => setBgImage('color3')} title="Plum Mix" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'color3' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-[#D946EF] transition-all`}></button>
+                  <button onClick={() => setBgImage('grad1')} title="Blue-Red Mix" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'grad1' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-gradient-to-br from-[#1E40AF] to-[#B91C1C] transition-all`}></button>
+                  <button onClick={() => setBgImage('grad2')} title="Green Gradient" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'grad2' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-gradient-to-br from-[#065F46] to-[#10B981] transition-all`}></button>
+                  <button onClick={() => setBgImage('grad3')} title="Ash-Red Mix" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'grad3' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-gradient-to-br from-[#374151] to-[#EF4444] transition-all`}></button>
+                </div>
 
-            <p className="text-[10px] text-gray-400 mb-2">Wallpapers</p>
-            <div className="flex gap-2 flex-wrap">
-              {['wall1', 'wall2', 'wall3', 'wall4', 'wall5'].map((theme, i) => (
-                <button
-                  key={i}
-                  onClick={() => setBgImage(theme)}
-                  className={`w-7 h-7 rounded-full border bg-cover bg-center transition-all flex items-center justify-center outline-none ${currentBg === theme ? 'border-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.5)]' : 'border-white/20 hover:border-white/50'}`}
-                  style={{ backgroundImage: `url('/bg${i + 1}.jpg')` }}
-                  title={`Wallpaper ${i + 1}`}
-                />
-              ))}
-            </div>
+                <p className="text-[10px] text-gray-400 mb-1.5">Live Animations</p>
+                <div className="flex gap-2 flex-wrap mb-3">
+                  <button onClick={() => setBgImage('anim1')} title="Live Sky" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'anim1' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-gradient-to-b from-blue-400 to-orange-300 transition-all flex items-center justify-center overflow-hidden`}><span className="text-[10px]">⛅</span></button>
+                  <button onClick={() => setBgImage('anim2')} title="Slow Color Shift" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'anim2' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-gradient-to-r from-blue-500 via-red-500 to-yellow-400 transition-all flex items-center justify-center`}><span className="text-[10px]">🌈</span></button>
+                  <button onClick={() => setBgImage('anim3')} title="Floating Balls" className={`w-6 h-6 rounded-full border-2 ${currentBg === 'anim3' ? 'border-white scale-110 shadow-[0_0_8px_rgba(255,255,255,0.5)]' : 'border-transparent'} bg-blue-900 transition-all flex items-center justify-center`}><span className="text-[10px]">🎾</span></button>
+                </div>
+
+                <p className="text-[10px] text-gray-400 mb-1.5">Wallpapers</p>
+                <div className="flex gap-2 flex-wrap">
+                  {['wall1', 'wall2', 'wall3', 'wall4', 'wall5'].map((theme, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setBgImage(theme)}
+                      className={`w-7 h-7 rounded-full border bg-cover bg-center transition-all flex items-center justify-center outline-none ${currentBg === theme ? 'border-white scale-110 shadow-[0_0_10px_rgba(255,255,255,0.5)]' : 'border-white/20 hover:border-white/50'}`}
+                      style={{ backgroundImage: `url('/bg${i + 1}.jpg')` }}
+                      title={`Wallpaper ${i + 1}`}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="text-[11px] text-gray-400 p-2.5 rounded-xl bg-white/5 border border-white/10 text-center leading-relaxed">
+                Background wallpapers are custom to <span className="font-semibold text-gray-200">Classic Glass</span>. In {(uiTheme === 'aurora' || uiTheme === 'chatline') ? 'Aurora Glass' : 'Bento'} mode, ambient frosted panels are active.
+              </div>
+            )}
           </div>
         )}
       </div>

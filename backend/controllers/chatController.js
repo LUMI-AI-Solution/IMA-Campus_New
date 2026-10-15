@@ -686,8 +686,11 @@ exports.updateProfile = async (req, res) => {
 exports.getHistory = async (req, res) => {
     try {
         const { businessId } = req.params;
+        const bId = parseInt(businessId);
+        if (isNaN(bId)) return res.status(400).json({ success: false, error: "Invalid business ID" });
+
         const messages = await prisma.appChatMessage.findMany({
-            where: { businessId: parseInt(businessId) },
+            where: { businessId: bId },
             orderBy: { createdAt: 'desc' },
             take: 100,
             include: {
@@ -698,7 +701,7 @@ exports.getHistory = async (req, res) => {
         });
 
         const lockSetting = await prisma.businessChatSetting.findUnique({
-            where: { businessId: parseInt(businessId) }
+            where: { businessId: bId }
         });
 
         res.json({ 
@@ -707,23 +710,42 @@ exports.getHistory = async (req, res) => {
             isLocked: lockSetting?.isLocked || false 
         });
     } catch (e) {
+        console.error("Error in getHistory:", e);
         res.status(500).json({ success: false, error: "Server error" });
     }
 };
 
 exports.getMyBusinesses = async (req, res) => {
     try {
-        const userId = req.user.userId || req.user.id;
+        const userId = parseInt(req.user.userId || req.user.id);
         const userRole = String(req.user.role || 'Student').toUpperCase();
         
         if (userRole === 'STUDENT' || userRole === 'USER') {
-            // Find businesses the student is enrolled in (has payments/leads)
+            // Find businesses the student is enrolled in (has approved/partial/active payments)
             const payments = await prisma.payment.findMany({
-                where: { studentId: userId, status: 5 },
+                where: { studentId: userId, status: { in: [1, 4, 5] } },
                 select: { businessId: true },
                 distinct: ['businessId']
             });
             const bIds = payments.map(p => p.businessId).filter(Boolean);
+
+            // Also check if student has any leads linked to a business
+            const studentUser = await prisma.user.findUnique({ where: { id: userId } });
+            if (studentUser?.phone) {
+                const normPhone = studentUser.phone.replace(/[^0-9]/g, '').slice(-9);
+                const leads = await prisma.lead.findMany({
+                    where: { phone: { contains: normPhone } },
+                    select: { phone: true, businessId: true }
+                });
+                leads.forEach(l => {
+                    if (l.businessId && !bIds.includes(l.businessId)) bIds.push(l.businessId);
+                    const match = l.phone?.match(/_BIZ_(\d+)/);
+                    if (match) {
+                        const parsedB = parseInt(match[1]);
+                        if (!bIds.includes(parsedB)) bIds.push(parsedB);
+                    }
+                });
+            }
             
             const businesses = await prisma.business.findMany({
                 where: { id: { in: bIds }, status: 1 },
@@ -731,7 +753,7 @@ exports.getMyBusinesses = async (req, res) => {
             });
             return res.json({ success: true, businesses });
         } else {
-            // For staff, return all active businesses (or you could filter by their assignment)
+            // For staff, return all active businesses
             const businesses = await prisma.business.findMany({
                 where: { status: 1 },
                 select: { id: true, name: true, logo: true }
@@ -739,7 +761,7 @@ exports.getMyBusinesses = async (req, res) => {
             return res.json({ success: true, businesses });
         }
     } catch (e) {
-        console.error(e);
+        console.error("Error in getMyBusinesses:", e);
         res.status(500).json({ success: false, error: "Server error" });
     }
 };

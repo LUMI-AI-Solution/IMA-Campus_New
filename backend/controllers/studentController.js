@@ -286,24 +286,27 @@ exports.getStudentDashboard = async (req, res) => {
             const batchMap = {};
             validMonthly.forEach(p => {
                 if (!p.batchId || !p.group) return;
-                if (!batchMap[p.batchId]) {
-                    batchMap[p.batchId] = { batch: p.batch, highestGroup: p.group, subjects: p.subjects };
+                const cType = parseInt(p.group.classType || 1);
+                const key = `${p.batchId}_${cType}`;
+                if (!batchMap[key]) {
+                    batchMap[key] = { batch: p.batch, highestGroup: p.group, subjects: p.subjects, classType: cType };
                 } else {
-                    if (p.group.itemOrder > batchMap[p.batchId].highestGroup.itemOrder) {
-                        batchMap[p.batchId].highestGroup = p.group;
-                        batchMap[p.batchId].subjects = p.subjects;
+                    if (p.group.itemOrder > batchMap[key].highestGroup.itemOrder) {
+                        batchMap[key].highestGroup = p.group;
+                        batchMap[key].subjects = p.subjects;
                     }
                 }
             });
 
-            for (let batchId in batchMap) {
-                const { batch, highestGroup, subjects } = batchMap[batchId];
+            for (let key in batchMap) {
+                const { batch, highestGroup, subjects, classType } = batchMap[key];
                 
-                // Find next group
+                // Find next group strictly matching classType (Theory vs Paper)
                 const nextGroup = await prisma.group.findFirst({
                     where: {
-                        batchId: parseInt(batchId),
-                        type: 1, // assuming monthly groups are type 1
+                        batchId: parseInt(batch.id),
+                        type: 1, // monthly groups
+                        classType: classType,
                         itemOrder: { gt: highestGroup.itemOrder }
                     },
                     orderBy: { itemOrder: 'asc' }
@@ -314,7 +317,7 @@ exports.getStudentDashboard = async (req, res) => {
                     const existingPayment = await prisma.payment.findFirst({
                         where: {
                             studentId: parseInt(studentId),
-                            batchId: parseInt(batchId),
+                            batchId: parseInt(batch.id),
                             groupId: nextGroup.id,
                             status: { not: 3 } // not rejected
                         }
@@ -332,7 +335,8 @@ exports.getStudentDashboard = async (req, res) => {
                         }
 
                         // Push a virtual payment
-                        const courseName = `${batch.business?.name || ''} - ${batch.name || ''}`;
+                        const classLabel = classType === 2 ? ' (Paper Class)' : ' (Theory Class)';
+                        const courseName = `${batch.business?.name || ''} - ${batch.name || ''}${classLabel}`;
                         const nextMonthDueDate = new Date(today.getFullYear(), today.getMonth() + 1, 5); // 5th of next month
 
                         duePaymentsList.push({
@@ -402,18 +406,24 @@ exports.getStudentDashboard = async (req, res) => {
             const expandedCourseIds = new Set(rawSubjectIds);
             for (const ec of enrolledCourses) {
                 if (ec.group?.batchId) {
+                    const targetClassType = parseInt(ec.courseType || ec.group?.classType || 1, 10);
                     const siblingCourses = await prisma.course.findMany({
                         where: {
-                            group: { batchId: ec.group.batchId },
+                            group: { 
+                                batchId: ec.group.batchId,
+                                classType: targetClassType
+                            },
+                            courseType: targetClassType,
                             OR: [
                                 { name: ec.name },
                                 ec.code ? { code: ec.code } : undefined
                             ].filter(Boolean)
                         },
-                        select: { id: true, name: true, code: true }
+                        select: { id: true, name: true, code: true, courseType: true, group: { select: { classType: true } } }
                     });
                     siblingCourses.forEach(sc => {
-                        if (sc.name === ec.name || (ec.code && sc.code === ec.code)) {
+                        const scClassType = parseInt(sc.courseType || sc.group?.classType || 1, 10);
+                        if (scClassType === targetClassType && (sc.name === ec.name || (ec.code && sc.code === ec.code))) {
                             expandedCourseIds.add(sc.id);
                         }
                     });
@@ -712,11 +722,13 @@ exports.enrollStudent = async (req, res) => {
                         }
                     }
 
+                    const upgGroupId = upg.groupId || upg.group_id;
                     const recentDuplicatePayment = await prisma.payment.findFirst({
                         where: {
                             studentId: parseInt(studentId),
                             businessId: parseInt(upg.businessId),
                             batchId: parseInt(upg.batchId),
+                            ...(upgGroupId ? { groupId: parseInt(upgGroupId) } : {}),
                             method: 'Slip',
                             payment_type: parsedPaymentType,
                             status: { notIn: [2, 5] },
@@ -856,6 +868,7 @@ exports.enrollStudent = async (req, res) => {
                     studentId: parseInt(studentId),
                     businessId: parseInt(businessId),
                     batchId: parseInt(batchId),
+                    ...(groupId ? { groupId: parseInt(groupId) } : {}),
                     method: 'Slip',
                     payment_type: parsedPaymentType,
                     status: { notIn: [2, 5] },
@@ -1227,9 +1240,11 @@ exports.getCourseModules = async (req, res) => {
         const groupTitles = [...new Set(contents.map(c => c.group?.title).filter(Boolean))];
         const batchIdForGroups = requestedCourse?.group?.batchId;
         const courseCodeForGroups = requestedCourse?.code || `SUB_${requestedCourse?.id}`;
+        const targetClassType = parseInt(requestedCourse?.courseType || requestedCourse?.group?.classType || 1, 10);
 
         const initialGroups = await prisma.contentGroup.findMany({
              where: { 
+                 classType: targetClassType,
                  OR: [
                      batchIdForGroups ? { batchId: batchIdForGroups, courseCode: courseCodeForGroups } : undefined,
                      batchIdForGroups && requestedCourse?.code ? { batchId: batchIdForGroups, courseCode: requestedCourse.code } : undefined,
@@ -1248,7 +1263,7 @@ exports.getCourseModules = async (req, res) => {
 
         if (parentIdsToFetch.length > 0) {
             const parentGroups = await prisma.contentGroup.findMany({
-                where: { id: { in: parentIdsToFetch } }
+                where: { id: { in: parentIdsToFetch }, classType: targetClassType }
             });
             parentGroups.forEach(pg => allGroupsMap.set(pg.id, pg));
         }
@@ -1257,7 +1272,7 @@ exports.getCourseModules = async (req, res) => {
         const rootIds = Array.from(allGroupsMap.values()).filter(g => !g.parentId).map(g => g.id);
         if (rootIds.length > 0) {
             const subGroups = await prisma.contentGroup.findMany({
-                where: { parentId: { in: rootIds } }
+                where: { parentId: { in: rootIds }, classType: targetClassType }
             });
             subGroups.forEach(sg => allGroupsMap.set(sg.id, sg));
         }

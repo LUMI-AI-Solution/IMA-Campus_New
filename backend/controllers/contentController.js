@@ -353,14 +353,17 @@ exports.createSubject = async (req, res) => {
             const affectedGroupIds = parsedPrices.map(gp => parseInt(gp.groupId)).filter(Boolean);
             if (affectedGroupIds.length > 0) {
                 const { createAutoDeliveryForPayment } = require('./paymentController');
-                const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+                const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
                 const unhandledPayments = await prisma.payment.findMany({
                     where: {
                         status: 1,
                         delivery: null,
                         subjects: { not: null },
-                        created_at: { gte: thirtyDaysAgo },
-                        groupId: { in: affectedGroupIds }
+                        created_at: { gte: sixtyDaysAgo },
+                        OR: [
+                            { groupId: { in: affectedGroupIds } },
+                            ...(batch_id ? [{ batchId: parseInt(batch_id) }] : [])
+                        ]
                     }
                 });
 
@@ -580,14 +583,17 @@ exports.updateSubject = async (req, res) => {
 
                 // 🚚 AUTO-CREATE DELIVERIES FOR APPROVED PAYMENTS THAT HAVE NO DELIVERY YET
                 // (e.g. slips approved before tute/deliverTute was configured in Content Hub)
-                const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+                const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
                 const unhandledPayments = await prisma.payment.findMany({
                     where: {
                         status: 1,
                         delivery: null,
                         subjects: { not: null },
-                        created_at: { gte: thirtyDaysAgo },
-                        groupId: { in: affectedGroupIds }
+                        created_at: { gte: sixtyDaysAgo },
+                        OR: [
+                            { groupId: { in: affectedGroupIds } },
+                            ...(batch_id ? [{ batchId: parseInt(batch_id) }] : [])
+                        ]
                     }
                 });
 
@@ -710,11 +716,14 @@ exports.addContentGroup = async (req, res) => {
             ? parseInt(rawParentId) 
             : null;
         let safeParentId = isNaN(parsedParentId) ? null : parsedParentId;
+        let resolvedClassType = parseInt(req.body.classType || 1);
         if (safeParentId) {
             const parentExists = await prisma.contentGroup.findUnique({ where: { id: safeParentId } });
             if (!parentExists) {
                 console.warn(`[addContentGroup] Parent folder ${safeParentId} not found, setting parentId to null.`);
                 safeParentId = null;
+            } else {
+                resolvedClassType = parentExists.classType || resolvedClassType;
             }
         }
 
@@ -759,6 +768,7 @@ exports.addContentGroup = async (req, res) => {
             const duplicateWhere = {
                 batchId: parsedBatchId,
                 type: tType,
+                classType: resolvedClassType,
                 parentId: safeParentId,
                 title: trimmedTitle
             };
@@ -806,6 +816,7 @@ exports.addContentGroup = async (req, res) => {
                     data: { 
                         title: trimmedTitle, 
                         type: tType, 
+                        classType: resolvedClassType,
                         itemOrder: parseInt(order) || 1, 
                         batchId: parsedBatchId, 
                         courseCode: resolvedCourseCode,
@@ -837,6 +848,10 @@ exports.updateContentGroup = async (req, res) => {
             itemOrder: parseInt(order) || 1, 
             courseCode: course_code === 'NULL' ? null : course_code 
         };
+
+        if (req.body.classType !== undefined && req.body.classType !== null && req.body.classType !== '') {
+            updateData.classType = parseInt(req.body.classType);
+        }
 
         if (parentId !== undefined || parent_id !== undefined) {
             const rawPId = parentId !== undefined ? parentId : parent_id;
@@ -1105,12 +1120,16 @@ exports.addContentMassAssign = async (req, res) => {
                 try {
                     const selectedCourseDetails = await prisma.course.findMany({
                         where: { id: { in: Array.from(assignedCourseIds) } },
-                        select: { id: true, groupId: true, name: true }
+                        select: { id: true, groupId: true, name: true, courseType: true }
                     });
                     for (const sc of selectedCourseDetails) {
                         if (sc.groupId && sc.name) {
                             const siblings = await prisma.course.findMany({
-                                where: { groupId: sc.groupId, name: sc.name },
+                                where: { 
+                                    groupId: sc.groupId, 
+                                    name: sc.name,
+                                    courseType: sc.courseType
+                                },
                                 select: { id: true }
                             });
                             siblings.forEach(s => assignedCourseIds.add(s.id));
@@ -1136,7 +1155,7 @@ exports.addContentMassAssign = async (req, res) => {
 
 exports.updateContentMassAssign = async (req, res) => {
     try {
-        const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, autoDeleteHours, paperTime, questionCount, isFree, itemOrder, selectedCourses, youtubeLink, vimeoLink, paperType, category, paperCategory, manualParticipantCount, timerMode, scheduledStartTime, mcqTimerMode, mcqScheduledStartTime, structuredTimerMode, structuredScheduledStartTime, breakIntervalMinutes, structuredUploadMinutes, passMarks, instructions, gradingScale, mcqDurationMinutes, structuredDurationMinutes, totalMarks, totalMcqMarks, totalStructuredMarks } = req.body;
+        const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, autoDeleteHours, paperTime, questionCount, isFree, itemOrder, selectedCourses, selectedBatches, youtubeLink, vimeoLink, paperType, category, paperCategory, manualParticipantCount, timerMode, scheduledStartTime, mcqTimerMode, mcqScheduledStartTime, structuredTimerMode, structuredScheduledStartTime, breakIntervalMinutes, structuredUploadMinutes, passMarks, instructions, gradingScale, mcqDurationMinutes, structuredDurationMinutes, totalMarks, totalMcqMarks, totalStructuredMarks } = req.body;
         
         const sanitizedMeetingId = zoomMeetingId ? zoomMeetingId.replace(/\s+/g, '') : null;
 
@@ -1160,6 +1179,27 @@ exports.updateContentMassAssign = async (req, res) => {
             isFree: isFree === '1',
             itemOrder: parseInt(itemOrder || 1)
         };
+
+        // Parse selectedBatches to update batchId & additionalBatchIds on the content
+        let updatedBatchId = undefined;
+        let updatedAdditionalBatchIds = undefined;
+        if (selectedBatches) {
+            try {
+                const batchesArray = Array.isArray(selectedBatches) ? selectedBatches : JSON.parse(selectedBatches);
+                const numBatches = batchesArray.map(Number).filter(n => !isNaN(n));
+                if (numBatches.length > 0) {
+                    const currentC = await prisma.content.findUnique({ where: { id: parseInt(content_id) }, select: { batchId: true } });
+                    const primary = (currentC && numBatches.includes(currentC.batchId)) ? currentC.batchId : numBatches[0];
+                    const others = numBatches.filter(id => id !== primary);
+                    updatedBatchId = primary;
+                    updatedAdditionalBatchIds = others.length > 0 ? `,${others.join(',')},` : null;
+                    updateData.batchId = updatedBatchId;
+                    updateData.additionalBatchIds = updatedAdditionalBatchIds;
+                }
+            } catch (err) {
+                console.error("Error parsing selectedBatches in update:", err);
+            }
+        }
 
         if (type === 'live') {
             updateData.reminderSent = false;
@@ -1303,12 +1343,16 @@ exports.updateContentMassAssign = async (req, res) => {
             try {
                 const selectedCourseDetails = await prisma.course.findMany({
                     where: { id: { in: Array.from(assignedCourseIds) } },
-                    select: { id: true, groupId: true, name: true }
+                    select: { id: true, groupId: true, name: true, courseType: true }
                 });
                 for (const sc of selectedCourseDetails) {
                     if (sc.groupId && sc.name) {
                         const siblings = await prisma.course.findMany({
-                            where: { groupId: sc.groupId, name: sc.name },
+                            where: { 
+                                groupId: sc.groupId, 
+                                name: sc.name,
+                                courseType: sc.courseType // Strict courseType match: never cross Theory & Paper!
+                            },
                             select: { id: true }
                         });
                         siblings.forEach(s => assignedCourseIds.add(s.id));
@@ -1325,6 +1369,27 @@ exports.updateContentMassAssign = async (req, res) => {
                     type: getTypeInt(type) 
                 }));
                 await prisma.contentCourse.createMany({ data: contentCourseData });
+
+                // If selectedBatches was not explicitly passed, sync batchId and additionalBatchIds from remaining assigned courses:
+                if (updatedBatchId === undefined) {
+                    const remainingCourses = await prisma.course.findMany({
+                        where: { id: { in: Array.from(assignedCourseIds) } },
+                        select: { group: { select: { batchId: true } } }
+                    });
+                    const bIds = [...new Set(remainingCourses.map(c => c.group?.batchId).filter(Boolean))];
+                    if (bIds.length > 0) {
+                        const currentC = await prisma.content.findUnique({ where: { id: parseInt(content_id) }, select: { batchId: true } });
+                        const primary = (currentC && bIds.includes(currentC.batchId)) ? currentC.batchId : bIds[0];
+                        const others = bIds.filter(id => id !== primary);
+                        await prisma.content.update({
+                            where: { id: parseInt(content_id) },
+                            data: {
+                                batchId: primary,
+                                additionalBatchIds: others.length > 0 ? `,${others.join(',')},` : null
+                            }
+                        });
+                    }
+                }
             }
         }
 
@@ -1347,6 +1412,76 @@ exports.deleteContent = async (req, res) => {
     } catch (e) { console.error("Delete Content Error:", e); res.status(500).json({ error: "Failed to delete" }); }
 };
 
+// 🔥 FIX: Selective Unlink - Remove content from a specific class/subject without deleting it from other batches/classes
+exports.unlinkContentCourse = async (req, res) => {
+    try {
+        const { content_id, courseIds } = req.body;
+        const cId = parseInt(content_id);
+        if (!cId) return res.status(400).json({ error: "Missing content_id" });
+
+        let targetCourseIds = [];
+        if (Array.isArray(courseIds)) {
+            targetCourseIds = courseIds.map(id => BigInt(id));
+        } else if (typeof courseIds === 'string') {
+            targetCourseIds = courseIds.split(',').filter(Boolean).map(id => BigInt(id));
+        } else if (courseIds !== undefined && courseIds !== null) {
+            targetCourseIds = [BigInt(courseIds)];
+        }
+
+        if (targetCourseIds.length === 0) {
+            return res.status(400).json({ error: "Missing courseIds to unlink" });
+        }
+
+        // Delete contentCourse records for these specific courses
+        await prisma.contentCourse.deleteMany({
+            where: {
+                content_id: cId,
+                course_id: { in: targetCourseIds }
+            }
+        });
+
+        // Check if there are any remaining course assignments
+        const remaining = await prisma.contentCourse.findMany({
+            where: { content_id: cId }
+        });
+
+        if (remaining.length === 0) {
+            // No other courses left: delete content completely
+            await prisma.task.updateMany({ where: { contentId: cId }, data: { contentId: null } });
+            await prisma.content.delete({ where: { id: cId } });
+            return res.status(200).json({ message: "Content removed completely as no other classes remain", remainingCount: 0 });
+        }
+
+        // Update batchId & additionalBatchIds to match remaining courses
+        const remCourses = await prisma.course.findMany({
+            where: { id: { in: remaining.map(r => Number(r.course_id)) } },
+            select: { group: { select: { batchId: true } } }
+        });
+        const remainingBatchIds = [...new Set(remCourses.map(c => c.group?.batchId).filter(Boolean))];
+        const currentContent = await prisma.content.findUnique({ where: { id: cId }, select: { batchId: true } });
+        
+        let newPrimaryBatch = currentContent?.batchId;
+        if (!remainingBatchIds.includes(newPrimaryBatch) && remainingBatchIds.length > 0) {
+            newPrimaryBatch = remainingBatchIds[0];
+        }
+        const others = remainingBatchIds.filter(bId => bId !== newPrimaryBatch);
+        const newAdditionalBatches = others.length > 0 ? `,${others.join(',')},` : null;
+
+        await prisma.content.update({
+            where: { id: cId },
+            data: {
+                batchId: newPrimaryBatch,
+                additionalBatchIds: newAdditionalBatches
+            }
+        });
+
+        res.status(200).json({ message: "Content unlinked from selected subject successfully", remainingCount: remaining.length });
+    } catch (error) {
+        console.error("unlinkContentCourse Error:", error);
+        res.status(500).json({ error: "Failed to unlink content from course" });
+    }
+};
+
 exports.getContents = async (req, res) => {
     try {
         const { batchId, courseCode, courseIds } = req.query;
@@ -1355,6 +1490,19 @@ exports.getContents = async (req, res) => {
         const courseIdArray = rawIds
             .filter(id => id && id !== 'undefined' && id !== 'null' && id.trim() !== '')
             .map(id => BigInt(id));
+
+        // Determine classType strictly (1: Theory, 2: Paper)
+        let targetClassType = req.query.classType ? parseInt(req.query.classType) : null;
+        if (!targetClassType && courseIdArray.length > 0) {
+            try {
+                const crs = await prisma.course.findFirst({
+                    where: { id: { in: courseIdArray.map(Number) } },
+                    select: { courseType: true, group: { select: { classType: true } } }
+                });
+                if (crs) targetClassType = parseInt(crs.courseType || crs.group?.classType || 1);
+            } catch (e) {}
+        }
+        if (!targetClassType) targetClassType = 1;
 
         // Get all related courses to find all variations of courseCode (e.g. "22" and "SUB_315")
         let allSubjectCourseCodes = [];
@@ -1382,30 +1530,37 @@ exports.getContents = async (req, res) => {
         allSubjectCourseCodes = [...new Set(allSubjectCourseCodes.filter(Boolean))];
 
         const groupWhere = {
+            classType: targetClassType,
             OR: [
                 { batchId: parseInt(batchId) },
                 { additionalBatchIds: { contains: `,${batchId},` } }
             ]
         };
         if (allSubjectCourseCodes.length > 0) {
-            groupWhere.OR = [
+            groupWhere.AND = [
+                { classType: targetClassType },
                 {
-                    batchId: parseInt(batchId),
                     OR: [
-                        { courseCode: { in: allSubjectCourseCodes } },
-                        { courseCode: null },
-                        { courseCode: '' }
-                    ]
-                },
-                {
-                    additionalBatchIds: { contains: `,${batchId},` },
-                    OR: [
-                        { courseCode: { in: allSubjectCourseCodes } },
-                        { courseCode: null },
-                        { courseCode: '' }
+                        {
+                            batchId: parseInt(batchId),
+                            OR: [
+                                { courseCode: { in: allSubjectCourseCodes } },
+                                { courseCode: null },
+                                { courseCode: '' }
+                            ]
+                        },
+                        {
+                            additionalBatchIds: { contains: `,${batchId},` },
+                            OR: [
+                                { courseCode: { in: allSubjectCourseCodes } },
+                                { courseCode: null },
+                                { courseCode: '' }
+                            ]
+                        }
                     ]
                 }
             ];
+            delete groupWhere.OR;
         }
 
         const lessonGroups = await prisma.contentGroup.findMany({

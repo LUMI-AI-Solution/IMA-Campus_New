@@ -30,7 +30,10 @@ import {
   Plus,
   Wallet,
   MinusCircle,
-  ClipboardCheck
+  ClipboardCheck,
+  ArrowDownRight,
+  ArrowUpRight,
+  Trash2
 } from 'lucide-react';
 import physicalCrmService from '../../api/physicalCrm';
 import { physicalFinanceService } from '../../api/physicalFinance';
@@ -103,15 +106,27 @@ export default function LecturerReports() {
   const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
   const [isAttendanceSheetOpen, setIsAttendanceSheetOpen] = useState(false);
 
-  // Advance Modal State
+  // Advance & Transaction Modal State
   const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
   const [advanceForm, setAdvanceForm] = useState({
-    amount: '',
+    flowChoice: 'ADVANCE', // 'ADVANCE' (Cash Flow eken adu wena) or 'INSTITUTE_INCOME' (Teacherslagen deduct wela Institute Income wena)
     category: 'Teacher Advance',
+    amount: '',
     description: '',
     date: format(new Date(), 'yyyy-MM-dd')
   });
   const [savingAdvance, setSavingAdvance] = useState(false);
+  const [deletingAdvanceId, setDeletingAdvanceId] = useState(null);
+
+  const resetAdvanceForm = () => {
+    setAdvanceForm({
+      flowChoice: 'ADVANCE',
+      category: 'Teacher Advance',
+      amount: '',
+      description: '',
+      date: format(new Date(), 'yyyy-MM-dd')
+    });
+  };
 
   useEffect(() => {
     fetchInitialData();
@@ -264,33 +279,61 @@ export default function LecturerReports() {
     }
   };
 
-  // Record Teacher Advance directly into Cash Flow
+  // Record Teacher Advance or Institute Income Entry directly into Cash Flow
   const handleSaveAdvance = async (e) => {
     e.preventDefault();
-    if (!advanceForm.amount || parseFloat(advanceForm.amount) <= 0) {
-      toast.error('Please enter a valid advance amount');
+    if (!advanceForm.flowChoice) {
+      toast.error('කරුණාකර Options 2 න් එකක් තෝරන්න (Please tick one of the 2 options)');
+      return;
+    }
+    const numAmt = parseFloat(advanceForm.amount);
+    if (!advanceForm.amount || isNaN(numAmt) || numAmt <= 0) {
+      toast.error('Please enter a valid amount');
       return;
     }
     setSavingAdvance(true);
     try {
+      const isAdvance = advanceForm.flowChoice === 'ADVANCE';
       await physicalFinanceService.addTransaction({
-        type: 'EXPENSE',
+        type: isAdvance ? 'EXPENSE' : 'INCOME',
         category: advanceForm.category,
-        amount: parseFloat(advanceForm.amount),
-        description: advanceForm.description || `Teacher advance for ${reportData.teacher.name} (${selectedMonth})`,
-        teacherId: reportData.teacher.id,
+        amount: numAmt,
+        description: advanceForm.description || (isAdvance 
+          ? `Teacher advance for ${reportData?.teacher?.name || 'Lecturer'} (${selectedMonth})` 
+          : `Institute income deducted from ${reportData?.teacher?.name || 'Lecturer'} (${selectedMonth})`),
+        teacherId: reportData?.teacher?.id,
         billingMonth: selectedMonth,
-        isTeacherAdvance: true,
-        date: advanceForm.date
+        isTeacherAdvance: isAdvance,
+        date: advanceForm.date,
+        affectsCash: true,
+        paymentMethod: 'CASH'
       });
-      toast.success(`Advance of Rs. ${parseFloat(advanceForm.amount).toLocaleString()} saved and deducted from ${formatMonthYear(selectedMonth)} payout!`);
+      toast.success(
+        isAdvance
+          ? `Advance of Rs. ${numAmt.toLocaleString()} deducted from Cash Flow & Teacher Payout!`
+          : `Rs. ${numAmt.toLocaleString()} deducted from Teacher Payout and recorded as Institute Income in Cash Flow!`
+      );
       setIsAdvanceModalOpen(false);
-      setAdvanceForm({ amount: '', category: 'Teacher Advance', description: '', date: format(new Date(), 'yyyy-MM-dd') });
+      resetAdvanceForm();
       loadTeacherReport(selectedTeacher.id, selectedMonth, selectedClassId);
     } catch (err) {
-      toast.error('Failed to save advance: ' + (err.response?.data?.error || err.message));
+      toast.error('Failed to save record: ' + (err.response?.data?.error || err.message));
     } finally {
       setSavingAdvance(false);
+    }
+  };
+
+  const handleDeleteAdvance = async (txnId) => {
+    if (!window.confirm('Are you sure you want to delete this record? This will also remove its impact from Cash Flow.')) return;
+    setDeletingAdvanceId(txnId);
+    try {
+      await physicalFinanceService.deleteTransaction(txnId, 'Deleted from Lecturer Reports', 'Staff');
+      toast.success('Record deleted successfully');
+      loadTeacherReport(selectedTeacher.id, selectedMonth, selectedClassId);
+    } catch (err) {
+      toast.error('Failed to delete record: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setDeletingAdvanceId(null);
     }
   };
 
@@ -653,18 +696,19 @@ export default function LecturerReports() {
                 className="w-full px-3 py-2.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded-xl text-xs font-bold text-white flex items-center justify-between outline-none focus:border-blue-500 transition-all shadow-sm text-left"
               >
                 <span className="truncate pr-1">
-                  {statusFilter === 'ALL' ? 'All Statuses' : (statusFilter === 'PAID' ? 'Paid Only' : (statusFilter === 'PENDING' ? 'Pending Only' : 'Free Card'))}
+                  {statusFilter === 'ALL' ? 'All Statuses' : (statusFilter === 'PAID' ? 'Paid Only' : (statusFilter === 'PENDING' ? 'Pending Only' : (statusFilter === 'LATE_FEES' ? 'Late Fees Only' : 'Free Card')))}
                 </span>
                 <ChevronDown size={14} className={`text-slate-400 transition-transform ${statusDropdownOpen ? 'rotate-180 text-blue-400' : ''}`} />
               </button>
 
               {statusDropdownOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 py-1 max-h-48 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
+                <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 py-1 max-h-56 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
                   {[
                     { val: 'ALL', label: 'All Statuses' },
                     { val: 'PAID', label: 'Paid Only' },
                     { val: 'PENDING', label: 'Pending Only' },
-                    { val: 'FREE_CARD', label: 'Free Card' }
+                    { val: 'FREE_CARD', label: 'Free Card' },
+                    { val: 'LATE_FEES', label: 'Late Fees Only (ප්‍රමාද ගාස්තු)' }
                   ].map(opt => (
                     <div
                       key={opt.val}
@@ -734,7 +778,18 @@ export default function LecturerReports() {
               <h3 className="text-2xl font-extrabold text-white mt-1 tracking-tight">
                 Rs. {reportData.summary.grossRevenue.toLocaleString()}
               </h3>
-              <p className="text-[10px] text-slate-500 mt-0.5">{formatMonthYear(selectedMonth)} fee collections</p>
+              {(reportData.summary.lateFeeGrossRevenue || 0) > 0 ? (
+                <div className="mt-1 flex flex-col gap-0.5">
+                  <span className="text-[10px] text-slate-400">
+                    Reg: Rs. {(reportData.summary.regularGrossRevenue || 0).toLocaleString()}
+                  </span>
+                  <span className="text-[10px] text-amber-400 font-bold flex items-center gap-1">
+                    <Clock size={10} /> +Rs. {reportData.summary.lateFeeGrossRevenue.toLocaleString()} Late Fees ({reportData.summary.lateFeePaymentsCount || 0})
+                  </span>
+                </div>
+              ) : (
+                <p className="text-[10px] text-slate-500 mt-0.5">{formatMonthYear(selectedMonth)} fee collections</p>
+              )}
             </div>
 
             {/* 4. Institute Cut */}
@@ -777,24 +832,27 @@ export default function LecturerReports() {
           {/* ========================================================================= */}
           {/* SECTION: CASH FLOW ADVANCES & DEDUCTIONS FOR THIS LECTURER                */}
           {/* ========================================================================= */}
-          <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-5 rounded-3xl shadow-xl space-y-4">
+          <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-6 rounded-3xl shadow-xl space-y-4">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
               <div>
                 <h3 className="text-base font-bold text-white flex items-center gap-2">
                   <Wallet size={18} className="text-rose-400" />
-                  Lecturer Advances & Expense Deductions ({formatMonthYear(selectedMonth)})
+                  Lecturer Advances & Adjustments ({formatMonthYear(selectedMonth)})
                 </h3>
                 <p className="text-xs text-slate-400">
-                  Cash Flow expenses and advances linked to this lecturer that automatically deduct from this month's salary/payout.
+                  Cash Flow advances, deductions, and income credits linked to this lecturer affecting this month's salary/payout.
                 </p>
               </div>
 
               <button
                 type="button"
-                onClick={() => setIsAdvanceModalOpen(true)}
-                className="px-3.5 py-2 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer shrink-0"
+                onClick={() => {
+                  resetAdvanceForm();
+                  setIsAdvanceModalOpen(true);
+                }}
+                className="px-4 py-2.5 bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 text-white font-bold rounded-xl text-xs transition-all flex items-center gap-2 shadow-lg shadow-rose-900/30 active:scale-95 cursor-pointer shrink-0"
               >
-                <Plus size={14} /> + Record Teacher Advance
+                <Plus size={15} /> + Record Advance / Entry
               </button>
             </div>
 
@@ -802,52 +860,178 @@ export default function LecturerReports() {
               <div className="overflow-x-auto custom-scrollbar border border-slate-800 rounded-2xl">
                 <table className="w-full text-xs text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-800 text-slate-300 font-bold border-b border-slate-700 text-[11px]">
+                    <tr className="bg-slate-800/80 text-slate-300 font-bold border-b border-slate-700 text-[11px] uppercase tracking-wider">
                       <th className="p-3">Date</th>
+                      <th className="p-3">Impact Type</th>
                       <th className="p-3">Category</th>
+                      <th className="p-3">Cash Flow Impact</th>
                       <th className="p-3">Description / Remarks</th>
-                      <th className="p-3 text-right">Deducted Amount</th>
+                      <th className="p-3 text-right">Teacher Payout Impact</th>
+                      <th className="p-3 text-center w-12">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-200">
-                    {reportData.deductions.map((d, dIdx) => (
-                      <tr key={d.id || dIdx} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="p-3 font-semibold text-slate-300">
-                          {d.date ? format(new Date(d.date), 'dd MMM yyyy') : '-'}
-                        </td>
-                        <td className="p-3">
-                          <span className="px-2.5 py-1 bg-rose-500/15 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-bold">
-                            {d.category || 'Teacher Advance'}
-                          </span>
-                        </td>
-                        <td className="p-3 text-slate-300">
-                          {d.description || `Teacher advance for ${reportData.teacher.name}`}
-                        </td>
-                        <td className="p-3 text-right font-extrabold text-rose-400 text-sm">
-                          - Rs. {(d.amount || 0).toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
+                    {reportData.deductions.map((d, dIdx) => {
+                      const isInstituteIncome = d.type === 'INCOME' || d.recordType === 'INSTITUTE_INCOME';
+                      return (
+                        <tr key={d.id || dIdx} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="p-3 font-semibold text-slate-300 whitespace-nowrap">
+                            {d.date ? format(new Date(d.date), 'dd MMM yyyy') : '-'}
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            {isInstituteIncome ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 rounded-lg text-[11px] font-bold">
+                                <ArrowUpRight size={12} /> Institute Income (Deduction)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-rose-500/15 text-rose-300 border border-rose-500/30 rounded-lg text-[11px] font-bold">
+                                <ArrowDownRight size={12} /> Teacher Advance
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            <span className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${
+                              isInstituteIncome 
+                                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20'
+                                : 'bg-rose-500/10 text-rose-300 border-rose-500/20'
+                            }`}>
+                              {d.category || (isInstituteIncome ? 'Tute Printing Charges' : 'Teacher Advance')}
+                            </span>
+                          </td>
+                          <td className="p-3 whitespace-nowrap">
+                            {isInstituteIncome ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                                🟢 + Rs. {(d.amount || 0).toLocaleString()} (Institute Inflow)
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-500/15 text-rose-300 border border-rose-500/30">
+                                🔴 - Rs. {(d.amount || 0).toLocaleString()} (Drawer Outflow)
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-3 text-slate-300 max-w-xs truncate">
+                            {d.description || (isInstituteIncome ? `Deduction for ${reportData?.teacher?.name || 'Lecturer'}` : `Teacher advance for ${reportData?.teacher?.name || 'Lecturer'}`)}
+                          </td>
+                          <td className="p-3 text-right font-black text-rose-400 text-sm whitespace-nowrap">
+                            - Rs. {(d.amount || 0).toLocaleString()}
+                          </td>
+                          <td className="p-3 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteAdvance(d.id)}
+                              disabled={deletingAdvanceId === d.id}
+                              title="Delete this record"
+                              className="text-slate-400 hover:text-rose-400 transition-colors p-1.5 rounded-lg hover:bg-rose-500/10 disabled:opacity-40 cursor-pointer"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-800/80 font-bold text-slate-300 border-t border-slate-700 text-xs">
-                      <td colSpan={3} className="p-3 text-right uppercase tracking-wider text-slate-400">
-                        Total Deductions for {formatMonthYear(selectedMonth)}:
+                      <td colSpan={5} className="p-3 text-right uppercase tracking-wider text-slate-400">
+                        Total Deductions from Teacher for {formatMonthYear(selectedMonth)}:
                       </td>
-                      <td className="p-3 text-right font-black text-rose-400 text-sm">
+                      <td className="p-3 text-right font-black text-rose-400 text-sm whitespace-nowrap">
                         - Rs. {(reportData.summary.totalDeductions || 0).toLocaleString()}
                       </td>
+                      <td></td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
             ) : (
               <div className="p-4 bg-slate-950/40 border border-slate-800/80 rounded-2xl text-center text-xs text-slate-400 flex flex-col sm:flex-row items-center justify-between gap-2">
-                <span>No advances or expenses recorded for this lecturer in {formatMonthYear(selectedMonth)}.</span>
+                <span>No advances or adjustments recorded for this lecturer in {formatMonthYear(selectedMonth)}.</span>
                 <span className="text-[11px] text-emerald-400 font-semibold">Full net payout will be remitted without deductions.</span>
               </div>
             )}
           </div>
+
+          {/* ========================================================================= */}
+          {/* SECTION: LATE CLASS FEES (PAST MONTH ARREARS COLLECTED THIS MONTH)        */}
+          {/* ========================================================================= */}
+          {reportData.lateFeeCollections && reportData.lateFeeCollections.length > 0 && (
+            <div className="bg-slate-900/80 backdrop-blur-xl border border-amber-500/30 p-6 rounded-3xl shadow-xl space-y-4 animate-in fade-in duration-200">
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Clock size={18} className="text-amber-400" />
+                    Late Class Fee Collections (ප්‍රමාද පන්ති ගාස්තු) — {formatMonthYear(selectedMonth)}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Students who paid fees for past months during {formatMonthYear(selectedMonth)}. These collections are added directly to this active month's lecturer invoice remittance.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="px-3 py-1.5 rounded-xl bg-amber-500/15 text-amber-300 font-bold text-xs border border-amber-500/30">
+                    {reportData.lateFeeCollections.length} Late Payments
+                  </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-300 font-bold text-xs border border-emerald-500/30">
+                    + Rs. {(reportData.summary.lateFeeGrossRevenue || 0).toLocaleString()}
+                  </span>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto custom-scrollbar border border-slate-800 rounded-2xl">
+                <table className="w-full text-xs text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-800/90 text-amber-300 font-bold border-b border-slate-700 text-[11px] uppercase tracking-wider">
+                      <th className="p-3">#</th>
+                      <th className="p-3">Date Paid</th>
+                      <th className="p-3">Student</th>
+                      <th className="p-3">Class</th>
+                      <th className="p-3 text-center">Past Fee Month</th>
+                      <th className="p-3 text-right">Amount Paid</th>
+                      <th className="p-3 text-center">Remittance Impact</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800 text-slate-200">
+                    {reportData.lateFeeCollections.map((lf, lfIdx) => (
+                      <tr key={lf.id || lfIdx} className="hover:bg-amber-500/5 transition-colors">
+                        <td className="p-3 text-slate-500 font-medium">{lfIdx + 1}</td>
+                        <td className="p-3 font-semibold text-slate-300 whitespace-nowrap">
+                          {lf.paidDate ? format(new Date(lf.paidDate), 'dd MMM yyyy') : '-'}
+                        </td>
+                        <td className="p-3">
+                          <span className="font-semibold text-white block">{lf.studentName}</span>
+                          <span className="font-mono text-[10px] text-sky-400">{lf.studentRegId}</span>
+                        </td>
+                        <td className="p-3 text-slate-300">{lf.className}</td>
+                        <td className="p-3 text-center">
+                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold text-[10px]">
+                            {formatMonthYear(lf.feeMonth)}
+                          </span>
+                        </td>
+                        <td className="p-3 text-right font-black text-emerald-400 text-sm whitespace-nowrap">
+                          Rs. {(lf.amount || 0).toLocaleString()}
+                        </td>
+                        <td className="p-3 text-center">
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">
+                            Added to {formatMonthYear(selectedMonth)} Invoice
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-800/80 font-bold text-slate-300 border-t border-slate-700 text-xs">
+                      <td colSpan={5} className="p-3 text-right uppercase tracking-wider text-slate-400">
+                        Total Late Class Fees Added to {formatMonthYear(selectedMonth)} Remittance:
+                      </td>
+                      <td className="p-3 text-right font-black text-emerald-400 text-sm whitespace-nowrap">
+                        + Rs. {(reportData.summary.lateFeeGrossRevenue || 0).toLocaleString()}
+                      </td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
 
           {/* View Mode Switcher (If a specific class is selected, can toggle between Student Roster and Full Calendar Matrix) */}
           {selectedClassId !== 'ALL' && feeMatrixData && (
@@ -1004,7 +1188,11 @@ export default function LecturerReports() {
                       cls.students.map(st => ({ ...st, classId: cls.classId, className: cls.className, grade: cls.grade }))
                     )
                     .filter(st => {
-                      if (statusFilter !== 'ALL' && st.feeStatus !== statusFilter) return false;
+                      if (statusFilter === 'LATE_FEES') {
+                        if (!st.lateFees || st.lateFees.length === 0) return false;
+                      } else if (statusFilter !== 'ALL' && st.feeStatus !== statusFilter) {
+                        return false;
+                      }
                       if (studentSearch) {
                         const q = studentSearch.toLowerCase();
                         return (
@@ -1022,6 +1210,15 @@ export default function LecturerReports() {
                         <td className="p-3">
                           <span className="text-white font-semibold block">{st.studentName}</span>
                           {st.phone && <span className="text-[10px] text-slate-400">{st.phone}</span>}
+                          {st.lateFees && st.lateFees.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-1">
+                              {st.lateFees.map((lf, lfI) => (
+                                <span key={lfI} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[9px] font-bold">
+                                  <Clock size={9} /> Paid Late: Rs. {lf.amount.toLocaleString()} ({formatMonthYear(lf.feeMonth)})
+                                </span>
+                              ))}
+                            </div>
+                          )}
                         </td>
                         <td className="p-3 text-slate-300">
                           {st.className} <span className="text-[10px] text-slate-500">({st.grade})</span>
@@ -1077,103 +1274,227 @@ export default function LecturerReports() {
             classesList={classes}
           />
 
-          {/* Record Teacher Advance Modal */}
+          {/* Record Teacher Advance / Institute Income Deduction Modal */}
           {isAdvanceModalOpen && (
-            <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex justify-center items-center p-4">
-              <div className="bg-[#151522] border border-rose-500/30 p-6 rounded-3xl w-full max-w-md shadow-2xl relative animate-in fade-in zoom-in duration-200 text-white">
+            <div className="fixed inset-0 bg-black/85 backdrop-blur-md z-50 flex justify-center items-center p-4 overflow-y-auto">
+              <div className="bg-[#151522] border border-slate-700/80 p-6 md:p-8 rounded-3xl w-full max-w-xl shadow-2xl relative animate-in fade-in zoom-in duration-200 text-white my-8">
                 <button 
                   onClick={() => setIsAdvanceModalOpen(false)} 
-                  className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors bg-white/5 p-2 rounded-xl"
+                  className="absolute top-5 right-5 text-white/50 hover:text-white transition-colors bg-white/5 hover:bg-white/10 p-2.5 rounded-xl cursor-pointer"
                 >
-                  <X size={18} />
+                  <X size={20} />
                 </button>
 
-                <div className="flex items-center gap-3 mb-5">
-                  <div className="w-11 h-11 rounded-2xl bg-rose-500/20 text-rose-400 flex items-center justify-center border border-rose-500/30">
-                    <Wallet size={22} />
+                <div className="flex items-center gap-3.5 mb-6">
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center border transition-all ${
+                    advanceForm.flowChoice === 'INSTITUTE_INCOME'
+                      ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                      : 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                  }`}>
+                    <Wallet size={24} />
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold">Record Teacher Advance</h3>
-                    <p className="text-xs text-slate-400">{reportData.teacher.name} • {formatMonthYear(selectedMonth)}</p>
+                    <h3 className="text-xl font-bold text-white tracking-tight">Record Lecturer Transaction</h3>
+                    <p className="text-xs text-slate-400 mt-0.5">{reportData?.teacher?.name || 'Lecturer'} • {formatMonthYear(selectedMonth)}</p>
                   </div>
                 </div>
 
                 <form onSubmit={handleSaveAdvance} className="space-y-4">
+                  {/* Target Month */}
                   <div>
-                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                       Target Billing Month (අදාළ මාසය)
                     </label>
                     <input 
                       type="text" 
                       disabled
                       value={`${formatMonthYear(selectedMonth)} (${selectedMonth})`}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white/70 font-bold text-xs"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-slate-300 font-bold text-sm select-none"
                     />
                   </div>
 
+                  {/* THE TWO MANDATORY TICK OPTIONS (ME DEKEN EKAK ANIWARYENMA TICK KARANNA ONA) */}
+                  <div className="space-y-3">
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
+                      Select Impact Type (මෙම විකල්ප 2 න් එකක් අනිවාර්යයෙන්ම Tick කරන්න) *
+                    </label>
+
+                    {/* OPTION 1 TICK CARD */}
+                    <div
+                      onClick={() => setAdvanceForm({
+                        ...advanceForm,
+                        flowChoice: 'ADVANCE',
+                        category: 'Teacher Advance'
+                      })}
+                      className={`p-4 rounded-2xl border-2 transition-all cursor-pointer select-none ${
+                        advanceForm.flowChoice === 'ADVANCE'
+                          ? 'bg-rose-950/40 border-rose-500 ring-2 ring-rose-500/30 shadow-lg shadow-rose-950/50'
+                          : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/[0.07]'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3.5">
+                        <div className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all shrink-0 ${
+                          advanceForm.flowChoice === 'ADVANCE'
+                            ? 'bg-rose-600 border-rose-400 text-white shadow-sm'
+                            : 'border-white/30 bg-white/5'
+                        }`}>
+                          {advanceForm.flowChoice === 'ADVANCE' && <Check size={14} className="stroke-[3]" />}
+                        </div>
+
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+                            <span className="text-sm font-bold text-white flex items-center gap-1.5">
+                              1. Cash Flow එකෙන් අඩු වේ (ගුරු වැටුප් අත්තිකාරම් / Advance)
+                            </span>
+                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                              Drawer Outflow (-)
+                            </span>
+                          </div>
+
+                          <p className="text-xs text-slate-300 leading-relaxed">
+                            • <strong>Cash Flow Drawer:</strong> අතැති මුදල් ලාච්චුවෙන් (Cash In Hand) මුදල් අඩු වේ (- Outflow).<br/>
+                            • <strong>Teacher Payout:</strong> ගුරුවරයාගේ මාසික වැටුපෙන් අඩු වේ (- Deduct from Payout).
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* OPTION 2 TICK CARD */}
+                    <div
+                      onClick={() => setAdvanceForm({
+                        ...advanceForm,
+                        flowChoice: 'INSTITUTE_INCOME',
+                        category: 'Tute Printing Charges'
+                      })}
+                      className={`p-4 rounded-2xl border-2 transition-all cursor-pointer select-none ${
+                        advanceForm.flowChoice === 'INSTITUTE_INCOME'
+                          ? 'bg-emerald-950/40 border-emerald-500 ring-2 ring-emerald-500/30 shadow-lg shadow-emerald-950/50'
+                          : 'bg-white/5 border-white/10 hover:border-white/20 hover:bg-white/[0.07]'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3.5">
+                        <div className={`mt-0.5 w-6 h-6 rounded-full flex items-center justify-center border-2 transition-all shrink-0 ${
+                          advanceForm.flowChoice === 'INSTITUTE_INCOME'
+                            ? 'bg-emerald-600 border-emerald-400 text-white shadow-sm'
+                            : 'border-white/30 bg-white/5'
+                        }`}>
+                          {advanceForm.flowChoice === 'INSTITUTE_INCOME' && <Check size={14} className="stroke-[3]" />}
+                        </div>
+
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+                            <span className="text-sm font-bold text-white flex items-center gap-1.5">
+                              2. ආයතනයේ ආදායමක් ලෙස එකතු වේ (ගුරු වැටුපෙන් අඩු වී ආයතනයට ලැබීම)
+                            </span>
+                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                              Institute Income (+)
+                            </span>
+                          </div>
+
+                          <p className="text-xs text-slate-300 leading-relaxed">
+                            • <strong>Cash Flow:</strong> ආයතනයේ ආදායමක් (Institute Income) ලෙස Cash Flow එකට එකතු වේ (+ Income).<br/>
+                            • <strong>Teacher Payout:</strong> ගුරුවරයාගේ වැටුපෙන් (මුද්‍රණ වියදම් / charges) අඩු වේ (- Deduct from Payout).
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Category Selection */}
                   <div>
-                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">
-                      Expense Category (වියදම් වර්ගය) *
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                      {advanceForm.flowChoice === 'INSTITUTE_INCOME' ? 'Income Category (ආදායම් වර්ගය) *' : 'Advance Category (වියදම් වර්ගය) *'}
                     </label>
                     <select
                       value={advanceForm.category}
                       onChange={(e) => setAdvanceForm({ ...advanceForm, category: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white font-bold text-xs outline-none focus:border-rose-400"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white font-bold text-sm outline-none focus:border-rose-400"
                     >
-                      <option value="Teacher Advance" className="text-black">Teacher Advance (ගුරු අත්තිකාරම්)</option>
-                      <option value="Teacher Payout" className="text-black">Teacher Payout (ගුරු වැටුප් ගෙවීම්)</option>
-                      <option value="Lecturer Allowance" className="text-black">Lecturer Allowance (දීමනා)</option>
-                      <option value="Supplies" className="text-black">Class Supplies / Tute Printing (මුද්‍රණ වියදම්)</option>
-                      <option value="Other Expense" className="text-black">Other Expense (වෙනත්)</option>
+                      {advanceForm.flowChoice === 'INSTITUTE_INCOME' ? (
+                        <>
+                          <option value="Tute Printing Charges" className="text-black">Tute Printing Charges (ටියුට් මුද්‍රණ වියදම් අයකර ගැනීම)</option>
+                          <option value="Hall Charges & Facilities" className="text-black">Hall Charges & Facilities (ශාලා සහ පහසුකම් ගාස්තු)</option>
+                          <option value="Class Supplies & Materials" className="text-black">Class Supplies & Materials (ද්‍රව්‍ය හා සැපයුම් ගාස්තු)</option>
+                          <option value="Exam & Paper Fees" className="text-black">Exam & Paper Fees (ප්‍රශ්න පත්‍ර මුද්‍රණ ගාස්තු)</option>
+                          <option value="Institute Fee Recovery" className="text-black">Institute Fee Recovery (ආයතනික අයකර ගැනීම්)</option>
+                          <option value="Other Deductions" className="text-black">Other Deductions (වෙනත් ආයතනික අයකර ගැනීම්)</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="Teacher Advance" className="text-black">Teacher Advance (ගුරු අත්තිකාරම්)</option>
+                          <option value="Mid-Month Advance" className="text-black">Mid-Month Advance (අතරමැදි අත්තිකාරම්)</option>
+                          <option value="Emergency Advance" className="text-black">Emergency Advance (හදිසි අත්තිකාරම්)</option>
+                          <option value="Teacher Payout" className="text-black">Teacher Payout (ගුරු වැටුප් ගෙවීම්)</option>
+                          <option value="Other Advance" className="text-black">Other Advance (වෙනත් අත්තිකාරම්)</option>
+                        </>
+                      )}
                     </select>
                   </div>
 
-                  <div>
-                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">
-                      Advance Amount (රුපියල්) *
-                    </label>
-                    <input 
-                      type="number"
-                      step="any"
-                      required
-                      placeholder="0.00"
-                      value={advanceForm.amount}
-                      onChange={(e) => setAdvanceForm({ ...advanceForm, amount: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-rose-500/40 text-xl font-black shadow-inner"
-                    />
+                  {/* Amount and Date in Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                        Amount (රුපියල්) *
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-sm">Rs.</span>
+                        <input 
+                          type="number"
+                          step="any"
+                          required
+                          placeholder="0.00"
+                          value={advanceForm.amount}
+                          onChange={(e) => setAdvanceForm({ ...advanceForm, amount: e.target.value })}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl pl-12 pr-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-rose-500/40 text-lg font-black shadow-inner"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                        Date of Entry (දිනය) *
+                      </label>
+                      <input 
+                        type="date"
+                        required
+                        value={advanceForm.date}
+                        onChange={(e) => setAdvanceForm({ ...advanceForm, date: e.target.value })}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm font-bold shadow-inner cursor-pointer"
+                      />
+                    </div>
                   </div>
 
+                  {/* Description / Note */}
                   <div>
-                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">
-                      Date of Payment (ගෙවූ දිනය) *
-                    </label>
-                    <input 
-                      type="date"
-                      required
-                      value={advanceForm.date}
-                      onChange={(e) => setAdvanceForm({ ...advanceForm, date: e.target.value })}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white text-xs font-bold shadow-inner cursor-pointer"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-white/50 uppercase tracking-wider mb-1">
+                    <label className="block text-xs font-bold text-slate-400 uppercase tracking-wider mb-1.5">
                       Description / Note (විස්තරය)
                     </label>
                     <textarea 
                       value={advanceForm.description}
                       onChange={(e) => setAdvanceForm({ ...advanceForm, description: e.target.value })}
-                      placeholder={`Reason for advance (e.g. Early payment requested, Tute printing expenses, etc.)...`}
-                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2.5 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-rose-500/40 min-h-[70px] shadow-inner text-xs"
+                      placeholder={advanceForm.flowChoice === 'INSTITUTE_INCOME' ? 'Reason for deduction (e.g. 500 Tutes printed for Revision class)...' : 'Reason for advance (e.g. Early payment requested by lecturer)...'}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-rose-500/40 min-h-[75px] shadow-inner text-sm"
                     />
                   </div>
 
+                  {/* Submit Button */}
                   <button 
                     type="submit" 
                     disabled={savingAdvance}
-                    className="w-full py-3.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold shadow-lg shadow-rose-500/30 transition-all text-sm tracking-wide mt-2 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+                    className={`w-full py-4 text-white rounded-xl font-bold shadow-xl transition-all text-sm tracking-wide mt-2 disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer ${
+                      advanceForm.flowChoice === 'INSTITUTE_INCOME'
+                        ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-500/25'
+                        : 'bg-rose-600 hover:bg-rose-500 shadow-rose-500/25'
+                    }`}
                   >
-                    {savingAdvance ? 'Saving Advance...' : 'Record Advance & Deduct from Payout'}
+                    {savingAdvance ? (
+                      'Processing...'
+                    ) : advanceForm.flowChoice === 'INSTITUTE_INCOME' ? (
+                      'Record Institute Income & Deduct from Teacher Payout'
+                    ) : (
+                      'Record Teacher Advance & Deduct from Cash Flow & Payout'
+                    )}
                   </button>
                 </form>
               </div>

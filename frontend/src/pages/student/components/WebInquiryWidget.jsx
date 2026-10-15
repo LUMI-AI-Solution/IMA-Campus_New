@@ -95,17 +95,17 @@ const WebInquiryWidget = ({ businesses, setActiveTab }) => {
             const { paperId, testTitle, courseId, batchId, className } = e.detail || {};
             setIsOpen(true);
             setPreChatTab('paper_guiders');
-            if (courseId) {
-                setSelectedPaperClassId(String(courseId));
-            }
-            if (testTitle) {
-                setGuiderInitialNote(`[Paper Discussion] Regarding "${testTitle}": I would like clarification on question marks.`);
-                setGuiderInquiryType('MARKING_REVIEW');
+            if (courseId || testTitle) {
+                const selectedClass = paperClasses.find(c => String(c.id) === String(courseId)) || paperClasses[0];
+                const bizId = selectedClass?.businessId || (businesses && businesses[0]?.id) || 1;
+                const cId = courseId || (selectedClass?.id !== 0 ? selectedClass?.id : null);
+                const titleStr = testTitle ? `Regarding "${testTitle}"` : (className ? `Class: ${className}` : 'Paper Consultation');
+                startInquiry(bizId, cId, `[📝 Paper Guider Desk] ${titleStr}`, true);
             }
         };
         window.addEventListener('open-paper-guider-chat', handleOpenGuiderEvent);
         return () => window.removeEventListener('open-paper-guider-chat', handleOpenGuiderEvent);
-    }, [paperClasses]);
+    }, [paperClasses, businesses]);
 
     useEffect(() => {
         axios.get('/web-inquiry/my-inquiries')
@@ -237,32 +237,18 @@ const WebInquiryWidget = ({ businesses, setActiveTab }) => {
         }
     };
 
-    const handleStartPaperGuiderChat = async () => {
+    const handleStartPaperGuiderChat = async (classObj = null) => {
         if (!isEnrolledInPaperClass) {
             toast.error("Paper Guider Chat is exclusive to Paper Class students.");
             return;
         }
 
-        const selectedClass = paperClasses.find(c => String(c.id) === String(selectedPaperClassId)) || paperClasses[0];
+        const selectedClass = classObj || paperClasses.find(c => String(c.id) === String(selectedPaperClassId)) || paperClasses[0];
         const bizId = selectedClass?.businessId || (businesses && businesses[0]?.id) || 1;
         const courseId = selectedClass?.id !== 0 ? selectedClass?.id : null;
-
-        const topicLabels = {
-            'QUESTION_DOUBT': '🔍 Question Doubts (ප්‍රශ්න විවරණ)',
-            'MARKING_REVIEW': '⚖️ Marking Review (ලකුණු නැවත බැලීම)',
-            'SCHEME_HELP': '💡 Scheme & Essay Guidance (පිළිතුරු සැකසීම)',
-            'GENERAL': '📌 General Paper Query (සාමාන්‍ය විමසීමක්)'
-        };
-
-        const topicStr = topicLabels[guiderInquiryType] || 'Paper Consultation';
         const classNameStr = selectedClass?.name || 'Paper Class';
-        
-        let introMessage = `[📝 PAPER GUIDER DESK]\nClass: ${classNameStr}\nTopic: ${topicStr}`;
-        if (guiderInitialNote.trim()) {
-            introMessage += `\n\nStudent Note:\n${guiderInitialNote.trim()}`;
-        }
 
-        await startInquiry(bizId, courseId, introMessage, true);
+        await startInquiry(bizId, courseId, `[📝 Paper Guider Desk] Class: ${classNameStr}`, true);
         toast.success(`Connected to Paper Guider Desk for ${classNameStr}!`, { icon: '🎓' });
     };
 
@@ -401,7 +387,7 @@ const WebInquiryWidget = ({ businesses, setActiveTab }) => {
     const isGuiderChatMode = !!guiderSessionMeta;
 
     return (
-        <div className="fixed bottom-6 right-6 md:bottom-24 z-50 w-[350px] sm:w-[400px] h-[580px] max-h-[88vh] flex flex-col bg-[#efeae2] rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden border border-white/20">
+        <div className="fixed bottom-3 right-3 sm:bottom-6 sm:right-6 md:bottom-24 z-50 w-[calc(100vw-24px)] max-w-[400px] h-[580px] max-h-[88vh] flex flex-col bg-[#efeae2] rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden border border-white/20">
             {/* Header */}
             <div className={`px-4 py-3.5 text-white flex items-center justify-between shrink-0 z-10 shadow-md relative transition-all ${
                 isGuiderChatMode
@@ -482,7 +468,7 @@ const WebInquiryWidget = ({ businesses, setActiveTab }) => {
 
                         {/* TAB 1: PAPER GUIDER DESK */}
                         {preChatTab === 'paper_guiders' && (
-                            <div className="flex-1 flex flex-col space-y-4">
+                            <div className="flex-1 flex flex-col space-y-3">
                                 {!isEnrolledInPaperClass ? (
                                     /* 🔒 LOCKED CARD: ONLY FOR ENROLLED STUDENTS */
                                     <div className="bg-white rounded-2xl p-5 border border-red-200 shadow-sm text-center flex flex-col items-center justify-center my-auto">
@@ -493,10 +479,10 @@ const WebInquiryWidget = ({ businesses, setActiveTab }) => {
                                             Paper Class Exclusive
                                         </div>
                                         <h4 className="text-base font-bold text-gray-900 mb-1.5">
-                                            පේපර් ගයිඩර් සහය ලබාගත නොහැක
+                                            Paper Guider Support Unavailable
                                         </h4>
                                         <p className="text-xs text-gray-600 leading-relaxed mb-4">
-                                            මෙම විශේෂාංගය විවෘත වන්නේ <strong className="text-gray-900 font-bold">Paper Class සඳහා ලියාපදිංචි වූ සිසුන්ට පමණි</strong>. පේපර් පරීක්ෂකවරුන් හා ගයිඩර්වරුන් සමඟ සෘජුව සම්බන්ධ වීමට නම් පළමුව අදාළ Paper Class එකට Enroll වන්න.
+                                            This feature is exclusively available to students enrolled in a Paper Class. Please enroll in a Paper Class to consult directly with examiners and paper guiders.
                                         </p>
                                         <button
                                             onClick={() => {
@@ -504,107 +490,88 @@ const WebInquiryWidget = ({ businesses, setActiveTab }) => {
                                                 if (setActiveTab) setActiveTab('courses');
                                                 window.dispatchEvent(new CustomEvent('switch-student-tab', { detail: { tab: 'courses' } }));
                                             }}
-                                            className="w-full py-3 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-2"
+                                            className="w-full py-3 bg-gradient-to-r from-red-600 to-orange-600 hover:from-red-500 hover:to-orange-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-500/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
                                         >
                                             <BookOpen size={16} />
                                             <span>Explore Paper Classes & Enroll</span>
                                         </button>
                                     </div>
                                 ) : (
-                                    /* 🟢 UNLOCKED: ENROLLED PAPER CLASS STUDENTS */
-                                    <div className="bg-white rounded-2xl p-4 shadow-sm border border-sky-100 space-y-3.5">
-                                        <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
-                                            <div>
-                                                <h4 className="font-bold text-sm text-gray-900 flex items-center gap-1.5">
-                                                    <Sparkles size={16} className="text-sky-600" />
-                                                    Paper Guider Consultation Desk
-                                                </h4>
-                                                <p className="text-[11px] text-gray-500">
-                                                    ඔබගේ ප්‍රශ්න පත්‍ර සහ ලකුණු පිළිබඳ ගැටලු විසඳා ගන්න
-                                                </p>
-                                            </div>
-                                            <span className="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-300">
-                                                Active Student
-                                            </span>
+                                    /* 🟢 UNLOCKED: ENROLLED PAPER CLASS STUDENTS - CLEAN & LIKE GENERAL SUPPORT */
+                                    <>
+                                        <div className="bg-white p-3.5 rounded-xl shadow-sm text-center">
+                                            <h4 className="text-sm font-bold text-[#111b21] mb-1 flex items-center justify-center gap-1.5">
+                                                Paper Guider Consultation Desk 👋
+                                            </h4>
+                                            <p className="text-xs text-[#54656f] leading-relaxed">
+                                                Select your paper class to chat directly with dedicated paper guiders and examiners.
+                                            </p>
                                         </div>
 
-                                        {/* Paper Class Selector */}
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                                                Select Your Paper Class
+                                        <div className="space-y-2">
+                                            <label className="block text-[11px] font-bold text-[#54656f] uppercase tracking-wider ml-1">
+                                                Enrolled Paper Classes & Guiders
                                             </label>
-                                            {paperClasses.length > 0 ? (
-                                                <select
-                                                    value={selectedPaperClassId}
-                                                    onChange={e => setSelectedPaperClassId(e.target.value)}
-                                                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs font-semibold text-gray-800 focus:outline-none focus:ring-2 focus:ring-sky-500"
-                                                >
-                                                    {paperClasses.map(pc => (
-                                                        <option key={pc.id} value={pc.id}>
-                                                            {pc.name} {pc.batchName ? `(${pc.batchName})` : ''}
-                                                        </option>
-                                                    ))}
-                                                </select>
-                                            ) : (
-                                                <div className="p-2.5 bg-sky-50 rounded-xl text-xs font-medium text-sky-800 border border-sky-200">
-                                                    General Paper Class Program
-                                                </div>
-                                            )}
-                                        </div>
 
-                                        {/* Consultation Topic */}
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                                                Consultation Topic (විමසන කරුණ)
-                                            </label>
-                                            <div className="grid grid-cols-2 gap-1.5">
-                                                {[
-                                                    { id: 'QUESTION_DOUBT', label: '🔍 Question Doubt', sub: 'ප්‍රශ්න විවරණ' },
-                                                    { id: 'MARKING_REVIEW', label: '⚖️ Marks Review', sub: 'ලකුණු ගැටලු' },
-                                                    { id: 'SCHEME_HELP', label: '💡 Essay Guidance', sub: 'පිළිතුරු සැකසීම' },
-                                                    { id: 'GENERAL', label: '📌 General Query', sub: 'සාමාන්‍ය සහය' }
-                                                ].map(t => (
-                                                    <button
-                                                        key={t.id}
-                                                        type="button"
-                                                        onClick={() => setGuiderInquiryType(t.id)}
-                                                        className={`p-2 rounded-xl text-left border transition-all ${
-                                                            guiderInquiryType === t.id
-                                                                ? 'bg-sky-50 border-sky-500 text-sky-900 font-bold shadow-sm ring-1 ring-sky-500'
-                                                                : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'
-                                                        }`}
+                                            <div className="flex flex-col gap-2">
+                                                {paperClasses && paperClasses.length > 0 ? (
+                                                    paperClasses.map((pc) => {
+                                                        const bId = pc.businessId || (businesses && businesses[0]?.id) || 1;
+                                                        const cId = pc.id !== 0 ? pc.id : null;
+                                                        const biz = businesses?.find(b => b.id === bId);
+                                                        const hasLogo = biz?.logo && biz?.logo !== 'default.png' && biz?.logo !== 'null';
+
+                                                        return (
+                                                            <div 
+                                                                key={pc.id}
+                                                                onClick={() => {
+                                                                    startInquiry(bId, cId, `[📝 Paper Guider Desk] Class: ${pc.name}`, true);
+                                                                    toast.success(`Connected to Paper Guider Desk for ${pc.name}!`, { icon: '🎓' });
+                                                                }}
+                                                                className="bg-white hover:bg-[#f0f9ff] border border-transparent hover:border-sky-300 cursor-pointer transition-all rounded-xl p-3 flex items-center gap-3 relative shadow-sm hover:shadow-md group"
+                                                            >
+                                                                <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-sky-600 to-blue-700 flex items-center justify-center shrink-0 text-white shadow-sm overflow-hidden group-hover:scale-105 transition-transform">
+                                                                    {hasLogo ? (
+                                                                        <img 
+                                                                            src={`${axios.defaults.baseURL.replace('/api', '')}/storage/icons/${biz.logo}`} 
+                                                                            className="w-full h-full object-cover" 
+                                                                            alt="" 
+                                                                            onError={(e) => { e.target.onerror = null; e.target.style.display = 'none'; }} 
+                                                                        />
+                                                                    ) : (
+                                                                        <GraduationCap size={22} className="text-white" />
+                                                                    )}
+                                                                </div>
+                                                                <div className="flex-1 overflow-hidden">
+                                                                    <h5 className="font-bold text-sm text-[#111b21] truncate">{pc.name}</h5>
+                                                                    <p className="text-[11px] text-sky-700 font-medium">Click to Chat with Paper Guider</p>
+                                                                </div>
+                                                                <ChevronRight size={16} className="text-gray-400 group-hover:text-sky-600 group-hover:translate-x-0.5 transition-all" />
+                                                            </div>
+                                                        );
+                                                    })
+                                                ) : (
+                                                    <div 
+                                                        onClick={() => {
+                                                            const bId = (businesses && businesses[0]?.id) || 1;
+                                                            startInquiry(bId, null, `[📝 Paper Guider Desk] General Paper Consultation`, true);
+                                                            toast.success("Connected to Paper Guider Desk!", { icon: '🎓' });
+                                                        }}
+                                                        className="bg-white hover:bg-[#f0f9ff] border border-transparent hover:border-sky-300 cursor-pointer transition-all rounded-xl p-3 flex items-center gap-3 relative shadow-sm group"
                                                     >
-                                                        <div className="text-xs font-bold leading-tight">{t.label}</div>
-                                                        <div className="text-[10px] text-gray-500">{t.sub}</div>
-                                                    </button>
-                                                ))}
+                                                        <div className="w-11 h-11 rounded-full bg-gradient-to-tr from-sky-600 to-blue-700 flex items-center justify-center shrink-0 text-white shadow-sm">
+                                                            <GraduationCap size={22} />
+                                                        </div>
+                                                        <div className="flex-1 overflow-hidden">
+                                                            <h5 className="font-bold text-sm text-[#111b21]">General Paper Guider Desk</h5>
+                                                            <p className="text-[11px] text-sky-700 font-medium">Click to Chat with Paper Guider</p>
+                                                        </div>
+                                                        <ChevronRight size={16} className="text-gray-400 group-hover:text-sky-600 group-hover:translate-x-0.5 transition-all" />
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
-
-                                        {/* Initial Note / Doubts Input */}
-                                        <div>
-                                            <label className="block text-[11px] font-bold text-gray-700 uppercase tracking-wider mb-1">
-                                                Brief Details (ගැටලුවේ විස්තරය)
-                                            </label>
-                                            <textarea
-                                                rows={3}
-                                                value={guiderInitialNote}
-                                                onChange={e => setGuiderInitialNote(e.target.value)}
-                                                placeholder="උදා: ප්‍රශ්න අංක 02 හි දෙවන කොටස සඳහා ලකුණු ලබාදීමේ ක්‍රමය පැහැදිලි කරන්න..."
-                                                className="w-full bg-gray-50 border border-gray-200 rounded-xl p-2.5 text-xs text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
-                                            />
-                                        </div>
-
-                                        {/* Action Button */}
-                                        <button
-                                            type="button"
-                                            onClick={handleStartPaperGuiderChat}
-                                            className="w-full py-3 bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-700 hover:from-sky-500 hover:to-indigo-600 text-white font-bold text-xs rounded-xl shadow-lg shadow-sky-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
-                                        >
-                                            <Send size={15} />
-                                            <span>Start Paper Guider Chat (ගයිඩර් අමතන්න)</span>
-                                        </button>
-                                    </div>
+                                    </>
                                 )}
                             </div>
                         )}
@@ -615,7 +582,7 @@ const WebInquiryWidget = ({ businesses, setActiveTab }) => {
                                 <div className="bg-white p-3.5 rounded-xl shadow-sm text-center">
                                     <h4 className="text-sm font-bold text-[#111b21] mb-1">Campus Support Center 👋</h4>
                                     <p className="text-xs text-[#54656f] leading-relaxed">
-                                        ඔබ අපත් සමඟ සම්බන්ධ වීමට කැමති අංශය තෝරා පණිවිඩයක් එවන්න.
+                                        Select your institution or support desk below to start chatting with staff.
                                     </p>
                                 </div>
                                 

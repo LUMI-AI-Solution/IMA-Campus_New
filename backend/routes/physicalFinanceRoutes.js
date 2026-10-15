@@ -15,7 +15,12 @@ router.delete('/categories/:id', physicalFinanceController.deleteCategory);
 // Transactions
 router.get('/transactions', physicalFinanceController.getTransactions);
 router.post('/transactions', physicalFinanceController.addTransaction);
+router.put('/transactions/:id/verify', physicalFinanceController.verifyTransaction);
+router.put('/transactions/:id/toggle-cash-impact', physicalFinanceController.toggleCashImpact);
 router.delete('/transactions/:id', physicalFinanceController.deleteTransaction);
+
+// Installment Reminders
+router.get('/installments/reminders', physicalFinanceController.getInstallmentReminders);
 
 // Opening Balance
 router.get('/opening-balance', physicalFinanceController.getOpeningBalance);

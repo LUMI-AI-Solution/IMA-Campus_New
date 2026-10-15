@@ -199,6 +199,7 @@ model ContentGroup {
   id                 Int            @id @default(autoincrement())
   title              String
   type               Int
+  classType          Int            @default(1)
   itemOrder          Int            @default(1)
   batchId            Int
   additionalBatchIds String?
@@ -1288,6 +1289,17 @@ model PhysicalTransaction {
   teacher         PhysicalTeacher? @relation(fields: [teacherId], references: [id], onDelete: SetNull)
   billingMonth    String?          // e.g. "2026-10" to link deduction to specific teacher billing month
   isTeacherAdvance Boolean         @default(false)
+
+  paymentMethod   String?          @default("CASH")
+  affectsCash     Boolean          @default(true)
+  status          String?          @default("COMPLETED")
+  installmentPlanId String?
+  installmentNo   Int?
+  totalInstallments Int?
+  dueDate         DateTime?
+  isVerified      Boolean          @default(true)
+  verifiedAt      DateTime?
+  verifiedBy      String?
 
   isDeleted   Boolean          @default(false)
   deletedReason String?        @db.Text

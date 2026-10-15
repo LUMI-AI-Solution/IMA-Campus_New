@@ -987,11 +987,15 @@ exports.createNextInstallmentPhase = createNextInstallmentPhase;
 exports.approveInstallment = async (req, res) => {
     try {
         const { paymentId, actualAmountPaid, remark, isSelfPicked, nextDueDate } = req.body;
+        const adminId = req.user?.userId || req.user?.id;
 
         const payRecord = await prisma.payment.findUnique({ where: { id: parseInt(paymentId) } });
         if (!payRecord) return res.status(404).json({ error: "Payment not found" });
 
         let updateData = { status: 1, post_pay_days: 0 };
+        if (adminId) {
+            updateData.actionedById = parseInt(adminId);
+        }
 
         // 🔥 WALLET SETTLEMENT LOGIC 🔥
         let appliedWalletBalance = 0;
@@ -1199,9 +1203,10 @@ exports.getStaffStatsReport = async (req, res) => {
         const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
         const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper) || userDepartment === 'Finance';
 
-        const { dateFrom, dateTo, verificationMethod, action } = req.query;
+        const { dateFrom, dateTo, verificationMethod, action, dateBasis } = req.query;
 
         let where = {};
+        const dateField = (dateBasis === 'created_at' || dateBasis === 'upload') ? 'created_at' : 'updatedAt';
         
         if (!isAdmin && userId) {
             const allBiz = await prisma.business.findMany();
@@ -1231,16 +1236,16 @@ exports.getStaffStatsReport = async (req, res) => {
         if (dateFrom && dateTo) {
             const startDate = dateFrom.includes('T') ? new Date(dateFrom) : new Date(`${dateFrom}T00:00:00.000Z`);
             const endDate = dateTo.includes('T') ? new Date(dateTo) : new Date(`${dateTo}T23:59:59.999Z`);
-            where.updatedAt = {
+            where[dateField] = {
                 gte: startDate,
                 lte: endDate
             };
         } else if (dateFrom) {
             const startDate = dateFrom.includes('T') ? new Date(dateFrom) : new Date(`${dateFrom}T00:00:00.000Z`);
-            where.updatedAt = { gte: startDate };
+            where[dateField] = { gte: startDate };
         } else if (dateTo) {
             const endDate = dateTo.includes('T') ? new Date(dateTo) : new Date(`${dateTo}T23:59:59.999Z`);
-            where.updatedAt = { lte: endDate };
+            where[dateField] = { lte: endDate };
         }
 
         if (verificationMethod === 'ai') {
@@ -1255,10 +1260,16 @@ exports.getStaffStatsReport = async (req, res) => {
             where.status = 2;
         } else if (action === 'postpay') {
             where.status = 4;
+        } else if (action === 'pending') {
+            where.status = 0;
         } else if (['quick_approve', 'discount_approve', 'adjust_approve', 'upgrade_approve', 'installment_approve'].includes(action)) {
             where.status = 1;
+        } else {
+            // Default "All Actions" includes all verified/actioned slips (status: 1 Approved, 2 Rejected, 4 Postpay)
+            where.status = { in: [1, 2, 4] };
         }
 
+        // 🔥 Remove artificial take: 1000 limit so all slips in the period are fetched & counted accurately!
         const payments = await prisma.payment.findMany({
             where,
             include: {
@@ -1267,14 +1278,14 @@ exports.getStaffStatsReport = async (req, res) => {
                 batch: { select: { name: true } },
                 business: { select: { name: true } }
             },
-            orderBy: { updatedAt: 'desc' },
-            take: 1000
+            orderBy: { updatedAt: 'desc' }
         });
 
         let summary = {
             aiVerified: 0,
             manualVerified: 0,
             rejected: 0,
+            postpay: 0,
             total: payments.length,
             quickApprove: 0,
             discountApprove: 0,
@@ -1288,13 +1299,14 @@ exports.getStaffStatsReport = async (req, res) => {
             if (isAi && p.status === 1) summary.aiVerified++;
             else if (!isAi && p.status === 1) summary.manualVerified++;
             else if (p.status === 2) summary.rejected++;
+            else if (p.status === 4) summary.postpay = (summary.postpay || 0) + 1;
 
             let approveType = null;
             if (p.status === 1) {
                 const isUpgrade = p.remark && p.remark.includes('[UPGRADE]');
                 const isAdjusted = parseFloat(p.excessAmount || 0) > 0 || parseFloat(p.arrearsAmount || 0) > 0;
                 const isInstallment = p.payment_type === 2;
-                const isDiscount = p.remark && p.remark.includes('Custom Breakdown');
+                const isDiscount = (p.remark && (p.remark.includes('Custom Breakdown') || p.remark.toLowerCase().includes('discount'))) || p.amount === 0;
                 
                 if (isUpgrade) {
                     approveType = 'Upgrade Approve';
@@ -1312,24 +1324,42 @@ exports.getStaffStatsReport = async (req, res) => {
                     approveType = 'Quick Approve';
                     summary.quickApprove++;
                 }
+            } else if (p.status === 2) {
+                approveType = 'Rejected';
+            } else if (p.status === 4) {
+                approveType = 'Postpay';
             }
 
-            const verifiedBy = p.actionedUser 
-                ? `${p.actionedUser.firstName} ${p.actionedUser.lastName || ''}`.trim() 
-                : (isAi ? 'AI System' : 'Unknown');
+            let verifiedBy = 'Unknown';
+            if (p.actionedUser) {
+                verifiedBy = `${p.actionedUser.firstName} ${p.actionedUser.lastName || ''}`.trim();
+            } else if (isAi) {
+                verifiedBy = 'AI System';
+            } else if (p.method === 'PayHere') {
+                verifiedBy = 'PayHere Gateway';
+            } else if (p.remark && p.remark.includes('[ADMIN]')) {
+                verifiedBy = 'Admin User';
+            } else {
+                verifiedBy = 'System / Staff';
+            }
 
             return {
                 id: p.id,
+                paymentId: p.id,
                 amount: p.amount,
                 status: p.status,
                 isAiVerified: isAi,
                 verifiedBy,
                 studentName: p.student ? `${p.student.firstName} ${p.student.lastName || ''}`.trim() : 'Unknown',
+                studentPhone: p.student?.phone || '',
+                batch: p.batch?.name || '-',
                 batchName: p.batch?.name || '-',
+                business: p.business?.name || '-',
                 businessName: p.business?.name || '-',
                 createdAt: p.created_at,
                 updatedAt: p.updatedAt,
-                approveType
+                approveType,
+                method: p.method || 'Slip'
             };
         });
 

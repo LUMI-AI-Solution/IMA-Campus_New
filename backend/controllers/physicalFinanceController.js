@@ -164,13 +164,16 @@ const calculateOpeningBalanceForDate = async (targetDateStr) => {
                     lt: targetDateStart
                 }
             },
-            select: { type: true, amount: true }
+            select: { type: true, amount: true, affectsCash: true, isVerified: true }
         });
 
         let pastNet = 0;
         pastTxns.forEach(t => {
-            if (t.type === 'INCOME') pastNet += t.amount;
-            else if (t.type === 'EXPENSE') pastNet -= t.amount;
+            // Only affect physical cash if affectsCash is true AND isVerified is true
+            if (t.affectsCash !== false && t.isVerified !== false) {
+                if (t.type === 'INCOME') pastNet += t.amount;
+                else if (t.type === 'EXPENSE') pastNet -= t.amount;
+            }
         });
 
         return {
@@ -189,13 +192,15 @@ const calculateOpeningBalanceForDate = async (targetDateStr) => {
                     lt: targetDateStart
                 }
             },
-            select: { type: true, amount: true }
+            select: { type: true, amount: true, affectsCash: true, isVerified: true }
         });
 
         let pastNet = 0;
         pastTxns.forEach(t => {
-            if (t.type === 'INCOME') pastNet += t.amount;
-            else if (t.type === 'EXPENSE') pastNet -= t.amount;
+            if (t.affectsCash !== false && t.isVerified !== false) {
+                if (t.type === 'INCOME') pastNet += t.amount;
+                else if (t.type === 'EXPENSE') pastNet -= t.amount;
+            }
         });
 
         return {
@@ -244,37 +249,65 @@ exports.getTransactions = async (req, res) => {
                     select: { id: true, lecturerId: true, name: true, image: true, phone: true }
                 }
             },
-            orderBy: { date: 'desc' }
+            orderBy: [{ date: 'desc' }, { id: 'desc' }]
         });
 
-        // Calculate summary
+        // Calculate accounting vs cash-in-hand totals
         let totalIncome = 0;
         let totalExpense = 0;
+        let cashIncome = 0;
+        let cashExpense = 0;
+        let nonCashIncome = 0;
+        let nonCashExpense = 0;
+
         transactions.forEach(t => {
-            if (t.type === 'INCOME') totalIncome += t.amount;
-            if (t.type === 'EXPENSE') totalExpense += t.amount;
+            const isCash = t.affectsCash !== false;
+            const isCountedInCash = isCash && t.isVerified !== false;
+
+            if (t.type === 'INCOME') {
+                totalIncome += t.amount;
+                if (isCountedInCash) {
+                    cashIncome += t.amount;
+                } else {
+                    nonCashIncome += t.amount;
+                }
+            }
+            if (t.type === 'EXPENSE') {
+                totalExpense += t.amount;
+                if (isCountedInCash) {
+                    cashExpense += t.amount;
+                } else {
+                    nonCashExpense += t.amount;
+                }
+            }
         });
         
-        const dayNet = totalIncome - totalExpense;
+        const dayNet = totalIncome - totalExpense; // Accounting net
+        const dayCashNet = cashIncome - cashExpense; // Physical drawer net
 
         // Opening balance calculation for the target date
         const openingInfo = await calculateOpeningBalanceForDate(queryDateStr);
         const openingBalance = openingInfo.openingBalance || 0;
-        const closingBalance = openingBalance + dayNet;
+        const closingBalance = openingBalance + dayCashNet;
 
         res.json({
             transactions,
             summary: {
                 totalIncome,
                 totalExpense,
+                cashIncome,
+                cashExpense,
+                nonCashIncome,
+                nonCashExpense,
                 dayNet,
+                dayCashNet,
                 openingBalance,
                 isManualOpeningBalance: openingInfo.isManual,
                 manualOpeningBalanceRecord: openingInfo.manualRecord,
                 baseManualDate: openingInfo.baseManualDate || null,
                 baseManualAmount: openingInfo.baseManualAmount || null,
                 closingBalance,
-                netCash: closingBalance // Cash In Hand at end of day
+                netCash: closingBalance // Physical Cash In Hand at end of day
             }
         });
     } catch (error) {
@@ -284,16 +317,122 @@ exports.getTransactions = async (req, res) => {
 
 exports.addTransaction = async (req, res) => {
     try {
-        const { type, category, amount, description, studentId, teacherId, billingMonth, isTeacherAdvance, date } = req.body;
+        const { 
+            type, 
+            category, 
+            amount, 
+            description, 
+            studentId, 
+            teacherId, 
+            billingMonth, 
+            isTeacherAdvance, 
+            date,
+            paymentMethod,
+            affectsCash,
+            isInstallment,
+            installments
+        } = req.body;
         
-        if (!type || !category || !amount) {
-            return res.status(400).json({ error: 'Type, category, and amount are required' });
+        if (!type || !category) {
+            return res.status(400).json({ error: 'Type and category are required' });
+        }
+
+        const upperType = type.toUpperCase();
+        const trimmedCat = category.trim();
+
+        // 1. Multi-Installment Handling
+        if (isInstallment && Array.isArray(installments) && installments.length > 0) {
+            const planId = `INST-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+            const totalCount = installments.length;
+            const createdTxns = [];
+
+            for (let i = 0; i < installments.length; i++) {
+                const inst = installments[i];
+                const instAmount = parseFloat(inst.amount);
+                if (isNaN(instAmount) || instAmount <= 0) continue;
+
+                let instDate = new Date();
+                if (inst.dueDate || inst.date) {
+                    const dStr = inst.dueDate || inst.date;
+                    if (typeof dStr === 'string' && dStr.length === 10) {
+                        const [y, m, d] = dStr.split('-').map(Number);
+                        const now = new Date();
+                        instDate = new Date(Date.UTC(y, m - 1, d, now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds()));
+                    } else {
+                        instDate = new Date(dStr);
+                    }
+                }
+
+                const instAffectsCash = inst.affectsCash !== undefined 
+                    ? Boolean(inst.affectsCash) 
+                    : (affectsCash !== undefined ? Boolean(affectsCash) : true);
+
+                const instPaymentMethod = (inst.paymentMethod || paymentMethod || 'CASH').toUpperCase();
+                
+                // If installment is explicitly verified or today and not scheduled for future
+                const isVerified = inst.isVerified !== undefined ? Boolean(inst.isVerified) : false;
+                const status = isVerified ? 'COMPLETED' : 'PENDING_VERIFICATION';
+
+                let effectiveBillingMonth = billingMonth || null;
+                if (teacherId && !effectiveBillingMonth) {
+                    effectiveBillingMonth = `${instDate.getUTCFullYear()}-${String(instDate.getUTCMonth() + 1).padStart(2, '0')}`;
+                }
+
+                const instDesc = inst.description 
+                    ? `${description ? description + ' - ' : ''}${inst.description} [Installment ${i + 1}/${totalCount}]`
+                    : `${description || trimmedCat} [Installment ${i + 1}/${totalCount}]`;
+
+                const created = await prisma.physicalTransaction.create({
+                    data: {
+                        type: upperType,
+                        category: trimmedCat,
+                        amount: instAmount,
+                        description: instDesc,
+                        studentId: studentId ? parseInt(studentId) : null,
+                        teacherId: teacherId ? parseInt(teacherId) : null,
+                        billingMonth: effectiveBillingMonth,
+                        isTeacherAdvance: Boolean(isTeacherAdvance),
+                        date: instDate,
+                        dueDate: instDate,
+                        paymentMethod: instPaymentMethod,
+                        affectsCash: instAffectsCash,
+                        status,
+                        installmentPlanId: planId,
+                        installmentNo: i + 1,
+                        totalInstallments: totalCount,
+                        isVerified,
+                        verifiedAt: isVerified ? new Date() : null,
+                        verifiedBy: isVerified ? (req.user?.name || req.user?.username || 'Staff') : null,
+                        isDeleted: false
+                    },
+                    include: {
+                        student: {
+                            select: { id: true, firstName: true, lastName: true, studentName: true, studentId: true }
+                        },
+                        teacher: {
+                            select: { id: true, lecturerId: true, name: true, image: true, phone: true }
+                        }
+                    }
+                });
+                createdTxns.push(created);
+            }
+
+            return res.status(201).json({
+                success: true,
+                message: `${createdTxns.length} installments scheduled successfully`,
+                installments: createdTxns,
+                transaction: createdTxns[0]
+            });
+        }
+
+        // 2. Regular Single Transaction Handling
+        if (!amount || parseFloat(amount) <= 0) {
+            return res.status(400).json({ error: 'Valid amount is required' });
         }
 
         let txDate = new Date();
         if (date) {
             if (typeof date === 'string' && date.length === 10) {
-                // e.g. "2026-09-01" -> set to current UTC hours/minutes on that date so it sits nicely in the day
                 const [year, month, day] = date.split('-').map(Number);
                 const now = new Date();
                 txDate = new Date(Date.UTC(year, month - 1, day, now.getUTCHours(), now.getUTCMinutes(), now.getUTCSeconds()));
@@ -302,7 +441,6 @@ exports.addTransaction = async (req, res) => {
             }
         }
 
-        // Determine effective billing month if linked to teacher
         let effectiveBillingMonth = billingMonth || null;
         if (teacherId && !effectiveBillingMonth) {
             effectiveBillingMonth = `${txDate.getUTCFullYear()}-${String(txDate.getUTCMonth() + 1).padStart(2, '0')}`;
@@ -312,10 +450,15 @@ exports.addTransaction = async (req, res) => {
             ? Boolean(isTeacherAdvance) 
             : (Boolean(teacherId) && (category.toLowerCase().includes('advance') || category.toLowerCase().includes('teacher')));
 
+        const parsedAffectsCash = affectsCash !== undefined ? Boolean(affectsCash) : true;
+        const parsedPaymentMethod = (paymentMethod || 'CASH').toUpperCase();
+        const parsedIsVerified = req.body.isVerified !== undefined ? Boolean(req.body.isVerified) : true;
+        const parsedStatus = parsedIsVerified ? 'COMPLETED' : 'PENDING_VERIFICATION';
+
         const transaction = await prisma.physicalTransaction.create({
             data: {
-                type: type.toUpperCase(),
-                category: category.trim(),
+                type: upperType,
+                category: trimmedCat,
                 amount: parseFloat(amount),
                 description,
                 studentId: studentId ? parseInt(studentId) : null,
@@ -323,6 +466,13 @@ exports.addTransaction = async (req, res) => {
                 billingMonth: effectiveBillingMonth,
                 isTeacherAdvance: isAdv,
                 date: txDate,
+                dueDate: req.body.dueDate ? new Date(req.body.dueDate) : txDate,
+                paymentMethod: parsedPaymentMethod,
+                affectsCash: parsedAffectsCash,
+                status: parsedStatus,
+                isVerified: parsedIsVerified,
+                verifiedAt: parsedIsVerified ? new Date() : null,
+                verifiedBy: parsedIsVerified ? (req.user?.name || req.user?.username || 'Staff') : null,
                 isDeleted: false
             },
             include: {
@@ -336,6 +486,113 @@ exports.addTransaction = async (req, res) => {
         });
         
         res.status(201).json(transaction);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// --- TRANSACTION VERIFY & REMINDERS ---
+exports.verifyTransaction = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { verified = true } = req.body;
+        const isVerified = Boolean(verified);
+
+        const tx = await prisma.physicalTransaction.findUnique({
+            where: { id: parseInt(id) }
+        });
+
+        if (!tx) {
+            return res.status(404).json({ error: 'Transaction not found' });
+        }
+
+        const updated = await prisma.physicalTransaction.update({
+            where: { id: parseInt(id) },
+            data: {
+                isVerified,
+                status: isVerified ? 'VERIFIED' : 'PENDING_VERIFICATION',
+                verifiedAt: isVerified ? new Date() : null,
+                verifiedBy: isVerified ? (req.user?.name || req.user?.username || 'Staff') : null
+            },
+            include: {
+                student: {
+                    select: { id: true, firstName: true, lastName: true, studentName: true, studentId: true }
+                },
+                teacher: {
+                    select: { id: true, lecturerId: true, name: true, image: true, phone: true }
+                }
+            }
+        });
+
+        res.json({
+            success: true,
+            message: isVerified ? 'Transaction verified and updated' : 'Transaction marked pending verification',
+            transaction: updated
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+exports.toggleCashImpact = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const tx = await prisma.physicalTransaction.findUnique({
+            where: { id: parseInt(id) }
+        });
+
+        if (!tx) {
+            return res.status(404).json({ error: 'Transaction not found' });
+        }
+
+        const newAffectsCash = !tx.affectsCash;
+        const newPaymentMethod = newAffectsCash ? 'CASH' : (tx.paymentMethod === 'CASH' ? 'BANK' : (tx.paymentMethod || 'BANK'));
+
+        const updated = await prisma.physicalTransaction.update({
+            where: { id: parseInt(id) },
+            data: {
+                affectsCash: newAffectsCash,
+                paymentMethod: newPaymentMethod
+            },
+            include: {
+                student: {
+                    select: { id: true, firstName: true, lastName: true, studentName: true, studentId: true }
+                },
+                teacher: {
+                    select: { id: true, lecturerId: true, name: true, image: true, phone: true }
+                }
+            }
+        });
+
+        res.json({
+            success: true,
+            message: newAffectsCash ? 'Transaction marked as Real Cash In Hand' : 'Transaction marked as Non-Cash (Bank)',
+            transaction: updated
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+exports.getInstallmentReminders = async (req, res) => {
+    try {
+        const reminders = await prisma.physicalTransaction.findMany({
+            where: {
+                isDeleted: false,
+                isVerified: false
+            },
+            include: {
+                student: {
+                    select: { id: true, firstName: true, lastName: true, studentName: true, studentId: true, phone: true }
+                },
+                teacher: {
+                    select: { id: true, lecturerId: true, name: true, phone: true }
+                }
+            },
+            orderBy: [{ date: 'asc' }, { id: 'asc' }]
+        });
+
+        res.json(reminders);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

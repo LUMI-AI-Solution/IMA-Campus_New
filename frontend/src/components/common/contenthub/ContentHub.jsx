@@ -259,7 +259,8 @@ export default function ContentHub() {
       try {
           const safeCode = activeSub.code || `SUB_${activeSub.id}`;
           const courseIdsParam = activeSub.allCourseIds ? activeSub.allCourseIds.join(',') : activeSub.id;
-          const res = await api.get(`/admin/manager/get-contents?batchId=${activeB.id}&courseCode=${safeCode}&courseIds=${courseIdsParam}`);
+          const targetClassType = activeSub.courseType || (selectedClassType === 'paper' ? 2 : 1);
+          const res = await api.get(`/admin/manager/get-contents?batchId=${activeB.id}&courseCode=${safeCode}&courseIds=${courseIdsParam}&classType=${targetClassType}`);
           setLessonGroups(res.data?.lessonGroups || []);
           setSubjectContents(res.data?.contents || []);
           const newOpenState = {};
@@ -456,6 +457,30 @@ export default function ContentHub() {
           } catch(e) { 
               toast.error("Error: Cannot delete. Please Deactivate it instead."); 
           }
+      }
+  };
+
+  const unlinkContent = async (content, subject) => {
+      const sub = subject || activeSubject;
+      const targetCourseIds = sub?.allCourseIds && sub.allCourseIds.length > 0 ? sub.allCourseIds : (sub?.id ? [sub.id] : []);
+      if (!targetCourseIds || targetCourseIds.length === 0) return toast.error("No subject selected to unlink.");
+
+      const subjectName = sub?.name || 'this subject';
+      const classTypeName = parseInt(sub?.courseType || 1) === 2 ? 'Paper Class' : 'Theory Class';
+
+      if (!window.confirm(`Are you sure you want to remove "${content.title}" from ${subjectName} (${classTypeName}) only?\n\nIt will NOT be deleted from other classes or batches.`)) {
+          return;
+      }
+
+      try {
+          await api.post('/admin/content/unlink-course', {
+              content_id: content.id,
+              courseIds: targetCourseIds
+          });
+          toast.success(`Removed from ${subjectName} (${classTypeName})!`);
+          if (activeSubject) fetchContents(activeSubject, activeBatch);
+      } catch (e) {
+          toast.error("Failed to remove content from this class");
       }
   };
 
@@ -748,6 +773,7 @@ export default function ContentHub() {
               batch_id: resolvedBatchId, 
               course_code: resolvedCourseCode,
               parentId: parsedParentId,
+              classType: activeSubject?.courseType || (selectedClassType === 'paper' ? 2 : 1),
               selectedBatches: selectedBatchesForContent
           };
 
@@ -885,7 +911,7 @@ export default function ContentHub() {
 
   const actionsData = {
     handleBack, openBusinessDetails, openBatchDetails, openContentsView, getImageUrl, getPostImageUrl, getManagerName,
-    getBatchStreams, toggleBusinessStatus, toggleBatchStatus, deleteItem, openInstallmentModal, handleEditInstallment,
+    getBatchStreams, toggleBusinessStatus, toggleBatchStatus, deleteItem, unlinkContent, fetchContents, openInstallmentModal, handleEditInstallment,
     handleDeleteInstallment, handleInstallmentSubmit, handlePostSubmit, openPostModal, handleBusinessSubmit, handleAssignManagers,
     handleBatchSubmit, handleGroupSubmit, handleCourseSubmit, handleLessonGroupSubmit, handleMassAssignSubmit, setEditMode,
     setSelectedLogoName, setShowBusinessModal, setShowAssignModal, setShowBatchModal, setShowGroupModal, setShowCourseModal,
@@ -953,6 +979,7 @@ export default function ContentHub() {
                           <button onClick={() => { 
                               setShowContentModal(true); setContentType(''); setPrefilledFolder(''); setEditMode(false); 
                               setSelectedBatchesForContent([activeBatch.id]); 
+                              setMassAssignSubjects(activeSubject?.allCourseIds && activeSubject.allCourseIds.length > 0 ? activeSubject.allCourseIds : (activeSubject?.id ? [activeSubject.id] : []));
                               setHubBatchConfigs({});
                               setHubActiveBatchTab(null);
                           }} className="flex-1 sm:flex-none bg-emerald-600/90 hover:bg-emerald-600 text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(5,150,105,0.4)] border border-transparent outline-none"><Plus size={16}/> Add Content</button>

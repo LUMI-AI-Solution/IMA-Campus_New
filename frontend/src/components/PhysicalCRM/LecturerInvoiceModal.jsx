@@ -14,7 +14,8 @@ import {
   Phone,
   Percent,
   Loader2,
-  MinusCircle
+  MinusCircle,
+  Clock
 } from 'lucide-react';
 import { toPng } from 'html-to-image';
 import { toast } from 'react-hot-toast';
@@ -29,7 +30,7 @@ export default function LecturerInvoiceModal({
 }) {
   if (!isOpen || !reportData) return null;
 
-  const { teacher, summary, classes = [] } = reportData;
+  const { teacher, summary, classes = [], lateFeeCollections = [] } = reportData;
   const printRef = useRef(null);
   const [downloading, setDownloading] = useState(false);
 
@@ -275,8 +276,13 @@ export default function LecturerInvoiceModal({
   const netBeforeDeductions = summary.netTeacherPayoutBeforeDeductions || (grossTotal - cutAmt);
   const finalPayable = activeClass ? Math.max(0, activeClass.netTeacherPayout - totalDeductions) : summary.netTeacherPayout;
   const enrolledCount = activeClass ? activeClass.enrolledCount : summary.totalEnrolledStudents;
-  const paidCount = activeClass ? activeClass.paidCount : summary.totalPaidStudents;
+  const paidCount = activeClass ? (activeClass.regularPaidCount !== undefined ? activeClass.regularPaidCount : activeClass.paidCount) : summary.totalPaidStudents;
   const unpaidCount = enrolledCount - paidCount;
+
+  // Filter late fee collections if a specific class is selected
+  const relevantLateFeeCollections = activeClass
+    ? lateFeeCollections.filter(lf => lf.classId === activeClass.classId)
+    : lateFeeCollections;
 
   const invoiceNumber = `IMA-PAY-${selectedMonth.replace('-', '')}-${teacher.id.toString().padStart(4, '0')}`;
   const invoiceDate = new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -597,25 +603,55 @@ export default function LecturerInvoiceModal({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200 text-slate-800 font-medium">
-                  {displayClasses.map((cls, idx) => (
-                    <tr key={`${cls.classId || idx}_${idx}`} className="hover:bg-slate-50/80">
-                      <td className="p-2.5">
-                        <strong className="text-slate-900">{cls.className}</strong>
-                        <span className="text-[10px] text-slate-500 block">{cls.grade} {cls.subject ? `• ${cls.subject}` : ''}</span>
-                      </td>
-                      <td className="p-2.5 text-center">{cls.enrolledCount}</td>
-                      <td className="p-2.5 text-center font-bold text-emerald-700">{cls.paidCount}</td>
-                      <td className="p-2.5 text-right font-semibold">{cls.monthlyFee.toLocaleString()}</td>
-                      <td className="p-2.5 text-right font-semibold">Rs. {cls.grossRevenue.toLocaleString()}</td>
-                      <td className="p-2.5 text-right text-amber-700 font-medium">- Rs. {cls.instituteCutAmount.toLocaleString()}</td>
-                      <td className="p-2.5 text-right font-bold text-emerald-800">Rs. {cls.netTeacherPayout.toLocaleString()}</td>
-                    </tr>
-                  ))}
+                  {displayClasses.map((cls, idx) => {
+                    const hasLate = (cls.lateFeeGrossRevenue || 0) > 0;
+                    return (
+                      <tr key={`${cls.classId || idx}_${idx}`} className="hover:bg-slate-50/80">
+                        <td className="p-2.5">
+                          <strong className="text-slate-900">{cls.className}</strong>
+                          <span className="text-[10px] text-slate-500 block">{cls.grade} {cls.subject ? `• ${cls.subject}` : ''}</span>
+                          {hasLate && (
+                            <span className="inline-flex items-center gap-1 mt-1 px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[9px] font-bold">
+                              <Clock size={10} className="text-amber-600" />
+                              Includes Rs. {cls.lateFeeGrossRevenue.toLocaleString()} Late Fees ({cls.lateFeePaidCount} past month payments)
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-2.5 text-center">{cls.enrolledCount}</td>
+                        <td className="p-2.5 text-center font-bold text-emerald-700">
+                          {cls.regularPaidCount !== undefined ? cls.regularPaidCount : cls.paidCount}
+                          {hasLate && (
+                            <span className="block text-[10px] text-amber-700 font-semibold">
+                              +{cls.lateFeePaidCount} late
+                            </span>
+                          )}
+                        </td>
+                        <td className="p-2.5 text-right font-semibold">{cls.monthlyFee.toLocaleString()}</td>
+                        <td className="p-2.5 text-right font-semibold">
+                          <div>Rs. {cls.grossRevenue.toLocaleString()}</div>
+                          {hasLate && (
+                            <div className="text-[9px] text-slate-500 font-normal">
+                              (Cur: Rs. {(cls.regularGrossRevenue || 0).toLocaleString()} + Late: Rs. {cls.lateFeeGrossRevenue.toLocaleString()})
+                            </div>
+                          )}
+                        </td>
+                        <td className="p-2.5 text-right text-amber-700 font-medium">- Rs. {cls.instituteCutAmount.toLocaleString()}</td>
+                        <td className="p-2.5 text-right font-bold text-emerald-800">Rs. {cls.netTeacherPayout.toLocaleString()}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot>
                   <tr className="bg-slate-100 text-slate-800 font-bold text-xs border-t border-slate-300">
                     <td className="p-2.5 uppercase tracking-wider" colSpan={4}>Gross & Cut Subtotals</td>
-                    <td className="p-2.5 text-right">Rs. {grossTotal.toLocaleString()}</td>
+                    <td className="p-2.5 text-right">
+                      <div>Rs. {grossTotal.toLocaleString()}</div>
+                      {(summary.lateFeeGrossRevenue || 0) > 0 && (
+                        <div className="text-[9px] text-slate-500 font-normal">
+                          (Regular: Rs. {(summary.regularGrossRevenue || (grossTotal - (summary.lateFeeGrossRevenue || 0))).toLocaleString()} + Late: Rs. {summary.lateFeeGrossRevenue.toLocaleString()})
+                        </div>
+                      )}
+                    </td>
                     <td className="p-2.5 text-right text-amber-700">- Rs. {cutAmt.toLocaleString()}</td>
                     <td className="p-2.5 text-right font-bold text-slate-900">Rs. {netBeforeDeductions.toLocaleString()}</td>
                   </tr>
@@ -649,33 +685,102 @@ export default function LecturerInvoiceModal({
                 </tfoot>
               </table>
 
-              {/* Itemized Deductions Ledger if any */}
+              {/* Itemized Late Class Fees (Past Month Arrears) Ledger if any */}
+              {relevantLateFeeCollections.length > 0 && (
+                <div className="mt-4 pt-3 border-t border-slate-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <h5 className="text-[11px] font-bold uppercase tracking-wider text-amber-800 flex items-center gap-1.5">
+                      <Clock size={13} className="text-amber-600" />
+                      Late Class Fees Remittance Breakdown (ප්‍රමාද පන්ති ගාස්තු)
+                    </h5>
+                    <span className="text-[10px] text-slate-500 font-semibold">
+                      Past month fee payments collected during {formatMonthYear(selectedMonth)}
+                    </span>
+                  </div>
+                  <table className="w-full text-xs text-left border-collapse border border-amber-200 bg-amber-50/30">
+                    <thead>
+                      <tr className="bg-amber-100 text-amber-900 font-bold border-b border-amber-200 text-[10px]">
+                        <th className="p-2">Date Paid</th>
+                        <th className="p-2">Student</th>
+                        <th className="p-2">Class</th>
+                        <th className="p-2 text-center">Fee Month</th>
+                        <th className="p-2 text-right">Late Fee Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-200 text-slate-800 text-[11px]">
+                      {relevantLateFeeCollections.map((lf, lfIdx) => (
+                        <tr key={lf.id || lfIdx} className="hover:bg-amber-100/40">
+                          <td className="p-2 font-medium">{lf.paidDate ? new Date(lf.paidDate).toLocaleDateString('en-GB') : '-'}</td>
+                          <td className="p-2 font-bold text-slate-900">
+                            {lf.studentName} <span className="font-mono text-[10px] text-slate-500 font-normal">({lf.studentRegId})</span>
+                          </td>
+                          <td className="p-2 text-slate-700">{lf.className}</td>
+                          <td className="p-2 text-center">
+                            <span className="px-2 py-0.5 rounded bg-amber-200 text-amber-900 font-bold text-[10px]">
+                              {formatMonthYear(lf.feeMonth)}
+                            </span>
+                          </td>
+                          <td className="p-2 text-right font-bold text-emerald-800">
+                            + Rs. {(lf.amount || 0).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="bg-amber-100/80 font-bold text-amber-950 text-xs border-t border-amber-300">
+                        <td colSpan={4} className="p-2 uppercase tracking-wider text-amber-900">
+                          Total Late Class Fees Collected in {formatMonthYear(selectedMonth)} ({relevantLateFeeCollections.length} payments):
+                        </td>
+                        <td className="p-2 text-right font-black text-emerald-900">
+                          + Rs. {relevantLateFeeCollections.reduce((s, p) => s + (p.amount || 0), 0).toLocaleString()}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+
+              {/* Itemized Advances, Deductions & Adjustments Ledger if any */}
               {deductions.length > 0 && (
                 <div className="mt-4 pt-3 border-t border-slate-200">
                   <div className="flex items-center justify-between mb-2">
-                    <h5 className="text-[11px] font-bold uppercase tracking-wider text-rose-700 flex items-center gap-1.5">
+                    <h5 className="text-[11px] font-bold uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                       <MinusCircle size={13} className="text-rose-600" />
-                      Itemized Cash Advances & Deductions Detail
+                      Itemized Advances, Deductions & Adjustments Detail
                     </h5>
                   </div>
-                  <table className="w-full text-xs text-left border-collapse border border-rose-200 bg-rose-50/30">
+                  <table className="w-full text-xs text-left border-collapse border border-slate-200 bg-slate-50/50">
                     <thead>
-                      <tr className="bg-rose-100/60 text-rose-900 font-bold border-b border-rose-200 text-[10px]">
+                      <tr className="bg-slate-100 text-slate-800 font-bold border-b border-slate-200 text-[10px]">
                         <th className="p-2">Date</th>
-                        <th className="p-2">Expense Category</th>
+                        <th className="p-2">Type & Category</th>
                         <th className="p-2">Description / Note</th>
-                        <th className="p-2 text-right">Deducted Amount</th>
+                        <th className="p-2 text-right">Impact Amount</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-rose-200 text-slate-800 text-[11px]">
-                      {deductions.map((d, dIdx) => (
-                        <tr key={d.id || dIdx}>
-                          <td className="p-2 font-medium">{d.date ? new Date(d.date).toLocaleDateString('en-GB') : '-'}</td>
-                          <td className="p-2 font-bold text-rose-800">{d.category}</td>
-                          <td className="p-2 text-slate-600">{d.description || '-'}</td>
-                          <td className="p-2 text-right font-bold text-rose-700">- Rs. {(d.amount || 0).toLocaleString()}</td>
-                        </tr>
-                      ))}
+                    <tbody className="divide-y divide-slate-200 text-slate-800 text-[11px]">
+                      {deductions.map((d, dIdx) => {
+                        const isIncome = d.type === 'INCOME';
+                        return (
+                          <tr key={d.id || dIdx}>
+                            <td className="p-2 font-medium">{d.date ? new Date(d.date).toLocaleDateString('en-GB') : '-'}</td>
+                            <td className="p-2 font-bold">
+                              <span className={isIncome ? 'text-emerald-700' : 'text-rose-700'}>
+                                {d.category || (isIncome ? 'Credit / Repayment' : 'Advance')}
+                              </span>
+                              <span className={`ml-1.5 text-[9px] px-1.5 py-0.5 rounded font-extrabold uppercase ${
+                                isIncome ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                              }`}>
+                                {isIncome ? 'Credit (+)' : 'Deduct (-)'}
+                              </span>
+                            </td>
+                            <td className="p-2 text-slate-600">{d.description || '-'}</td>
+                            <td className={`p-2 text-right font-bold ${isIncome ? 'text-emerald-700' : 'text-rose-700'}`}>
+                              {isIncome ? '+ Rs. ' : '- Rs. '}{(d.amount || 0).toLocaleString()}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>

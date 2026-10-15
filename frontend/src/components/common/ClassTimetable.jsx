@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, BookOpen, User, X, Trash2, Filter, Building2, Layers, Pencil } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Calendar, Clock, BookOpen, User, X, Trash2, Filter, Building2, Layers, Pencil, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
 
@@ -14,6 +14,8 @@ export default function ClassTimetable() {
     // Calendar State
     const [currentDate, setCurrentDate] = useState(new Date());
     const [schedule, setSchedule] = useState([]);
+    const [calendarTab, setCalendarTab] = useState('THEORY'); // 'THEORY' | 'PAPER' | 'DUAL'
+    const [schedulingCategory, setSchedulingCategory] = useState('THEORY'); // 'THEORY' | 'PAPER'
     
     // Selection State
     const [businesses, setBusinesses] = useState([]);
@@ -94,7 +96,13 @@ export default function ClassTimetable() {
         batches.forEach(batch => {
             batch?.groups?.forEach(g => {
                 g.courses?.forEach(c => {
-                    if (!subs.find(s => s.name === c.name)) subs.push(c);
+                    const cType = parseInt(c.courseType || g.classType || 1);
+                    const tag = cType === 2 ? 'Paper' : 'Theory';
+                    const hasTagInName = c.name.toLowerCase().includes('paper') || c.name.toLowerCase().includes('theory');
+                    const displayName = hasTagInName ? c.name : `${c.name} (${tag})`;
+                    if (!subs.find(s => s.displayName === displayName)) {
+                        subs.push({ ...c, courseType: cType, displayName });
+                    }
                 });
             });
 
@@ -144,6 +152,29 @@ export default function ClassTimetable() {
         return `${year}-${month}-${day}`;
     };
 
+    const isPaperClass = (event) => {
+        if (!event) return false;
+        const sub = (event.subjectName || '').toLowerCase();
+        const title = (event.title || '').toLowerCase();
+        const paperKeywords = [
+            'paper',
+            'revision',
+            'ප්‍රශ්න පත්‍ර',
+            'ප්‍රශ්නපත්‍ර',
+            'පේපර්',
+            'රිවිෂන්',
+            'question paper',
+            'model paper',
+            'past paper'
+        ];
+        return paperKeywords.some(kw => sub.includes(kw) || title.includes(kw));
+    };
+
+    const isTheoryClass = (event) => !isPaperClass(event);
+
+    const theorySchedule = schedule.filter(isTheoryClass);
+    const paperSchedule = schedule.filter(isPaperClass);
+
     const handleAddSubmit = async (e) => {
         e.preventDefault();
         
@@ -155,11 +186,19 @@ export default function ClassTimetable() {
         }
 
         const formData = new FormData(e.target);
+        let rawSubject = formData.get('subjectName') || '';
+        const subLower = rawSubject.toLowerCase();
+        const hasTag = subLower.includes('paper') || subLower.includes('theory') || subLower.includes('revision');
+        let finalSubject = rawSubject;
+        if (!hasTag) {
+            finalSubject = schedulingCategory === 'PAPER' ? `${rawSubject} (Paper)` : `${rawSubject} (Theory)`;
+        }
+
         const payload = {
             businessId: selectedBiz,
             batchIds: selectedBatchesForNew,
             date: `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDay).padStart(2, '0')}`,
-            subjectName: formData.get('subjectName'),
+            subjectName: finalSubject,
             title: formData.get('title'),
             startTime: formData.get('startTime'),
             endTime: formData.get('endTime'),
@@ -171,7 +210,7 @@ export default function ClassTimetable() {
         setSubmitting(true);
         try {
             await api.post('/admin/timetable', payload);
-            toast.success("Class Scheduled!");
+            toast.success(`${schedulingCategory === 'PAPER' ? 'Paper' : 'Theory'} Class Scheduled!`);
             setShowAddModal(false);
             setSelectedBatchesForNew([]);
             fetchSchedule();
@@ -215,7 +254,7 @@ export default function ClassTimetable() {
         const selectedSub = e.target.value;
         setNewClassSubject(selectedSub);
         
-        const foundSub = subjects.find(s => s.name === selectedSub);
+        const foundSub = subjects.find(s => (s.displayName || s.name) === selectedSub || s.name === selectedSub);
         if (foundSub && foundSub.lecturerName) {
             setNewClassLecturer(foundSub.lecturerName);
         } else {
@@ -270,6 +309,221 @@ export default function ClassTimetable() {
         }
     };
 
+    const renderCalendarGrid = (type, eventList) => {
+        const isPaper = type === 'PAPER';
+        const calTitle = isPaper ? 'Paper & Revision Calendar' : 'Theory Classes Calendar';
+        const calSubtitle = isPaper ? 'ප්‍රශ්න පත්‍ර හා රිවිෂන් පන්ති කාලසටහන' : 'තියරි පන්ති කාලසටහන';
+        
+        const theme = isPaper ? {
+            containerBorder: 'border-purple-200/80 dark:border-purple-500/20',
+            headerBg: 'bg-purple-50/60 dark:bg-purple-950/20 border-purple-200/70 dark:border-purple-500/20',
+            iconColor: 'text-purple-600 dark:text-purple-400',
+            iconBg: 'bg-white dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-500/30',
+            badgeBg: 'bg-purple-100 dark:bg-purple-500/20 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-500/30',
+            eventBorder: 'border-purple-200/80 dark:border-purple-500/20 hover:border-purple-400 dark:hover:border-purple-400 hover:bg-purple-50/40 dark:hover:bg-purple-950/30',
+            batchTag: 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20',
+            btn: 'bg-purple-600 hover:bg-purple-700 text-white shadow-purple-600/20',
+            dayHover: 'hover:border-purple-400/50 hover:bg-purple-50/20 dark:hover:bg-purple-950/20',
+            tagLabel: 'PAPER'
+        } : {
+            containerBorder: 'border-blue-200/80 dark:border-blue-500/20',
+            headerBg: 'bg-blue-50/60 dark:bg-blue-950/20 border-blue-200/70 dark:border-blue-500/20',
+            iconColor: 'text-blue-600 dark:text-blue-400',
+            iconBg: 'bg-white dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-500/30',
+            badgeBg: 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30',
+            eventBorder: 'border-blue-200/80 dark:border-blue-500/20 hover:border-blue-400 dark:hover:border-blue-400 hover:bg-blue-50/40 dark:hover:bg-blue-950/30',
+            batchTag: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
+            btn: 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/20',
+            dayHover: 'hover:border-blue-400/50 hover:bg-blue-50/20 dark:hover:bg-blue-950/20',
+            tagLabel: 'THEORY'
+        };
+
+        return (
+            <div className={`bg-white dark:bg-brand-darkCard border ${theme.containerBorder} p-4 md:p-8 rounded-3xl shadow-sm transition-colors mb-8 last:mb-0`}>
+                {/* Calendar Sub-Header */}
+                <div className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8 ${theme.headerBg} p-4 md:px-6 md:py-4 rounded-2xl border transition-colors shadow-sm`}>
+                    <div className="flex items-center gap-4">
+                        <div className={`p-3 rounded-2xl border shadow-sm ${theme.iconBg}`}>
+                            {isPaper ? <FileText size={24} /> : <BookOpen size={24} />}
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2.5 flex-wrap">
+                                <h3 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white uppercase tracking-wider transition-colors">
+                                    {calTitle}
+                                </h3>
+                                <span className={`text-[11px] font-black uppercase px-2.5 py-0.5 rounded-full border ${theme.badgeBg}`}>
+                                    {eventList.length} {eventList.length === 1 ? 'Class' : 'Classes'}
+                                </span>
+                            </div>
+                            <p className="text-xs text-gray-500 dark:text-brand-darkTextMuted font-bold mt-0.5">
+                                {calSubtitle} • {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 self-end sm:self-auto">
+                        {canEdit && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setSelectedDay(new Date().getDate());
+                                    setSelectedBatchesForNew([]);
+                                    setNewClassSubject('');
+                                    setNewClassLecturer('');
+                                    setSchedulingCategory(type);
+                                    setShowAddModal(true);
+                                }}
+                                className={`px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-sm transition-all ${theme.btn}`}
+                            >
+                                <Plus size={16} />
+                                <span>Schedule {isPaper ? 'Paper' : 'Theory'} Class</span>
+                            </button>
+                        )}
+                    </div>
+                </div>
+
+                {/* Days of Week */}
+                <div className="grid grid-cols-7 gap-2 md:gap-4 mb-4">
+                    {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((day, idx) => (
+                        <div key={day} className={`text-center font-black text-[10px] md:text-xs tracking-widest pb-3 border-b-2 transition-colors ${idx === 0 || idx === 6 ? 'text-brand-accent border-brand-accent/30' : 'text-gray-500 dark:text-slate-500 border-gray-200 dark:border-brand-darkBorder'}`}>
+                            {day}
+                        </div>
+                    ))}
+                </div>
+
+                {/* Calendar Grid */}
+                <div className="grid grid-cols-7 gap-2 md:gap-4">
+                    {/* Blank Cells */}
+                    {blanks.map((_, i) => (
+                        <div key={`blank-${type}-${i}`} className="min-h-[100px] md:min-h-[140px] rounded-2xl bg-gray-50 dark:bg-brand-darkBg border border-gray-100 dark:border-brand-darkBorder opacity-50 transition-colors"></div>
+                    ))}
+                    
+                    {/* Actual Days */}
+                    {days.map(day => {
+                        const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        const dayEvents = eventList.filter(e => getLocalDateStr(e.date) === dateStr);
+                        const isToday = getLocalDateStr(new Date().toISOString()) === dateStr;
+
+                        return (
+                            <div 
+                                key={`${type}-${day}`} 
+                                onClick={() => { 
+                                    if(canEdit) { 
+                                        setSelectedDay(day); 
+                                        setSelectedBatchesForNew([]); 
+                                        setNewClassSubject(''); 
+                                        setNewClassLecturer(''); 
+                                        setSchedulingCategory(type);
+                                        setShowAddModal(true); 
+                                    } 
+                                }}
+                                className={`min-h-[110px] md:min-h-[140px] p-2 md:p-3 rounded-2xl border transition-all relative flex flex-col group overflow-hidden ${
+                                    canEdit ? `cursor-pointer ${theme.dayHover} hover:shadow-md` : ''
+                                } ${isToday ? 'bg-brand-accentLight/50 dark:bg-brand-accentLight border-brand-accent/40 shadow-[inset_0_0_20px_var(--theme-light)]' : 'bg-white dark:bg-brand-darkBg border-gray-200 dark:border-brand-darkBorder shadow-sm'}`}
+                            >
+                                {/* Day Number */}
+                                <div className="flex justify-between items-start mb-2">
+                                    <span className={`flex items-center justify-center text-sm md:text-base font-black w-7 h-7 md:w-8 md:h-8 rounded-full z-10 transition-colors ${
+                                        isToday ? 'bg-brand-accent text-white shadow-md' : 'text-gray-500 dark:text-slate-400 group-hover:text-brand-accent dark:group-hover:text-brand-accent'
+                                    }`}>
+                                        {day}
+                                    </span>
+                                    {canEdit && (
+                                        <div className="opacity-0 group-hover:opacity-100 transition-opacity text-brand-accent bg-brand-accentLight p-1.5 rounded-lg">
+                                            <Plus size={14}/>
+                                        </div>
+                                    )}
+                                </div>
+                                
+                                {/* Events Container */}
+                                <div className="flex-1 flex flex-col gap-2 overflow-y-auto custom-scrollbar relative z-10">
+                                    {dayEvents.map(event => {
+                                        const lecImg = getLecturerImage(event.lecturerName);
+                                        return (
+                                        <div 
+                                            key={event.id} 
+                                            onClick={(e) => { e.stopPropagation(); setSelectedEvent(event); setShowViewModal(true); }}
+                                            className={`bg-gray-50 dark:bg-brand-darkCard border ${theme.eventBorder} p-2 md:p-2.5 rounded-xl cursor-pointer transition-all shadow-sm flex flex-col gap-1.5`}
+                                        >
+                                            <div className="flex justify-between items-start gap-1">
+                                                <h4 className="font-bold text-gray-900 dark:text-white text-[10px] md:text-xs truncate leading-tight transition-colors flex-1" title={event.subjectName}>
+                                                    {event.subjectName}
+                                                </h4>
+                                                <div className="flex items-center gap-1 shrink-0 flex-wrap">
+                                                    <span className={`text-[8px] font-bold uppercase px-1 py-0.5 rounded border ${theme.batchTag}`} title={event.batch?.name}>
+                                                        {event.batch?.name?.substring(0, 6) || 'BATCH'}
+                                                    </span>
+                                                    {(() => {
+                                                        if (!event.additionalBatchIds) return null;
+                                                        try {
+                                                            const ids = typeof event.additionalBatchIds === 'string' ? JSON.parse(event.additionalBatchIds) : event.additionalBatchIds;
+                                                            if (Array.isArray(ids) && ids.length > 0) {
+                                                                return (
+                                                                    <span className="text-[8px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-1 py-0.5 rounded font-bold" title={`+${ids.length} more batches allocated`}>
+                                                                        +{ids.length}
+                                                                    </span>
+                                                                );
+                                                            }
+                                                        } catch(e) {}
+                                                        return null;
+                                                    })()}
+                                                    {canEdit && (
+                                                        <button 
+                                                            onClick={(e) => { e.stopPropagation(); handleDeleteEvent(event.id); }} 
+                                                            className="text-gray-400 hover:text-red-500 hover:bg-red-500/10 p-0.5 rounded transition-colors"
+                                                            title="Delete Class"
+                                                        >
+                                                            <Trash2 size={11}/>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                            
+                                            {/* TECH DEPT STATUS BADGES */}
+                                            <div className="flex gap-1 mt-1 flex-wrap">
+                                                {event.hall ? (
+                                                    <span className="text-[8px] bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 px-1 py-0.5 rounded font-bold uppercase" title="Allocated Hall">
+                                                        {event.hall.name}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[8px] bg-slate-500/10 text-slate-500 border border-slate-500/20 px-1 py-0.5 rounded font-bold uppercase" title="No Hall Assigned">
+                                                        Pending Hall
+                                                    </span>
+                                                )}
+                                                {event.deliveryStatus === 'DELIVERED' ? (
+                                                    <span className="text-[8px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-1 py-0.5 rounded font-bold uppercase" title="Deliverables Sent">
+                                                        Link Sent
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1 py-0.5 rounded font-bold uppercase" title="Deliverables Pending">
+                                                        Link Pending
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            <div className="flex items-center justify-between mt-1.5 gap-2">
+                                                <span className="text-[9px] md:text-[10px] text-gray-600 dark:text-slate-300 font-semibold flex items-center gap-1 bg-white dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder px-1.5 py-0.5 rounded-md truncate transition-colors">
+                                                    <Clock size={10} className="text-brand-accent"/> {event.startTime}
+                                                </span>
+                                                {lecImg ? (
+                                                    <img src={lecImg} alt={event.lecturerName} className="w-4 h-4 md:w-5 md:h-5 rounded-full object-cover shrink-0 border border-gray-200 dark:border-brand-darkBorder shadow-sm" />
+                                                ) : (
+                                                    <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-gray-100 dark:bg-brand-darkBg flex items-center justify-center shrink-0 border border-gray-200 dark:border-brand-darkBorder transition-colors">
+                                                        <User size={10} className="text-gray-400 dark:text-slate-500" />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    )})}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            </div>
+        );
+    };
+
     return (
         <div className="w-full text-gray-900 dark:text-slate-200 font-sans pb-10 animate-in fade-in duration-300 transition-colors">
             
@@ -316,152 +570,88 @@ export default function ClassTimetable() {
                 </div>
             )}
 
-            {/* CALENDAR SECTION */}
-            {selectedBiz ? (
-                <div className="bg-white dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder p-4 md:p-8 rounded-3xl shadow-sm transition-colors">
-                    
-                    {/* Calendar Header */}
-                    <div className="flex justify-between items-center mb-8 bg-gray-50 dark:bg-brand-darkBg p-3 pl-6 rounded-2xl border border-gray-200 dark:border-brand-darkBorder transition-colors shadow-sm">
-                        <h3 className="text-xl md:text-2xl font-black text-gray-900 dark:text-white uppercase tracking-wider transition-colors">
-                            {currentDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
-                        </h3>
-                        <div className="flex gap-2">
-                            <button onClick={prevMonth} className="p-3 bg-white dark:bg-brand-darkCard hover:bg-gray-100 dark:hover:bg-brand-darkHover text-gray-600 dark:text-slate-300 rounded-xl transition-colors border border-gray-200 dark:border-brand-darkBorder shadow-sm outline-none">
-                                <ChevronLeft size={20} />
+            {/* CALENDAR VIEW TABS & SWITCHER */}
+            {selectedBiz && (
+                <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-brand-darkCard p-3 rounded-2xl border border-gray-200 dark:border-brand-darkBorder shadow-sm transition-colors">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setCalendarTab('THEORY')}
+                            className={`px-5 py-2.5 rounded-xl text-xs md:text-sm font-extrabold flex items-center gap-2.5 transition-all outline-none ${
+                                calendarTab === 'THEORY'
+                                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 ring-2 ring-blue-500/30'
+                                    : 'bg-gray-50 dark:bg-brand-darkBg text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-brand-darkBorder'
+                            }`}
+                        >
+                            <BookOpen size={18} className={calendarTab === 'THEORY' ? 'text-white' : 'text-blue-500'} />
+                            <span>Theory Calendar</span>
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                                calendarTab === 'THEORY' ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400'
+                            }`}>
+                                {theorySchedule.length}
+                            </span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => setCalendarTab('PAPER')}
+                            className={`px-5 py-2.5 rounded-xl text-xs md:text-sm font-extrabold flex items-center gap-2.5 transition-all outline-none ${
+                                calendarTab === 'PAPER'
+                                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30 ring-2 ring-purple-500/30'
+                                    : 'bg-gray-50 dark:bg-brand-darkBg text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-brand-darkBorder'
+                            }`}
+                        >
+                            <FileText size={18} className={calendarTab === 'PAPER' ? 'text-white' : 'text-purple-500'} />
+                            <span>Paper Calendar</span>
+                            <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${
+                                calendarTab === 'PAPER' ? 'bg-white/20 text-white' : 'bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                            }`}>
+                                {paperSchedule.length}
+                            </span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => setCalendarTab('DUAL')}
+                            className={`px-4 py-2.5 rounded-xl text-xs md:text-sm font-extrabold flex items-center gap-2 transition-all outline-none ${
+                                calendarTab === 'DUAL'
+                                    ? 'bg-brand-accent text-white shadow-md shadow-brand-accent/30 ring-2 ring-brand-accent/30'
+                                    : 'bg-gray-50 dark:bg-brand-darkBg text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white border border-gray-200 dark:border-brand-darkBorder'
+                            }`}
+                        >
+                            <Layers size={18} />
+                            <span>Dual View</span>
+                        </button>
+                    </div>
+
+                    {/* Month Navigator in bar */}
+                    <div className="flex items-center gap-2 self-end md:self-auto">
+                        <div className="flex items-center gap-1 bg-gray-50 dark:bg-brand-darkBg p-1 rounded-xl border border-gray-200 dark:border-brand-darkBorder">
+                            <button onClick={prevMonth} className="p-2 hover:bg-white dark:hover:bg-brand-darkCard rounded-lg text-gray-600 dark:text-slate-300 transition-colors">
+                                <ChevronLeft size={18} />
                             </button>
-                            <button onClick={nextMonth} className="p-3 bg-white dark:bg-brand-darkCard hover:bg-gray-100 dark:hover:bg-brand-darkHover text-gray-600 dark:text-slate-300 rounded-xl transition-colors border border-gray-200 dark:border-brand-darkBorder shadow-sm outline-none">
-                                <ChevronRight size={20} />
+                            <span className="text-xs md:text-sm font-black px-3 text-gray-800 dark:text-white uppercase tracking-wider">
+                                {currentDate.toLocaleString('default', { month: 'short', year: 'numeric' })}
+                            </span>
+                            <button onClick={nextMonth} className="p-2 hover:bg-white dark:hover:bg-brand-darkCard rounded-lg text-gray-600 dark:text-slate-300 transition-colors">
+                                <ChevronRight size={18} />
                             </button>
                         </div>
                     </div>
+                </div>
+            )}
 
-                    {/* Days of Week */}
-                    <div className="grid grid-cols-7 gap-2 md:gap-4 mb-4">
-                        {['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'].map((day, idx) => (
-                            <div key={day} className={`text-center font-black text-[10px] md:text-xs tracking-widest pb-3 border-b-2 transition-colors ${idx === 0 || idx === 6 ? 'text-brand-accent border-brand-accent/30' : 'text-gray-500 dark:text-slate-500 border-gray-200 dark:border-brand-darkBorder'}`}>
-                                {day}
-                            </div>
-                        ))}
-                    </div>
-
-                    {/* Calendar Grid */}
-                    <div className="grid grid-cols-7 gap-2 md:gap-4">
-                        {/* Blank Cells */}
-                        {blanks.map((_, i) => (
-                            <div key={`blank-${i}`} className="min-h-[100px] md:min-h-[140px] rounded-2xl bg-gray-50 dark:bg-brand-darkBg border border-gray-100 dark:border-brand-darkBorder opacity-50 transition-colors"></div>
-                        ))}
-                        
-                        {/* Actual Days */}
-                        {days.map(day => {
-                            const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                            const dayEvents = schedule.filter(e => getLocalDateStr(e.date) === dateStr);
-                            const isToday = getLocalDateStr(new Date().toISOString()) === dateStr;
-
-                            return (
-                                <div 
-                                    key={day} 
-                                    onClick={() => { if(canEdit) { setSelectedDay(day); setSelectedBatchesForNew([]); setNewClassSubject(''); setNewClassLecturer(''); setShowAddModal(true); } }}
-                                    className={`min-h-[110px] md:min-h-[140px] p-2 md:p-3 rounded-2xl border transition-all relative flex flex-col group overflow-hidden ${
-                                        canEdit ? 'cursor-pointer hover:border-brand-accent/50 dark:hover:border-brand-accent/50 hover:bg-gray-50 dark:hover:bg-brand-darkHover/40 hover:shadow-md' : ''
-                                    } ${isToday ? 'bg-brand-accentLight/50 dark:bg-brand-accentLight border-brand-accent/40 shadow-[inset_0_0_20px_var(--theme-light)]' : 'bg-white dark:bg-brand-darkBg border-gray-200 dark:border-brand-darkBorder shadow-sm'}`}
-                                >
-                                    {/* Day Number */}
-                                    <div className="flex justify-between items-start mb-2">
-                                        <span className={`flex items-center justify-center text-sm md:text-base font-black w-7 h-7 md:w-8 md:h-8 rounded-full z-10 transition-colors ${
-                                            isToday ? 'bg-brand-accent text-white shadow-md' : 'text-gray-500 dark:text-slate-400 group-hover:text-brand-accent dark:group-hover:text-brand-accent'
-                                        }`}>
-                                            {day}
-                                        </span>
-                                        {canEdit && (
-                                            <div className="opacity-0 group-hover:opacity-100 transition-opacity text-brand-accent bg-brand-accentLight p-1.5 rounded-lg">
-                                                <Plus size={14}/>
-                                            </div>
-                                        )}
-                                    </div>
-                                    
-                                    {/* Events Container */}
-                                    <div className="flex-1 flex flex-col gap-2 overflow-y-auto custom-scrollbar relative z-10">
-                                        {dayEvents.map(event => {
-                                            const lecImg = getLecturerImage(event.lecturerName);
-                                            return (
-                                            <div 
-                                                key={event.id} 
-                                                onClick={(e) => { e.stopPropagation(); setSelectedEvent(event); setShowViewModal(true); }}
-                                                className="bg-gray-50 dark:bg-brand-darkCard border border-gray-200 dark:border-brand-darkBorder hover:border-brand-accent/50 dark:hover:border-brand-accent/50 hover:bg-brand-accentLight dark:hover:bg-brand-accentLight p-2 md:p-2.5 rounded-xl cursor-pointer transition-all shadow-sm flex flex-col gap-1.5"
-                                            >
-                                                <div className="flex justify-between items-start gap-1">
-                                                    <h4 className="font-bold text-gray-900 dark:text-white text-[10px] md:text-xs truncate leading-tight transition-colors flex-1" title={event.subjectName}>{event.subjectName}</h4>
-                                                    <div className="flex items-center gap-1 shrink-0 flex-wrap">
-                                                        <span className="text-[8px] bg-brand-accent/10 text-brand-accent border border-brand-accent/20 px-1 py-0.5 rounded font-bold uppercase" title={event.batch?.name}>
-                                                            {event.batch?.name?.substring(0, 6) || 'BATCH'}
-                                                        </span>
-                                                        {(() => {
-                                                            if (!event.additionalBatchIds) return null;
-                                                            try {
-                                                                const ids = typeof event.additionalBatchIds === 'string' ? JSON.parse(event.additionalBatchIds) : event.additionalBatchIds;
-                                                                if (Array.isArray(ids) && ids.length > 0) {
-                                                                    return (
-                                                                        <span className="text-[8px] bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 px-1 py-0.5 rounded font-bold" title={`+${ids.length} more batches allocated`}>
-                                                                            +{ids.length}
-                                                                        </span>
-                                                                    );
-                                                                }
-                                                            } catch(e) {}
-                                                            return null;
-                                                        })()}
-                                                        {canEdit && (
-                                                            <button 
-                                                                onClick={(e) => { e.stopPropagation(); handleDeleteEvent(event.id); }} 
-                                                                className="text-gray-400 hover:text-red-500 hover:bg-red-500/10 p-0.5 rounded transition-colors"
-                                                                title="Delete Class"
-                                                            >
-                                                                <Trash2 size={11}/>
-                                                            </button>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                                
-                                                {/* TECH DEPT STATUS BADGES */}
-                                                <div className="flex gap-1 mt-1 flex-wrap">
-                                                    {event.hall ? (
-                                                        <span className="text-[8px] bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 px-1 py-0.5 rounded font-bold uppercase" title="Allocated Hall">
-                                                            {event.hall.name}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-[8px] bg-slate-500/10 text-slate-500 border border-slate-500/20 px-1 py-0.5 rounded font-bold uppercase" title="No Hall Assigned">
-                                                            Pending Hall
-                                                        </span>
-                                                    )}
-                                                    {event.deliveryStatus === 'DELIVERED' ? (
-                                                        <span className="text-[8px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 px-1 py-0.5 rounded font-bold uppercase" title="Deliverables Sent">
-                                                            Link Sent
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-[8px] bg-amber-500/10 text-amber-500 border border-amber-500/20 px-1 py-0.5 rounded font-bold uppercase" title="Deliverables Pending">
-                                                            Link Pending
-                                                        </span>
-                                                    )}
-                                                </div>
-
-                                                <div className="flex items-center justify-between mt-1.5 gap-2">
-                                                    <span className="text-[9px] md:text-[10px] text-gray-600 dark:text-slate-300 font-semibold flex items-center gap-1 bg-white dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder px-1.5 py-0.5 rounded-md truncate transition-colors">
-                                                        <Clock size={10} className="text-brand-accent"/> {event.startTime}
-                                                    </span>
-                                                    {lecImg ? (
-                                                        <img src={lecImg} alt={event.lecturerName} className="w-4 h-4 md:w-5 md:h-5 rounded-full object-cover shrink-0 border border-gray-200 dark:border-brand-darkBorder shadow-sm" />
-                                                    ) : (
-                                                        <div className="w-4 h-4 md:w-5 md:h-5 rounded-full bg-gray-100 dark:bg-brand-darkBg flex items-center justify-center shrink-0 border border-gray-200 dark:border-brand-darkBorder transition-colors">
-                                                            <User size={10} className="text-gray-400 dark:text-slate-500" />
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )})}
-                                    </div>
-                                </div>
-                            );
-                        })}
-                    </div>
+            {/* CALENDAR SECTION */}
+            {selectedBiz ? (
+                <div>
+                    {calendarTab === 'THEORY' && renderCalendarGrid('THEORY', theorySchedule)}
+                    {calendarTab === 'PAPER' && renderCalendarGrid('PAPER', paperSchedule)}
+                    {calendarTab === 'DUAL' && (
+                        <div className="space-y-8">
+                            {renderCalendarGrid('THEORY', theorySchedule)}
+                            {renderCalendarGrid('PAPER', paperSchedule)}
+                        </div>
+                    )}
                 </div>
             ) : (
                 <div className="flex flex-col items-center justify-center h-80 bg-white dark:bg-brand-darkCard rounded-3xl border border-gray-200 dark:border-brand-darkBorder shadow-sm transition-colors">
@@ -490,6 +680,40 @@ export default function ClassTimetable() {
                         </div>
 
                         <form onSubmit={handleAddSubmit} className="flex flex-col gap-5">
+                            {/* Class Category Switcher: Theory vs Paper */}
+                            <div className="p-1.5 bg-gray-100 dark:bg-brand-darkBg rounded-2xl flex gap-2 border border-gray-200 dark:border-brand-darkBorder">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSchedulingCategory('THEORY');
+                                        setNewClassSubject('');
+                                        setNewClassLecturer('');
+                                    }}
+                                    className={`flex-1 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all outline-none ${
+                                        schedulingCategory === 'THEORY'
+                                            ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                                            : 'text-gray-500 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white hover:bg-white/50'
+                                    }`}
+                                >
+                                    <BookOpen size={16} /> Theory Class (තියරි)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSchedulingCategory('PAPER');
+                                        setNewClassSubject('');
+                                        setNewClassLecturer('');
+                                    }}
+                                    className={`flex-1 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all outline-none ${
+                                        schedulingCategory === 'PAPER'
+                                            ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                                            : 'text-gray-500 hover:text-gray-900 dark:text-slate-400 dark:hover:text-white hover:bg-white/50'
+                                    }`}
+                                >
+                                    <FileText size={16} /> Paper / Revision Class (ප්‍රශ්න පත්‍ර)
+                                </button>
+                            </div>
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                                 {/* Left Column */}
                                 <div className="space-y-5">
@@ -515,10 +739,39 @@ export default function ClassTimetable() {
                                     </div>
 
                                     <div>
-                                        <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Subject *</label>
-                                        <select name="subjectName" value={newClassSubject} onChange={handleSubjectChange} required className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors cursor-pointer shadow-sm">
+                                        <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">
+                                            {schedulingCategory === 'PAPER' ? 'Paper / Revision Subject *' : 'Theory Subject *'}
+                                        </label>
+                                        <select 
+                                            name="subjectName" 
+                                            value={newClassSubject} 
+                                            onChange={handleSubjectChange} 
+                                            required 
+                                            className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors cursor-pointer shadow-sm"
+                                        >
                                             <option value="" className="text-gray-500 dark:text-slate-500">-- Select Subject --</option>
-                                            {subjects.map((sub, i) => <option key={i} value={sub.name} className="text-gray-900 dark:text-white">{sub.name}</option>)}
+                                            {subjects
+                                                .filter(sub => {
+                                                    const isSubPaper = sub.courseType === 2 || (sub.displayName || sub.name).toLowerCase().includes('paper') || (sub.displayName || sub.name).toLowerCase().includes('revision');
+                                                    return schedulingCategory === 'PAPER' ? isSubPaper : !isSubPaper;
+                                                })
+                                                .map((sub, i) => (
+                                                    <option key={`p-${i}`} value={sub.displayName || sub.name} className="text-gray-900 dark:text-white">
+                                                        {sub.displayName || sub.name}
+                                                    </option>
+                                                ))}
+                                            <optgroup label="All Other Subjects">
+                                                {subjects
+                                                    .filter(sub => {
+                                                        const isSubPaper = sub.courseType === 2 || (sub.displayName || sub.name).toLowerCase().includes('paper') || (sub.displayName || sub.name).toLowerCase().includes('revision');
+                                                        return schedulingCategory === 'PAPER' ? !isSubPaper : isSubPaper;
+                                                    })
+                                                    .map((sub, i) => (
+                                                        <option key={`o-${i}`} value={sub.displayName || sub.name} className="text-gray-900 dark:text-white">
+                                                            {sub.displayName || sub.name}
+                                                        </option>
+                                                    ))}
+                                            </optgroup>
                                         </select>
                                     </div>
                                     
@@ -535,7 +788,13 @@ export default function ClassTimetable() {
                                 <div className="space-y-5">
                                     <div>
                                         <label className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-widest mb-2 block transition-colors">Title/Topic *</label>
-                                        <input type="text" name="title" required placeholder="e.g. Mechanics Part 1" className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm placeholder-gray-400 dark:placeholder-slate-500" />
+                                        <input 
+                                            type="text" 
+                                            name="title" 
+                                            required 
+                                            placeholder={schedulingCategory === 'PAPER' ? "e.g. Combined Maths - Paper Class Unit 03" : "e.g. Mechanics Part 1"} 
+                                            className="w-full bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl p-3.5 text-sm text-gray-900 dark:text-white font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent transition-colors shadow-sm placeholder-gray-400 dark:placeholder-slate-500" 
+                                        />
                                     </div>
 
                                     <div className="grid grid-cols-2 gap-4">
@@ -551,12 +810,26 @@ export default function ClassTimetable() {
 
                                     <div className="flex flex-col gap-3 p-4 bg-gray-50 dark:bg-brand-darkBg border border-gray-200 dark:border-brand-darkBorder rounded-xl shadow-sm transition-colors mt-2">
                                         <label className="flex items-center gap-3 cursor-pointer group">
-                                            <input type="checkbox" name="optionalMCQ" className="w-5 h-5 accent-brand-accent shrink-0" />
-                                            <span className="text-sm font-semibold text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">Require <span className="text-brand-accent">MCQ Paper</span> Task</span>
+                                            <input 
+                                                type="checkbox" 
+                                                name="optionalMCQ" 
+                                                defaultChecked={schedulingCategory === 'PAPER'}
+                                                className="w-5 h-5 accent-brand-accent shrink-0" 
+                                            />
+                                            <span className="text-sm font-semibold text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">
+                                                Require <span className="text-brand-accent font-bold">MCQ Paper</span> Task
+                                            </span>
                                         </label>
                                         <label className="flex items-center gap-3 cursor-pointer group">
-                                            <input type="checkbox" name="optionalPaper" className="w-5 h-5 accent-brand-accent shrink-0" />
-                                            <span className="text-sm font-semibold text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">Require <span className="text-brand-accent">Structured Paper</span> Task</span>
+                                            <input 
+                                                type="checkbox" 
+                                                name="optionalPaper" 
+                                                defaultChecked={schedulingCategory === 'PAPER'}
+                                                className="w-5 h-5 accent-brand-accent shrink-0" 
+                                            />
+                                            <span className="text-sm font-semibold text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">
+                                                Require <span className="text-brand-accent font-bold">Structured Paper</span> Task
+                                            </span>
                                         </label>
                                     </div>
 

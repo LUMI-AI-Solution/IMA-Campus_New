@@ -116,9 +116,11 @@ exports.getInquiries = async (req, res) => {
 exports.getMessages = async (req, res) => {
     try {
         const { inquiryId } = req.params;
+        const parsedInquiryId = parseInt(inquiryId);
+        if (isNaN(parsedInquiryId)) return res.status(400).json({ success: false, error: "Invalid inquiry ID" });
 
         const messages = await prisma.webInquiryMessage.findMany({
-            where: { inquiryId: parseInt(inquiryId) },
+            where: { inquiryId: parsedInquiryId },
             orderBy: { createdAt: 'desc' },
             take: 100,
             include: {

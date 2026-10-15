@@ -185,13 +185,15 @@ exports.getSchedule = async (req, res) => {
                 // 2) Same title -> definitely the same class
                 if (isTitleMatch) return true;
 
+                // Check if one is paper and the other is theory
+                const sIsPaper = sNormSub.includes('paper') || (sNormTitle && sNormTitle.includes('paper'));
+                const cIsPaper = normTitle.includes('paper') || (c.group?.classType === 2);
+                if (sIsPaper !== cIsPaper) return false;
+
                 // 3) Batch is covered AND (title contains subject name or subject matches)
                 if (isBatchCovered && sNormSub && normTitle && (normTitle.includes(sNormSub) || sNormSub.includes(normTitle))) {
                     return true;
                 }
-
-                // 4) Batch is covered
-                if (isBatchCovered) return true;
 
                 return false;
             });

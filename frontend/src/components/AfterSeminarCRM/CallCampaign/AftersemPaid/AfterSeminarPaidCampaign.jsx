@@ -98,6 +98,20 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         setLoading(false);
     };
 
+const parseAttempts = (raw) => {
+    if (!raw) return {};
+    if (typeof raw === 'object') return raw;
+    if (typeof raw === 'string') {
+        try {
+            const p = JSON.parse(raw);
+            return typeof p === 'object' && p !== null ? p : {};
+        } catch (e) {
+            return {};
+        }
+    }
+    return {};
+};
+
     const handleUpdateLocalLead = (leadId, key, value) => {
         setLeads(prev => prev.map(l => l.id === leadId ? { ...l, [key]: value } : l));
     };
@@ -105,17 +119,21 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
     const handleAttemptDataChange = (leadId, monthName, attemptNum, field, value) => {
         setDraftAttemptsData(prev => {
             const leadObj = leads.find(l => l.id === leadId);
-            const leadAttempts = leadObj?.attemptsData || {};
+            const leadAttempts = parseAttempts(leadObj?.attemptsData);
             const prevLeadDrafts = prev[leadId] || {};
-            const monthAttempts = prevLeadDrafts[monthName] || leadAttempts[monthName] || {};
-            const currentAttemptData = monthAttempts[attemptNum] || { status: 'pending', method: 'direct', feedback: '' };
+            const savedMonthAttempts = leadAttempts[monthName] || 
+                leadAttempts[monthName?.trim()] || 
+                Object.entries(leadAttempts).find(([k]) => k.trim().toLowerCase() === monthName?.trim().toLowerCase())?.[1] || 
+                {};
+            const draftMonthAttempts = prevLeadDrafts[monthName] || {};
+            const currentAttemptData = draftMonthAttempts[attemptNum] || savedMonthAttempts[attemptNum] || { status: 'pending', method: 'direct', feedback: '' };
+
             return {
                 ...prev,
                 [leadId]: {
-                    ...leadAttempts,
                     ...prevLeadDrafts,
                     [monthName]: {
-                        ...monthAttempts,
+                        ...draftMonthAttempts,
                         [attemptNum]: {
                             ...currentAttemptData,
                             [field]: value
@@ -143,14 +161,18 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
         const currentActiveAttempt = activeAttemptTab[leadId] || 1;
         
         // Deep merge existing lead attempts with any draft attempts
-        const existingAttempts = leadObj.attemptsData 
-            ? (typeof leadObj.attemptsData === 'string' ? JSON.parse(leadObj.attemptsData) : { ...leadObj.attemptsData }) 
-            : {};
+        const existingAttempts = parseAttempts(leadObj.attemptsData);
         const draftAttempts = draftAttemptsData[leadId] || {};
         
         const allAttemptsData = { ...existingAttempts };
         for (const mKey in draftAttempts) {
-            allAttemptsData[mKey] = { ...(allAttemptsData[mKey] || {}), ...(draftAttempts[mKey] || {}) };
+            allAttemptsData[mKey] = { ...(allAttemptsData[mKey] || {}) };
+            for (const aKey in draftAttempts[mKey]) {
+                allAttemptsData[mKey][aKey] = {
+                    ...(allAttemptsData[mKey][aKey] || {}),
+                    ...(draftAttempts[mKey][aKey] || {})
+                };
+            }
         }
         if (!allAttemptsData[currentActiveMonth]) {
             allAttemptsData[currentActiveMonth] = {};
@@ -209,6 +231,8 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                     return {
                         ...l,
                         ...updated,
+                        enrollmentStatus: activeMainTab === 'NON_ENROLLED' ? 'NON_ENROLLED' : (updated.enrollmentStatus || l.enrollmentStatus),
+                        effectiveEnrollmentStatus: activeMainTab === 'NON_ENROLLED' ? 'NON_ENROLLED' : (l.effectiveEnrollmentStatus || updated.enrollmentStatus),
                         callStatus: finalStatus,
                         paidCallStatus: finalStatus,
                         callAttempt: finalAttempt,
@@ -328,7 +352,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
             const tabStatus = lead.effectiveEnrollmentStatus || 'UNKNOWN';
             const upgraded = lead.isUpgraded ? 'YES' : 'NO';
             const attempt = lead.callAttempt || 1;
-            const outcome = lead.callStatus || 'pending';
+            const outcome = lead.effectiveCallStatus || 'pending';
             const remarks = `"${(lead.feedback || '').replace(/"/g, '""')}"`;
             
             const pastRemarks = lead.roundProgress && lead.roundProgress.length > 0 
@@ -414,19 +438,26 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
                 }
             }
 
+            // Use SAVED attemptsData and paidCallStatus for list filtering & tab grouping
+            // (draft status changes inside the card must NOT cause the card to vanish before saving!)
             let effectiveCallStatus = 'pending';
             if (activeMonthName) {
-                const monthAttempts = (draftAttemptsData[l.id]?.[activeMonthName]) || (l.attemptsData?.[activeMonthName]) || {};
+                const leadAttempts = parseAttempts(l.attemptsData);
+                const savedMonthAttempts = leadAttempts[activeMonthName] || 
+                    leadAttempts[activeMonthName?.trim()] || 
+                    Object.entries(leadAttempts).find(([k]) => k.trim().toLowerCase() === activeMonthName?.trim().toLowerCase())?.[1] || 
+                    {};
                 let highestStatus = 'pending';
                 for (let i = 4; i >= 1; i--) {
-                    if (monthAttempts[i] && monthAttempts[i].status && monthAttempts[i].status !== 'pending') {
-                        highestStatus = monthAttempts[i].status;
+                    if (savedMonthAttempts[i] && savedMonthAttempts[i].status && savedMonthAttempts[i].status !== 'pending') {
+                        highestStatus = savedMonthAttempts[i].status;
                         break;
                     }
                 }
-                if (highestStatus === 'pending' && l.paidCallStatus && l.paidCallStatus !== 'pending') {
-                    highestStatus = l.paidCallStatus;
-                }
+                // When an active month is selected, effectiveCallStatus must strictly reflect
+                // the status of calls made for this specific month.
+                // Do NOT fall back to l.paidCallStatus (which holds older months' results like September),
+                // as that falsely marks new month pending leads as answered/no-answer with 0 pending.
                 effectiveCallStatus = highestStatus;
             } else {
                 effectiveCallStatus = l.paidCallStatus || l.callStatus || 'pending';
@@ -434,7 +465,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
 
             return { ...l, effectiveEnrollmentStatus, effectivePaymentIntention, unpaidCount, effectiveCallStatus };
         });
-    }, [leads, selectedGroupName, monthlyGroups, draftAttemptsData]);
+    }, [leads, selectedGroupName, monthlyGroups]);
 
     const tabCounts = useMemo(() => {
         let full = 0;
@@ -715,7 +746,16 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
 
                                     const currentActiveMonth = (selectedGroupName && selectedGroupName !== 'ALL') ? selectedGroupName : (monthlyGroups[0]?.name || 'UNKNOWN');
                                     const currentActiveAttempt = activeAttemptTab[lead.id] || 1;
-                                    const monthAttempts = (draftAttemptsData[lead.id]?.[currentActiveMonth]) || (lead.attemptsData?.[currentActiveMonth]) || {};
+                                    const leadAttempts = parseAttempts(lead.attemptsData);
+                                    const savedMonthAttempts = leadAttempts[currentActiveMonth] || 
+                                        leadAttempts[currentActiveMonth?.trim()] || 
+                                        Object.entries(leadAttempts).find(([k]) => k.trim().toLowerCase() === currentActiveMonth?.trim().toLowerCase())?.[1] || 
+                                        {};
+                                    const draftMonthAttempts = draftAttemptsData[lead.id]?.[currentActiveMonth] || {};
+                                    const monthAttempts = { ...savedMonthAttempts };
+                                    for (const aKey in draftMonthAttempts) {
+                                        monthAttempts[aKey] = { ...(savedMonthAttempts[aKey] || {}), ...(draftMonthAttempts[aKey] || {}) };
+                                    }
                                     const activeAttemptData = monthAttempts[currentActiveAttempt] || { status: 'pending', method: 'direct', feedback: '' };
 
                                     const overallCallOutcome = lead.effectiveCallStatus || 'pending';

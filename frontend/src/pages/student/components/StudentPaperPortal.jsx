@@ -1681,7 +1681,7 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
                       <div>
                         <h3 className="text-sm sm:text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
                           <FileText className="text-purple-400" size={18} />
-                          Essay Question Marks Breakdown (ප්‍රශ්න අනුව ලකුණු)
+                          Essay Question Marks Breakdown
                         </h3>
                         <p className="text-xs text-slate-400 mt-0.5">
                           Detailed marks and remarks assigned by the Paper Guider
@@ -1758,7 +1758,7 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
                     <div className="bg-gradient-to-r from-purple-950/40 via-indigo-950/40 to-black/60 border border-purple-500/30 p-4 rounded-2xl flex items-center justify-between">
                       <div>
                         <span className="text-xs font-black uppercase tracking-wider text-purple-300 block">
-                          Total Essay Score (ප්‍රශ්න එකතුව)
+                          Total Essay Score
                         </span>
                         <span className="text-xs text-slate-400">
                           Sum of marks from all questions above
@@ -2401,7 +2401,7 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
                 </div>
                 <div>
                   <h3 className="text-base sm:text-lg font-black text-white">
-                    My Paper Progress & Academic Level (මගේ ප්‍රගතිය)
+                    My Paper Progress & Academic Level
                   </h3>
                   <p className="text-xs text-slate-400">
                     Your cumulative test performance, rank level, and marks trajectory

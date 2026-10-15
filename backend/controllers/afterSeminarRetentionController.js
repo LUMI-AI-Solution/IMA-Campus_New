@@ -579,7 +579,15 @@ exports.getRetentionCampaignData = async (req, res) => {
                 uniqueLeadsMap.set(last9, l);
             } else {
                 const existing = uniqueLeadsMap.get(last9);
-                const mergedAttempts = { ...(existing.attemptsData || {}), ...(l.attemptsData || {}) };
+                const mergedAttempts = { ...(existing.attemptsData || {}) };
+                if (l.attemptsData) {
+                    for (const mKey in l.attemptsData) {
+                        mergedAttempts[mKey] = {
+                            ...(mergedAttempts[mKey] || {}),
+                            ...(l.attemptsData[mKey] || {})
+                        };
+                    }
+                }
                 const best = pickBestLead(existing, l);
                 uniqueLeadsMap.set(last9, { ...best, attemptsData: mergedAttempts });
             }

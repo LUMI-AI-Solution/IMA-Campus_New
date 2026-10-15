@@ -1232,7 +1232,7 @@ exports.updateCallCampaign = async (req, res) => {
 
         if (lead[statusField] === 'pending' && actualStatus !== 'pending') {
             nextLastAttemptAt = new Date();
-        } else if (lead.lastAttemptAt && statusChanged) {
+        } else if (campaignContext !== 'PAID' && campaignContext !== 'BRIDGE' && category !== 'BRIDGE' && lead.lastAttemptAt && statusChanged) {
             const daysPassed = (new Date() - new Date(lead.lastAttemptAt)) / (1000 * 60 * 60 * 24);
             if (daysPassed >= 5) {
                 nextCallAttempt = 2;
@@ -1267,7 +1267,10 @@ exports.updateCallCampaign = async (req, res) => {
         let finalPaymentIntention = paymentIntention || lead.paymentIntention;
 
         // 🔥 STRICT ENROLLMENT PROTECTION: If student already paid for this batch, NEVER demote to NON_ENROLLED!
-        if (lead.batchId && lead.phone) {
+        // NOTE: In PAID (retention) campaign or when coordinating the NON_ENROLLED tab,
+        // students are tracked per-month; a student who paid in previous months may be NON_ENROLLED
+        // for the current coordination month. Never force ENROLLED in PAID campaign or when on NON_ENROLLED tab!
+        if (campaignContext !== 'PAID' && !isNonEnrolledTab && lead.batchId && lead.phone) {
             const rawP = lead.phone.split('_')[0].replace(/[^0-9]/g, '');
             if (rawP.length >= 7) {
                 const suffix7 = rawP.slice(-7);
@@ -1291,6 +1294,10 @@ exports.updateCallCampaign = async (req, res) => {
                     }
                 }
             }
+        }
+
+        if (campaignContext === 'PAID' && isNonEnrolledTab) {
+            finalEnrollmentStatus = 'NON_ENROLLED';
         }
 
         const updatedLead = await prisma.lead.update({
@@ -2226,10 +2233,16 @@ exports.receiveMessage = async (req, res) => {
 exports.getMessages = async (req, res) => {
     try {
         const { leadId } = req.params;
-        await prisma.lead.update({ where: { id: parseInt(leadId) }, data: { unreadCount: 0 } });
-        const messages = await prisma.chatMessage.findMany({ where: { leadId: parseInt(leadId) }, orderBy: { createdAt: 'asc' } });
+        const parsedLeadId = parseInt(leadId);
+        if (isNaN(parsedLeadId)) return res.status(400).json({ error: "Invalid lead ID" });
+
+        await prisma.lead.update({ where: { id: parsedLeadId }, data: { unreadCount: 0 } }).catch(() => {});
+        const messages = await prisma.chatMessage.findMany({ where: { leadId: parsedLeadId }, orderBy: { createdAt: 'asc' } });
         res.status(200).json(messages);
-    } catch (error) { res.status(500).json({ error: "Failed to fetch messages" }); }
+    } catch (error) { 
+        console.error("Error in afterSeminar getMessages:", error);
+        res.status(500).json({ error: "Failed to fetch messages" }); 
+    }
 };
 
 exports.sendMessage = async (req, res) => {

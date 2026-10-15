@@ -1,0 +1,322 @@
+/* ==========================================================================
+   AURORA THEME (Modern Glowing Teal Frosted Glass ERP Skin)
+   Inspired by YourERP Dashboard.
+   Scoped to html[data-theme="aurora"] and html[data-theme="chatline"]
+   ========================================================================== */
+
+/* --- DARK TOKENS (Default & Core Mode) --- */
+:root,
+html[data-theme="aurora"],
+html[data-theme="chatline"] {
+  --font-body: 'Manrope', 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-display: 'Sora', 'Manrope', 'Plus Jakarta Sans', system-ui, sans-serif;
+  --display-weight: 600;
+  --display-tracking: -0.02em;
+
+  --bg: #090D10;
+  --orb-1: #14B8A6;
+  --orb-1-o: 0.40;
+  --orb-2: #2DD4BF;
+  --orb-2-o: 0.20;
+  --orb-3: #0E7490;
+  --orb-3-o: 0.45;
+
+  --text: #F3F4F6;
+  --text-soft: #D0D4DC;
+  --text-muted: #A9AFBC;
+
+  --glass: rgba(255, 255, 255, 0.06);
+  --glass-border: rgba(255, 255, 255, 0.14);
+  --glass-shadow: 0 10px 40px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  --glass-blur: 24px;
+  --glass-sat: 140%;
+
+  --inset: rgba(255, 255, 255, 0.07);
+  --inset-border: rgba(255, 255, 255, 0.14);
+  --inset-strong: rgba(255, 255, 255, 0.16);
+  --track: rgba(255, 255, 255, 0.12);
+  --line: rgba(255, 255, 255, 0.10);
+
+  --accent: #5EEAD4;
+  --on-accent: #06121A;
+  --bar: rgba(255, 255, 255, 0.20);
+
+  --nav-active-bg: rgba(255, 255, 255, 0.13);
+  --nav-active-fg: #FFFFFF;
+  --nav-active-icon: var(--accent);
+  --seg-active-bg: rgba(255, 255, 255, 0.16);
+  --seg-active-fg: #FFFFFF;
+  --avatar-bg: rgba(255, 255, 255, 0.16);
+  --avatar-fg: #F3F4F6;
+
+  --up: #6EE7B7;
+  --warn: #FDBA74;
+  --paid-fg: #A7F3D0;
+  --paid-bg: rgba(52, 211, 153, 0.16);
+  --pending-fg: #FDE68A;
+  --pending-bg: rgba(251, 191, 36, 0.16);
+  --overdue-fg: #FECACA;
+  --overdue-bg: rgba(248, 113, 113, 0.22);
+
+  --theme-color: #14B8A6;
+  --theme-hover: #0D9488;
+  --theme-light: rgba(20, 184, 166, 0.15);
+}
+
+/* Light mode if explicitly switched to light */
+html[data-theme="aurora"].light,
+html[data-theme="chatline"].light {
+  color-scheme: light;
+  --font-body: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font-display: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --display-weight: 800;
+  --display-tracking: -0.03em;
+
+  --bg: #E6ECF7;
+  --orb-1: #7FB2FF;
+  --orb-1-o: 0.75;
+  --orb-2: #C4B0FF;
+  --orb-2-o: 0.70;
+  --orb-3: #FFC9A8;
+  --orb-3-o: 0.70;
+
+  --text: #172036;
+  --text-soft: #33405E;
+  --text-muted: #4A5672;
+
+  --glass: rgba(255, 255, 255, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.85);
+  --glass-shadow: 0 12px 36px rgba(40, 60, 120, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.90);
+  --glass-blur: 28px;
+  --glass-sat: 160%;
+
+  --inset: rgba(255, 255, 255, 0.60);
+  --inset-border: rgba(23, 32, 54, 0.10);
+  --inset-strong: rgba(255, 255, 255, 0.90);
+  --track: rgba(23, 32, 54, 0.10);
+  --line: rgba(23, 32, 54, 0.10);
+
+  --accent: #2F5BEA;
+  --on-accent: #FFFFFF;
+  --bar: rgba(23, 32, 54, 0.16);
+
+  --nav-active-bg: var(--accent);
+  --nav-active-fg: #FFFFFF;
+  --nav-active-icon: #FFFFFF;
+  --seg-active-bg: #FFFFFF;
+  --seg-active-fg: #172036;
+  --avatar-bg: #172036;
+  --avatar-fg: #FFFFFF;
+
+  --up: #0B6B4A;
+  --warn: #8A4B00;
+  --paid-fg: #0B6B4A;
+  --paid-bg: rgba(16, 185, 129, 0.18);
+  --pending-fg: #8A4B00;
+  --pending-bg: rgba(245, 158, 11, 0.22);
+  --overdue-fg: #A3202F;
+  --overdue-bg: rgba(239, 68, 68, 0.16);
+
+  --theme-color: #2F5BEA;
+  --theme-hover: #1D4ED8;
+  --theme-light: rgba(47, 91, 234, 0.15);
+}
+
+/* --- ORB GLOWS --- */
+.orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+.orb-1 {
+  left: -140px;
+  top: -180px;
+  width: 580px;
+  height: 580px;
+  background: var(--orb-1);
+  opacity: var(--orb-1-o);
+  filter: blur(120px);
+}
+.orb-2 {
+  right: -120px;
+  top: 120px;
+  width: 520px;
+  height: 520px;
+  background: var(--orb-2);
+  opacity: var(--orb-2-o);
+  filter: blur(130px);
+}
+.orb-3 {
+  left: 34%;
+  bottom: -260px;
+  width: 620px;
+  height: 620px;
+  background: var(--orb-3);
+  opacity: var(--orb-3-o);
+  filter: blur(140px);
+}
+
+/* --- GLOBAL BODY & CONTAINER STYLES --- */
+html[data-theme="aurora"],
+html[data-theme="chatline"],
+html[data-theme="aurora"] body,
+html[data-theme="chatline"] body {
+  background-color: var(--bg) !important;
+  color: var(--text) !important;
+  font-family: var(--font-body) !important;
+}
+
+html[data-theme="aurora"] h1,
+html[data-theme="aurora"] h2,
+html[data-theme="chatline"] h1,
+html[data-theme="chatline"] h2 {
+  font-family: var(--font-display) !important;
+  font-weight: var(--display-weight) !important;
+  letter-spacing: var(--display-tracking) !important;
+}
+
+/* --- FROSTED GLASS PANELS (NEVER FLAT WHITE!) --- */
+html[data-theme="aurora"] aside,
+html[data-theme="chatline"] aside,
+html[data-theme="aurora"] header,
+html[data-theme="chatline"] header,
+html[data-theme="aurora"] .glass,
+html[data-theme="chatline"] .glass {
+  background: var(--glass) !important;
+  border-color: var(--glass-border) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+/* Ensure all cards, sidebars and container panes retain glassmorphism */
+html[data-theme="aurora"] :is(
+  .bg-black\/20,
+  .bg-black\/30,
+  .bg-black\/40,
+  .bg-white\/5,
+  .bg-white\/10,
+  .bg-slate-900\/50,
+  .bg-slate-900\/80,
+  .bg-slate-900,
+  .bg-slate-950,
+  .bg-gray-900,
+  .bg-gray-950
+):not(button):not(input):not(select):not(textarea):not(img):not(.badge):not(.pill) {
+  background: var(--glass) !important;
+  border-color: var(--glass-border) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) !important;
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-sat)) !important;
+  box-shadow: var(--glass-shadow) !important;
+}
+
+/* Modals and dialogs */
+html[data-theme="aurora"] :is([role="dialog"], .modal-content, [class*="shadow-2xl"]:not(button)),
+html[data-theme="chatline"] :is([role="dialog"], .modal-content, [class*="shadow-2xl"]:not(button)) {
+  background: rgba(9, 13, 16, 0.94) !important;
+  border: 1px solid var(--glass-border) !important;
+  -webkit-backdrop-filter: blur(var(--glass-blur)) !important;
+  backdrop-filter: blur(var(--glass-blur)) !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7) !important;
+}
+
+/* Inputs, Textareas, Selects */
+html[data-theme="aurora"] :is(
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea
+),
+html[data-theme="chatline"] :is(
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea
+) {
+  background: var(--inset) !important;
+  border: 1px solid var(--inset-border) !important;
+  color: var(--text) !important;
+  border-radius: 12px;
+}
+
+html[data-theme="aurora"] :is(
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea
+):focus,
+html[data-theme="chatline"] :is(
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea
+):focus {
+  outline: 2px solid var(--accent) !important;
+  outline-offset: 2px !important;
+  border-color: var(--accent) !important;
+}
+
+/* Segmented Buttons and Navigation */
+html[data-theme="aurora"] aside nav a.active,
+html[data-theme="aurora"] aside nav a[aria-current="page"],
+html[data-theme="chatline"] aside nav a.active,
+html[data-theme="chatline"] aside nav a[aria-current="page"] {
+  background: var(--nav-active-bg) !important;
+  color: var(--nav-active-fg) !important;
+  border: 1px solid var(--accent) !important;
+  box-shadow: 0 0 15px rgba(94, 234, 212, 0.25) !important;
+}
+
+html[data-theme="aurora"] aside nav a:hover:not(.active),
+html[data-theme="chatline"] aside nav a:hover:not(.active) {
+  background: var(--inset) !important;
+}
+
+/* Accent Buttons */
+html[data-theme="aurora"] .btn-primary,
+html[data-theme="chatline"] .btn-primary,
+html[data-theme="aurora"] .bg-brand-accent,
+html[data-theme="chatline"] .bg-brand-accent {
+  background: var(--accent) !important;
+  color: var(--on-accent) !important;
+  font-weight: 700 !important;
+}
+
+html[data-theme="aurora"] .btn-primary:hover,
+html[data-theme="chatline"] .btn-primary:hover,
+html[data-theme="aurora"] .bg-brand-accent:hover,
+html[data-theme="chatline"] .bg-brand-accent:hover {
+  filter: brightness(1.1) !important;
+}
+
+/* KPIs, Tables and Inset rows */
+html[data-theme="aurora"] .kpi,
+html[data-theme="chatline"] .kpi {
+  background: var(--glass) !important;
+  border: 1px solid var(--glass-border) !important;
+  border-radius: 20px;
+}
+
+html[data-theme="aurora"] table th,
+html[data-theme="chatline"] table th {
+  color: var(--text-muted) !important;
+}
+
+html[data-theme="aurora"] table td,
+html[data-theme="chatline"] table td {
+  border-top-color: var(--line) !important;
+}
+
+html[data-theme="aurora"] .pill.paid,
+html[data-theme="chatline"] .pill.paid {
+  color: var(--paid-fg) !important;
+  background: var(--paid-bg) !important;
+}
+
+html[data-theme="aurora"] .pill.pending,
+html[data-theme="chatline"] .pill.pending {
+  color: var(--pending-fg) !important;
+  background: var(--pending-bg) !important;
+}
+
+html[data-theme="aurora"] .pill.overdue,
+html[data-theme="chatline"] .pill.overdue {
+  color: var(--overdue-fg) !important;
+  background: var(--overdue-bg) !important;
+}

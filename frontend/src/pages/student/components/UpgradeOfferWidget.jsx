@@ -190,7 +190,8 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
     };
 
     const handleFileChange = (e) => {
-        const newFiles = Array.from(e.target.files);
+        const newFiles = Array.from(e.target.files || []);
+        if (newFiles.length === 0) return;
         const totalFiles = [...slipFiles, ...newFiles];
         if (totalFiles.length > 4) {
             toast.error("You can only upload up to 4 slips.");
@@ -198,6 +199,7 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
         } else {
             setSlipFiles(totalFiles);
         }
+        e.target.value = '';
     };
 
     const removeFile = (index) => {
@@ -745,16 +747,41 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
                                 <>
                                     <div className="border-2 border-dashed border-white/20 bg-black/20 rounded-[1.5rem] p-6 text-center hover:border-rose-500/50 hover:bg-rose-500/5 transition-colors cursor-pointer mb-4 group relative" onClick={() => document.getElementById('upgrade-slip-upload')?.click()}>
                                         <div className="absolute top-3 right-3 bg-blue-500 text-white p-1 rounded-full"><Info size={14} /></div>
-                                        <input type="file" id="upgrade-slip-upload" className="hidden" multiple accept="image/*,application/pdf" capture="environment" onChange={handleFileChange} />
+                                        {/* Primary File Input: Opens Gallery / Files (NO capture="environment") */}
+                                        <input type="file" id="upgrade-slip-upload" className="hidden" multiple accept="image/*,application/pdf" onChange={handleFileChange} />
+                                        {/* Dedicated Direct Camera Input */}
+                                        <input type="file" id="upgrade-slip-upload-camera" className="hidden" accept="image/*" capture="environment" onChange={handleFileChange} />
                                         <div className="flex flex-col items-center w-full">
-                                            <div className="flex gap-3 mb-3 text-white/70 group-hover:text-rose-500 transition-colors">
-                                                <UploadCloud size={32} />
-                                                <Camera size={32} />
+                                            <div className="flex gap-3 mb-2 text-white/70 group-hover:text-rose-500 transition-colors">
+                                                <UploadCloud size={30} />
+                                                <Camera size={30} />
                                             </div>
                                             <span className="text-white font-bold text-sm mb-1">
                                                 {slipFiles.length > 0 ? `${slipFiles.length} File(s) Selected` : 'Click to Upload Slip'}
                                             </span>
-                                            <span className="text-[10px] text-white/80 font-medium">Max 4 slips. PNG, JPG, PDF</span>
+                                            <span className="text-[10px] text-white/70 font-medium mb-3">
+                                                Select from Gallery, Files, or snap a live photo (Max 4 slips. PNG, JPG, PDF)
+                                            </span>
+
+                                            {/* Direct Action Buttons */}
+                                            <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => document.getElementById('upgrade-slip-upload')?.click()}
+                                                    className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 border border-white/20 shadow-sm transition-all active:scale-95"
+                                                >
+                                                    <UploadCloud size={14} className="text-rose-400" />
+                                                    <span>Gallery / Files</span>
+                                                </button>
+                                                <button 
+                                                    type="button" 
+                                                    onClick={() => document.getElementById('upgrade-slip-upload-camera')?.click()}
+                                                    className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 border border-white/20 shadow-sm transition-all active:scale-95"
+                                                >
+                                                    <Camera size={14} className="text-emerald-400" />
+                                                    <span>Camera</span>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -800,7 +827,7 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
                                             onChange={(e) => setAgreedToTerms(e.target.checked)}
                                         />
                                         <span className="text-xs text-white/80 leading-snug">
-                                            මා <a href="/terms" target="_blank" onClick={(e) => e.stopPropagation()} className="text-blue-400 font-bold hover:underline">නියමයන් සහ කොන්දේසි</a> කියවා ඊට එකඟ වෙමි. අන්තර්ජාලය හරහා කරන සියලුම ගෙවීම් ආපසු ලබා නොදෙන බව මම තේරුම් ගතිමි.
+                                            I have read and agree to the <a href="/terms" target="_blank" onClick={(e) => e.stopPropagation()} className="text-blue-400 font-bold hover:underline">Terms & Conditions</a>. I understand that all online payments are strictly non-refundable.
                                         </span>
                                     </label>
                                 </div>

@@ -39,8 +39,8 @@ const checkAccess = async (req, parsedBizId) => {
 exports.getModuleOneAnalytics = async (req, res) => {
     console.log("HIT GET MODULE ONE ANALYTICS ROUTE!");
     try {
-        const { businessId, batchId } = req.query;
-        console.log("Query params:", { businessId, batchId });
+        const { businessId, batchId, classType } = req.query;
+        console.log("Query params:", { businessId, batchId, classType });
 
         if (!batchId || batchId === 'null') {
             return res.status(400).json({ error: "Batch ID is required for Analytics" });
@@ -48,6 +48,7 @@ exports.getModuleOneAnalytics = async (req, res) => {
 
         const parsedBatchId = parseInt(batchId);
         const parsedBizId = parseInt(businessId);
+        const parsedClassType = (classType && classType !== 'ALL') ? parseInt(classType) : (classType === 'ALL' ? null : 1);
         
         const hasAccess = await checkAccess(req, parsedBizId);
         if (!hasAccess) return res.status(403).json({ error: "Access Denied." });
@@ -70,30 +71,76 @@ exports.getModuleOneAnalytics = async (req, res) => {
         // ---------------------------------------------------------
         // 2. FETCH PAYMENTS, GROUPS & COURSES
         // ---------------------------------------------------------
+        let groupWhere = { batchId: parsedBatchId };
+        if (parsedClassType) groupWhere.classType = parsedClassType;
         const allGroups = await prisma.group.findMany({
-            where: { batchId: parsedBatchId },
+            where: groupWhere,
             orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }],
-            select: { id: true, name: true, itemOrder: true, type: true }
+            select: { id: true, name: true, itemOrder: true, type: true, classType: true }
         });
 
         const monthlyGroups = allGroups.filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'));
 
+        let courseWhere = { group: { batchId: parsedBatchId } };
+        if (parsedClassType) {
+            courseWhere.OR = [
+                { courseType: parsedClassType },
+                { group: { classType: parsedClassType } }
+            ];
+        }
         const courses = await prisma.course.findMany({
-            where: { group: { batchId: parsedBatchId } },
-            select: { id: true, name: true }
+            where: courseWhere,
+            select: { id: true, name: true, courseType: true, groupId: true }
         });
 
         const courseMap = {};
-        courses.forEach(c => courseMap[c.id] = c.name.trim().toUpperCase());
+        courses.forEach(c => {
+            let normalizedSubName = c.name.trim().toUpperCase();
+            if (!parsedClassType && (c.courseType === 2 || allGroups.find(g => g.id === c.groupId)?.classType === 2)) {
+                normalizedSubName += ' (PAPER)';
+            }
+            courseMap[c.id] = normalizedSubName;
+        });
         const uniqueSubjectNames = [...new Set(Object.values(courseMap))];
 
         const batchInstallmentPlans = await prisma.installment.findMany({
             where: { batchId: parsedBatchId }
         });
 
-        const payments = await prisma.payment.findMany({
-            where: { batchId: parsedBatchId, status: { in: [1, 4] } }, 
-            select: { studentId: true, groupId: true, payment_type: true, subjects: true, created_at: true, amount: true, remark: true }
+        let paymentWhere = { batchId: parsedBatchId, status: { in: [1, 4] } };
+        if (parsedClassType) {
+            paymentWhere.OR = [
+                { group: { classType: parsedClassType } },
+                { groupId: { in: allGroups.map(g => g.id) } }
+            ];
+        }
+        const rawPayments = await prisma.payment.findMany({
+            where: paymentWhere,
+            select: { 
+                studentId: true, 
+                groupId: true, 
+                payment_type: true, 
+                subjects: true, 
+                created_at: true, 
+                amount: true, 
+                remark: true,
+                group: { select: { id: true, name: true, classType: true } }
+            }
+        });
+
+        const payments = rawPayments.filter(p => {
+            if (!parsedClassType) return true;
+            const gClassType = p.group ? parseInt(p.group.classType || 1) : null;
+            if (gClassType !== null && gClassType === parsedClassType) return true;
+            try {
+                const subIds = JSON.parse(p.subjects || '[]').map(id => typeof id === 'object' ? parseInt(id.id) : parseInt(id));
+                const hasMatchingCourse = subIds.some(cid => {
+                    const crs = courses.find(c => c.id === cid);
+                    return crs && (crs.courseType === parsedClassType || (crs.groupId && allGroups.some(rg => rg.id === crs.groupId && rg.classType === parsedClassType)));
+                });
+                if (hasMatchingCourse) return true;
+            } catch (e) {}
+            return false;
         });
 
         const uniqueStudents = new Set();
@@ -443,6 +490,13 @@ exports.getModuleOneAnalytics = async (req, res) => {
             formattedDistribution[sub]['Total'] = rowTotal;
         });
 
+        const allBatchGroups = await prisma.group.findMany({
+            where: { batchId: parsedBatchId },
+            select: { id: true, classType: true }
+        });
+        const hasTheory = allBatchGroups.some(g => (g.classType || 1) === 1);
+        const hasPaper = allBatchGroups.some(g => g.classType === 2);
+
         res.status(200).json(safeJson({
             batchMonths: batchMonths,
             summaryCards: {
@@ -457,7 +511,12 @@ exports.getModuleOneAnalytics = async (req, res) => {
             subjects: uniqueSubjectNames,
             distributionData: formattedDistribution,
             dropData: finalDropStats,
-            batchOverallUniqueStats: batchOverallUniqueStats
+            batchOverallUniqueStats: batchOverallUniqueStats,
+            classType: classType || '1',
+            availableClassTypes: {
+                hasTheory,
+                hasPaper
+            }
         }));
 
     } catch (error) {
@@ -471,7 +530,7 @@ exports.getModuleOneAnalytics = async (req, res) => {
 // ============================================================================
 exports.getBatchComparison = async (req, res) => {
     try {
-        const { businessId, batchAId, batchBId } = req.query;
+        const { businessId, batchAId, batchBId, classType } = req.query;
         if (!batchAId || !batchBId || batchAId === 'null' || batchBId === 'null') {
             return res.status(400).json({ error: "Both Batch A and Batch B IDs are required." });
         }
@@ -479,6 +538,7 @@ exports.getBatchComparison = async (req, res) => {
         const bAId = parseInt(batchAId);
         const bBId = parseInt(batchBId);
         const parsedBizId = parseInt(businessId);
+        const parsedClassType = (classType && classType !== 'ALL') ? parseInt(classType) : (classType === 'ALL' ? null : 1);
 
         const hasAccess = await checkAccess(req, parsedBizId);
         if (!hasAccess) return res.status(403).json({ error: "Access Denied." });
@@ -492,7 +552,11 @@ exports.getBatchComparison = async (req, res) => {
             const newInq = await prisma.lead.count({ where: { batchId, campaignType: 'AFTER_SEMINAR', inquiryType: 'NEW_INQ' } });
             
             const payments = await prisma.payment.findMany({
-                where: { batchId, status: { in: [1, 4] } },
+                where: { 
+                    batchId, 
+                    status: { in: [1, 4] },
+                    ...(parsedClassType ? { group: { classType: parsedClassType } } : {})
+                },
                 select: { studentId: true }
             });
             const uniqueEnrolled = new Set(payments.map(p => p.studentId)).size;

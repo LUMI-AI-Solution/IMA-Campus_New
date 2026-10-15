@@ -13,15 +13,32 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
     return saved ? saved === 'dark' : true;
   });
 
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDarkMode]);
+
+  const [uiTheme, setUiTheme] = useState(() => {
+    const saved = localStorage.getItem('uiTheme');
+    return (saved === 'chatline' ? 'aurora' : saved) || 'glass';
+  });
+
+  useEffect(() => {
+    if (uiTheme !== 'glass') {
+      document.documentElement.dataset.theme = uiTheme === 'chatline' ? 'aurora' : uiTheme;
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+    localStorage.setItem('uiTheme', uiTheme === 'chatline' ? 'aurora' : uiTheme);
+  }, [uiTheme]);
+
   const toggleThemeMode = () => {
     setIsDarkMode(prev => {
       const next = !prev;
       localStorage.setItem('themeMode', next ? 'dark' : 'light');
-      if (next) {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
       return next;
     });
   };
@@ -110,10 +127,22 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
   };
 
   return (
-    <div className={`font-sans flex items-center justify-center w-full overflow-hidden antialiased transition-all duration-300 fixed inset-0 m-0 p-0 ${getBackgroundClass()}`} style={{ ...getBackgroundStyle(), zoom: zoomLevel }}>
+    <div 
+      className={`font-sans flex items-center justify-center w-full overflow-hidden antialiased transition-all duration-300 fixed inset-0 m-0 p-0 ${uiTheme === 'glass' ? getBackgroundClass() : 'bg-[#090D10]'}`} 
+      style={{ ...(uiTheme === 'glass' ? getBackgroundStyle() : { backgroundColor: '#090D10' }), zoom: zoomLevel }}
+    >
       
-      {/* ⛅ LIVE SKY ANIMATION */}
-      {bgImage === 'anim1' && (
+      {/* 🌌 AURORA ERP GLOWING AMBIENT ORBS (Aurora theme) */}
+      {(uiTheme === 'aurora' || uiTheme === 'chatline') && (
+        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
+          <div className="orb orb-1" />
+          <div className="orb orb-2" />
+          <div className="orb orb-3" />
+        </div>
+      )}
+
+      {/* ⛅ LIVE SKY ANIMATION (Glass theme only) */}
+      {uiTheme === 'glass' && bgImage === 'anim1' && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
           {currentHour >= 6 && currentHour <= 18 ? (
             <div className="absolute rounded-full bg-gradient-to-br from-yellow-100 to-orange-400 w-32 h-32 blur-[2px]"
@@ -130,8 +159,8 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
         </div>
       )}
 
-      {/* 🎾 FLOATING BALLS ANIMATION (Anim 3) */}
-      {bgImage === 'anim3' && (
+      {/* 🎾 FLOATING BALLS ANIMATION (Glass theme only) */}
+      {uiTheme === 'glass' && bgImage === 'anim3' && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
             <div className="absolute w-[400px] h-[400px] rounded-full bg-blue-500/20 blur-[80px] animate-float-ball-1"></div>
             <div className="absolute w-[350px] h-[350px] rounded-full bg-purple-500/20 blur-[80px] animate-float-ball-2"></div>
@@ -139,7 +168,13 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
         </div>
       )}
 
-      <div className="flex w-full h-full sm:w-[98%] sm:h-[96vh] bg-[#0B101E]/90 sm:bg-black/40 border border-white/10 text-gray-100 sm:rounded-[20px] overflow-hidden relative z-10 transition-all duration-300">
+      <div className={
+        uiTheme === 'glass'
+          ? "flex w-full h-full sm:w-[98%] sm:h-[96vh] bg-[#0B101E]/90 sm:bg-black/40 border border-white/10 text-gray-100 sm:rounded-[20px] overflow-hidden relative z-10 transition-all duration-300"
+          : (uiTheme === 'aurora' || uiTheme === 'chatline')
+          ? "flex w-full h-full sm:w-[98%] sm:h-[96vh] bg-[rgba(255,255,255,0.06)] backdrop-blur-2xl border border-[rgba(255,255,255,0.14)] shadow-[0_10px_40px_rgba(0,0,0,0.30)] text-gray-100 sm:rounded-[22px] overflow-hidden relative z-10 transition-all duration-300"
+          : "flex w-full h-full text-gray-100 border-0 rounded-none overflow-hidden relative z-10 transition-all duration-300"
+      }>
         <Sidebar 
           isSidebarOpen={isSidebarOpen} 
           setIsSidebarOpen={setIsSidebarOpen}
@@ -153,6 +188,8 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
           isSocialMedia={isSocialMedia}
           isDarkMode={isDarkMode}
           toggleThemeMode={toggleThemeMode}
+          uiTheme={uiTheme}
+          setUiTheme={setUiTheme}
         />
         <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
           <div className="flex-1 overflow-auto p-4 lg:p-6 relative custom-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>

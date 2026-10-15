@@ -1,0 +1,379 @@
+/* ==========================================================================
+   BENTO THEME (Floating Rounded Tiles & Detached Island Sidebar Skin)
+   Scoped strictly under html[data-theme="bento"]
+   ========================================================================== */
+
+/* --- LIGHT TOKENS --- */
+html[data-theme="bento"] {
+  --page-bg: #E6ECE8;
+  --tile: #FFFFFF;
+  --inset: #F1F5F3;
+  --line: #E1E8E4;
+  --text: #0E1B17;
+  --text2: #33433E;
+  --muted: #5B6B66;
+  --accent: #008069;
+  --accent-hover: #006d59;
+  --accent-text: #FFFFFF;
+  --soft-accent-bg: #DDF5EA;
+  --soft-accent-text: #00694F;
+  --hero-tile: #075E54;
+  --hero-text: #FFFFFF;
+  --sidebar-island: #0E1B17;
+  --sidebar-text: #C9D6D1;
+  --tile-shadow: 0 10px 30px rgba(14, 27, 23, 0.07);
+
+  --theme-color: #008069;
+  --theme-hover: #006d59;
+  --theme-light: rgba(0, 128, 105, 0.1);
+
+  --chat-wallpaper: #EFEAE2;
+  --chat-in-bubble: #FFFFFF;
+  --chat-in-text: #111B21;
+  --chat-in-border: #E1E8E4;
+  --chat-out-bubble: #D9FDD3;
+  --chat-out-text: #111B21;
+  --chat-out-border: #D9FDD3;
+  --chat-bar: #F0F2F5;
+  --chat-input: #FFFFFF;
+  --chat-ticks: #2A8FC4;
+  --chat-time: #54656F;
+}
+
+/* --- DARK TOKENS --- */
+html[data-theme="bento"].dark {
+  --page-bg: #080D0B;
+  --tile: #131C19;
+  --inset: #1B2622;
+  --line: #22302B;
+  --text: #E9EFEC;
+  --text2: #C9D6D1;
+  --muted: #8FA39C;
+  --accent: #00A884;
+  --accent-hover: #00c298;
+  --accent-text: #06110E;
+  --soft-accent-bg: #0F3A30;
+  --soft-accent-text: #5FE0BC;
+  --hero-tile: #005C4B;
+  --hero-text: #FFFFFF;
+  --sidebar-island: #131C19;
+  --sidebar-text: #D1DBD7;
+  --tile-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+
+  --theme-color: #00A884;
+  --theme-hover: #00c298;
+  --theme-light: rgba(0, 168, 132, 0.15);
+
+  --chat-wallpaper: #0B141A;
+  --chat-in-bubble: #202C33;
+  --chat-in-text: #E9EDEF;
+  --chat-in-border: #22302B;
+  --chat-out-bubble: #005C4B;
+  --chat-out-text: #FFFFFF;
+  --chat-out-border: #005C4B;
+  --chat-bar: #202C33;
+  --chat-input: #2A3942;
+  --chat-ticks: #53BDEB;
+  --chat-time: #8FA39C;
+}
+
+/* --- TYPOGRAPHY & GLOBAL BODY --- */
+html[data-theme="bento"],
+html[data-theme="bento"] body {
+  font-family: 'Plus Jakarta Sans', 'Noto Sans Sinhala', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  background-color: var(--page-bg) !important;
+  color: var(--text) !important;
+}
+
+/* --- ZERO BLUR & REMOVE MUDDY BLUR ORBS --- */
+html[data-theme="bento"] [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-theme="bento"]:not(.dark) [class*="blur-"][class*="pointer-events-none"] {
+  display: none !important;
+}
+
+/* --- BENTO TILE RADIUS & SHADOW --- */
+html[data-theme="bento"] .rounded-3xl,
+html[data-theme="bento"] .rounded-2xl,
+html[data-theme="bento"] [class*="rounded-[2rem]"] {
+  border-radius: 24px !important;
+}
+
+html[data-theme="bento"] .rounded-xl {
+  border-radius: 18px !important;
+}
+
+html[data-theme="bento"] .rounded-lg {
+  border-radius: 14px !important;
+}
+
+/* Rounded-square avatars (16px) */
+html[data-theme="bento"] img.rounded-full,
+html[data-theme="bento"] img[class*="rounded-2xl"],
+html[data-theme="bento"] img[class*="rounded-xl"] {
+  border-radius: 16px !important;
+}
+
+/* --- DETACHED ISLAND SIDEBAR --- */
+html[data-theme="bento"] aside {
+  background-color: var(--sidebar-island) !important;
+  color: var(--sidebar-text) !important;
+  border-radius: 28px !important;
+  margin: 16px 0 16px 16px !important;
+  height: calc(100vh - 32px) !important;
+  box-shadow: 0 12px 35px rgba(0, 0, 0, 0.15) !important;
+  border: 1px solid var(--line) !important;
+}
+
+html[data-theme="bento"] aside nav a,
+html[data-theme="bento"] aside nav button {
+  border-radius: 9999px !important;
+  color: var(--sidebar-text) !important;
+}
+
+html[data-theme="bento"] aside nav a:hover,
+html[data-theme="bento"] aside nav button:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html[data-theme="bento"] aside nav a.active,
+html[data-theme="bento"] aside nav button.active {
+  background-color: var(--accent) !important;
+  color: var(--accent-text) !important;
+  font-weight: 700 !important;
+  box-shadow: 0 4px 15px rgba(0, 128, 105, 0.3) !important;
+}
+
+/* ==========================================================================
+   LIGHT MODE: COMPREHENSIVE CARD, HEADER & CONTAINER OVERHAUL
+   ========================================================================== */
+
+/* 1. Clear dark gradients on containers in light mode */
+html[data-theme="bento"]:not(.dark) :is(
+  [class*="bg-gradient-to-b"], [class*="bg-gradient-to-r"],
+  [class*="bg-gradient-to-br"], [class*="bg-gradient-to-tr"],
+  [class*="bg-gradient-to-t"], [class*="bg-gradient-to-bl"]
+):not(button):not(a):not([class*="btn"]):not([class*="badge"]):not([class*="pill"]):not([class*="from-purple-600"]) {
+  background-image: none !important;
+  background-color: var(--tile) !important;
+  box-shadow: var(--tile-shadow) !important;
+}
+
+html[data-theme="bento"]:not(.dark) :is([class*="hover:from-"], [class*="hover:to-"], [class*="hover:bg-slate-"]):not(button):not(a):hover {
+  background-image: none !important;
+  background-color: var(--tile) !important;
+  box-shadow: 0 16px 40px rgba(14, 27, 23, 0.12) !important;
+}
+
+/* 2. Re-map ALL dark backgrounds to clean tiles */
+html[data-theme="bento"]:not(.dark) :is(
+  [class*="bg-slate-900"], [class*="bg-slate-800"], [class*="bg-slate-700"],
+  [class*="bg-[#0f172a]"], [class*="bg-[#0F172A]"], [class*="bg-[#1e293b]"],
+  [class*="bg-[#1E293B]"], [class*="bg-[#131d36]"], [class*="bg-[#1a233d]"],
+  [class*="bg-[#1a2430]"], [class*="bg-[#0a0f1c]"], [class*="bg-[#090E17]"],
+  [class*="bg-[#0D1527]"], [class*="bg-[#0B1120]"], [class*="bg-[#111827]"],
+  [class*="bg-[#1e2336]"], [class*="bg-[#15192b]"], [class*="bg-[#030d07]"],
+  [class*="bg-[#0B111E]"], [class*="bg-[#23303f]"], [class*="bg-[#131A2D]"],
+  [class*="bg-[#0B101E]"], [class*="bg-[#0b141a]"], [class*="bg-[#020603]"],
+  [class*="bg-[#010804]"], [class*="bg-white/5"], [class*="bg-white/10"],
+  [class*="bg-white/15"], [class*="bg-white/20"], [class*="bg-black/20"],
+  [class*="bg-black/40"], [class*="bg-black/60"], [class*="bg-black/80"]
+):not(button):not(a):not([class*="btn"]):not([class*="badge"]) {
+  background-color: var(--tile) !important;
+  background-image: none !important;
+  box-shadow: var(--tile-shadow) !important;
+}
+
+/* 3. Inset boxes (nested inside cards, inputs, manager boxes, stat containers) */
+html[data-theme="bento"]:not(.dark) :is(
+  [class*="bg-slate-950"], [class*="bg-black/30"], [class*="bg-black/50"],
+  input:not([type="checkbox"]):not([type="radio"]), select, textarea
+) {
+  background-color: var(--inset) !important;
+  background-image: none !important;
+  border-color: var(--line) !important;
+}
+
+/* 4. Stat metric boxes in light mode */
+html[data-theme="bento"]:not(.dark) :is([class*="bg-emerald-950"], [class*="bg-emerald-900"], [class*="bg-green-950"]) {
+  background-color: #D1FAE5 !important;
+  border-color: #6EE7B7 !important;
+}
+html[data-theme="bento"]:not(.dark) :is([class*="bg-emerald-950"], [class*="bg-emerald-900"], [class*="bg-green-950"]) :is([class*="text-emerald-"], [class*="text-green-"]) {
+  color: #047857 !important;
+  font-weight: 800 !important;
+}
+
+html[data-theme="bento"]:not(.dark) :is([class*="bg-purple-950"], [class*="bg-purple-900"], [class*="bg-indigo-950"]) {
+  background-color: #EDE9FE !important;
+  border-color: #C4B5FD !important;
+}
+html[data-theme="bento"]:not(.dark) :is([class*="bg-purple-950"], [class*="bg-purple-900"], [class*="bg-indigo-950"]) :is([class*="text-purple-"], [class*="text-indigo-"]) {
+  color: #6D28D9 !important;
+  font-weight: 800 !important;
+}
+
+html[data-theme="bento"]:not(.dark) :is([class*="bg-blue-950"], [class*="bg-blue-900"], [class*="bg-cyan-950"], [class*="bg-sky-950"]) {
+  background-color: #E0F2FE !important;
+  border-color: #7DD3FC !important;
+}
+html[data-theme="bento"]:not(.dark) :is([class*="bg-blue-950"], [class*="bg-blue-900"], [class*="bg-cyan-950"], [class*="bg-sky-950"]) :is([class*="text-blue-"], [class*="text-cyan-"], [class*="text-sky-"]) {
+  color: #0284C7 !important;
+  font-weight: 800 !important;
+}
+
+html[data-theme="bento"]:not(.dark) :is([class*="bg-amber-950"], [class*="bg-amber-900"], [class*="bg-yellow-950"]) {
+  background-color: #FEF3C7 !important;
+  border-color: #FCD34D !important;
+}
+html[data-theme="bento"]:not(.dark) :is([class*="bg-amber-950"], [class*="bg-amber-900"], [class*="bg-yellow-950"]) :is([class*="text-amber-"], [class*="text-yellow-"]) {
+  color: #B45309 !important;
+  font-weight: 800 !important;
+}
+
+html[data-theme="bento"]:not(.dark) :is([class*="bg-red-950"], [class*="bg-red-900"], [class*="bg-rose-950"]) {
+  background-color: #FEE2E2 !important;
+  border-color: #FCA5A5 !important;
+}
+html[data-theme="bento"]:not(.dark) :is([class*="bg-red-950"], [class*="bg-red-900"], [class*="bg-rose-950"]) :is([class*="text-red-"], [class*="text-rose-"]) {
+  color: #DC2626 !important;
+  font-weight: 800 !important;
+}
+
+/* 5. Remap border colors */
+html[data-theme="bento"]:not(.dark) :is(
+  [class*="border-slate-"], [class*="border-gray-"], [class*="border-zinc-"],
+  [class*="border-white/"], [class*="border-black/"], [class*="border-[#"]
+):not([class*="border-emerald-"]):not([class*="border-green-"]):not([class*="border-red-"]):not([class*="border-blue-"]):not([class*="border-purple-"]):not([class*="border-amber-"]):not([class*="border-brand-accent"]) {
+  border-color: var(--line) !important;
+}
+
+/* 6. Text Contrast in Light Mode */
+html[data-theme="bento"]:not(.dark) :is(
+  .text-white, .text-slate-100, .text-slate-200, .text-gray-100, .text-gray-200
+):not([class*="bg-emerald-"]):not([class*="bg-green-"]):not([class*="bg-red-"]):not([class*="bg-blue-"]):not([class*="bg-purple-"]):not([class*="bg-brand-accent"]):not(button):not(button *):not(aside *) {
+  color: var(--text) !important;
+}
+
+html[data-theme="bento"]:not(.dark) :is(.text-slate-300, .text-gray-300):not(aside *) {
+  color: var(--text2) !important;
+}
+
+html[data-theme="bento"]:not(.dark) :is(.text-slate-400, .text-slate-500, .text-gray-400, .text-gray-500):not(aside *) {
+  color: var(--muted) !important;
+}
+
+/* Keep white text on solid colored buttons & badges */
+html[data-theme="bento"] :is(
+  [class*="bg-emerald-5"], [class*="bg-emerald-6"], [class*="bg-green-5"], [class*="bg-green-6"],
+  [class*="bg-red-5"], [class*="bg-red-6"], [class*="bg-rose-5"], [class*="bg-rose-6"],
+  [class*="bg-blue-5"], [class*="bg-blue-6"], [class*="bg-sky-5"], [class*="bg-sky-6"],
+  [class*="bg-indigo-5"], [class*="bg-indigo-6"], [class*="bg-purple-5"], [class*="bg-purple-6"],
+  [class*="bg-amber-5"], [class*="bg-amber-6"], [class*="bg-brand-accent"]
+) :is(.text-white, span, svg, p),
+html[data-theme="bento"] button:is(
+  [class*="bg-emerald-"], [class*="bg-green-"], [class*="bg-red-"], [class*="bg-rose-"],
+  [class*="bg-blue-"], [class*="bg-sky-"], [class*="bg-indigo-"], [class*="bg-purple-"],
+  [class*="bg-brand-accent"], [class*="bg-gradient-to"]
+) {
+  color: #FFFFFF !important;
+}
+
+/* Modals & Popups */
+html[data-theme="bento"] [role="dialog"],
+html[data-theme="bento"] .modal-content,
+html[data-theme="bento"] [class*="shadow-2xl"]:not(button) {
+  background-color: var(--tile) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 24px !important;
+  box-shadow: var(--tile-shadow) !important;
+}
+
+/* Form Inputs */
+html[data-theme="bento"] input:not([type="checkbox"]):not([type="radio"]),
+html[data-theme="bento"] select,
+html[data-theme="bento"] textarea {
+  background-color: var(--inset) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 9999px !important;
+}
+
+html[data-theme="bento"] textarea {
+  border-radius: 18px !important;
+}
+
+html[data-theme="bento"] input::placeholder,
+html[data-theme="bento"] textarea::placeholder {
+  color: var(--muted) !important;
+}
+
+/* Tables */
+html[data-theme="bento"] table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+html[data-theme="bento"] th {
+  background-color: var(--inset) !important;
+  color: var(--muted) !important;
+  border-bottom: 1px solid var(--line) !important;
+  font-weight: 700 !important;
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+html[data-theme="bento"] td {
+  border-bottom: 1px solid var(--line) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="bento"] tbody tr:hover td {
+  background-color: var(--inset) !important;
+}
+
+/* ==========================================================================
+   WHATSAPP CHAT AREA IN BENTO
+   ========================================================================== */
+html[data-theme="bento"] .chat-wallpaper-area,
+html[data-theme="bento"] [class*="bg-[#efeae2]"],
+html[data-theme="bento"] [class*="bg-[#0b141a]"] {
+  background-color: var(--chat-wallpaper) !important;
+}
+
+html[data-theme="bento"] [class*="bg-[#d9fdd3]"],
+html[data-theme="bento"] [class*="bg-[#005c4b]"] {
+  background-color: var(--chat-out-bubble) !important;
+  color: var(--chat-out-text) !important;
+  border: 1px solid var(--chat-out-border) !important;
+  border-radius: 18px 18px 6px 18px !important;
+}
+
+html[data-theme="bento"] .chat-bubble-incoming,
+html[data-theme="bento"] [class*="rounded-tl-none"] {
+  background-color: var(--chat-in-bubble) !important;
+  color: var(--chat-in-text) !important;
+  border: 1px solid var(--chat-in-border) !important;
+  border-radius: 18px 18px 18px 6px !important;
+}
+
+html[data-theme="bento"] [class*="bg-[#f0f2f5]"]:not(button):not(input),
+html[data-theme="bento"] [class*="bg-[#202c33]"]:not(button):not(input) {
+  background-color: var(--chat-bar) !important;
+  border-color: var(--line) !important;
+}
+
+html[data-theme="bento"] button[class*="bg-[#00a884]"],
+html[data-theme="bento"] button[class*="bg-[#008069]"],
+html[data-theme="bento"] button[class*="bg-emerald-"] {
+  border-radius: 9999px !important;
+}
+
+html[data-theme="bento"] ::-webkit-scrollbar-thumb {
+  background: rgba(91, 107, 102, 0.25) !important;
+  border-radius: 9999px !important;
+}

@@ -1,0 +1,7 @@
+/* ==========================================================================
+   AURORA THEME (Modern Glowing Teal Frosted Glass ERP Skin)
+   Replaces legacy flat Chatline theme with deep dark frosted glass & glowing ambient orbs.
+   Scoped to html[data-theme="aurora"] and html[data-theme="chatline"]
+   ========================================================================== */
+
+@import "./aurora.css";

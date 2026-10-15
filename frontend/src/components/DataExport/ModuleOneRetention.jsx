@@ -9,16 +9,21 @@ export default function ModuleOneRetention({ filters }) {
     const [loading, setLoading] = useState(false);
     const [analyticsData, setAnalyticsData] = useState(null);
     const [overallViewMode, setOverallViewMode] = useState('slips');
+    const [classType, setClassType] = useState('1'); // '1' = Theory, '2' = Paper, 'ALL' = Combined
+    const [availableClassTypes, setAvailableClassTypes] = useState({ hasTheory: true, hasPaper: false });
 
-    const fetchAnalyticsData = async () => {
+    const fetchAnalyticsData = async (targetClassType = classType) => {
         setLoading(true);
         try {
             const token = localStorage.getItem('token');
             const res = await axios.get('/admin/data-export/module-one', {
                 headers: { Authorization: `Bearer ${token}` },
-                params: { businessId: filters.selectedBusiness, batchId: filters.selectedBatch }
+                params: { businessId: filters.selectedBusiness, batchId: filters.selectedBatch, classType: targetClassType }
             });
             setAnalyticsData(res.data);
+            if (res.data?.availableClassTypes) {
+                setAvailableClassTypes(res.data.availableClassTypes);
+            }
         } catch (error) {
             console.error("Module 1 Error:", error);
             toast.error("Failed to load Retention & Drop Analytics");
@@ -28,11 +33,11 @@ export default function ModuleOneRetention({ filters }) {
 
     useEffect(() => {
         if (filters?.selectedBusiness && filters?.selectedBatch) {
-            fetchAnalyticsData();
+            fetchAnalyticsData(classType);
         } else {
             setAnalyticsData(null);
         }
-    }, [filters?.selectedBusiness, filters?.selectedBatch]);
+    }, [filters?.selectedBusiness, filters?.selectedBatch, classType]);
 
     const handleExportExcel = () => {
         if (!analyticsData) return toast.error("No data available to export!");
@@ -89,8 +94,42 @@ export default function ModuleOneRetention({ filters }) {
 
     if (!analyticsData || !analyticsData.subjects || analyticsData.subjects.length === 0) {
         return (
-            <div className="flex flex-col justify-center items-center h-64 bg-[#1e293b] rounded-3xl border border-slate-700/50 shadow-sm m-2 text-slate-400 text-sm font-medium">
-                No active data found for this batch.
+            <div className="flex flex-col justify-center items-center h-64 bg-[#1e293b] rounded-3xl border border-slate-700/50 shadow-sm m-2 gap-4">
+                <div className="flex bg-slate-900/80 p-1 rounded-2xl border border-slate-700/60 shadow-inner">
+                    <button
+                        onClick={() => setClassType('1')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                            classType === '1'
+                                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md'
+                                : 'text-slate-400 hover:text-white'
+                        }`}
+                    >
+                        Theory
+                        {availableClassTypes.hasTheory && <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 inline-block"></span>}
+                    </button>
+                    <button
+                        onClick={() => setClassType('2')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                            classType === '2'
+                                ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-md'
+                                : 'text-slate-400 hover:text-white'
+                        }`}
+                    >
+                        Paper
+                        {availableClassTypes.hasPaper && <span className="w-1.5 h-1.5 rounded-full bg-pink-300 inline-block animate-pulse"></span>}
+                    </button>
+                    <button
+                        onClick={() => setClassType('ALL')}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                            classType === 'ALL'
+                                ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-md'
+                                : 'text-slate-400 hover:text-white'
+                        }`}
+                    >
+                        Combined
+                    </button>
+                </div>
+                <span className="text-slate-400 text-sm font-medium">No active data found for {classType === '2' ? 'Paper Class' : classType === '1' ? 'Theory Class' : 'this batch'}.</span>
             </div>
         );
     }
@@ -100,7 +139,7 @@ export default function ModuleOneRetention({ filters }) {
     return (
         <div className="flex flex-col gap-6 animate-in fade-in duration-500 mt-2 pb-6">
             
-            <div className="flex justify-between items-end">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
                 <div>
                     <h3 className="text-xl font-black text-white uppercase tracking-widest flex items-center gap-2">
                         <Target className="text-indigo-400" size={24} />
@@ -108,9 +147,45 @@ export default function ModuleOneRetention({ filters }) {
                     </h3>
                     <p className="text-xs text-slate-400 mt-1 font-medium">Analyze inquiries, group distributions, and student retention rates.</p>
                 </div>
-                <button onClick={handleExportExcel} className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-emerald-500/20">
-                    <FaFileExcel size={16} /> Export to Excel
-                </button>
+                <div className="flex items-center gap-3">
+                    <div className="flex bg-slate-900/80 p-1 rounded-2xl border border-slate-700/60 shadow-inner">
+                        <button
+                            onClick={() => setClassType('1')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                classType === '1'
+                                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-white shadow-md'
+                                    : 'text-slate-400 hover:text-white'
+                            }`}
+                        >
+                            Theory
+                            {availableClassTypes.hasTheory && <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 inline-block"></span>}
+                        </button>
+                        <button
+                            onClick={() => setClassType('2')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                classType === '2'
+                                    ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-md'
+                                    : 'text-slate-400 hover:text-white'
+                            }`}
+                        >
+                            Paper
+                            {availableClassTypes.hasPaper && <span className="w-1.5 h-1.5 rounded-full bg-pink-300 inline-block animate-pulse"></span>}
+                        </button>
+                        <button
+                            onClick={() => setClassType('ALL')}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                                classType === 'ALL'
+                                    ? 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow-md'
+                                    : 'text-slate-400 hover:text-white'
+                            }`}
+                        >
+                            Combined
+                        </button>
+                    </div>
+                    <button onClick={handleExportExcel} className="flex items-center gap-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-xs rounded-xl transition-all shadow-lg shadow-emerald-500/20">
+                        <FaFileExcel size={16} /> Export to Excel
+                    </button>
+                </div>
             </div>
 
             {/* 🔥 1. SUMMARY CARDS (Top Row) 🔥 */}

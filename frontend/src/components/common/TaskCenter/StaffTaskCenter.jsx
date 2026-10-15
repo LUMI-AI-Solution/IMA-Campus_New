@@ -264,12 +264,13 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
     const [batches, setBatches] = useState([]);
     
     // Per-batch configurations
-    const allBatchIds = [task.batchId, ...(task.additionalBatchIds ? (() => { try { return JSON.parse(task.additionalBatchIds) } catch(e) { return [] } })() : [])].filter(Boolean);
-    const [activeBatchTab, setActiveBatchTab] = useState(task.batchId);
+    const initialBatchIds = [task.batchId, ...(task.additionalBatchIds ? (() => { try { return JSON.parse(task.additionalBatchIds) } catch(e) { return [] } })() : [])].filter(Boolean);
+    const [allBatchList, setAllBatchList] = useState(initialBatchIds);
+    const [activeBatchTab, setActiveBatchTab] = useState(task.batchId || (initialBatchIds[0] || null));
     const [batchConfigs, setBatchConfigs] = useState({}); 
-    // Format: { [batchId]: { paymentGroups: { [courseId]: { folderId, isChecked, courseCode, groupName, courseName } }, folders: [], existingContents: [] } }
+    // Format: { [batchId]: { paymentGroups: { [uniqueKey]: { folderId, isChecked, courseCode, groupName, courseName, courseType, typeLabel, courseIds } }, folders: [], existingContents: [] } }
 
-    const [isCreatingFolder, setIsCreatingFolder] = useState(null); // stores courseId
+    const [isCreatingFolder, setIsCreatingFolder] = useState(null); // stores uniqueKey
     const [newFolderName, setNewFolderName] = useState('');
     const [newFolderParentId, setNewFolderParentId] = useState('');
 
@@ -336,7 +337,20 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
         return 'https://imacampus.online/api';
     };
 
-    useEffect(() => { if (!isCustom && !isTechDeliverables) fetchHubData(); }, [task]);
+    const normalizeSub = (str) => {
+        if (!str) return '';
+        return str
+            .toLowerCase()
+            .replace(/\s*\((theory|paper|revision|තියරි|ප්‍රශ්න\s*පත්‍ර|පේපර්)\)\s*/gi, '')
+            .replace(/[-_]/g, ' ')
+            .trim();
+    };
+
+    useEffect(() => { 
+        if (!isCustom && !isTechDeliverables) {
+            fetchHubData(); 
+        }
+    }, [task, allBatchList]);
 
     const fetchHubData = async () => {
         try {
@@ -344,9 +358,9 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
             const fetchedBatches = res.data.batches || res.data || [];
             setBatches(fetchedBatches);
 
-            const newConfigs = {};
+            const newConfigs = { ...batchConfigs };
             
-            for (const bId of allBatchIds) {
+            for (const bId of allBatchList) {
                 let paymentGroups = {};
 
                 const batchData = fetchedBatches.find(b => b.id === bId);
@@ -356,26 +370,50 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                 const classMonth = monthNames[classDate.getMonth()];
 
                 if (batchData) {
+                    const taskSubClean = normalizeSub(task.timetable?.subjectName);
+                    
+                    // Check if any course matches the subject
+                    const hasAnyCourseMatch = batchData.groups?.some(g => 
+                        g.courses?.some(c => {
+                            const cSub = normalizeSub(c.name);
+                            return !taskSubClean || cSub === taskSubClean || cSub.includes(taskSubClean) || taskSubClean.includes(cSub);
+                        })
+                    );
+
                     batchData.groups?.forEach(g => {
                         g.courses?.forEach(c => {
-                            const gName = g.name.toUpperCase();
+                            const gName = (g.name || '').toUpperCase();
                             const isFull = gName.includes('FULL');
                             const isMatchingMonth = gName.includes(classMonth);
-                            const isMatchingSubject = task.timetable?.subjectName && c.name?.trim().toLowerCase() === task.timetable.subjectName?.trim().toLowerCase();
                             
-                            if (task.timetable?.subjectName && !isMatchingSubject) {
+                            const cSub = normalizeSub(c.name);
+                            const isMatchingSubject = !taskSubClean || !hasAnyCourseMatch || 
+                                cSub === taskSubClean || 
+                                cSub.includes(taskSubClean) || 
+                                taskSubClean.includes(cSub) ||
+                                cSub.replace(/\s+/g, '') === taskSubClean.replace(/\s+/g, '');
+                            
+                            if (!isMatchingSubject) {
                                 return;
                             }
                             
-                            const uniqueKey = `${(c.name || '').trim().toUpperCase()}_${g.id || g.name.toUpperCase()}`;
+                            const cType = parseInt(c.courseType || g.classType || 1);
+                            const typeTag = cType === 2 ? 'PAPER' : 'THEORY';
+                            const typeLabel = cType === 2 ? 'Paper' : 'Theory';
+                            const uniqueKey = `${(c.name || '').trim().toUpperCase()}_${typeTag}_${g.id || g.name.toUpperCase()}`;
                             
+                            // Check matching month or full payment
+                            const shouldAutoCheck = isMatchingSubject && (isFull || isMatchingMonth);
+
                             if (!paymentGroups[uniqueKey]) {
                                 paymentGroups[uniqueKey] = {
-                                    isChecked: isMatchingSubject && (isFull || isMatchingMonth),
+                                    isChecked: shouldAutoCheck,
                                     folderId: '',
                                     courseCode: c.code || `SUB_${c.id}`,
                                     groupName: g.name,
                                     courseName: c.name,
+                                    courseType: cType,
+                                    typeLabel: typeLabel,
                                     courseIds: [c.id]
                                 };
                             } else {
@@ -393,7 +431,7 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                     const allFolders = lgRes.data?.lessonGroups || [];
                     const batchFolders = allFolders.filter(f => parseInt(f.type) === targetTypeInt);
 
-                    // 🔥 Auto-select matching month folder for each payment group!
+                    // Auto-select matching month folder for each payment group
                     Object.keys(paymentGroups).forEach(k => {
                         const pg = paymentGroups[k];
                         if (!pg.folderId) {
@@ -475,6 +513,41 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
         });
     };
 
+    const setAllPaymentGroupsChecked = (bId, checked) => {
+        setBatchConfigs(prev => {
+            const newConfig = { ...prev };
+            if (newConfig[bId]?.paymentGroups) {
+                const updated = {};
+                Object.keys(newConfig[bId].paymentGroups).forEach(k => {
+                    updated[k] = { ...newConfig[bId].paymentGroups[k], isChecked: checked };
+                });
+                newConfig[bId] = {
+                    ...newConfig[bId],
+                    paymentGroups: updated
+                };
+            }
+            return newConfig;
+        });
+    };
+
+    const setPaymentGroupsByType = (bId, targetType) => {
+        setBatchConfigs(prev => {
+            const newConfig = { ...prev };
+            if (newConfig[bId]?.paymentGroups) {
+                const updated = {};
+                Object.keys(newConfig[bId].paymentGroups).forEach(k => {
+                    const pg = newConfig[bId].paymentGroups[k];
+                    updated[k] = { ...pg, isChecked: pg.courseType === targetType };
+                });
+                newConfig[bId] = {
+                    ...newConfig[bId],
+                    paymentGroups: updated
+                };
+            }
+            return newConfig;
+        });
+    };
+
     const setFolderForGroup = (bId, cId, folderId) => {
         setBatchConfigs(prev => {
             const newConfig = { ...prev };
@@ -535,7 +608,7 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                 return;
             }
             
-            for (const bId of allBatchIds) {
+            for (const bId of allBatchList) {
                 const config = batchConfigs[bId];
                 if (!config) continue;
                 
@@ -933,8 +1006,8 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                                     <div className="bg-white dark:bg-slate-800 p-6 rounded-[2rem] border border-gray-200 dark:border-slate-700 shadow-sm transition-colors flex-1 flex flex-col min-h-[250px]">
                                         
                                         <h4 className="text-[10px] font-black text-gray-500 dark:text-slate-500 uppercase tracking-[0.2em] mb-4 border-b border-gray-200 dark:border-slate-700 pb-2 transition-colors">Target Batches</h4>
-                                        <div className="flex flex-wrap gap-2 mb-6">
-                                            {allBatchIds.map(bId => {
+                                        <div className="flex flex-wrap items-center gap-2 mb-6">
+                                            {allBatchList.map(bId => {
                                                 const b = batches.find(bx => bx.id === bId);
                                                 if(!b) return null;
                                                 return (
@@ -942,18 +1015,80 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                                                         key={bId} 
                                                         type="button"
                                                         onClick={() => setActiveBatchTab(bId)}
-                                                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm outline-none ${activeBatchTab === bId ? 'bg-brand-accent text-white shadow-md' : 'bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-gray-600 hover:border-gray-300'}`}
+                                                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all shadow-sm outline-none ${activeBatchTab === bId ? 'bg-brand-accent text-white shadow-md' : 'bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:border-gray-300'}`}
                                                     >
                                                         {b.name}
                                                     </button>
                                                 )
                                             })}
+                                            {batches.length > allBatchList.length && (
+                                                <select 
+                                                    value="" 
+                                                    onChange={(e) => {
+                                                        const newId = parseInt(e.target.value);
+                                                        if (newId && !allBatchList.includes(newId)) {
+                                                            setAllBatchList(prev => [...prev, newId]);
+                                                            setActiveBatchTab(newId);
+                                                        }
+                                                    }}
+                                                    className="px-3 py-2 bg-gray-50 dark:bg-slate-900 border border-dashed border-gray-300 dark:border-slate-700 rounded-xl text-xs font-bold text-gray-500 dark:text-slate-400 outline-none hover:border-brand-accent cursor-pointer"
+                                                >
+                                                    <option value="">+ Add Batch Tab</option>
+                                                    {batches.filter(b => !allBatchList.includes(b.id)).map(b => (
+                                                        <option key={b.id} value={b.id}>{b.name}</option>
+                                                    ))}
+                                                </select>
+                                            )}
                                         </div>
 
-                                        <h4 className="text-[10px] font-black text-gray-500 dark:text-slate-500 uppercase tracking-[0.2em] mb-4 border-b border-gray-200 dark:border-slate-700 pb-2 transition-colors">Student Access & Destination</h4>
+                                        <div className="flex items-center justify-between mb-2 border-b border-gray-200 dark:border-slate-700 pb-2">
+                                            <h4 className="text-[10px] font-black text-gray-500 dark:text-slate-500 uppercase tracking-[0.2em] transition-colors">Student Access & Destination</h4>
+                                        </div>
+
+                                        {/* Quick Select & Filter Controls */}
+                                        {Object.keys(activeConfig.paymentGroups || {}).length > 0 && (
+                                            <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-gray-100 dark:border-slate-700/60">
+                                                <div className="flex items-center gap-2">
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => setAllPaymentGroupsChecked(activeBatchTab, true)} 
+                                                        className="text-[10px] font-bold text-brand-accent hover:underline px-1 py-0.5 rounded hover:bg-brand-accent/10 transition-colors"
+                                                    >
+                                                        Select All
+                                                    </button>
+                                                    <span className="text-gray-300 dark:text-slate-600 text-xs">•</span>
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => setAllPaymentGroupsChecked(activeBatchTab, false)} 
+                                                        className="text-[10px] font-bold text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200 px-1 py-0.5 rounded transition-colors"
+                                                    >
+                                                        Clear All
+                                                    </button>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => setPaymentGroupsByType(activeBatchTab, 1)} 
+                                                        className="text-[9px] font-black uppercase px-2 py-1 rounded-lg bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30 hover:bg-blue-100 dark:hover:bg-blue-500/20 transition-all"
+                                                        title="Select Theory Payment Groups Only"
+                                                    >
+                                                        📘 Theory
+                                                    </button>
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => setPaymentGroupsByType(activeBatchTab, 2)} 
+                                                        className="text-[9px] font-black uppercase px-2 py-1 rounded-lg bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-500/30 hover:bg-purple-100 dark:hover:bg-purple-500/20 transition-all"
+                                                        title="Select Paper Payment Groups Only"
+                                                    >
+                                                        📝 Paper
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         <div className="overflow-y-auto custom-scrollbar pr-2 flex-1">
                                             {Object.entries(activeConfig.paymentGroups || {}).length === 0 ? (
-                                                <p className="text-sm text-gray-500 dark:text-slate-400">No matching subjects found in this batch.</p>
+                                                <p className="text-sm text-gray-500 dark:text-slate-400">No matching subjects or payment groups found in this batch.</p>
                                             ) : (
                                                 Object.entries(activeConfig.paymentGroups).map(([uniqueKey, pg]) => {
                                                     const courseCodeFolders = (activeConfig.folders || []).filter(f => !f.courseCode || f.courseCode === pg.courseCode);
@@ -970,9 +1105,16 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                                                                     onChange={() => togglePaymentGroup(activeBatchTab, uniqueKey)} 
                                                                     className="hidden"
                                                                 />
-                                                                <span className={`text-xs font-black tracking-wide uppercase transition-colors flex items-center gap-1.5 ${pg.isChecked ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-slate-400 group-hover:text-gray-800 dark:group-hover:text-slate-300'}`}>
+                                                                <span className={`text-xs font-black tracking-wide uppercase transition-colors flex items-center gap-1.5 flex-wrap ${pg.isChecked ? 'text-gray-900 dark:text-white' : 'text-gray-600 dark:text-slate-400 group-hover:text-gray-800 dark:group-hover:text-slate-300'}`}>
                                                                     {pg.groupName} 
                                                                     <span className="text-[10px] bg-gray-100 dark:bg-slate-700/50 px-1.5 py-0.5 rounded text-gray-500 font-semibold">{pg.courseName}</span>
+                                                                    <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                                                                        pg.courseType === 2 
+                                                                            ? 'bg-purple-50 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-200 dark:border-purple-500/30' 
+                                                                            : 'bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-500/30'
+                                                                    }`}>
+                                                                        {pg.typeLabel || (pg.courseType === 2 ? 'Paper' : 'Theory')}
+                                                                    </span>
                                                                 </span>
                                                             </label>
                                                             

@@ -37,12 +37,12 @@ export default function StaffManagement({ loggedInUser }) {
     firstName: '', lastName: '', phone: '', nic: '', password: '', 
     role: isAdmin ? 'Manager' : (isSocialMediaDept ? 'Social Media Staff' : (isPhysicalDept ? 'Staff' : (loggedInUser?.department === 'Class Coordination' ? 'Coordinator' : 'Staff'))), 
     department: isAdmin ? 'Class Coordination' : (isSocialMediaDept ? 'Social Media' : (isPhysicalDept ? 'Physical' : loggedInUser?.department)),
-    businessType: ''
+    businessType: (!isAdmin && loggedInUser?.businessType) ? loggedInUser.businessType : ''
   });
 
   useEffect(() => {
     fetchStaff();
-    if (isAdmin) fetchBusinesses();
+    fetchBusinesses();
   }, [loggedInUser, urlDept]);
 
   const fetchStaff = async () => {
@@ -196,7 +196,7 @@ export default function StaffManagement({ loggedInUser }) {
         firstName: '', lastName: '', phone: '', nic: '', password: '', 
         role: isAdmin ? 'Manager' : (loggedInUser?.department === 'Class Coordination' ? 'Coordinator' : (loggedInUser?.department === 'Social Media' ? 'Social Media Staff' : 'Staff')), 
         department: isAdmin ? 'Class Coordination' : loggedInUser?.department,
-        businessType: ''
+        businessType: (!isAdmin && loggedInUser?.businessType) ? loggedInUser.businessType : ''
       });
   };
 

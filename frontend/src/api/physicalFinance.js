@@ -31,6 +31,33 @@ export const physicalFinanceService = {
       throw error;
     }
   },
+  verifyTransaction: async (id, verified = true) => {
+    try {
+      const response = await api.put(`/physical-finance/transactions/${id}/verify`, { verified });
+      return response.data;
+    } catch (error) {
+      console.error("Error verifying transaction:", error);
+      throw error;
+    }
+  },
+  toggleCashImpact: async (id) => {
+    try {
+      const response = await api.put(`/physical-finance/transactions/${id}/toggle-cash-impact`);
+      return response.data;
+    } catch (error) {
+      console.error("Error toggling cash impact:", error);
+      throw error;
+    }
+  },
+  getInstallmentReminders: async () => {
+    try {
+      const response = await api.get('/physical-finance/installments/reminders');
+      return response.data;
+    } catch (error) {
+      console.error("Error fetching installment reminders:", error);
+      return [];
+    }
+  },
 
   // Opening Balance
   getOpeningBalance: async (date) => {

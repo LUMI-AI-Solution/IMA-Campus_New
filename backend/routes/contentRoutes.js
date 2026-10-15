@@ -47,6 +47,7 @@ router.put('/admin/manager/contents/update', verifyToken, requireStaff, uploadDo
     { name: 'structuredFile', maxCount: 1 }
 ]), controller.updateContentMassAssign);
 router.delete('/admin/content/delete', verifyToken, requireStaff, controller.deleteContent);
+router.post('/admin/content/unlink-course', verifyToken, requireStaff, controller.unlinkContentCourse);
 router.get('/admin/manager/get-contents', verifyToken, requireStaff, controller.getContents); 
 
 // Groups

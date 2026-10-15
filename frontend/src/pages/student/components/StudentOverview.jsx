@@ -32,8 +32,15 @@ export default function StudentOverview({ setActiveTab }) {
     const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
     const [showAllRankings, setShowAllRankings] = useState(false);
 
-    // Popup State
-    const [showAppPopup, setShowAppPopup] = useState(true);
+    // App Banner State (Dismissible)
+    const [showAppBanner, setShowAppBanner] = useState(() => {
+        return localStorage.getItem('hide_student_app_banner') !== 'true';
+    });
+
+    const handleDismissAppBanner = () => {
+        setShowAppBanner(false);
+        localStorage.setItem('hide_student_app_banner', 'true');
+    };
 
     const [currentUser, setCurrentUser] = useState(() => {
         try {
@@ -195,7 +202,7 @@ export default function StudentOverview({ setActiveTab }) {
                 highestScore: 0,
                 passRate: 0,
                 level: 1,
-                levelTitle: 'Rising Aspirant (ආරම්භක මට්ටම)',
+                levelTitle: 'Rising Aspirant (Beginner Level)',
                 levelBadge: 'Level 1'
             };
         }
@@ -206,24 +213,24 @@ export default function StudentOverview({ setActiveTab }) {
         const avgPerc = parseFloat((totalPerc / total).toFixed(1));
 
         let level = 1;
-        let levelTitle = 'Rising Aspirant (ආරම්භක මට්ටම)';
+        let levelTitle = 'Rising Aspirant (Beginner Level)';
         let levelBadge = 'Level 1';
 
         if (avgPerc >= 85 && total >= 2) {
             level = 5;
-            levelTitle = 'Master Scholar (විශිෂ්ඨ සාමාර්ථ්‍ය)';
+            levelTitle = 'Master Scholar (Distinction Level)';
             levelBadge = 'Level 5';
         } else if (avgPerc >= 75) {
             level = 4;
-            levelTitle = 'Elite Performer (ඉහළ දක්ෂතාවය)';
+            levelTitle = 'Elite Performer (High Merit)';
             levelBadge = 'Level 4';
         } else if (avgPerc >= 65) {
             level = 3;
-            levelTitle = 'High Achiever (හොඳ ප්‍රගතියක්)';
+            levelTitle = 'High Achiever (Good Progress)';
             levelBadge = 'Level 3';
         } else if (avgPerc >= 50) {
             level = 2;
-            levelTitle = 'Steady Climber (සාමාන්‍ය මට්ටම)';
+            levelTitle = 'Steady Climber (Average Level)';
             levelBadge = 'Level 2';
         }
 
@@ -419,52 +426,68 @@ export default function StudentOverview({ setActiveTab }) {
     return (
         <div className="w-full max-w-6xl mx-auto pb-20 relative px-3 sm:px-0 custom-scrollbar">
 
-            {/* 🔥 NEW APP DOWNLOAD BANNER (IN-PAGE) 🔥 */}
-            <div className="bg-gradient-to-r from-[#0f172a] to-blue-900/30 border border-blue-500/30 rounded-2xl md:rounded-[1.5rem] p-5 mb-6 flex flex-col lg:flex-row items-center justify-between gap-5 shadow-[0_0_30px_rgba(59,130,246,0.1)] relative overflow-hidden">
+            {/* 🔥 NEW APP DOWNLOAD BANNER (IN-PAGE & DISMISSIBLE) 🔥 */}
+            {showAppBanner && (
+                <div className="bg-gradient-to-r from-[#0b1329] via-[#0f1d3d] to-[#12234e] border border-blue-500/30 rounded-2xl md:rounded-[1.5rem] p-4 sm:p-5 mb-5 sm:mb-6 flex flex-col lg:flex-row items-center justify-between gap-4 sm:gap-5 shadow-[0_8px_30px_rgba(59,130,246,0.15)] relative overflow-hidden animate-in fade-in duration-300">
+                    {/* Decorative background element */}
+                    <div className="absolute -right-20 -top-20 w-64 h-64 bg-blue-500/10 blur-[80px] rounded-full pointer-events-none"></div>
 
-                {/* Decorative background element */}
-                <div className="absolute -right-20 -top-20 w-64 h-64 bg-blue-500/10 blur-[80px] rounded-full pointer-events-none"></div>
+                    {/* Dismiss Button */}
+                    <button
+                        type="button"
+                        onClick={handleDismissAppBanner}
+                        className="absolute top-3 right-3 text-white/50 hover:text-white p-1.5 rounded-full hover:bg-white/10 transition-colors z-20 cursor-pointer"
+                        title="Dismiss banner"
+                        aria-label="Dismiss banner"
+                    >
+                        <X size={16} />
+                    </button>
 
-                <div className="flex items-center gap-4 w-full lg:w-auto text-left z-10">
-                    <div className="bg-gradient-to-br from-blue-500 to-blue-700 p-3 md:p-4 rounded-xl md:rounded-2xl text-white shadow-lg shadow-blue-500/30 shrink-0">
-                        <Smartphone size={28} className="md:w-8 md:h-8" />
+                    <div className="flex items-center gap-3.5 sm:gap-4 w-full lg:w-auto text-left z-10 pr-8 lg:pr-0">
+                        <div className="bg-gradient-to-br from-blue-500 to-blue-700 p-2.5 sm:p-3.5 rounded-xl md:rounded-2xl text-white shadow-lg shadow-blue-500/30 shrink-0">
+                            <Smartphone size={24} className="sm:w-7 sm:h-7" />
+                        </div>
+                        <div>
+                            <h4 className="text-white font-black text-sm sm:text-lg md:text-xl tracking-wide leading-tight mb-0.5">
+                                Download the Official IMA Campus App
+                            </h4>
+                            <p className="text-blue-200/70 text-[11px] sm:text-xs md:text-sm font-medium">
+                                Experience seamless learning directly from your mobile device.
+                            </p>
+                        </div>
                     </div>
-                    <div>
-                        <h4 className="text-white font-black text-base md:text-xl tracking-wide mb-1">Download the Official IMA Campus App</h4>
-                        <p className="text-blue-200/70 text-[11px] md:text-sm font-medium">Experience seamless learning directly from your mobile device.</p>
+
+                    <div className="grid grid-cols-2 sm:flex sm:flex-row items-center gap-2 sm:gap-3 w-full lg:w-auto z-10">
+                        {/* Android / Play Store Button */}
+                        <a
+                            href="https://play.google.com/store/apps/details?id=com.imaacademyapp&pcampaignid=web_share"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center justify-center gap-2 sm:gap-3 bg-black/30 hover:bg-black/60 border border-white/20 hover:border-blue-500/50 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl transition-all duration-300 group shadow-inner"
+                        >
+                            <img src="https://upload.wikimedia.org/wikipedia/commons/d/d0/Google_Play_Arrow_logo.svg" alt="Play Store" className="w-4 h-4 sm:w-5 sm:h-5 group-hover:scale-110 transition-transform shrink-0" />
+                            <div className="text-left flex flex-col justify-center">
+                                <span className="text-[8px] sm:text-[9px] text-white/70 font-bold uppercase tracking-wider leading-none mb-0.5">Get it on</span>
+                                <span className="text-xs sm:text-sm md:text-base font-black text-white leading-none">Play Store</span>
+                            </div>
+                        </a>
+
+                        {/* iOS / App Store Button */}
+                        <a
+                            href="https://apps.apple.com/lk/app/ima-campus/id6759137655"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center justify-center gap-2 sm:gap-3 bg-black/30 hover:bg-black/60 border border-white/20 hover:border-white/40 px-3 py-2 sm:px-4 sm:py-2.5 rounded-xl transition-all duration-300 group shadow-inner"
+                        >
+                            <Apple size={20} className="sm:w-6 sm:h-6 text-white group-hover:scale-110 transition-transform shrink-0" />
+                            <div className="text-left flex flex-col justify-center">
+                                <span className="text-[8px] sm:text-[9px] text-white/70 font-bold uppercase tracking-wider leading-none mb-0.5">Download on</span>
+                                <span className="text-xs sm:text-sm md:text-base font-black text-white leading-none">App Store</span>
+                            </div>
+                        </a>
                     </div>
                 </div>
-
-                <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto z-10">
-                    {/* Android / Play Store Button */}
-                    <a
-                        href="https://play.google.com/store/apps/details?id=com.imaacademyapp&pcampaignid=web_share"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-full sm:w-auto flex items-center justify-center gap-3 bg-black/20 backdrop-blur-xl hover:bg-black border border-white/20 hover:border-blue-500/50 px-5 py-3 rounded-xl transition-all duration-300 group shadow-inner"
-                    >
-                        <img src="https://upload.wikimedia.org/wikipedia/commons/d/d0/Google_Play_Arrow_logo.svg" alt="Play Store" className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                        <div className="text-left flex flex-col justify-center">
-                            <span className="text-[9px] text-white/80 font-medium font-bold uppercase tracking-wider leading-none mb-1">Get it on</span>
-                            <span className="text-sm md:text-base font-black text-white leading-none tracking-wide">Play Store</span>
-                        </div>
-                    </a>
-
-                    {/* iOS / App Store Button */}
-                    <a
-                        href="https://apps.apple.com/lk/app/ima-campus/id6759137655"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-full sm:w-auto flex items-center justify-center gap-3 bg-black/20 backdrop-blur-xl hover:bg-black border border-white/20 hover:border-white/200 px-5 py-3 rounded-xl transition-all duration-300 group shadow-inner"
-                    >
-                        <Apple size={26} className="text-white group-hover:scale-110 transition-transform" />
-                        <div className="text-left flex flex-col justify-center">
-                            <span className="text-[9px] text-white/80 font-medium font-bold uppercase tracking-wider leading-none mb-1">Download on the</span>
-                            <span className="text-sm md:text-base font-black text-white leading-none tracking-wide">App Store</span>
-                        </div>
-                    </a>
-                </div>
-            </div>
+            )}
 
             {/* Hidden Native File Input for Instant 1-Click Upload */}
             <input
@@ -476,11 +499,11 @@ export default function StudentOverview({ setActiveTab }) {
             />
 
             {/* 🔥 COMPACT GREETING CARD WITH SOCIAL MEDIA STORY RING & PROFILE CTA 🔥 */}
-            <div className="glass-card flex flex-col sm:flex-row justify-between items-center mb-6 gap-4 p-4 md:p-6 rounded-2xl md:rounded-[2.5rem] border-white/20 relative overflow-hidden">
+            <div className="glass-card flex flex-col sm:flex-row justify-between items-center mb-5 sm:mb-6 gap-4 p-4 md:p-6 rounded-2xl md:rounded-[2rem] border border-white/15 bg-slate-950/45 backdrop-blur-2xl shadow-xl relative overflow-hidden">
                 {/* Subtle colorful ambient glow behind avatar */}
                 <div className="absolute -top-12 -left-12 w-48 h-48 bg-gradient-to-br from-rose-500/15 via-purple-500/10 to-amber-500/5 blur-3xl rounded-full pointer-events-none"></div>
 
-                <div className="flex flex-col sm:flex-row items-center gap-4 md:gap-6 w-full sm:w-auto text-center sm:text-left z-10">
+                <div className="flex flex-col sm:flex-row items-center gap-3.5 sm:gap-6 w-full sm:w-auto text-center sm:text-left z-10">
                     
                     {/* 🌟 SOCIAL MEDIA AVATAR & PROMPT CONTAINER (ENLARGED) 🌟 */}
                     <div className="flex flex-col items-center shrink-0">
@@ -492,17 +515,15 @@ export default function StudentOverview({ setActiveTab }) {
                             title={profilePic ? "Click to change your profile picture" : "Click to add your profile picture"}
                             onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInputRef.current?.click()}
                         >
-                            {/* 🔥 Intense Animated Blinking & Radar Waves when no profile picture 🔥 */}
+                            {/* Animated Blinking & Radar Waves when no profile picture */}
                             {!profilePic && (
                                 <>
-                                    {/* Outward Expanding Ping Wave 1 */}
                                     <span className="absolute -inset-3 rounded-full bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 opacity-70 blur-md animate-ping pointer-events-none"></span>
-                                    {/* Breathing Neon Halo Wave 2 */}
                                     <span className="absolute -inset-2 rounded-full bg-gradient-to-tr from-rose-500 via-purple-600 to-amber-400 opacity-90 blur-sm animate-pulse pointer-events-none"></span>
                                 </>
                             )}
 
-                            {/* 📸 Social Media Story Gradient Ring - LARGER AREA */}
+                            {/* Social Media Story Gradient Ring */}
                             <div className={`relative w-20 h-20 sm:w-22 sm:h-22 md:w-24 md:h-24 rounded-full p-[3px] transition-all duration-300 ${
                                 profilePic
                                     ? 'bg-gradient-to-tr from-emerald-400 via-cyan-500 to-blue-500 group-hover:scale-105 shadow-[0_0_20px_rgba(6,182,212,0.45)]'
@@ -534,21 +555,19 @@ export default function StudentOverview({ setActiveTab }) {
                                 </div>
                             </div>
 
-                            {/* 🎯 Social Media Corner Badge */}
+                            {/* Social Media Corner Badge */}
                             {isUploading ? null : !profilePic ? (
-                                /* Instagram-style Bouncing Plus Badge */
                                 <div className="absolute -bottom-1 -right-1 w-7 h-7 md:w-8 md:h-8 rounded-full bg-gradient-to-tr from-rose-500 to-amber-500 text-white flex items-center justify-center border-2 border-[#0a0f1d] shadow-lg shadow-rose-500/50 animate-bounce group-hover:scale-125 transition-transform">
                                     <Plus size={16} className="stroke-[3]" />
                                 </div>
                             ) : (
-                                /* Verified / Edit Photo Badge */
                                 <div className="absolute -bottom-0.5 -right-0.5 w-6 h-6 md:w-7 md:h-7 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 text-white flex items-center justify-center border-2 border-[#0a0f1d] shadow-md group-hover:scale-110 transition-transform">
                                     <Camera size={13} className="stroke-[2.5]" />
                                 </div>
                             )}
                         </div>
 
-                        {/* 🔥 ONLY 1 BUTTON DIRECTLY UNDER AVATAR 🔥 */}
+                        {/* Button directly under Avatar */}
                         {!profilePic ? (
                             <button
                                 type="button"
@@ -575,25 +594,30 @@ export default function StudentOverview({ setActiveTab }) {
                         )}
                     </div>
 
-                    {/* Greeting & Details (Clean & Uncluttered) */}
+                    {/* Greeting & Details */}
                     <div className="flex-1 text-center sm:text-left">
-                        <h1 className="text-xl md:text-3xl font-extrabold text-white leading-tight break-words">
-                            {getGreeting()}{user.fName ? <>, <span className="text-red-500">{user.fName}</span></> : null} 👋
+                        <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 text-[10px] font-bold text-amber-300 uppercase tracking-widest mb-1.5 border border-white/10 shadow-sm">
+                            <Sparkles size={11} className="text-amber-400" /> Keep striving for distinction
+                        </div>
+                        <h1 className="text-xl sm:text-2xl md:text-3xl font-black text-white leading-tight break-words">
+                            {getGreeting()}{user.fName ? <>, <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-400 via-rose-300 to-amber-300">{user.fName}</span></> : null} 👋
                         </h1>
-                        <p className="text-white/80 font-medium text-xs md:text-sm mt-1 flex items-center justify-center sm:justify-start gap-1.5">
-                            <Calendar size={13} /> {currentTime.toLocaleDateString()} <span className="mx-1">•</span> <Clock size={13} /> {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        <p className="text-white/80 font-medium text-xs sm:text-sm mt-1 flex items-center justify-center sm:justify-start gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center gap-1"><Calendar size={13} className="text-sky-400" /> {currentTime.toLocaleDateString()}</span>
+                            <span className="opacity-40">•</span>
+                            <span className="inline-flex items-center gap-1"><Clock size={13} className="text-amber-400" /> {currentTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                         </p>
                     </div>
                 </div>
 
                 <div className="flex flex-wrap items-center justify-center sm:justify-end gap-3 w-full sm:w-auto z-10">
-                    <div className="bg-black/20 backdrop-blur-xl border border-white/20 px-4 py-2 md:px-5 md:py-2.5 rounded-xl flex items-center justify-center gap-3 w-full sm:w-auto min-w-max">
+                    <div className="bg-black/30 backdrop-blur-xl border border-white/20 px-4 py-2 sm:px-5 sm:py-2.5 rounded-xl flex items-center justify-center gap-3 w-full sm:w-auto min-w-max shadow-sm">
                         <div className="bg-red-500/20 p-2 rounded-lg text-red-400 shrink-0">
                             <BookOpen size={18} />
                         </div>
                         <div className="text-left">
-                            <p className="text-[9px] md:text-[10px] text-white/80 font-medium font-bold uppercase tracking-widest">Enrolled</p>
-                            <p className="text-sm md:text-lg font-black text-white leading-none">{data?.enrolledCount || 0} <span className="text-[10px] md:text-xs font-bold text-white/90 font-bold">Subjects</span></p>
+                            <p className="text-[9px] md:text-[10px] text-white/70 font-bold uppercase tracking-widest">Enrolled</p>
+                            <p className="text-sm md:text-lg font-black text-white leading-none">{data?.enrolledCount || 0} <span className="text-[10px] md:text-xs font-bold text-white/90">Subjects</span></p>
                         </div>
                     </div>
                 </div>
@@ -602,7 +626,7 @@ export default function StudentOverview({ setActiveTab }) {
             {/* ═══════════════════════════════════════════════════════════════════════════════ */}
             {/* 🏆 ACADEMIC EXCELLENCE, MULTI-CLASS LEADERBOARD & PAPER HISTORY HUB 🏆 */}
             {/* ═══════════════════════════════════════════════════════════════════════════════ */}
-            <div className="glass-card rounded-[1.5rem] md:rounded-[2.5rem] p-5 md:p-8 bg-gradient-to-br from-[#0c1322]/95 via-[#0e172a]/95 to-[#151f38]/95 border border-white/15 shadow-[0_12px_40px_rgba(0,0,0,0.35)] mb-6 space-y-6">
+            <div className="glass-card rounded-[1.5rem] md:rounded-[2rem] p-4 sm:p-6 md:p-8 bg-gradient-to-br from-[#0c1322]/95 via-[#0e172a]/95 to-[#151f38]/95 border border-white/15 shadow-[0_12px_40px_rgba(0,0,0,0.35)] mb-6 space-y-6">
                 
                 {/* 1. SECTION HEADER & MULTI-CLASS FILTER CONTROL */}
                 <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 border-b border-white/10 pb-5">
@@ -610,32 +634,32 @@ export default function StudentOverview({ setActiveTab }) {
                         <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold uppercase tracking-widest mb-2 shadow-sm">
                             <Trophy size={14} className="text-amber-400" /> Academic Performance & Leaderboard
                         </div>
-                        <h2 className="text-xl md:text-2xl font-black text-white tracking-wide flex items-center gap-2">
-                            <span>මගේ ප්‍රගතිය සහ පේපර් ඉතිහාසය</span>
-                            <Sparkles size={20} className="text-yellow-400 animate-pulse" />
+                        <h2 className="text-lg sm:text-xl md:text-2xl font-black text-white tracking-wide flex items-center gap-2">
+                            <span>My Academic Progress & Paper History</span>
+                            <Sparkles size={18} className="text-yellow-400 animate-pulse" />
                         </h2>
-                        <p className="text-white/70 text-xs md:text-sm font-medium mt-0.5">
+                        <p className="text-white/70 text-xs sm:text-sm font-medium mt-0.5">
                             Track test scores, compare class rankings, and consult your paper guiders in real-time.
                         </p>
                     </div>
 
-                    {/* Multi-Class Filter Pills (Classes 2-3 ක ඉන්නවනම් ඒව වෙන් වෙන්ව බැලීමේ හැකියාව) */}
-                    <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
-                        <span className="text-white/60 text-xs font-bold uppercase tracking-wider hidden sm:inline mr-1">
-                            Class Filter:
+                    {/* Multi-Class Filter Pills - Smooth Horizontal Scroll on Mobile */}
+                    <div className="flex items-center gap-2 overflow-x-auto no-scrollbar py-1 w-full lg:w-auto flex-nowrap sm:flex-wrap -mx-1 px-1">
+                        <span className="text-white/60 text-xs font-bold uppercase tracking-wider hidden sm:inline mr-1 shrink-0">
+                            Class:
                         </span>
 
                         {/* All Classes Pill */}
                         <button
                             type="button"
                             onClick={() => setSelectedClassFilter('ALL')}
-                            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 ${
+                            className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                                 selectedClassFilter === 'ALL'
                                     ? 'bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-lg shadow-red-600/30 ring-1 ring-white/30 scale-105'
-                                    : 'bg-black/25 text-white/70 hover:text-white hover:bg-white/10 border border-white/10'
+                                    : 'bg-black/30 text-white/70 hover:text-white hover:bg-white/10 border border-white/10'
                             }`}
                         >
-                            <span>✨ All Classes (සියල්ල)</span>
+                            <span>✨ All Classes</span>
                             <span className="px-1.5 py-0.2 bg-black/30 rounded-full text-[10px]">
                                 {paperData?.recentTests?.length || 0}
                             </span>
@@ -656,10 +680,10 @@ export default function StudentOverview({ setActiveTab }) {
                                     key={cls.id}
                                     type="button"
                                     onClick={() => setSelectedClassFilter(cls.id)}
-                                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 ${
+                                    className={`px-3.5 py-1.5 sm:px-4 sm:py-2 rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 shrink-0 ${
                                         isSelected
                                             ? 'bg-gradient-to-r from-sky-600 to-blue-600 text-white shadow-lg shadow-sky-600/30 ring-1 ring-white/30 scale-105'
-                                            : 'bg-black/25 text-white/70 hover:text-white hover:bg-white/10 border border-white/10'
+                                            : 'bg-black/30 text-white/70 hover:text-white hover:bg-white/10 border border-white/10'
                                     }`}
                                 >
                                     <span>{cls.name}</span>
@@ -761,47 +785,47 @@ export default function StudentOverview({ setActiveTab }) {
 
                         {/* Top 3 Podium Showcase */}
                         {activeLeaderboard?.podium && (
-                            <div className="grid grid-cols-3 gap-2 pt-2 items-end">
+                            <div className="grid grid-cols-3 gap-1.5 sm:gap-2.5 pt-2 items-end">
                                 {/* 2nd Place */}
-                                <div className="flex flex-col items-center bg-gradient-to-t from-slate-900/90 to-slate-800/60 rounded-xl p-2.5 border border-slate-400/30 text-center relative shadow-md">
-                                    <span className="w-6 h-6 rounded-full bg-slate-300 text-slate-900 font-black text-xs flex items-center justify-center mb-1 shadow">2</span>
-                                    <div className="w-10 h-10 rounded-full bg-slate-700 border-2 border-slate-300 overflow-hidden mb-1 flex items-center justify-center text-white text-xs font-bold">
+                                <div className="flex flex-col items-center bg-gradient-to-t from-slate-900/90 to-slate-800/60 rounded-xl p-2 sm:p-2.5 border border-slate-400/30 text-center relative shadow-md">
+                                    <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-slate-300 text-slate-900 font-black text-[10px] sm:text-xs flex items-center justify-center mb-1 shadow">2</span>
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-slate-700 border-2 border-slate-300 overflow-hidden mb-1 flex items-center justify-center text-white text-xs font-bold">
                                         {activeLeaderboard.podium.second?.image ? (
                                             <img src={`${backendBaseUrl}/storage/images/${activeLeaderboard.podium.second.image}`} alt="" className="w-full h-full object-cover" />
                                         ) : (
                                             (activeLeaderboard.podium.second?.name || '2nd').charAt(0)
                                         )}
                                     </div>
-                                    <p className="text-white font-bold text-xs truncate w-full">{activeLeaderboard.podium.second?.name || 'Contender'}</p>
-                                    <span className="text-slate-300 font-black text-xs">{activeLeaderboard.podium.second?.score || 0} pts</span>
+                                    <p className="text-white font-bold text-[11px] sm:text-xs truncate w-full">{activeLeaderboard.podium.second?.name || 'Contender'}</p>
+                                    <span className="text-slate-300 font-black text-[11px] sm:text-xs">{activeLeaderboard.podium.second?.score || 0} pts</span>
                                 </div>
 
                                 {/* 1st Place (Elevated) */}
-                                <div className="flex flex-col items-center bg-gradient-to-t from-amber-950/90 via-amber-900/50 to-amber-800/40 rounded-xl p-3 border border-amber-400/60 text-center relative shadow-lg -translate-y-2">
-                                    <span className="w-7 h-7 rounded-full bg-amber-400 text-amber-950 font-black text-xs flex items-center justify-center mb-1 shadow-md shadow-amber-500/50">👑 1</span>
-                                    <div className="w-12 h-12 rounded-full bg-amber-700 border-2 border-amber-400 overflow-hidden mb-1 flex items-center justify-center text-white text-sm font-black shadow-[0_0_15px_rgba(251,191,36,0.5)]">
+                                <div className="flex flex-col items-center bg-gradient-to-t from-amber-950/90 via-amber-900/50 to-amber-800/40 rounded-xl p-2.5 sm:p-3 border border-amber-400/60 text-center relative shadow-lg -translate-y-2">
+                                    <span className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-amber-400 text-amber-950 font-black text-[11px] sm:text-xs flex items-center justify-center mb-1 shadow-md shadow-amber-500/50">👑 1</span>
+                                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-amber-700 border-2 border-amber-400 overflow-hidden mb-1 flex items-center justify-center text-white text-xs sm:text-sm font-black shadow-[0_0_15px_rgba(251,191,36,0.5)]">
                                         {activeLeaderboard.podium.first?.image ? (
                                             <img src={`${backendBaseUrl}/storage/images/${activeLeaderboard.podium.first.image}`} alt="" className="w-full h-full object-cover" />
                                         ) : (
                                             (activeLeaderboard.podium.first?.name || '1st').charAt(0)
                                         )}
                                     </div>
-                                    <p className="text-white font-black text-xs truncate w-full">{activeLeaderboard.podium.first?.name || 'Champion'}</p>
-                                    <span className="text-amber-300 font-black text-sm">{activeLeaderboard.podium.first?.score || 0} pts</span>
+                                    <p className="text-white font-black text-[11px] sm:text-xs truncate w-full">{activeLeaderboard.podium.first?.name || 'Champion'}</p>
+                                    <span className="text-amber-300 font-black text-xs sm:text-sm">{activeLeaderboard.podium.first?.score || 0} pts</span>
                                 </div>
 
                                 {/* 3rd Place */}
-                                <div className="flex flex-col items-center bg-gradient-to-t from-amber-950/60 to-orange-950/40 rounded-xl p-2.5 border border-amber-600/30 text-center relative shadow-md">
-                                    <span className="w-6 h-6 rounded-full bg-amber-600 text-white font-black text-xs flex items-center justify-center mb-1 shadow">3</span>
-                                    <div className="w-10 h-10 rounded-full bg-amber-800 border-2 border-amber-600 overflow-hidden mb-1 flex items-center justify-center text-white text-xs font-bold">
+                                <div className="flex flex-col items-center bg-gradient-to-t from-amber-950/60 to-orange-950/40 rounded-xl p-2 sm:p-2.5 border border-amber-600/30 text-center relative shadow-md">
+                                    <span className="w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-amber-600 text-white font-black text-[10px] sm:text-xs flex items-center justify-center mb-1 shadow">3</span>
+                                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-amber-800 border-2 border-amber-600 overflow-hidden mb-1 flex items-center justify-center text-white text-xs font-bold">
                                         {activeLeaderboard.podium.third?.image ? (
                                             <img src={`${backendBaseUrl}/storage/images/${activeLeaderboard.podium.third.image}`} alt="" className="w-full h-full object-cover" />
                                         ) : (
                                             (activeLeaderboard.podium.third?.name || '3rd').charAt(0)
                                         )}
                                     </div>
-                                    <p className="text-white font-bold text-xs truncate w-full">{activeLeaderboard.podium.third?.name || 'Contender'}</p>
-                                    <span className="text-amber-400 font-black text-xs">{activeLeaderboard.podium.third?.score || 0} pts</span>
+                                    <p className="text-white font-bold text-[11px] sm:text-xs truncate w-full">{activeLeaderboard.podium.third?.name || 'Contender'}</p>
+                                    <span className="text-amber-400 font-black text-[11px] sm:text-xs">{activeLeaderboard.podium.third?.score || 0} pts</span>
                                 </div>
                             </div>
                         )}
@@ -947,28 +971,28 @@ export default function StudentOverview({ setActiveTab }) {
 
                                         {/* Action Buttons for this paper */}
                                         <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/5">
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-2 flex-wrap">
                                                 {t.rank && (
-                                                    <span className="inline-flex items-center gap-1 text-xs font-bold text-amber-300 bg-amber-500/10 px-2.5 py-1 rounded-lg border border-amber-500/20">
-                                                        <Trophy size={12} /> Rank #{t.rank} / {t.totalParticipants || '—'}
+                                                    <span className="inline-flex items-center gap-1 text-[10px] sm:text-xs font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg border border-amber-500/20">
+                                                        <Trophy size={11} /> Rank #{t.rank} / {t.totalParticipants || '—'}
                                                     </span>
                                                 )}
                                                 {t.teacherFeedback && (
-                                                    <span className="text-[11px] text-emerald-300/90 font-medium italic truncate max-w-[200px]" title={t.teacherFeedback}>
+                                                    <span className="text-[10px] sm:text-[11px] text-emerald-300/90 font-medium italic truncate max-w-[140px] sm:max-w-[200px]" title={t.teacherFeedback}>
                                                         Feedback: "{t.teacherFeedback}"
                                                     </span>
                                                 )}
                                             </div>
 
-                                            <div className="flex items-center gap-2 ml-auto">
+                                            <div className="flex items-center gap-1.5 sm:gap-2 ml-auto">
                                                 {/* Leaderboard Button */}
                                                 <button
                                                     type="button"
                                                     onClick={() => loadPaperLeaderboard(t.paperId)}
-                                                    className="px-3 py-1.5 rounded-xl bg-black/40 hover:bg-white/10 text-white/80 hover:text-white text-xs font-bold border border-white/10 transition-colors flex items-center gap-1 cursor-pointer"
+                                                    className="px-2.5 py-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-black/40 hover:bg-white/10 text-white/80 hover:text-white text-xs font-bold border border-white/10 transition-colors flex items-center gap-1 cursor-pointer"
                                                     title="View this paper's leaderboard"
                                                 >
-                                                    <Trophy size={13} className="text-amber-400" />
+                                                    <Trophy size={12} className="text-amber-400" />
                                                     <span className="hidden sm:inline">Leaderboard</span>
                                                 </button>
 
@@ -976,10 +1000,10 @@ export default function StudentOverview({ setActiveTab }) {
                                                 <button
                                                     type="button"
                                                     onClick={() => setSelectedTestForBreakdown(t)}
-                                                    className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white text-xs font-bold shadow-md shadow-sky-600/30 transition-all flex items-center gap-1.5 cursor-pointer"
+                                                    className="px-3 py-1.5 sm:px-3.5 sm:py-1.5 rounded-xl bg-gradient-to-r from-sky-600 to-blue-600 hover:from-sky-500 hover:to-blue-500 text-white text-xs font-bold shadow-md shadow-sky-600/30 transition-all flex items-center gap-1.5 cursor-pointer"
                                                 >
-                                                    <Eye size={13} />
-                                                    <span>View Breakdown</span>
+                                                    <Eye size={12} />
+                                                    <span>Breakdown</span>
                                                 </button>
                                             </div>
                                         </div>
@@ -1053,11 +1077,11 @@ export default function StudentOverview({ setActiveTab }) {
                                 </div>
                             </div>
 
-                            {/* Question-by-Question Marks Breakdown (ප්‍රශ්න අනුව ලකුණු විග්‍රහය) */}
+                            {/* Question-by-Question Marks Breakdown */}
                             <div>
                                 <h4 className="text-white font-bold text-sm mb-3 flex items-center gap-2">
                                     <FileText size={16} className="text-sky-400" />
-                                    <span>Question-by-Question Marks Breakdown (ප්‍රශ්න අනුව ලකුණු)</span>
+                                    <span>Question-by-Question Marks Breakdown</span>
                                 </h4>
 
                                 {Array.isArray(selectedTestForBreakdown.questionMarks) && selectedTestForBreakdown.questionMarks.length > 0 ? (
@@ -1153,7 +1177,7 @@ export default function StudentOverview({ setActiveTab }) {
                                 className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-gradient-to-r from-sky-600 via-blue-600 to-indigo-700 hover:from-sky-500 hover:to-indigo-600 text-white text-xs font-black shadow-lg shadow-sky-600/30 transition-all flex items-center justify-center gap-2 cursor-pointer"
                             >
                                 <MessageSquare size={15} />
-                                <span>Chat with Paper Guider About This Paper (ගයිඩර් අමතන්න)</span>
+                                <span>Chat with Paper Guider About This Paper</span>
                             </button>
                         </div>
                     </div>

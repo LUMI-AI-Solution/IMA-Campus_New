@@ -54,7 +54,7 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
                 l.source === 'bridge_transfer' && 
                 (!(l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'))))
             );
-            setLeads(activeLeads);
+            setLeads(activeLeads.map(l => ({ ...l, savedCallStatus: l.callStatus })));
             if (onLeadsLoaded) onLeadsLoaded(activeLeads.length);
             
             const loadedDrafts = {};
@@ -122,6 +122,7 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
                         return { 
                             ...l, 
                             callStatus: targetStatus, 
+                            savedCallStatus: targetStatus,
                             callAttempt: targetAttempt,
                             attemptCount: targetAttempt,
                             callMethod: targetMethod,
@@ -151,7 +152,7 @@ export default function BridgeStaffExecution({ filters, setChatModalLead, extern
     const phaseFilteredLeads = useMemo(() => {
         return leads.filter(l => {
             const matchesPhase = (l.phase || 1) === activePhase;
-            const matchesStatus = statusFilter === 'ALL' || (statusFilter === 'pending' ? (!l.callStatus || l.callStatus === 'pending') : l.callStatus === statusFilter);
+            const matchesStatus = statusFilter === 'ALL' || (statusFilter === 'pending' ? (!l.savedCallStatus || l.savedCallStatus === 'pending') : l.savedCallStatus === statusFilter);
             const matchesSearch = !searchQuery || l.phone.includes(searchQuery) || (l.name && l.name.toLowerCase().includes(searchQuery.toLowerCase()));
             return matchesPhase && matchesStatus && matchesSearch;
         });

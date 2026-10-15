@@ -1,5 +1,5 @@
 import React from 'react';
-import { FolderOpen, Folder, FolderPlus, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp, Copy, Link, Building2, Sparkles, Trophy, Clock, Award } from 'lucide-react';
+import { FolderOpen, Folder, FolderPlus, Layers, BookOpen, Edit3, Trash2, ChevronRight, ChevronDown, GripVertical, CheckCircle, Video, MonitorPlay, FileText, FileSignature, Power, UserPlus, Plus, Users, User, Eye, EyeOff, Calendar, TrendingUp, Copy, Link, Building2, Sparkles, Trophy, Clock, Award, Unlink, Share2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../../api/axios'; 
 import UpgradePricingConfig from '../../admin/UpgradePricingConfig'; 
@@ -16,7 +16,7 @@ export default function ContentHubViews({ state, actions }) {
     const effectiveContentTab = isPaperMarkerOrGuider ? 'testRanking' : contentTab;
 
     const {
-        openBusinessDetails, openBatchDetails, openContentsView, getImageUrl, getManagerName, toggleBusinessStatus, toggleBatchStatus, deleteItem,
+        openBusinessDetails, openBatchDetails, openContentsView, getImageUrl, getManagerName, toggleBusinessStatus, toggleBatchStatus, deleteItem, unlinkContent, fetchContents,
         setEditData, setEditMode, setSelectedLogoName, setShowBusinessModal, setShowAssignModal, setShowBatchModal, setShowGroupModal, setShowCourseModal,
         setShowLessonGroupModal, setShowContentModal, setPreviewData, setContentType, setPrefilledFolder, setSelectedBatchesForContent,
         toggleFolder, setBatchTab, setContentTab, isMatchedType, getFolderId, setDiscountRules, setSelectedGroupPrices, setMassAssignSubjects,
@@ -182,6 +182,164 @@ export default function ContentHubViews({ state, actions }) {
             toast.error("Failed to copy link");
         }
         document.body.removeChild(textArea);
+    };
+
+    const openEditContentModal = (content) => {
+        setEditData(content);
+        setEditMode(true);
+        setShowContentModal(true);
+        setContentType(contentTab);
+        setPrefilledFolder(content.contentGroupId ? String(content.contentGroupId) : (content.content_group_id ? String(content.content_group_id) : ''));
+        
+        if (content.assignedCourses && content.assignedCourses.length > 0) {
+            setMassAssignSubjects(content.assignedCourses);
+        } else {
+            setMassAssignSubjects(activeSubject?.allCourseIds || [activeSubject?.id]);
+        }
+
+        const batchSet = new Set();
+        if (activeBatch?.id) batchSet.add(activeBatch.id);
+        if (content.batchId) batchSet.add(Number(content.batchId));
+        
+        let addBatches = [];
+        try {
+            if (Array.isArray(content.additionalBatchIds)) {
+                addBatches = content.additionalBatchIds;
+            } else if (typeof content.additionalBatchIds === 'string') {
+                addBatches = JSON.parse(content.additionalBatchIds);
+            }
+        } catch(e) {
+            if (typeof content.additionalBatchIds === 'string') {
+                addBatches = content.additionalBatchIds.split(',').map(s => s.trim()).filter(Boolean);
+            }
+        }
+        addBatches.forEach(bId => { if (bId) batchSet.add(Number(bId)); });
+
+        if (Array.isArray(batches) && Array.isArray(content.assignedCourses)) {
+            const assignedSet = new Set(content.assignedCourses.map(Number));
+            batches.forEach(b => {
+                const hasCourse = (b.groups || []).some(g => (g.courses || []).some(c => assignedSet.has(Number(c.id))));
+                if (hasCourse) batchSet.add(b.id);
+            });
+        }
+        setSelectedBatchesForContent(Array.from(batchSet));
+    };
+
+    const renderContentCard = (content) => {
+        const currentSubjectCourseIds = new Set((activeSubject?.allCourseIds || [activeSubject?.id]).map(Number));
+        const hasOutsideCourses = (content.assignedCourses || []).some(cId => !currentSubjectCourseIds.has(Number(cId)));
+        
+        let hasMultipleBatches = false;
+        try {
+            if (Array.isArray(content.additionalBatchIds)) {
+                hasMultipleBatches = content.additionalBatchIds.length > 0;
+            } else if (typeof content.additionalBatchIds === 'string' && content.additionalBatchIds.trim() !== '') {
+                const parsed = JSON.parse(content.additionalBatchIds);
+                hasMultipleBatches = Array.isArray(parsed) && parsed.length > 0;
+            }
+        } catch(e) {
+            hasMultipleBatches = Boolean(content.additionalBatchIds);
+        }
+
+        const isSharedContent = hasOutsideCourses || hasMultipleBatches;
+
+        return (
+            <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
+                {/* Drag handle */}
+                {canManageContent && (
+                    <div className="absolute top-2.5 left-2.5 z-10 bg-black/50 p-1.5 rounded-lg backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity cursor-grab shadow-sm border border-white/10">
+                        <GripVertical size={14} className="text-white"/>
+                    </div>
+                )}
+
+                {/* Thumbnail Image Section */}
+                <div className="h-36 sm:h-40 w-full bg-black/40 relative overflow-hidden shrink-0 border-b border-white/5">
+                    {content.thumbnail ? (
+                        <img src={`${getBaseUrl()}/storage/documents/${content.thumbnail}`} alt="Thumbnail" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                    ) : (
+                        <div className="w-full h-full bg-gradient-to-br from-slate-800/50 to-black flex items-center justify-center opacity-80 group-hover:scale-105 transition-transform duration-500">
+                            <MonitorPlay size={36} className="text-white/20" />
+                        </div>
+                    )}
+
+                    {/* Shared Badge */}
+                    {isSharedContent && (
+                        <div className="absolute top-2.5 left-2.5 z-10 bg-indigo-600/90 backdrop-blur-md px-2.5 py-1 rounded-lg border border-indigo-400/40 text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-white shadow-md flex items-center gap-1">
+                            <Share2 size={11} className="text-indigo-200" /> Shared
+                        </div>
+                    )}
+                    
+                    {/* Date Badge */}
+                    <div className="absolute top-2.5 right-2.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-white shadow-sm">
+                        {content.date ? content.date.split('T')[0] : 'No Date'}
+                    </div>
+                </div>
+
+                {/* Content Details */}
+                <div className="p-3.5 sm:p-5 flex-1 flex flex-col justify-between">
+                    <h4 className="text-xs sm:text-base font-extrabold text-white mb-2 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
+                        {content.title}
+                    </h4>
+                    
+                    {/* Test Badges and Info */}
+                    {isTestType(effectiveContentTab, content) && renderTestBadges(content)}
+
+                    {/* Action Buttons */}
+                    {isTestType(effectiveContentTab, content) && (
+                        <button 
+                            onClick={() => openPaperBuilder(content)} 
+                            className="w-full bg-gradient-to-r from-brand-accent/20 to-amber-500/20 hover:from-brand-accent hover:to-amber-600 border border-brand-accent/40 text-white font-extrabold py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2 mb-2 mt-auto active:scale-95 group/btn"
+                        >
+                            <Trophy size={14} className="text-amber-400 group-hover/btn:scale-110 transition-transform" />
+                            Manage Test & Rankings
+                        </button>
+                    )}
+
+                    <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-1.5 mt-auto">
+                        <button onClick={() => {
+                            let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
+                            setPreviewData({ ...content, link: fileUrl });
+                        }} className="flex-1 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none text-center">
+                            PREVIEW
+                        </button>
+                        <button onClick={() => {
+                            let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
+                            copyToClipboard(fileUrl);
+                        }} className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none flex items-center justify-center gap-1">
+                            <Copy size={12}/> COPY
+                        </button>
+                        
+                        {canManageContent && (
+                            <div className="flex gap-1">
+                                {isSharedContent && unlinkContent && (
+                                    <button 
+                                        onClick={() => unlinkContent(content, activeSubject)} 
+                                        title="Unlink from this class only (keeps in other classes)" 
+                                        className="bg-amber-500/10 border border-amber-500/30 text-amber-400 hover:bg-amber-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none"
+                                    >
+                                        <Unlink size={16}/>
+                                    </button>
+                                )}
+                                <button onClick={() => openEditContentModal(content)} className="bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none" title="Edit Content">
+                                    <Edit3 size={16}/>
+                                </button>
+                                <button onClick={() => {
+                                    if (isSharedContent) {
+                                        const proceed = window.confirm(
+                                            `⚠️ WARNING: "${content.title}" is SHARED across multiple classes or batches!\n\nDeleting here will permanently DELETE it from ALL classes and batches.\n\n💡 If you only want to remove it from this class, click CANCEL and click the yellow Unlink (broken chain) button instead.\n\nDo you really want to permanently delete it everywhere?`
+                                        );
+                                        if (!proceed) return;
+                                    }
+                                    deleteItem('/admin/content/delete', { content_id: content.id }, "Content Deleted");
+                                }} className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none" title={isSharedContent ? "Permanently Delete Everywhere" : "Delete Content"}>
+                                    <Trash2 size={16}/>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     return (
@@ -752,86 +910,6 @@ export default function ContentHubViews({ state, actions }) {
                                             !subFolders.some(sf => isItemMatch(c, sf))
                                         );
 
-                                    const renderContentCard = (content) => (
-                                        <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
-                                            {/* Drag handle */}
-                                            {canManageContent && (
-                                                <div className="absolute top-2.5 left-2.5 z-10 bg-black/50 p-1.5 rounded-lg backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity cursor-grab shadow-sm border border-white/10">
-                                                    <GripVertical size={14} className="text-white"/>
-                                                </div>
-                                            )}
-
-                                            {/* Thumbnail Image Section */}
-                                            <div className="h-36 sm:h-40 w-full bg-black/40 relative overflow-hidden shrink-0 border-b border-white/5">
-                                                {content.thumbnail ? (
-                                                    <img src={`${getBaseUrl()}/storage/documents/${content.thumbnail}`} alt="Thumbnail" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                                                ) : (
-                                                    <div className="w-full h-full bg-gradient-to-br from-slate-800/50 to-black flex items-center justify-center opacity-80 group-hover:scale-105 transition-transform duration-500">
-                                                        <MonitorPlay size={36} className="text-white/20" />
-                                                    </div>
-                                                )}
-                                                
-                                                {/* Date Badge */}
-                                                <div className="absolute top-2.5 right-2.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-white shadow-sm">
-                                                    {content.date ? content.date.split('T')[0] : 'No Date'}
-                                                </div>
-                                            </div>
-
-                                            {/* Content Details */}
-                                            <div className="p-3.5 sm:p-5 flex-1 flex flex-col justify-between">
-                                                <h4 className="text-xs sm:text-base font-extrabold text-white mb-2 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
-                                                    {content.title}
-                                                </h4>
-                                                
-                                                {/* Test Badges and Info */}
-                                                {isTestType(effectiveContentTab, content) && renderTestBadges(content)}
-
-                                                {/* Action Buttons */}
-                                                {isTestType(effectiveContentTab, content) && (
-                                                    <button 
-                                                        onClick={() => openPaperBuilder(content)} 
-                                                        className="w-full bg-gradient-to-r from-brand-accent/20 to-amber-500/20 hover:from-brand-accent hover:to-amber-600 border border-brand-accent/40 text-white font-extrabold py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2 mb-2 mt-auto active:scale-95 group/btn"
-                                                    >
-                                                        <Trophy size={14} className="text-amber-400 group-hover/btn:scale-110 transition-transform" />
-                                                        Manage Test & Rankings
-                                                    </button>
-                                                )}
-
-                                                <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-1.5 mt-auto">
-                                                    <button onClick={() => {
-                                                        let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
-                                                        setPreviewData({ ...content, link: fileUrl });
-                                                    }} className="flex-1 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none text-center">
-                                                        PREVIEW
-                                                    </button>
-                                                    <button onClick={() => {
-                                                        let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
-                                                        copyToClipboard(fileUrl);
-                                                    }} className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none flex items-center justify-center gap-1">
-                                                        <Copy size={12}/> COPY
-                                                    </button>
-                                                    
-                                                    {canManageContent && (
-                                                        <div className="flex gap-1">
-                                                            <button onClick={() => { 
-                                                                setEditData(content); setEditMode(true); setShowContentModal(true); setContentType(contentTab); 
-                                                                setPrefilledFolder(content.contentGroupId ? String(content.contentGroupId) : (content.content_group_id ? String(content.content_group_id) : ''));
-                                                                if(content.assignedCourses && content.assignedCourses.length > 0) { setMassAssignSubjects(content.assignedCourses); } 
-                                                                else { setMassAssignSubjects([activeSubject.id]); }
-                                                                setSelectedBatchesForContent([activeBatch.id]);
-                                                            }} className="bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none">
-                                                                <Edit3 size={16}/>
-                                                            </button>
-                                                            <button onClick={() => deleteItem('/admin/content/delete', { content_id: content.id }, "Content Deleted")} className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none">
-                                                                <Trash2 size={16}/>
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-
                                     return (
                                         <div key={folder.id} className="bg-white/[0.02] backdrop-blur-xl border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden transition-all shadow-[0_4px_20px_rgba(0,0,0,0.2)]">
                                             <div className="flex flex-wrap justify-between items-center cursor-pointer p-3.5 sm:p-5 bg-white/[0.05] hover:bg-white/10 transition-colors gap-3" onClick={() => toggleFolder(folder.id)}>
@@ -851,7 +929,7 @@ export default function ContentHubViews({ state, actions }) {
                                                                 setContentType(contentTab); 
                                                                 setPrefilledFolder(String(folder.id)); 
                                                                 setSelectedBatchesForContent([activeBatch.id]); 
-                                                                setMassAssignSubjects([activeSubject.id]); 
+                                                                setMassAssignSubjects(activeSubject?.allCourseIds || [activeSubject.id]); 
                                                                 if (setHubBatchConfigs) setHubBatchConfigs({});
                                                                 if (setHubActiveBatchTab) setHubActiveBatchTab(null);
                                                                 setShowContentModal(true); 
@@ -906,7 +984,7 @@ export default function ContentHubViews({ state, actions }) {
                                                                                                 setContentType(contentTab); 
                                                                                                 setPrefilledFolder(String(subFolder.id)); 
                                                                                                 setSelectedBatchesForContent([activeBatch.id]); 
-                                                                                                setMassAssignSubjects([activeSubject.id]); 
+                                                                                                setMassAssignSubjects(activeSubject?.allCourseIds || [activeSubject.id]); 
                                                                                                 if (setHubBatchConfigs) setHubBatchConfigs({});
                                                                                                 if (setHubActiveBatchTab) setHubActiveBatchTab(null);
                                                                                                 setShowContentModal(true); 
@@ -961,7 +1039,7 @@ export default function ContentHubViews({ state, actions }) {
                                                                         setContentType(contentTab); 
                                                                         setPrefilledFolder(String(folder.id)); 
                                                                         setSelectedBatchesForContent([activeBatch.id]); 
-                                                                        setMassAssignSubjects([activeSubject.id]); 
+                                                                        setMassAssignSubjects(activeSubject?.allCourseIds || [activeSubject.id]); 
                                                                         if (setHubBatchConfigs) setHubBatchConfigs({});
                                                                         if (setHubActiveBatchTab) setHubActiveBatchTab(null);
                                                                         setShowContentModal(true); 
@@ -988,86 +1066,7 @@ export default function ContentHubViews({ state, actions }) {
                                     {subjectContents
                                         .filter(c => isMatchedType(c) && isUncategorized(c))
                                         .sort((a, b) => (a.itemOrder || 1) - (b.itemOrder || 1))
-                                        .map((content) => (
-                                        <div key={content.id} className="bg-white/[0.05] border border-white/10 rounded-2xl sm:rounded-[2rem] overflow-hidden hover:border-white/30 transition-all shadow-sm hover:shadow-[0_8px_25px_rgba(0,0,0,0.4)] group flex flex-col relative backdrop-blur-md">
-                                            
-                                            {/* Drag handle */}
-                                            {canManageContent && (
-                                                <div className="absolute top-2.5 left-2.5 z-10 bg-black/50 p-1.5 rounded-lg backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity cursor-grab shadow-sm border border-white/10">
-                                                    <GripVertical size={14} className="text-white"/>
-                                                </div>
-                                            )}
-
-                                            {/* Thumbnail Image Section */}
-                                            <div className="h-36 sm:h-40 w-full bg-black/40 relative overflow-hidden shrink-0 border-b border-white/5">
-                                                {content.thumbnail ? (
-                                                    <img src={`${getBaseUrl()}/storage/documents/${content.thumbnail}`} alt="Thumbnail" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
-                                                ) : (
-                                                    <div className="w-full h-full bg-gradient-to-br from-slate-800/50 to-black flex items-center justify-center opacity-80 group-hover:scale-105 transition-transform duration-500">
-                                                        <MonitorPlay size={36} className="text-white/20" />
-                                                    </div>
-                                                )}
-                                                
-                                                {/* Date Badge */}
-                                                <div className="absolute top-2.5 right-2.5 bg-black/60 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-[9px] sm:text-[10px] font-black uppercase tracking-widest text-white shadow-sm">
-                                                    {content.date ? content.date.split('T')[0] : 'No Date'}
-                                                </div>
-                                            </div>
-
-                                            {/* Content Details */}
-                                            <div className="p-3.5 sm:p-5 flex-1 flex flex-col justify-between">
-                                                <h4 className="text-xs sm:text-base font-extrabold text-white mb-2 line-clamp-2 leading-snug group-hover:text-brand-accent transition-colors drop-shadow-sm" title={content.title}>
-                                                    {content.title}
-                                                </h4>
-                                                
-                                                {/* Test Badges and Info */}
-                                                {isTestType(effectiveContentTab, content) && renderTestBadges(content)}
-
-                                                {/* Action Buttons */}
-                                                {isTestType(effectiveContentTab, content) && (
-                                                    <button 
-                                                        onClick={() => openPaperBuilder(content)} 
-                                                        className="w-full bg-gradient-to-r from-brand-accent/20 to-amber-500/20 hover:from-brand-accent hover:to-amber-600 border border-brand-accent/40 text-white font-extrabold py-2.5 rounded-xl text-[10px] sm:text-xs uppercase tracking-wider transition-all shadow-md flex items-center justify-center gap-2 mb-2 mt-auto active:scale-95 group/btn"
-                                                    >
-                                                        <Trophy size={14} className="text-amber-400 group-hover/btn:scale-110 transition-transform" />
-                                                        Manage Test & Rankings
-                                                    </button>
-                                                )}
-
-                                                <div className="pt-2.5 border-t border-white/10 flex flex-wrap items-center justify-between gap-1.5 mt-auto">
-                                                    <button onClick={() => {
-                                                        let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
-                                                        setPreviewData({ ...content, link: fileUrl });
-                                                    }} className="flex-1 bg-green-500/10 border border-green-500/20 text-green-400 hover:bg-green-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none text-center">
-                                                        PREVIEW
-                                                    </button>
-                                                    <button onClick={() => {
-                                                        let fileUrl = content.fileName ? `${getBaseUrl()}/storage/documents/${content.fileName}` : content.link;
-                                                        copyToClipboard(fileUrl);
-                                                    }} className="flex-1 bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white py-2 sm:py-2.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-wider transition-all shadow-sm outline-none flex items-center justify-center gap-1">
-                                                        <Copy size={12}/> COPY
-                                                    </button>
-                                                    
-                                                    {canManageContent && (
-                                                        <div className="flex gap-1">
-                                                            <button onClick={() => { 
-                                                                setEditData(content); setEditMode(true); setShowContentModal(true); setContentType(contentTab); 
-                                                                setPrefilledFolder(content.contentGroupId ? String(content.contentGroupId) : (content.content_group_id ? String(content.content_group_id) : ''));
-                                                                if(content.assignedCourses && content.assignedCourses.length > 0) { setMassAssignSubjects(content.assignedCourses); } 
-                                                                else { setMassAssignSubjects([activeSubject.id]); }
-                                                                setSelectedBatchesForContent([activeBatch.id]);
-                                                            }} className="bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none">
-                                                                <Edit3 size={16}/>
-                                                            </button>
-                                                            <button onClick={() => deleteItem('/admin/content/delete', { content_id: content.id }, "Content Deleted")} className="bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white p-2 rounded-lg sm:rounded-xl transition-colors shadow-sm outline-none">
-                                                                <Trash2 size={16}/>
-                                                            </button>
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        ))}
+                                        .map(renderContentCard)}
                                 </div>
                                 {subjectContents.filter(c => isMatchedType(c) && isUncategorized(c)).length === 0 && <p className="text-xs sm:text-sm text-gray-400 py-6 text-center font-bold bg-white/5 rounded-2xl border border-white/10 shadow-inner">No uncategorized items.</p>}
                             </div>

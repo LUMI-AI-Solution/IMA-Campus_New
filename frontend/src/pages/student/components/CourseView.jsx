@@ -579,12 +579,12 @@ export default function CourseView({ courseId, onBack }) {
                     {playType === 'zoom' && (
                         <div className="md:hidden w-full mb-4 bg-blue-500/10 border border-blue-500/20 rounded-xl p-3.5 flex flex-col gap-1.5 text-sm text-blue-100 shadow-lg">
                             <div className="flex items-center gap-2 font-bold text-blue-400 mb-1">
-                                <Info size={18} /> Recording එක බලන නිවැරදි ආකාරය:
+                                <Info size={18} /> How to Play the Recording:
                             </div>
                             <ol className="list-decimal pl-5 space-y-1 text-xs sm:text-sm text-blue-200/90">
-                                <li>කළු පාට Video box එක ඇතුළත පහළට Scroll කරන්න.</li>
-                                <li>එහි ඇති <b>"Accept Cookies"</b> බොත්තම ඔබන්න.</li>
-                                <li>ඉන්පසු <b>Play button</b> එක ඔබා Video එක නරඹන්න.</li>
+                                <li>Scroll down inside the video frame.</li>
+                                <li>Click the <b>"Accept Cookies"</b> button.</li>
+                                <li>Then click the <b>Play button</b> to start watching.</li>
                             </ol>
                         </div>
                     )}

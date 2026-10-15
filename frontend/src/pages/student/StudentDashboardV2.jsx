@@ -1,7 +1,7 @@
 import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from '../../api/axios';
-import { Menu, LogOut, AlertTriangle, Info, Lock, Bell } from 'lucide-react';
+import { Menu, LogOut, AlertTriangle, Info, Lock, Bell, Sparkles, Check, Palette } from 'lucide-react';
 import SidebarV2 from './components/SidebarV2';
 import EnrollmentTab from './components/EnrollmentTab';
 import PaymentHistory from './components/PaymentHistory';
@@ -95,7 +95,56 @@ const StudentDashboardV2 = () => {
   const [businesses, setBusinesses] = useState([]);
   const [alerts, setAlerts] = useState([]); 
 
-  const [bgImage, setBgImage] = useState('/student-bg.jpg');
+  // Wallpaper state with instant loading & accurate natural names
+  const wallpapers = [
+    { id: 'default', url: '/student-bg.jpg', label: 'Default', desc: 'Signature Purple Aura' },
+    { id: 'crimson', url: '/bg2.jpg', label: 'Crimson', desc: 'Deep Velvet Red' },
+    { id: 'midnight', url: '/bg3.jpg', label: 'Midnight', desc: 'Dark Cosmic Blue' }
+  ];
+
+  const [bgImage, setBgImage] = useState(() => {
+    return localStorage.getItem('student_bg') || '/student-bg.jpg';
+  });
+
+  const [showWallpaperMenu, setShowWallpaperMenu] = useState(false);
+  const wallpaperMenuRef = useRef(null);
+
+  const handleBgChange = (newBg) => {
+    setBgImage(newBg);
+    localStorage.setItem('student_bg', newBg);
+  };
+
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (wallpaperMenuRef.current && !wallpaperMenuRef.current.contains(e.target)) {
+        setShowWallpaperMenu(false);
+      }
+    };
+    if (showWallpaperMenu) {
+      document.addEventListener('mousedown', handleOutsideClick);
+      document.addEventListener('touchstart', handleOutsideClick);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('touchstart', handleOutsideClick);
+    };
+  }, [showWallpaperMenu]);
+
+  const [uiTheme, setUiTheme] = useState(() => {
+    const saved = localStorage.getItem('uiTheme');
+    return (saved === 'chatline' ? 'aurora' : saved) || 'glass';
+  });
+
+  useEffect(() => {
+    // Ensure dark mode is active to prevent any flat white washout
+    document.documentElement.classList.add('dark');
+    if (uiTheme !== 'glass') {
+      document.documentElement.dataset.theme = uiTheme === 'chatline' ? 'aurora' : uiTheme;
+    } else {
+      delete document.documentElement.dataset.theme;
+    }
+    localStorage.setItem('uiTheme', uiTheme === 'chatline' ? 'aurora' : uiTheme);
+  }, [uiTheme]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -130,12 +179,28 @@ const StudentDashboardV2 = () => {
   );
 
   return (
-    <div 
-        className="min-h-[100dvh] w-full relative overflow-hidden bg-cover bg-center bg-fixed font-sans text-white transition-all duration-700 ease-in-out"
-        style={{ backgroundImage: `url(${getSecureImageUrl(bgImage)})` }}
-    >
-      {/* Clean overlay to ensure text readability without making it muddy */}
-      <div className="absolute inset-0 bg-black/30 backdrop-blur-sm z-0"></div>
+    <div className="min-h-[100dvh] w-full relative overflow-hidden font-sans text-white bg-[#060a14]">
+      {/* Dedicated Fixed Hardware-Accelerated Wallpaper Layer (Eliminates jitter/gassi-gassi) */}
+      <div 
+        className="fixed inset-0 z-0 bg-cover bg-center pointer-events-none transition-opacity duration-300"
+        style={{ 
+          backgroundImage: `url(${getSecureImageUrl(bgImage)})`,
+          transform: 'translate3d(0, 0, 0)',
+          WebkitBackfaceVisibility: 'hidden',
+          backfaceVisibility: 'hidden'
+        }}
+      />
+      {/* Deep elegant dark frosted overlay to soften background noise & eliminate banding lines */}
+      <div className="fixed inset-0 z-0 bg-black/50 pointer-events-none" />
+
+      {/* Aurora Teal Ambient Orbs when Aurora / Teal Glass theme is active */}
+      {(uiTheme === 'aurora' || uiTheme === 'chatline') && (
+        <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
+          <div className="orb orb-1" />
+          <div className="orb orb-2" />
+          <div className="orb orb-3" />
+        </div>
+      )}
 
       <div className="flex h-[100dvh] w-full relative z-10 overflow-hidden">
           
@@ -146,54 +211,124 @@ const StudentDashboardV2 = () => {
             setSidebarOpen={setSidebarOpen} 
             handleLogout={handleLogout} 
             bgImage={getSecureImageUrl(bgImage)}
-            setBgImage={setBgImage} 
+            setBgImage={handleBgChange}
+            uiTheme={uiTheme}
+            setUiTheme={setUiTheme}
           />
 
           <main className="flex-1 flex flex-col h-full overflow-hidden relative z-10 w-full lg:py-[20px] lg:pr-[20px] lg:pl-[20px]">
             
             {/* Top Navigation Bar - Clean Frosted Glass */}
-            <header className="bg-black/20 backdrop-blur-2xl border-b lg:border border-white/20 lg:rounded-3xl px-6 py-4 lg:mb-[20px] flex items-center justify-between sticky top-0 lg:top-auto z-30 shadow-[0_8px_32px_rgba(0,0,0,0.1)]">
-              <div className="flex items-center gap-4">
-                  <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-white hover:bg-white/10 p-2 rounded-full transition-all">
-                      <Menu size={24} />
+            <header className="bg-black/30 backdrop-blur-2xl border-b lg:border border-white/20 lg:rounded-3xl px-3 sm:px-6 py-2.5 sm:py-4 lg:mb-[20px] flex items-center justify-between sticky top-0 lg:top-auto z-30 shadow-[0_8px_32px_rgba(0,0,0,0.2)]">
+              <div className="flex items-center gap-3 sm:gap-4">
+                  <button 
+                    onClick={() => setSidebarOpen(true)} 
+                    className="lg:hidden text-white hover:bg-white/10 p-2 sm:p-2.5 rounded-xl border border-white/10 transition-all cursor-pointer"
+                    aria-label="Open Navigation Menu"
+                  >
+                      <Menu size={22} />
                   </button>
-                  <div className="hidden lg:block">
-                      <h1 className="text-2xl font-bold tracking-tight text-white drop-shadow-md">
+                  <div>
+                      <h1 className="text-lg sm:text-2xl font-black tracking-tight text-white drop-shadow-md leading-tight">
                           Welcome Back
                       </h1>
-                      <p className="text-sm text-white/80 font-medium">Let's continue your learning journey.</p>
+                      <p className="hidden sm:block text-xs sm:text-sm text-white/80 font-medium">Let's continue your learning journey.</p>
                   </div>
               </div>
 
-              <div className="flex items-center gap-5">
-                  {/* Notifications Bell */}
-                  <div className="relative group cursor-pointer">
-                      <div className="p-3 bg-white/10 hover:bg-white/10 border border-white/20 rounded-full transition-all shadow-sm">
-                          <Bell size={20} className="text-white" />
-                      </div>
-                      {alerts.length > 0 && (
-                          <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 rounded-full border-2 border-transparent animate-pulse shadow-lg"></div>
+              <div className="flex items-center gap-2.5 sm:gap-4">
+                  {/* Quick Wallpaper Switcher Popover (Accessible on Mobile & Desktop) */}
+                  <div className="relative" ref={wallpaperMenuRef}>
+                      <button
+                          type="button"
+                          onClick={() => setShowWallpaperMenu(!showWallpaperMenu)}
+                          className={`flex items-center gap-1.5 px-3 py-2 rounded-full border transition-all duration-200 cursor-pointer text-xs font-bold ${
+                              showWallpaperMenu 
+                                  ? 'bg-white text-gray-900 border-white shadow-[0_0_15px_rgba(255,255,255,0.4)]' 
+                                  : 'bg-white/10 hover:bg-white/20 text-white border-white/20 shadow-sm'
+                          }`}
+                          title="Change Atmosphere Wallpaper"
+                      >
+                          <Sparkles size={14} className={showWallpaperMenu ? 'text-amber-500' : 'text-amber-400 animate-pulse'} />
+                          <span className="hidden sm:inline">Wallpaper</span>
+                      </button>
+
+                      {showWallpaperMenu && (
+                          <div className="absolute right-0 mt-2.5 w-64 bg-[#0a101d]/95 backdrop-blur-2xl border border-white/20 rounded-2xl p-2.5 shadow-2xl z-50 animate-in fade-in zoom-in-95 duration-150">
+                              <div className="px-2 py-1.5 mb-1.5 border-b border-white/10 flex items-center justify-between">
+                                  <span className="text-[11px] font-bold text-white/90 uppercase tracking-widest flex items-center gap-1.5">
+                                      <Sparkles size={12} className="text-amber-400" /> Wallpapers
+                                  </span>
+                                  <span className="text-[10px] text-white/50 font-medium">3 Vibes</span>
+                              </div>
+                              <div className="space-y-1">
+                                  {wallpapers.map((w) => {
+                                      const isSelected = bgImage?.includes(w.url) || bgImage === w.url;
+                                      return (
+                                          <button
+                                              key={w.id}
+                                              type="button"
+                                              onClick={() => {
+                                                  handleBgChange(w.url);
+                                                  setShowWallpaperMenu(false);
+                                              }}
+                                              className={`w-full flex items-center gap-3 p-2 rounded-xl text-left transition-all duration-200 cursor-pointer ${
+                                                  isSelected
+                                                      ? 'bg-white/20 border border-white/40 shadow-sm'
+                                                      : 'hover:bg-white/10 border border-transparent'
+                                              }`}
+                                          >
+                                              <div 
+                                                  className={`w-9 h-9 rounded-xl border-2 bg-cover bg-center shrink-0 shadow-sm ${
+                                                      isSelected ? 'border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.6)]' : 'border-white/30'
+                                                  }`}
+                                                  style={{ backgroundImage: `url(${w.url})` }}
+                                              />
+                                              <div className="flex-1 min-w-0">
+                                                  <p className="text-xs font-bold text-white leading-tight truncate">{w.label}</p>
+                                                  <p className="text-[10px] text-white/60 truncate">{w.desc}</p>
+                                              </div>
+                                              {isSelected && (
+                                                  <div className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow">
+                                                      <Check size={12} strokeWidth={3} />
+                                                  </div>
+                                              )}
+                                          </button>
+                                      );
+                                  })}
+                              </div>
+                          </div>
                       )}
                   </div>
 
-                  <div className="h-10 w-px bg-white/10 hidden sm:block"></div>
+                  {/* Notifications Bell */}
+                  <div className="relative group cursor-pointer">
+                      <div className="p-2 sm:p-2.5 bg-white/10 hover:bg-white/20 border border-white/20 rounded-full transition-all shadow-sm">
+                          <Bell size={18} className="text-white" />
+                      </div>
+                      {alerts.length > 0 && (
+                          <div className="absolute -top-0.5 -right-0.5 w-3 h-3 bg-red-500 rounded-full border-2 border-transparent animate-pulse shadow-lg"></div>
+                      )}
+                  </div>
+
+                  <div className="h-8 w-px bg-white/10 hidden sm:block"></div>
 
                   {/* Profile Summary */}
                   <div 
                       onClick={() => setActiveTab('profile')}
-                      className="flex items-center gap-4 cursor-pointer hover:opacity-90 transition-opacity"
+                      className="flex items-center gap-2.5 sm:gap-3.5 cursor-pointer hover:opacity-90 transition-opacity"
                       title="View Profile Settings"
                   >
-                      <div className="hidden sm:block text-right">
-                          <p className="text-base font-bold text-white drop-shadow-sm">{currentUser.fName ? `${currentUser.fName} ${currentUser.lName || ''}`.trim() : 'Student Portal'}</p>
-                          <p className="text-[11px] text-white/70 uppercase tracking-[0.15em] font-semibold">IMA Campus</p>
+                      <div className="hidden md:block text-right">
+                          <p className="text-sm font-bold text-white drop-shadow-sm leading-tight">{currentUser.fName ? `${currentUser.fName} ${currentUser.lName || ''}`.trim() : 'Student Portal'}</p>
+                          <p className="text-[10px] text-white/70 uppercase tracking-[0.15em] font-semibold">IMA Campus</p>
                       </div>
-                      <div className="w-12 h-12 rounded-full bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-500 p-[2px] shadow-lg">
+                      <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-500 p-[2px] shadow-lg shrink-0">
                           <div className="w-full h-full rounded-full bg-[#0a0f1d] flex items-center justify-center overflow-hidden">
                               {headerProfilePic ? (
                                   <img src={headerProfilePic} alt="Profile" className="w-full h-full object-cover" />
                               ) : (
-                                  <span className="text-white font-bold text-lg">
+                                  <span className="text-white font-black text-xs sm:text-sm">
                                       {currentUser.fName ? currentUser.fName.substring(0, 2).toUpperCase() : 'ST'}
                                   </span>
                               )}
@@ -205,7 +340,7 @@ const StudentDashboardV2 = () => {
 
             {/* Main Content Area - Massive Clean Glass Panel */}
             <div className="flex-1 overflow-y-auto lg:rounded-3xl bg-black/20 backdrop-blur-2xl border-x border-t lg:border border-white/20 shadow-[0_8px_32px_rgba(0,0,0,0.2)] relative w-full custom-scrollbar">
-              <div className="w-full min-h-full p-4 md:p-8 lg:p-10 mx-auto transition-all duration-500">
+              <div className="w-full min-h-full p-3 sm:p-6 md:p-8 lg:p-10 mx-auto transition-all duration-500">
                 
                 {activeTab !== 'home' && alerts.length > 0 && (
                     <div className="mb-10 space-y-4">

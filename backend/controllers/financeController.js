@@ -62,7 +62,14 @@ exports.getFinanceMatrix = async (req, res) => {
             orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }],
             select: { id: true, name: true, classType: true }
         });
-        const monthlyGroups = rawGroups.filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'));
+        const monthlyGroups = rawGroups
+            .filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'))
+            .map(g => {
+                if (!parsedClassType && parseInt(g.classType || 1) === 2) {
+                    return { ...g, name: `${g.name} (Paper)` };
+                }
+                return g;
+            });
 
         // 2. Get Courses
         let courseWhere = { group: { batchId: parsedBatchId } };
@@ -93,21 +100,25 @@ exports.getFinanceMatrix = async (req, res) => {
         // Helper function to extract exact monthly groups a course spans
         const getActiveMonthsForCourse = (course) => {
             if (!course) return monthlyGroups;
+            const cType = parseInt(course.courseType || 1);
+            const relevantGroups = monthlyGroups.filter(g => parseInt(g.classType || 1) === cType);
+            const candidateGroups = relevantGroups.length > 0 ? relevantGroups : monthlyGroups;
+
             const startStr = (course.startMonth || '').trim().toLowerCase();
             const endStr = (course.endMonth || '').trim().toLowerCase();
-            if (!startStr || !endStr) return monthlyGroups;
+            if (!startStr || !endStr) return candidateGroups;
 
-            let startIndex = monthlyGroups.findIndex(g => g.name.toLowerCase().includes(startStr));
-            let endIndex = monthlyGroups.findIndex(g => g.name.toLowerCase().includes(endStr));
+            let startIndex = candidateGroups.findIndex(g => g.name.toLowerCase().includes(startStr));
+            let endIndex = candidateGroups.findIndex(g => g.name.toLowerCase().includes(endStr));
 
             if (startIndex === -1) startIndex = 0;
-            if (endIndex === -1) endIndex = monthlyGroups.length - 1;
+            if (endIndex === -1) endIndex = candidateGroups.length - 1;
 
             if (startIndex <= endIndex) {
-                return monthlyGroups.slice(startIndex, endIndex + 1);
+                return candidateGroups.slice(startIndex, endIndex + 1);
             } else {
                 // Wrap around (academic intakes wrapping across new year)
-                return [...monthlyGroups.slice(startIndex), ...monthlyGroups.slice(0, endIndex + 1)];
+                return [...candidateGroups.slice(startIndex), ...candidateGroups.slice(0, endIndex + 1)];
             }
         };
 
@@ -160,8 +171,8 @@ exports.getFinanceMatrix = async (req, res) => {
         // Filter payments to match class type precisely
         const payments = rawPayments.filter(p => {
             if (!parsedClassType) return true;
-            const gClassType = p.group ? parseInt(p.group.classType || 1) : 1;
-            if (gClassType === parsedClassType) return true;
+            const gClassType = p.group ? parseInt(p.group.classType || 1) : null;
+            if (gClassType !== null && gClassType === parsedClassType) return true;
 
             try {
                 const subIds = JSON.parse(p.subjects || '[]').map(id => typeof id === 'object' ? parseInt(id.id) : parseInt(id));
@@ -186,6 +197,46 @@ exports.getFinanceMatrix = async (req, res) => {
             if (paidAmount <= 0) return;
 
             const isUpgrade = p.remark && (p.remark.includes('[UPGRADE]') || p.remark.includes('UPGRADE'));
+
+            // Subject parsing first to ensure payment belongs to active subjects in this view
+            let enrolledSubjectData = [];
+            try {
+                const subs = JSON.parse(p.subjects || '[]');
+                
+                // Parse custom overridden prices if they exist in payment remark
+                let customPricesMap = {};
+                if (p.remark && p.remark.includes('[CUSTOM_PRICES:')) {
+                    try {
+                        const match = p.remark.match(/\[CUSTOM_PRICES:({.*?})\]/);
+                        if (match) {
+                            customPricesMap = JSON.parse(match[1]);
+                        }
+                    } catch (e) { }
+                }
+
+                subs.forEach(item => {
+                    let cid = typeof item === 'object' ? parseInt(item.id) : parseInt(item);
+                    let subName = cid ? courseMap[cid] : (typeof item === 'string' ? item.trim().toUpperCase() : null);
+                    if (subName && uniqueSubjectNames.includes(subName) && !enrolledSubjectData.find(u => u.name === subName)) {
+                        const dbCourse = courses.find(c => c.id === cid);
+                        let price = dbCourse ? parseFloat(dbCourse.price || 0) : 0;
+                        
+                        // Apply custom override or special discount price
+                        const strId = String(cid);
+                        if (customPricesMap[strId] !== undefined) {
+                            price = parseFloat(customPricesMap[strId]);
+                        }
+
+                        enrolledSubjectData.push({
+                            name: subName,
+                            price: price,
+                            courseObj: dbCourse
+                        });
+                    }
+                });
+            } catch (e) { }
+
+            if (enrolledSubjectData.length === 0) return;
 
             if (!studentMap[p.studentId]) {
                 let nic = p.student.nic || '';
@@ -233,46 +284,6 @@ exports.getFinanceMatrix = async (req, res) => {
             sData.paymentTypes.add(payType === 3 ? 'Full' : (payType === 2 ? 'Installment' : 'Monthly'));
             sData.totalPaid += paidAmount;
             grandTotal += paidAmount;
-
-            // Subject parsing
-            let enrolledSubjectData = [];
-            try {
-                const subs = JSON.parse(p.subjects || '[]');
-                
-                // Parse custom overridden prices if they exist in payment remark
-                let customPricesMap = {};
-                if (p.remark && p.remark.includes('[CUSTOM_PRICES:')) {
-                    try {
-                        const match = p.remark.match(/\[CUSTOM_PRICES:({.*?})\]/);
-                        if (match) {
-                            customPricesMap = JSON.parse(match[1]);
-                        }
-                    } catch (e) { }
-                }
-
-                subs.forEach(item => {
-                    let cid = typeof item === 'object' ? parseInt(item.id) : parseInt(item);
-                    let subName = cid ? courseMap[cid] : (typeof item === 'string' ? item.trim().toUpperCase() : null);
-                    if (subName && uniqueSubjectNames.includes(subName) && !enrolledSubjectData.find(u => u.name === subName)) {
-                        const dbCourse = courses.find(c => c.id === cid);
-                        let price = dbCourse ? parseFloat(dbCourse.price || 0) : 0;
-                        
-                        // Apply custom override or special discount price
-                        const strId = String(cid);
-                        if (customPricesMap[strId] !== undefined) {
-                            price = parseFloat(customPricesMap[strId]);
-                        }
-
-                        enrolledSubjectData.push({
-                            name: subName,
-                            price: price,
-                            courseObj: dbCourse
-                        });
-                    }
-                });
-            } catch (e) { }
-
-            if (enrolledSubjectData.length === 0) return;
 
             // =========================================================
             // 🔥 UNIVERSAL RATIO ENGINE (WITH ENGLISH ISOLATION) 🔥
@@ -338,8 +349,9 @@ exports.getFinanceMatrix = async (req, res) => {
 
                 if (isIsolatedEnglish) {
                     if (payType === 1) { // MONTHLY for English
-                        let targetMgId = monthlyGroups.find(mg => mg.id === p.groupId)?.id || monthlyGroups[0].id;
-                        if (sData.matrixValues[targetMgId]) {
+                        let targetMg = monthlyGroups.find(mg => mg.id === p.groupId);
+                        let targetMgId = targetMg ? targetMg.id : (activeGroupIds.length > 0 ? activeGroupIds[0] : (monthlyGroups[0]?.id || null));
+                        if (targetMgId && sData.matrixValues[targetMgId]) {
                             sData.matrixValues[targetMgId][sub].Monthly += subjectAllocatedFund;
                             sData.matrixValues[targetMgId][sub].total += subjectAllocatedFund;
                         }
@@ -374,8 +386,9 @@ exports.getFinanceMatrix = async (req, res) => {
                         }
                     }
                 } else if (payType === 1) { // MONTHLY
-                    let targetMgId = monthlyGroups.find(mg => mg.id === p.groupId)?.id || monthlyGroups[0].id;
-                    if (sData.matrixValues[targetMgId]) {
+                    let targetMg = monthlyGroups.find(mg => mg.id === p.groupId);
+                    let targetMgId = targetMg ? targetMg.id : (activeGroupIds.length > 0 ? activeGroupIds[0] : (monthlyGroups[0]?.id || null));
+                    if (targetMgId && sData.matrixValues[targetMgId]) {
                         sData.matrixValues[targetMgId][sub].Monthly += subjectAllocatedFund;
                         sData.matrixValues[targetMgId][sub].total += subjectAllocatedFund;
                     }
@@ -490,9 +503,10 @@ exports.getFinanceMatrix = async (req, res) => {
 
 exports.getPaidCampaignDropMatrix = async (req, res) => {
     try {
-        const { businessId, batchId } = req.query;
+        const { businessId, batchId, classType } = req.query;
         if (!batchId || batchId === 'null') return res.status(400).json({ error: "Batch ID is required" });
         const parsedBatchId = parseInt(batchId);
+        const parsedClassType = (classType && classType !== 'ALL') ? parseInt(classType) : (classType === 'ALL' ? null : 1);
 
         const userRole = req.user.role;
         const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
@@ -502,49 +516,104 @@ exports.getPaidCampaignDropMatrix = async (req, res) => {
         }
 
         // 1. Get Monthly Groups
+        let groupWhere = { batchId: parsedBatchId };
+        if (parsedClassType) groupWhere.classType = parsedClassType;
         const rawGroups = await prisma.group.findMany({
-            where: { batchId: parsedBatchId },
+            where: groupWhere,
             orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }],
-            select: { id: true, name: true }
+            select: { id: true, name: true, classType: true }
         });
-        const monthlyGroups = rawGroups.filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'));
+        const monthlyGroups = rawGroups
+            .filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'))
+            .map(g => {
+                if (!parsedClassType && parseInt(g.classType || 1) === 2) {
+                    return { ...g, name: `${g.name} (Paper)` };
+                }
+                return g;
+            });
 
         // 2. Get Courses
+        let courseWhere = { group: { batchId: parsedBatchId } };
+        if (parsedClassType) {
+            courseWhere.OR = [
+                { courseType: parsedClassType },
+                { group: { classType: parsedClassType } }
+            ];
+        }
         const courses = await prisma.course.findMany({
-            where: { group: { batchId: parsedBatchId } },
-            select: { id: true, name: true, code: true, startMonth: true, endMonth: true }
+            where: courseWhere,
+            select: { id: true, name: true, code: true, startMonth: true, endMonth: true, courseType: true, groupId: true }
         });
 
         const courseMap = {};
         courses.forEach(c => {
-            courseMap[c.id] = c.name.trim().toUpperCase();
+            let normalizedSubName = c.name.trim().toUpperCase();
+            if (!parsedClassType && (c.courseType === 2 || rawGroups.find(g => g.id === c.groupId)?.classType === 2)) {
+                normalizedSubName += ' (PAPER)';
+            }
+            courseMap[c.id] = normalizedSubName;
         });
         const uniqueSubjectNames = [...new Set(Object.values(courseMap))];
 
         const getActiveMonthsForCourse = (course) => {
             if (!course) return monthlyGroups;
+            const cType = parseInt(course.courseType || 1);
+            const relevantGroups = monthlyGroups.filter(g => parseInt(g.classType || 1) === cType);
+            const candidateGroups = relevantGroups.length > 0 ? relevantGroups : monthlyGroups;
+
             const startStr = (course.startMonth || '').trim().toLowerCase();
             const endStr = (course.endMonth || '').trim().toLowerCase();
-            if (!startStr || !endStr) return monthlyGroups;
-            let startIndex = monthlyGroups.findIndex(g => g.name.toLowerCase().includes(startStr));
-            let endIndex = monthlyGroups.findIndex(g => g.name.toLowerCase().includes(endStr));
+            if (!startStr || !endStr) return candidateGroups;
+            let startIndex = candidateGroups.findIndex(g => g.name.toLowerCase().includes(startStr));
+            let endIndex = candidateGroups.findIndex(g => g.name.toLowerCase().includes(endStr));
             if (startIndex === -1) startIndex = 0;
-            if (endIndex === -1) endIndex = monthlyGroups.length - 1;
-            if (startIndex <= endIndex) return monthlyGroups.slice(startIndex, endIndex + 1);
-            else return [...monthlyGroups.slice(startIndex), ...monthlyGroups.slice(0, endIndex + 1)];
+            if (endIndex === -1) endIndex = candidateGroups.length - 1;
+            if (startIndex <= endIndex) return candidateGroups.slice(startIndex, endIndex + 1);
+            else return [...candidateGroups.slice(startIndex), ...candidateGroups.slice(0, endIndex + 1)];
         };
 
         const subjectActiveMonthsMap = {};
         uniqueSubjectNames.forEach(subName => {
-            const dbCourse = courses.find(c => c.name.trim().toUpperCase() === subName);
+            const dbCourse = courses.find(c => {
+                let name = c.name.trim().toUpperCase();
+                if (!parsedClassType && (c.courseType === 2 || rawGroups.find(g => g.id === c.groupId)?.classType === 2)) {
+                    name += ' (PAPER)';
+                }
+                return name === subName;
+            });
             subjectActiveMonthsMap[subName] = getActiveMonthsForCourse(dbCourse).map(g => g.id);
         });
 
         // 4. Get Payments
-        const payments = await prisma.payment.findMany({
-            where: { batchId: parsedBatchId, status: 1 },
-            include: { student: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, nic: true } } },
+        let paymentWhere = { batchId: parsedBatchId, status: 1 };
+        if (parsedClassType) {
+            paymentWhere.OR = [
+                { group: { classType: parsedClassType } },
+                { groupId: { in: rawGroups.map(g => g.id) } }
+            ];
+        }
+        const rawPayments = await prisma.payment.findMany({
+            where: paymentWhere,
+            include: { 
+                student: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, nic: true } },
+                group: { select: { id: true, name: true, classType: true } }
+            },
             orderBy: { created_at: 'asc' }
+        });
+
+        const payments = rawPayments.filter(p => {
+            if (!parsedClassType) return true;
+            const gClassType = p.group ? parseInt(p.group.classType || 1) : null;
+            if (gClassType !== null && gClassType === parsedClassType) return true;
+            try {
+                const subIds = JSON.parse(p.subjects || '[]').map(id => typeof id === 'object' ? parseInt(id.id) : parseInt(id));
+                const hasMatchingCourse = subIds.some(cid => {
+                    const crs = courses.find(c => c.id === cid);
+                    return crs && (crs.courseType === parsedClassType || (crs.groupId && rawGroups.some(rg => rg.id === crs.groupId && rg.classType === parsedClassType)));
+                });
+                if (hasMatchingCourse) return true;
+            } catch (e) {}
+            return false;
         });
 
         // 5. Get Leads from After Sem CRM to map Coordinators
@@ -666,10 +735,22 @@ exports.getPaidCampaignDropMatrix = async (req, res) => {
             return a.id - b.id;
         });
 
+        const allBatchGroups = await prisma.group.findMany({
+            where: { batchId: parsedBatchId },
+            select: { id: true, classType: true }
+        });
+        const hasTheory = allBatchGroups.some(g => (g.classType || 1) === 1);
+        const hasPaper = allBatchGroups.some(g => g.classType === 2);
+
         res.status(200).json(safeJson({
             months: monthlyGroups,
             subjects: uniqueSubjectNames,
-            students: sortedStudents
+            students: sortedStudents,
+            classType: classType || '1',
+            availableClassTypes: {
+                hasTheory,
+                hasPaper
+            }
         }));
 
     } catch (error) {

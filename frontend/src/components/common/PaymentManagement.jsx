@@ -152,8 +152,15 @@ export default function PaymentManagement({ loggedInUser }) {
             extractedGroups = selectedBatch.groups;
             selectedBatch.groups.forEach(g => {
                 const coursesList = g.courses || g.subjects || [];
+                const gType = parseInt(g.classType || 1);
                 coursesList.forEach(c => {
-                    if (c.id) extractedSubjects.set(c.id, { id: c.id, name: c.name, code: c.code || '' });
+                    if (c.id) {
+                        const cType = parseInt(c.courseType || gType || 1);
+                        const tag = cType === 2 ? '[Paper]' : '[Theory]';
+                        const hasTag = (c.name || '').includes('[Paper]') || (c.name || '').includes('[Theory]') || (c.name || '').toLowerCase().includes('paper');
+                        const displayName = hasTag ? c.name : `${c.name} ${tag}`;
+                        extractedSubjects.set(c.id, { id: c.id, name: displayName, rawName: c.name, code: c.code || '', courseType: cType });
+                    }
                 });
             });
         } else {
@@ -174,11 +181,18 @@ export default function PaymentManagement({ loggedInUser }) {
 
             validPayments.forEach(p => {
                 const subs = p.subjectsList || p.subjects || p.courses || [];
+                const pClassType = parseInt(p.classType || p.group?.classType || 1);
                 subs.forEach(s => {
                     const sId = s.id || s.course_id || s.subject_id;
                     const sName = s.name || s.courseName || s.subjectName;
                     const sCode = s.code || s.courseCode || s.subjectCode || '';
-                    if (sId) extractedSubjects.set(sId, { id: sId, name: sName, code: sCode });
+                    if (sId && !extractedSubjects.has(sId)) {
+                        const sType = parseInt(s.courseType || pClassType || 1);
+                        const tag = sType === 2 ? '[Paper]' : '[Theory]';
+                        const hasTag = (sName || '').includes('[Paper]') || (sName || '').includes('[Theory]') || (sName || '').toLowerCase().includes('paper');
+                        const displayName = hasTag ? sName : `${sName} ${tag}`;
+                        extractedSubjects.set(sId, { id: sId, name: displayName, rawName: sName, code: sCode, courseType: sType });
+                    }
                 });
             });
         }
