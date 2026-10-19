@@ -177,27 +177,37 @@ const initSocket = (server) => {
                 const roleUpper = user.role ? String(user.role).toUpperCase().replace(/ /g, '_') : "";
                 const deptLower = user.department ? String(user.department).trim().toLowerCase() : "";
                 
-                // Explicitly exclude non-coordination departments (Delivery, Finance, Social Media, Physical, Academic, etc.)
-                const isNonCoordinationDept = ['delivery', 'finance', 'social media', 'physical', 'academic'].some(d => deptLower.includes(d));
-                const isRestrictedRole = ['STUDENT', 'GUEST'].some(r => roleUpper.includes(r));
+                // Exclude system admin, admins, directors, students, call center, and non-coordination departments
+                const isRestrictedRole = ['SYSTEM_ADMIN', 'ADMIN', 'DIRECTOR', 'STUDENT', 'GUEST', 'DEVELOPER', 'CALLER', 'CALL_CENTER'].some(r => roleUpper.includes(r));
+                const isRestrictedDept = ['delivery', 'finance', 'social media', 'physical', 'academic', 'technical', 'administration', 'call center'].some(d => deptLower.includes(d));
                 
-                const isClassCoordination = !isNonCoordinationDept && !isRestrictedRole && (
-                    deptLower.includes("class coordination") || 
-                    roleUpper.includes("COORDINATOR") || 
-                    (roleUpper.includes("MANAGER") && !['DELIVERY', 'FINANCE', 'PHYSICAL'].some(r => roleUpper.includes(r)))
-                );
+                const isCoordinationDept = deptLower.includes('class coordination') || (deptLower.includes('coordination') && !deptLower.includes('call center'));
+                const isCoordinationRole = roleUpper.includes('COORDINATOR') && !roleUpper.includes('CALLER') && !roleUpper.includes('CALL_CENTER');
+                const isCoordinationManager = roleUpper.includes('MANAGER') && isCoordinationDept;
+
+                const isClassCoordination = !isRestrictedRole && !isRestrictedDept && Boolean(isCoordinationRole || isCoordinationManager) && !roleUpper.includes('PAPER_MARKER');
 
                 if (isClassCoordination) {
                     const businessType = user.businessType ? String(user.businessType).trim() : "";
                     const types = businessType.split(',').map(t => t.trim()).filter(Boolean);
-                    for (const t of types) {
-                        if (t && t.toUpperCase() !== 'ALL') {
-                            socket.join(`wa_call_agent_idle_${t}`);
+                    const isAll = types.length === 0 || types.some(t => t.toUpperCase() === 'ALL');
+
+                    if (isAll) {
+                        socket.join('wa_call_agent_idle_ALL');
+                        try {
+                            const allBiz = await prisma.business.findMany({ select: { name: true } });
+                            allBiz.forEach(b => {
+                                if (b.name) socket.join(`wa_call_agent_idle_${b.name.trim()}`);
+                            });
+                        } catch (err) {}
+                    } else {
+                        for (const t of types) {
+                            if (t) socket.join(`wa_call_agent_idle_${t}`);
                         }
                     }
-                    console.log(`[WA Pool] Class Coordinator ${userId} (${user.firstName}) auto-joined business pools: [${types.join(', ')}] on connect`);
+                    console.log(`[WA Pool] Class Coordinator ${userId} (${user.firstName}) auto-joined business pools: [${types.join(', ')}] (isAll: ${isAll}) on connect`);
                 } else {
-                    console.log(`[WA Pool] User ${userId} (${user.firstName}, Dept: ${user.department}, Role: ${user.role}) is NOT in Class Coordination. Excluded from call pools.`);
+                    console.log(`[WA Pool] User ${userId} (${user.firstName}, Dept: ${user.department}, Role: ${user.role}) is NOT an eligible Coordinator. Excluded from call pools.`);
                 }
             }
         } catch (err) {
@@ -542,34 +552,46 @@ const initSocket = (server) => {
                     data: { agentStatus: status }
                 });
 
-                // Explicitly exclude non-coordination departments (Delivery, Finance, Social Media, Physical, Academic, etc.)
-                const isNonCoordinationDept = ['delivery', 'finance', 'social media', 'physical', 'academic'].some(d => deptLower.includes(d));
-                const isRestrictedRole = ['STUDENT', 'GUEST'].some(r => roleUpper.includes(r));
+                // Exclude system admin, admins, directors, students, call center, and non-coordination departments
+                const isRestrictedRole = ['SYSTEM_ADMIN', 'ADMIN', 'DIRECTOR', 'STUDENT', 'GUEST', 'DEVELOPER', 'CALLER', 'CALL_CENTER'].some(r => roleUpper.includes(r));
+                const isRestrictedDept = ['delivery', 'finance', 'social media', 'physical', 'academic', 'technical', 'administration', 'call center'].some(d => deptLower.includes(d));
                 
-                const isClassCoordination = !isNonCoordinationDept && !isRestrictedRole && (
-                    deptLower.includes("class coordination") || 
-                    roleUpper.includes("COORDINATOR") || 
-                    (roleUpper.includes("MANAGER") && !['DELIVERY', 'FINANCE', 'PHYSICAL'].some(r => roleUpper.includes(r)))
-                );
+                const isCoordinationDept = deptLower.includes('class coordination') || (deptLower.includes('coordination') && !deptLower.includes('call center'));
+                const isCoordinationRole = roleUpper.includes('COORDINATOR') && !roleUpper.includes('CALLER') && !roleUpper.includes('CALL_CENTER');
+                const isCoordinationManager = roleUpper.includes('MANAGER') && isCoordinationDept;
+
+                const isClassCoordination = !isRestrictedRole && !isRestrictedDept && Boolean(isCoordinationRole || isCoordinationManager) && !roleUpper.includes('PAPER_MARKER');
 
                 const businessType = user?.businessType ? String(user.businessType).trim() : "";
                 const types = businessType.split(',').map(t => t.trim()).filter(Boolean);
+                const isAll = types.length === 0 || types.some(t => t.toUpperCase() === 'ALL');
 
                 if (status === "ACTIVE" && isClassCoordination) {
-                    console.log(`[WA Pool] Class Coordinator ${userId} (${user?.firstName}) marked ACTIVE in business pools: [${types.join(', ')}]`);
+                    console.log(`[WA Pool] Class Coordinator ${userId} (${user?.firstName}) marked ACTIVE in business pools: [${types.join(', ')}] (isAll: ${isAll})`);
                 } else {
-                    console.log(`[WA Pool] User ${userId} (${user?.firstName}) leaving pools (status: ${status}, isCoordination: ${isClassCoordination})`);
+                    console.log(`[WA Pool] User ${userId} (${user?.firstName}) leaving pools (status: ${status}, isEligibleCoordinator: ${isClassCoordination})`);
                 }
 
                 // Force ALL sockets for this user to join/leave the pool (handles multiple tabs)
                 const userSocketsRoom = io.sockets.adapter.rooms.get(`user_${userId}`);
                 if (userSocketsRoom) {
+                    let allBizNames = [];
+                    if (isAll) {
+                        try {
+                            const allBiz = await prisma.business.findMany({ select: { name: true } });
+                            allBizNames = allBiz.map(b => b.name?.trim()).filter(Boolean);
+                        } catch (err) {}
+                    }
+
                     for (const socketId of userSocketsRoom) {
                         const s = io.sockets.sockets.get(socketId);
                         if (s) {
                             if (status === "ACTIVE" && isClassCoordination) {
-                                for (const t of types) {
-                                    if (t && t.toUpperCase() !== 'ALL') {
+                                if (isAll) {
+                                    s.join('wa_call_agent_idle_ALL');
+                                    allBizNames.forEach(bn => s.join(`wa_call_agent_idle_${bn}`));
+                                } else {
+                                    for (const t of types) {
                                         s.join(`wa_call_agent_idle_${t}`);
                                     }
                                 }
@@ -578,10 +600,22 @@ const initSocket = (server) => {
                                     s.leave(`wa_call_agent_idle_${t}`);
                                 }
                                 s.leave(`wa_call_agent_idle_ALL`);
+                                allBizNames.forEach(bn => s.leave(`wa_call_agent_idle_${bn}`));
                             }
                         }
                     }
                 }
+
+                // Sync fresh profile back to user socket so client localStorage stays updated
+                socket.emit("user_profile_sync", {
+                    user: {
+                        id: userId,
+                        role: user?.role,
+                        department: user?.department,
+                        businessType: user?.businessType,
+                        agentStatus: status
+                    }
+                });
 
                 // Notify admin/manager dashboards
                 io.emit("agent_status_changed", { userId, status, businessType });
@@ -605,9 +639,18 @@ const initSocket = (server) => {
                 console.log(`[WA Pool] Agent ${userId} marked as OFFLINE`);
 
                 const types = businessType.split(',').map(t => t.trim()).filter(Boolean);
+                const isAll = types.length === 0 || types.some(t => t.toUpperCase() === 'ALL');
                 
                 const userSocketsRoom = io.sockets.adapter.rooms.get(`user_${userId}`);
                 if (userSocketsRoom) {
+                    let allBizNames = [];
+                    if (isAll) {
+                        try {
+                            const allBiz = await prisma.business.findMany({ select: { name: true } });
+                            allBizNames = allBiz.map(b => b.name?.trim()).filter(Boolean);
+                        } catch (err) {}
+                    }
+
                     for (const socketId of userSocketsRoom) {
                         const s = io.sockets.sockets.get(socketId);
                         if (s) {
@@ -615,6 +658,7 @@ const initSocket = (server) => {
                                 s.leave(`wa_call_agent_idle_${t}`);
                             }
                             s.leave(`wa_call_agent_idle_ALL`);
+                            allBizNames.forEach(bn => s.leave(`wa_call_agent_idle_${bn}`));
                         }
                     }
                 }

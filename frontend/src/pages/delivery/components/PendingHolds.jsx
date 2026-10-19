@@ -772,7 +772,10 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
         document.body.removeChild(textArea);
     };
 
-    if (order.status === 'Hold') {
+    if (order.hasDuplicate) {
+        cardStyle = 'bg-rose-50/90 dark:bg-rose-950/25 backdrop-blur-2xl border-2 border-rose-400 dark:border-rose-500/60 shadow-xl shadow-rose-500/10';
+        typeBadgeStyle = 'bg-rose-100 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-300 dark:border-rose-500/40';
+    } else if (order.status === 'Hold') {
         cardStyle = 'bg-orange-50/90 dark:bg-orange-950/20 backdrop-blur-2xl border-orange-200 dark:border-orange-500/30 hover:border-orange-300 dark:hover:border-orange-500/50 shadow-lg shadow-orange-500/5';
         typeBadgeStyle = 'bg-orange-100 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-500/30';
     } else if (order.isUpgrade) {
@@ -793,9 +796,23 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
         <div className={`border p-6 rounded-[2rem] flex flex-col xl:flex-row items-start justify-between gap-6 transition-all ${cardStyle}`}>
             <div className="flex-1 w-full">
                 
+                {order.hasDuplicate && (
+                    <div className="mb-5 p-4 rounded-2xl bg-rose-100 dark:bg-rose-950/50 border-2 border-rose-400 dark:border-rose-500/50 text-rose-900 dark:text-rose-200 flex items-start gap-3 shadow-md">
+                        <AlertTriangle size={20} className="text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
+                        <div>
+                            <div className="font-black text-sm uppercase tracking-wide text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                                ⚠️ DUPLICATE DELIVERY WARNING (කලින් යවපු Tutes හමුවුණා)
+                            </div>
+                            <p className="mt-1 text-xs font-bold text-rose-800 dark:text-rose-200/90 leading-relaxed">
+                                මේ ළමයාට මීට කලින් ලබාදුන් Tute එකක් හෝ කිහිපයක් නැවත මෙම Order එකට ඇතුළත්ව ඇත. Pack කිරීමට පෙර පරීක්ෂා කරන්න!
+                            </p>
+                        </div>
+                    </div>
+                )}
+
                 <div className="flex gap-5 items-start border-b border-gray-200 dark:border-white/10 pb-6 mb-6 transition-colors">
-                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 border-2 mt-1 shadow-md backdrop-blur-md ${order.status === 'Hold' ? 'border-orange-300 dark:border-orange-500/40 bg-orange-100/80 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400' : 'border-emerald-300 dark:border-emerald-500/40 bg-emerald-100/80 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400'}`}>
-                        {order.status === 'Hold' ? <AlertTriangle size={26} strokeWidth={2.5}/> : <Check size={26} strokeWidth={2.5}/>}
+                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shrink-0 border-2 mt-1 shadow-md backdrop-blur-md ${order.hasDuplicate ? 'border-rose-400 dark:border-rose-500/50 bg-rose-100/90 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400' : (order.status === 'Hold' ? 'border-orange-300 dark:border-orange-500/40 bg-orange-100/80 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400' : 'border-emerald-300 dark:border-emerald-500/40 bg-emerald-100/80 dark:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400')}`}>
+                        {order.hasDuplicate ? <AlertTriangle size={26} strokeWidth={2.5}/> : (order.status === 'Hold' ? <AlertTriangle size={26} strokeWidth={2.5}/> : <Check size={26} strokeWidth={2.5}/>)}
                     </div>
                     <div className="flex-1 w-full">
                         {!isEditingInfo ? (
@@ -811,6 +828,11 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
                                     <span className={`text-[11px] font-black px-3 py-1.5 rounded-lg border tracking-widest uppercase shadow-sm flex items-center gap-1.5 transition-colors ${typeBadgeStyle}`}>
                                         {order.isUpgrade ? `UPGRADE ORDER • ${order.paymentType}` : (order.isMix ? `MIXED ORDER • ${order.paymentType}` : order.paymentType)}
                                     </span>
+                                    {order.hasDuplicate && (
+                                        <span className="text-[11px] font-black text-white bg-rose-600 dark:bg-rose-600 px-3 py-1.5 rounded-lg border border-rose-700 dark:border-rose-500 uppercase tracking-widest shadow-md flex items-center gap-1.5 animate-pulse">
+                                            <AlertTriangle size={12} className="text-white"/> DUPLICATE ALERT
+                                        </span>
+                                    )}
                                     {order.status === 'Hold' ? (
                                         <span className="text-[11px] font-black text-orange-700 dark:text-orange-300 bg-orange-100 dark:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-200 dark:border-orange-500/30 uppercase tracking-widest shadow-sm flex items-center gap-1">
                                             <AlertTriangle size={12}/> ON HOLD
@@ -898,8 +920,8 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
                     {order.items?.filter((item, index, self) => 
                         index === self.findIndex((t) => t.tuteName === item.tuteName)
                     ).map((item, i) => (
-                        <div key={i} className="flex items-center justify-between bg-white/60 dark:bg-black/20 backdrop-blur-md border border-gray-200 dark:border-white/5 p-3.5 rounded-2xl shadow-sm transition-colors hover:bg-white/80 dark:hover:bg-white/5 group">
-                            <div className="flex items-center gap-4 min-w-0">
+                        <div key={i} className={`flex items-center justify-between p-3.5 rounded-2xl shadow-sm transition-colors group ${item.isDuplicate ? 'bg-rose-100/80 dark:bg-rose-950/40 border-2 border-rose-400 dark:border-rose-500/60 shadow-rose-500/10' : 'bg-white/60 dark:bg-black/20 backdrop-blur-md border border-gray-200 dark:border-white/5 hover:bg-white/80 dark:hover:bg-white/5'}`}>
+                            <div className="flex items-center gap-4 min-w-0 flex-1">
                                 
                                 <div className="shrink-0 w-12 h-16 bg-gray-100 dark:bg-black/40 border border-gray-200 dark:border-white/10 rounded-lg flex items-center justify-center overflow-hidden shadow-sm relative z-10 hover:z-50 transition-all duration-300 hover:scale-[2.5] hover:translate-x-4 hover:-translate-y-2 origin-left cursor-zoom-in">
                                     <DeliveryItemImage coverName={item.tuteImage} />
@@ -907,10 +929,17 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
 
                                 <div className="flex-1 min-w-0">
                                     <h5 className="text-[14px] font-black text-gray-900 dark:text-white truncate tracking-wide flex items-center gap-2 mb-1.5 transition-colors">
-                                        <BookOpen size={14} className="text-brand-accent shrink-0"/>{item.tuteName}
+                                        <BookOpen size={14} className={item.isDuplicate ? "text-rose-600 dark:text-rose-400 shrink-0" : "text-brand-accent shrink-0"}/>{item.tuteName}
                                     </h5>
                                     <p className="text-[11px] font-bold text-gray-700 dark:text-slate-300 truncate bg-gray-200/80 dark:bg-white/10 inline-block px-2.5 py-0.5 rounded shadow-sm transition-colors">{item.courseName}</p>
                                     <p className="text-[10px] font-black text-brand-accent dark:text-brand-accent uppercase tracking-widest truncate mt-1.5 transition-colors">{item.lecturerName}</p>
+
+                                    {item.isDuplicate && item.duplicateDetails && (
+                                        <div className="mt-2 text-[11px] font-black text-rose-800 dark:text-rose-200 bg-rose-200/80 dark:bg-rose-900/40 px-2.5 py-1 rounded-lg border border-rose-400 dark:border-rose-500/40 flex items-center gap-1.5 shadow-sm">
+                                            <AlertTriangle size={13} className="shrink-0 text-rose-600 dark:text-rose-300"/>
+                                            <span>Already Delivered in <strong>ORD-{item.duplicateDetails.orderId}</strong> ({item.duplicateDetails.groupName}) on {item.duplicateDetails.date}</span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 

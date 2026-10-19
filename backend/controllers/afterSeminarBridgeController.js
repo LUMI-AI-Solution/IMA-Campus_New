@@ -252,7 +252,7 @@ exports.getCallCenterHandovers = async (req, res) => {
 
             const fullLeads = await prisma.lead.findMany({
                 where: { id: { in: allLeadIds } },
-                include: { assignedUser: true, batch: true }
+                include: { assignedUser: true, batch: true, roundProgress: true }
             });
 
             // Put leads into bizGroups

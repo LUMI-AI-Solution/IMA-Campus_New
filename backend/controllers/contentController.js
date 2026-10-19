@@ -348,37 +348,6 @@ exports.createSubject = async (req, res) => {
 
         await Promise.all(coursePromises);
 
-        // 🚚 AUTO-CREATE DELIVERIES FOR APPROVED PAYMENTS IN NEWLY CREATED GROUPS
-        try {
-            const affectedGroupIds = parsedPrices.map(gp => parseInt(gp.groupId)).filter(Boolean);
-            if (affectedGroupIds.length > 0) {
-                const { createAutoDeliveryForPayment } = require('./paymentController');
-                const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
-                const unhandledPayments = await prisma.payment.findMany({
-                    where: {
-                        status: 1,
-                        delivery: null,
-                        subjects: { not: null },
-                        created_at: { gte: sixtyDaysAgo },
-                        OR: [
-                            { groupId: { in: affectedGroupIds } },
-                            ...(batch_id ? [{ batchId: parseInt(batch_id) }] : [])
-                        ]
-                    }
-                });
-
-                for (const unhandled of unhandledPayments) {
-                    try {
-                        await createAutoDeliveryForPayment(unhandled);
-                    } catch (createErr) {
-                        console.error(`[CONTENT-HUB CREATE AUTO-DELIVERY ERROR] Payment #${unhandled.id}:`, createErr);
-                    }
-                }
-            }
-        } catch (syncErr) {
-            console.error("[CONTENT-HUB CREATE AUTO-DELIVERY ERROR]:", syncErr);
-        }
-
         res.status(201).json({ message: "Created in all selected groups" });
     } catch (e) { 
         console.error(e);
@@ -578,33 +547,6 @@ exports.updateSubject = async (req, res) => {
                                 }))
                             })
                         ]);
-                    }
-                }
-
-                // 🚚 AUTO-CREATE DELIVERIES FOR APPROVED PAYMENTS THAT HAVE NO DELIVERY YET
-                // (e.g. slips approved before tute/deliverTute was configured in Content Hub)
-                const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000);
-                const unhandledPayments = await prisma.payment.findMany({
-                    where: {
-                        status: 1,
-                        delivery: null,
-                        subjects: { not: null },
-                        created_at: { gte: sixtyDaysAgo },
-                        OR: [
-                            { groupId: { in: affectedGroupIds } },
-                            ...(batch_id ? [{ batchId: parseInt(batch_id) }] : [])
-                        ]
-                    }
-                });
-
-                if (unhandledPayments.length > 0) {
-                    const { createAutoDeliveryForPayment } = require('./paymentController');
-                    for (const unhandled of unhandledPayments) {
-                        try {
-                            await createAutoDeliveryForPayment(unhandled);
-                        } catch (createErr) {
-                            console.error(`[CONTENT-HUB AUTO-CREATE ERROR] Payment #${unhandled.id}:`, createErr);
-                        }
                     }
                 }
             }

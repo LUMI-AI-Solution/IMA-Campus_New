@@ -139,21 +139,42 @@ export default function PosOrderCard({ order, onRefresh }) {
                     <h4 className="font-bold text-lg text-gray-900 dark:text-white flex items-center gap-3 transition-colors">
                         {order.payment?.studentName} 
                         <span className="text-[10px] font-bold text-gray-600 dark:text-slate-300 bg-gray-100 dark:bg-black/40 px-2 py-0.5 rounded border border-gray-200 dark:border-white/10 tracking-widest uppercase transition-colors">{order.paymentType} Payment</span>
+                        {order.hasDuplicate && (
+                            <span className="text-[10px] font-bold text-white bg-rose-600 px-2 py-0.5 rounded border border-rose-700 tracking-widest uppercase flex items-center gap-1 animate-pulse">
+                                <AlertTriangle size={11} className="text-white"/> Duplicate Alert
+                            </span>
+                        )}
                     </h4>
                     <p className="text-sm text-gray-500 dark:text-slate-400 mt-1 transition-colors">{order.payment?.address} • {order.payment?.phone}</p>
                     
+                    {order.hasDuplicate && (
+                        <div className="mt-2 text-xs font-bold text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-950/40 p-2 rounded-lg border border-rose-300 dark:border-rose-500/40 flex items-center gap-1.5">
+                            <AlertTriangle size={14} className="shrink-0 text-rose-600 dark:text-rose-400"/>
+                            <span>Warning: One or more tutes in this order were already delivered to this student!</span>
+                        </div>
+                    )}
+
                     {/* Tutes to be sent */}
                     <div className="mt-4 flex flex-col gap-2">
                         <p className="text-[10px] font-bold text-gray-500 dark:text-brand-darkTextMuted uppercase tracking-widest transition-colors">Tutes to Pack:</p>
                         <div className="flex flex-wrap gap-3">
                             {order.items?.map((item, idx) => (
-                                <div key={idx} className="flex items-center gap-2 bg-gray-50 dark:bg-brand-darkBg p-2 rounded-lg border border-gray-200 dark:border-brand-darkBorder pr-4 transition-colors">
+                                <div key={idx} className={`flex items-center gap-2 p-2 rounded-lg border pr-4 transition-colors ${item.isDuplicate ? 'bg-rose-100/90 dark:bg-rose-950/50 border-rose-400 dark:border-rose-500/50 text-rose-700 dark:text-rose-300' : 'bg-gray-50 dark:bg-brand-darkBg border-gray-200 dark:border-brand-darkBorder'}`}>
                                     {item.tuteImage ? (
                                         <img src={`https://imacampus.online/storage/tutes/${item.tuteImage}`} className="w-8 h-8 rounded object-cover border border-gray-200 dark:border-white/10" alt="tute" />
                                     ) : (
                                         <div className="w-8 h-8 rounded bg-gray-200 dark:bg-white/5 flex items-center justify-center text-gray-400 dark:text-slate-500 transition-colors"><ImageIcon size={14}/></div>
                                     )}
-                                    <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide transition-colors">{item.tuteName} <span className="text-gray-900 dark:text-white ml-1">x{item.quantity}</span></span>
+                                    <div className="flex flex-col">
+                                        <span className={`text-xs font-bold uppercase tracking-wide transition-colors ${item.isDuplicate ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                                            {item.tuteName} <span className="text-gray-900 dark:text-white ml-1">x{item.quantity}</span>
+                                        </span>
+                                        {item.isDuplicate && item.duplicateDetails && (
+                                            <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
+                                                Already sent in ORD-{item.duplicateDetails.orderId}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             ))}
                         </div>

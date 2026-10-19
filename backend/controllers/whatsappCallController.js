@@ -9,13 +9,15 @@ const { launchIvrBot } = require('../services/ivrBot');
 const FALLBACK_WA_PHONE_ID = "1208424262355917";
 const FALLBACK_WA_TOKEN = "EAAZAqcbObykgBSOwd3VRsafnLCI8CIs6DJpZB5g2CJoF5cMReZBLhC5hEnGTbpZBDINZB43qFIofy11YYAysc3cvU2Jwv5nwbZBqNM07NoZCANZBFEY5CqrTZApLi2YPDiiRIEvgsSsm2QFHpynt9ilvMZC10uD1aFq51EVqmIzfE822W3eVE6kuXlyQvpj3l8HXSarwZDZD";
 
-const callIdToWaNumId = new Map();
+global.callIdToWaNumId = global.callIdToWaNumId || new Map();
+const callIdToWaNumId = global.callIdToWaNumId;
 
 async function getMetaCredentials(businessType, receivingWaNumId, businessId, campaignType) {
     if (receivingWaNumId) {
-        const settings = await prisma.crmSettings.findFirst({ where: { waNumId: receivingWaNumId } });
+        const cleanWa = String(receivingWaNumId).trim();
+        const settings = await prisma.crmSettings.findFirst({ where: { waNumId: cleanWa } });
         if (settings && settings.metaApiKey) {
-            return { phoneId: settings.waNumId, token: settings.metaApiKey, waId: settings.waId };
+            return { phoneId: settings.waNumId.trim(), token: settings.metaApiKey.trim(), waId: settings.waId };
         }
     }
     if (businessId && businessId !== 'ALL' && !isNaN(parseInt(businessId))) {
@@ -181,42 +183,39 @@ exports.handleWebhookEvent = async (req, res) => {
                                     }
                                 }
 
-                                // Find Lead in DB specific to that business
-                                const leadWhere = { phone: { startsWith: from } };
-                                if (businessIdToMatch) {
-                                    leadWhere.batch = { businessId: businessIdToMatch };
-                                }
-                                
-                                let lead = await prisma.lead.findFirst({
-                                    where: leadWhere,
-                                    include: { 
-                                        assignedUser: true,
-                                        batch: { include: { business: true } }
-                                    }
-                                });
+                                const fromPhone = String(from || '');
+                                const rawDigits = fromPhone.replace(/[^0-9]/g, '');
+                                const phoneSuffix9 = rawDigits.length >= 9 ? rawDigits.slice(-9) : rawDigits;
 
-                                if (!lead) {
-                                    const clean = from.replace(/[^0-9]/g, '').slice(-9);
-                                    if (clean) {
-                                        const altWhere = {
-                                            OR: [
-                                                { phone: { startsWith: '94' + clean } },
-                                                { phone: { startsWith: '0' + clean } },
-                                                { phone: { startsWith: clean } }
-                                            ]
-                                        };
-                                        if (businessIdToMatch) {
-                                            altWhere.batch = { businessId: businessIdToMatch };
-                                        }
-                                        lead = await prisma.lead.findFirst({
-                                            where: altWhere,
-                                            include: { 
-                                                assignedUser: true,
-                                                batch: { include: { business: true } }
-                                            }
-                                        });
-                                    }
+                                let candidateLeads = [];
+                                if (phoneSuffix9) {
+                                    candidateLeads = await prisma.lead.findMany({
+                                        where: {
+                                            phone: { contains: phoneSuffix9 }
+                                        },
+                                        include: {
+                                            assignedUser: true,
+                                            batch: { include: { business: true } }
+                                        },
+                                        orderBy: { id: 'desc' },
+                                        take: 10
+                                    });
                                 }
+
+                                function scoreLead(l) {
+                                    let score = 0;
+                                    const isBizMatch = businessIdToMatch && (
+                                        l.batch?.businessId === businessIdToMatch || 
+                                        (l.phone && l.phone.includes(`_BIZ_${businessIdToMatch}`))
+                                    );
+                                    
+                                    if (isBizMatch) score += 50;
+                                    if (l.assignedTo) score += 15;
+                                    return score;
+                                }
+
+                                const sortedLeads = [...candidateLeads].sort((a, b) => scoreLead(b) - scoreLead(a));
+                                const lead = sortedLeads[0] || null;
                                 
                                 let targetAgentId = null;
                                 let leadName = 'Unknown Caller';
@@ -226,31 +225,47 @@ exports.handleWebhookEvent = async (req, res) => {
                                     isNewInquiry = false;
                                     leadName = lead.name || 'Unknown Caller';
                                     
+                                    if (!businessIdToMatch) {
+                                        if (lead.batch?.businessId) {
+                                            businessIdToMatch = lead.batch.businessId;
+                                        } else if (lead.phone && lead.phone.includes('_BIZ_')) {
+                                            const m = lead.phone.match(/_BIZ_(\d+)/);
+                                            if (m) businessIdToMatch = parseInt(m[1], 10);
+                                        }
+                                    }
                                     if (lead.batch?.business) {
                                         businessType = lead.batch.business.name.trim();
-                                        businessIdToMatch = lead.batch.business.id;
                                         if (lead.batch.business.ringtone) {
                                             businessRingtoneUrl = `/storage/ringtone/${lead.batch.business.ringtone}`;
                                         }
                                     }
                                     if (lead.assignedTo) {
-                                        // Check if assigned staff is ACTIVE in DB AND ONLINE in socket
+                                        // Check if assigned staff is an eligible COORDINATOR and ACTIVE and ONLINE
                                         const staff = await prisma.user.findUnique({
                                             where: { id: lead.assignedTo }
                                         });
-                                        if (staff && staff.agentStatus === 'ACTIVE') {
+                                        if (staff) {
                                             const roleUpper = staff.role ? String(staff.role).toUpperCase().replace(/ /g, '_') : "";
-                                            const isRestrictedRole = ['STUDENT', 'GUEST', 'DELIVERY', 'FINANCE'].some(r => roleUpper.includes(r));
-                                            
-                                            if (!isRestrictedRole) {
-                                                const agentRoom = io.sockets.adapter.rooms.get(`user_${staff.id}`);
-                                                if (agentRoom && agentRoom.size > 0) {
-                                                    targetAgentId = staff.id;
-                                                } else {
-                                                    console.log(`[WhatsApp Incoming Call] Assigned agent ${staff.id} is ACTIVE in DB but has 0 connected sockets (offline/closed tab). Falling back to business pool.`);
-                                                }
+                                            const deptLower = staff.department ? String(staff.department).trim().toLowerCase() : "";
+
+                                            const isRestrictedRole = ['SYSTEM_ADMIN', 'ADMIN', 'DIRECTOR', 'STUDENT', 'GUEST', 'DEVELOPER', 'CALLER', 'CALL_CENTER'].some(r => roleUpper.includes(r));
+                                            const isRestrictedDept = ['delivery', 'finance', 'social media', 'physical', 'academic', 'technical', 'administration', 'call center'].some(d => deptLower.includes(d));
+
+                                            const isCoordinationDept = deptLower.includes('class coordination') || (deptLower.includes('coordination') && !deptLower.includes('call center'));
+                                            const isCoordinationRole = roleUpper.includes('COORDINATOR') && !roleUpper.includes('CALLER') && !roleUpper.includes('CALL_CENTER');
+                                            const isCoordinationManager = roleUpper.includes('MANAGER') && isCoordinationDept;
+
+                                            const isCoordinator = !isRestrictedRole && !isRestrictedDept && Boolean(isCoordinationRole || isCoordinationManager) && !roleUpper.includes('PAPER_MARKER');
+
+                                            const isAgentActive = staff.agentStatus === 'ACTIVE';
+                                            const agentRoom = io.sockets.adapter.rooms.get(`user_${staff.id}`);
+                                            const isAgentOnline = agentRoom && agentRoom.size > 0;
+
+                                            if (isCoordinator && isAgentActive && isAgentOnline) {
+                                                targetAgentId = staff.id;
+                                                console.log(`[WhatsApp Incoming Call] Assigned coordinator ${staff.id} (${staff.firstName}) is ACTIVE & ONLINE. Routing EXCLUSIVELY to them.`);
                                             } else {
-                                                console.log(`[WhatsApp Incoming Call] Assigned agent ${staff.id} is restricted from calls (Role: ${staff.role}). Falling back to business pool.`);
+                                                console.log(`[WhatsApp Incoming Call] Assigned coordinator ${staff.id} (${staff.firstName}) is NOT available (status: ${staff.agentStatus}, online: ${isAgentOnline}, isCoordinator: ${isCoordinator}). Falling back to live coordinator pool.`);
                                             }
                                         }
                                     }
@@ -304,17 +319,20 @@ exports.handleWebhookEvent = async (req, res) => {
                                         io.to(`user_${targetAgentId}`).emit('incoming_wa_call', payload);
                                     } else {
                                         const idleRoom = io.sockets.adapter.rooms.get(`wa_call_agent_idle_${businessType}`);
+                                        const allRoom = io.sockets.adapter.rooms.get('wa_call_agent_idle_ALL');
+                                        const idleCount = idleRoom ? idleRoom.size : 0;
+                                        const allCount = allRoom ? allRoom.size : 0;
                                         
-                                        if (idleRoom && idleRoom.size > 0) {
+                                        if (idleCount > 0 || allCount > 0) {
                                             hasOnlineAgents = true;
-                                            console.log(`[WhatsApp Incoming Call] Routing EXCLUSIVELY to business pool: wa_call_agent_idle_${businessType} (members: ${idleRoom?.size || 0})`);
-                                            io.to(`wa_call_agent_idle_${businessType}`).emit('incoming_wa_call', payload);
+                                            console.log(`[WhatsApp Incoming Call] Routing to business pool: wa_call_agent_idle_${businessType} (${idleCount}) and wa_call_agent_idle_ALL (${allCount})`);
+                                            io.to(`wa_call_agent_idle_${businessType}`).to('wa_call_agent_idle_ALL').emit('incoming_wa_call', payload);
                                         }
                                     }
 
                                     // If still no online agents, trigger Headless IVR Bot
                                     if (!hasOnlineAgents) {
-                                        console.log(`[WhatsApp Incoming Call] NO agents online for ${businessType}. Triggering Headless IVR Bot.`);
+                                        console.log(`[WhatsApp Incoming Call] NO agents online for ${businessType} or ALL. Triggering Headless IVR Bot.`);
                                         io.to(`wa_call_headless_bot`).emit('incoming_wa_call', payload);
                                         launchIvrBot(payload);
                                     }
@@ -332,7 +350,7 @@ exports.handleWebhookEvent = async (req, res) => {
                                 });
                                 io.emit('whatsapp_call_status', {
                                     callId,
-                                    status: 'CONNECTED'
+                                    status: 'RINGING'
                                 });
                             }
                         } else if (msg.webrtc.action === 'ringing') {
@@ -381,12 +399,17 @@ exports.handleWebhookEvent = async (req, res) => {
                             });
                             io.emit('whatsapp_call_status', {
                                 callId,
-                                status: 'CONNECTED'
+                                status: 'RINGING'
                             });
                         } else if (callData.event === 'ringing') {
                             io.emit('whatsapp_call_status', {
                                 callId,
                                 status: 'RINGING'
+                            });
+                        } else if (callData.event === 'accepted' || callData.event === 'accept') {
+                            io.emit('whatsapp_call_status', {
+                                callId,
+                                status: 'CONNECTED'
                             });
                         } else if (callData.event === 'terminate') {
                             io.emit('whatsapp_call_end', { callId });
@@ -468,12 +491,30 @@ exports.sendIceCandidate = async (req, res) => {
 // Handles WebRTC SDP Answer from the frontend and sends to Meta
 exports.answerCall = async (req, res) => {
     try {
-        const { callId, sdp, businessType } = req.body;
-        const receivingWaNumId = req.body.receivingWaNumId || callIdToWaNumId.get(callId);
+        const { callId, sdp, businessType, businessId } = req.body;
+        let receivingWaNumId = req.body.receivingWaNumId || callIdToWaNumId.get(callId);
+
+        if (!receivingWaNumId && global.callIdToWaNumId) {
+            receivingWaNumId = global.callIdToWaNumId.get(callId);
+        }
+
+        let resolvedBusinessId = businessId;
+        if (!receivingWaNumId && callId) {
+            try {
+                const callRec = await prisma.whatsAppCallRecord.findUnique({ where: { callId } });
+                if (callRec && callRec.businessId) {
+                    resolvedBusinessId = resolvedBusinessId || callRec.businessId;
+                    const s = await prisma.crmSettings.findFirst({ where: { businessId: callRec.businessId } });
+                    if (s && s.waNumId) receivingWaNumId = s.waNumId;
+                }
+            } catch (dbLookupErr) {
+                console.warn("[answerCall] Failed DB lookup for missing receivingWaNumId:", dbLookupErr.message);
+            }
+        }
         
-        console.log(`[WhatsApp Call Test] Sending SDP Answer for Call ${callId} (Business: ${businessType}, NumId: ${receivingWaNumId})`);
+        console.log(`[WhatsApp Call Test] Sending SDP Answer for Call ${callId} (Business: ${businessType}, NumId: ${receivingWaNumId}, BizId: ${resolvedBusinessId})`);
         
-        const creds = await getMetaCredentials(businessType, receivingWaNumId);
+        const creds = await getMetaCredentials(businessType, receivingWaNumId, resolvedBusinessId);
         
         // POST to Meta Cloud API to accept the call
         await axios.post(`https://graph.facebook.com/v20.0/${creds.phoneId}/calls`, {
@@ -499,10 +540,13 @@ exports.answerCall = async (req, res) => {
                 const user = await prisma.user.findUnique({ where: { id: parseInt(userId, 10) } });
                 const businessType = user?.businessType ? String(user.businessType).trim() : "ALL";
                 
-                io.to(`wa_call_agent_idle_${businessType}`).emit('whatsapp_call_answered_by_other', {
+                const payload = {
                     callId: callId,
                     answeredBy: userId
-                });
+                };
+                io.to(`wa_call_agent_idle_${businessType}`).to('wa_call_agent_idle_ALL').emit('whatsapp_call_answered_by_other', payload);
+                io.emit('whatsapp_call_answered_by_other', payload);
+                console.log(`[WhatsApp Call Answered] Broadcast whatsapp_call_answered_by_other for callId: ${callId} answered by user: ${userId}`);
             }
         } catch (err) {
             console.error("Error notifying other agents of answered call:", err);

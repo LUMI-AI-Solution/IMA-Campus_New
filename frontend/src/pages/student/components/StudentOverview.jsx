@@ -302,36 +302,71 @@ export default function StudentOverview({ setActiveTab }) {
     };
 
 
+    // 🔥 Robust Time Parser for SL Tuition Schedules 🔥
+    const parseTimeComponents = (timeStr) => {
+        if (!timeStr) return { h: 0, m: 0 };
+        const str = String(timeStr).trim();
+        const isPM = /pm/i.test(str);
+        const isAM = /am/i.test(str);
+        const clean = str.replace(/[^\d:]/g, '');
+        const parts = clean.split(':').map(Number);
+        let h = parts[0] || 0;
+        const m = parts[1] || 0;
+        if (isPM && h < 12) h += 12;
+        if (isAM && h === 12) h = 0;
+        // In SL tuition LMS, classes entered as 01:00 - 06:00 without explicit AM are almost universally 1 PM - 6 PM
+        if (!isAM && !isPM && h >= 1 && h <= 6) {
+            h += 12;
+        }
+        return { h, m };
+    };
+
     // 🔥 Live Class Logic 🔥
     const getLiveClassInfo = (c) => {
         if (!c || !c.date) return null;
 
-        const sDate = new Date(c.date);
-        if (c.startTime) {
-            const [h, m] = c.startTime.split(':');
-            sDate.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
-        }
+        // Parse calendar day cleanly from ISO or date string
+        const datePart = String(c.date).split('T')[0];
+        const [y, mo, d] = datePart.split('-').map(Number);
+        if (!y || !mo || !d) return null;
 
-        const eDate = new Date(sDate);
+        const { h: startH, m: startM } = parseTimeComponents(c.startTime);
+        const sDate = new Date(y, mo - 1, d, startH, startM, 0, 0);
+
+        let eDate;
         if (c.endTime) {
-            const [h, m] = c.endTime.split(':');
-            eDate.setHours(parseInt(h, 10), parseInt(m, 10), 0, 0);
+            const { h: endH, m: endM } = parseTimeComponents(c.endTime);
+            eDate = new Date(y, mo - 1, d, endH, endM, 0, 0);
+            // If endTime <= startTime (e.g. crossing midnight like 22:00 to 01:00), add 1 day
+            if (eDate <= sDate) {
+                eDate.setDate(eDate.getDate() + 1);
+            }
         } else {
-            eDate.setHours(sDate.getHours() + 2); // Default to 2 hours if no end time
+            eDate = new Date(sDate.getTime() + 2 * 60 * 60 * 1000); // Default to 2 hours if no end time
         }
 
-        return { ...c, startObj: sDate, endObj: eDate };
+        // Safe absolute link
+        let joinUrl = c.link ? String(c.link).trim() : '';
+        if (joinUrl && !joinUrl.startsWith('http://') && !joinUrl.startsWith('https://')) {
+            joinUrl = `https://${joinUrl}`;
+        }
+
+        return { ...c, startObj: sDate, endObj: eDate, safeLink: joinUrl };
     };
 
     const renderLiveBanner = (c) => {
         const liveClass = getLiveClassInfo(c);
-        if (!liveClass || liveClass.endObj <= currentTime) return null; // Hide if past
+        if (!liveClass) return null;
+
+        // Allow class banner to remain visible during class AND for up to 3 hours after scheduled end time
+        const expiryTime = liveClass.endObj.getTime() + (3 * 60 * 60 * 1000);
+        if (expiryTime <= currentTime.getTime()) return null; // Hide only if expired more than 3 hours ago
 
         const diff = liveClass.startObj - currentTime;
-        const isLiveNow = diff <= 0 && liveClass.endObj > currentTime;
-        // const isJoinable = diff <= 15 * 60 * 1000; // Joinable 15 mins before
+        const isLiveNow = diff <= 0 && currentTime <= liveClass.endObj;
+        const isOvertime = diff <= 0 && currentTime > liveClass.endObj && currentTime.getTime() <= expiryTime;
         const isJoinable = true;
-        const isUrgent = diff > 0 && diff < 10 * 60 * 1000; // Pulse animation 10 mins before
+        const isUrgent = diff > 0 && diff < 15 * 60 * 1000; // Pulse animation 15 mins before
 
         let timeUI = null;
         if (isLiveNow) {
@@ -341,11 +376,19 @@ export default function StudentOverview({ setActiveTab }) {
                     CLASS IS LIVE NOW
                 </div>
             );
+        } else if (isOvertime) {
+            timeUI = (
+                <div className="flex items-center justify-center gap-2 md:gap-3 text-amber-400 font-black px-4 py-2.5 bg-amber-500/10 rounded-xl border border-amber-500/30 w-full text-xs md:text-sm">
+                    <Radio className="shrink-0" size={18} />
+                    CLASS IN PROGRESS
+                </div>
+            );
         } else {
-            const h = Math.floor((diff / (1000 * 60 * 60)) % 24);
-            const m = Math.floor((diff / 1000 / 60) % 60);
-            const s = Math.floor((diff / 1000) % 60);
-            const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+            const absDiff = Math.max(0, diff);
+            const h = Math.floor((absDiff / (1000 * 60 * 60)) % 24);
+            const m = Math.floor((absDiff / 1000 / 60) % 60);
+            const s = Math.floor((absDiff / 1000) % 60);
+            const d = Math.floor(absDiff / (1000 * 60 * 60 * 24));
 
             timeUI = (
                 <div className={`flex justify-center items-center gap-1 sm:gap-2 ${isUrgent ? 'text-red-400' : 'text-white'} transition-colors duration-500`}>
@@ -372,12 +415,13 @@ export default function StudentOverview({ setActiveTab }) {
 
                 {/* Left side details */}
                 <div className="flex-1 text-left z-10 w-full min-w-0">
-                    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full mb-3 border w-max ${isJoinable ? 'bg-red-500/20 border-red-500/30' : 'bg-black/20 backdrop-blur-xl border-white/20'}`}>
-                        <Video size={12} className={isJoinable ? "text-red-400 animate-pulse" : "text-white/90 font-bold"} />
-                        <span className={`font-bold uppercase tracking-widest text-[9px] ${isJoinable ? "text-red-400" : "text-white/90 font-bold"}`}>Upcoming Live Class</span>
+                    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full mb-3 border w-max ${isLiveNow ? 'bg-red-500/20 border-red-500/30' : 'bg-black/20 backdrop-blur-xl border-white/20'}`}>
+                        <Video size={12} className={isLiveNow ? "text-red-400 animate-pulse" : "text-white/90 font-bold"} />
+                        <span className={`font-bold uppercase tracking-widest text-[9px] ${isLiveNow ? "text-red-400" : "text-white/90 font-bold"}`}>
+                            {isLiveNow ? "Active Live Class" : isOvertime ? "Class In Progress" : "Upcoming Live Class"}
+                        </span>
                     </div>
 
-                    {/* Fixed Text Wrapping & Size Issue Here */}
                     <h2
                         className="text-lg md:text-xl font-black text-white mb-1.5 leading-snug break-words whitespace-normal"
                         title={liveClass.title}
@@ -408,13 +452,18 @@ export default function StudentOverview({ setActiveTab }) {
                     </div>
 
                     <a
-                        href={liveClass.link}
+                        href={liveClass.safeLink || liveClass.link || '#'}
                         target="_blank"
-                        rel="noreferrer"
-                        className={`w-full h-12 md:h-14 rounded-xl font-black flex items-center justify-center gap-2 uppercase tracking-widest transition-all duration-300 text-xs md:text-sm ${isJoinable ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(220,38,38,0.3)] animate-pulse hover:animate-none hover:scale-105 border border-red-400' : 'bg-black/20 backdrop-blur-xl text-white/70 font-medium cursor-not-allowed border border-white/20'} `}
-                        onClick={(e) => !isJoinable && e.preventDefault()}
+                        rel="noopener noreferrer"
+                        className={`w-full h-12 md:h-14 rounded-xl font-black flex items-center justify-center gap-2 uppercase tracking-widest transition-all duration-300 text-xs md:text-sm ${(liveClass.safeLink || liveClass.link) ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(220,38,38,0.3)] animate-pulse hover:animate-none hover:scale-105 border border-red-400' : 'bg-black/20 backdrop-blur-xl text-white/70 font-medium cursor-not-allowed border border-white/20'} `}
+                        onClick={(e) => {
+                            if (!liveClass.safeLink && !liveClass.link) {
+                                e.preventDefault();
+                                toast.error("Live link will be available soon!");
+                            }
+                        }}
                     >
-                        {isJoinable ? <><Play size={16} className="fill-white" /> Join Now</> : <><Lock size={14} /> Locked</>}
+                        {(liveClass.safeLink || liveClass.link) ? <><Play size={16} className="fill-white" /> Join Now</> : <><Lock size={14} /> Link Pending</>}
                     </a>
                 </div>
             </div>
@@ -622,6 +671,17 @@ export default function StudentOverview({ setActiveTab }) {
                     </div>
                 </div>
             </div>
+
+            {/* 🔥 UPCOMING & ACTIVE LIVE CLASSES BANNER (PROMINENT AT TOP) 🔥 */}
+            {data?.upcomingLives && data.upcomingLives.length > 0 && (
+                <div className="flex flex-col gap-4 mb-6 animate-in fade-in slide-in-from-top-3 duration-500">
+                    {data.upcomingLives.map((c, index) => (
+                        <React.Fragment key={index}>
+                            {renderLiveBanner(c)}
+                        </React.Fragment>
+                    ))}
+                </div>
+            )}
 
             {/* ═══════════════════════════════════════════════════════════════════════════════ */}
             {/* 🏆 ACADEMIC EXCELLENCE, MULTI-CLASS LEADERBOARD & PAPER HISTORY HUB 🏆 */}
@@ -1221,15 +1281,6 @@ export default function StudentOverview({ setActiveTab }) {
                                 );
                             })}
                         </div>
-                    </div>
-
-                    {/* 🔥 LIVE CLASS BANNER (MOVED TO BOTTOM) 🔥 */}
-                    <div className="flex flex-col gap-4">
-                        {data?.upcomingLives?.map((c, index) => (
-                            <React.Fragment key={index}>
-                                {renderLiveBanner(c)}
-                            </React.Fragment>
-                        ))}
                     </div>
 
                 </div>

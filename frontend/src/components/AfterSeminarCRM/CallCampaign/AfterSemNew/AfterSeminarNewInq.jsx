@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import axios from '../../../../api/axios';
-import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash, FaCheckCircle, FaUser, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaLayerGroup, FaPhoneAlt, FaWhatsapp, FaClock, FaBan } from 'react-icons/fa';
+import * as XLSX from 'xlsx';
+import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash, FaCheckCircle, FaUser, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaLayerGroup, FaPhoneAlt, FaWhatsapp, FaClock, FaBan, FaFileExcel } from 'react-icons/fa';
 import { Target, PhoneCall, Check, Loader, BookOpen, Loader2, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -463,6 +464,131 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
         return null;
     };
 
+    const exportToExcel = () => {
+        if (!filteredLeads || filteredLeads.length === 0) {
+            toast.error("No leads available to export.");
+            return;
+        }
+
+        const cleanDigits = (num) => (num ? String(num).replace(/[^0-9]/g, '') : '');
+
+        const getBatchName = (l) => {
+            if (l?.batch?.name) return l.batch.name;
+            if (l?.batchName) return l.batchName;
+            if (l?.batchId && allBatches) {
+                const found = allBatches.find(b => String(b.id) === String(l.batchId));
+                if (found?.name) return found.name;
+            }
+            if (filters?.selectedBatch && allBatches) {
+                const found = allBatches.find(b => String(b.id) === String(filters.selectedBatch));
+                if (found?.name) return found.name;
+            }
+            return "-";
+        };
+
+        const data = filteredLeads.map((l, index) => {
+            const rawPrimary = l.phone ? l.phone.split('_')[0].trim() : '-';
+            const primSuffix = cleanDigits(rawPrimary).slice(-9);
+
+            const candidates = [];
+            if (l.registeredUser?.optionalPhone) candidates.push(l.registeredUser.optionalPhone);
+            if (l.registeredUser?.phone) candidates.push(l.registeredUser.phone);
+            if (l.registeredUser?.whatsapp) candidates.push(l.registeredUser.whatsapp);
+            if (l.optionalPhone) candidates.push(l.optionalPhone);
+            if (l.secondPhone) candidates.push(l.secondPhone);
+
+            const secondaryList = candidates.filter(num => {
+                const cClean = cleanDigits(num);
+                return cClean && cClean.length >= 7 && cClean.slice(-9) !== primSuffix;
+            });
+            const uniqueSec = [...new Set(secondaryList)];
+            const secPhone = uniqueSec.length > 0 ? uniqueSec[0] : '-';
+
+            const studentName = (l.registeredUser ? `${l.registeredUser.firstName || ''} ${l.registeredUser.lastName || ''}`.trim() : '') || l.name || '-';
+            const webName = l.registeredUser ? `${l.registeredUser.firstName || ''} ${l.registeredUser.lastName || ''}`.trim() : '-';
+            const waName = l.name || '-';
+
+            const outcome = l.callStatus === 'answered' ? 'Answered' :
+                            l.callStatus === 'reject' ? 'Reject' :
+                            l.callStatus === 'no_answer' ? 'No Answer' : 'Pending';
+
+            const method = l.callMethod === '3cx' ? '3CX' :
+                           l.callMethod === 'whatsapp' ? 'WhatsApp' :
+                           l.callMethod === 'direct' ? 'Direct Call' : (l.callMethod || 'Direct Call');
+
+            const enrollment = l.enrollmentStatus === 'NON_ENROLLED' ? 'Non-Enrolled' :
+                               l.enrollmentStatus === 'ENROLLED_FULL' ? 'Enrolled - Full' :
+                               l.enrollmentStatus === 'ENROLLED_MONTHLY' ? 'Enrolled - Monthly' :
+                               l.enrollmentStatus === 'ENROLLED_INSTALLMENT' ? 'Enrolled - Installment' :
+                               (l.enrollmentStatus || 'Non-Enrolled');
+
+            // Remarks History
+            const r1Remark = l.roundProgress?.find(r => r.roundNum === 1)?.feedback 
+                || (l.newInqRound === 1 || l.coordinationRound === 1 ? (l.newInqFeedback || l.openSemFeedback || l.feedback) : '')
+                || "-";
+            const r2Remark = l.roundProgress?.find(r => r.roundNum === 2)?.feedback 
+                || (l.newInqRound === 2 || l.coordinationRound === 2 ? (l.newInqFeedback || l.openSemFeedback || l.feedback) : '')
+                || "-";
+            const nonEnrolledRemark = l.roundProgress?.find(r => r.roundNum === 3)?.feedback 
+                || l.coordinationRemark 
+                || l.nonEnrolledReason 
+                || (l.newInqRound === 3 || l.coordinationRound === 3 ? (l.newInqFeedback || l.openSemFeedback || l.feedback) : '')
+                || "-";
+
+            // Coordinator
+            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const assignedCoordinator = (l.assignedUser ? `${l.assignedUser.firstName || ''} ${l.assignedUser.lastName || ''}`.trim() : '')
+                || l.assignedUserName
+                || (loggedUser?.firstName && (!l.assignedTo || String(l.assignedTo) === String(loggedUser.id)) ? `${loggedUser.firstName} ${loggedUser.lastName || ''}`.trim() : '')
+                || "-";
+
+            return {
+                "#": index + 1,
+                "Student Name": studentName,
+                "Web Registered Name": webName,
+                "WhatsApp Name": waName,
+                "Primary Phone": rawPrimary,
+                "Secondary Phone": secPhone,
+                "Batch": getBatchName(l),
+                "Assigned Coordinator": assignedCoordinator,
+                "Outcome": outcome,
+                "Attempt": l.callAttempt || 1,
+                "Method": method,
+                "Enrollment": enrollment,
+                "Round 1 Remark": r1Remark,
+                "Round 2 Remark": r2Remark,
+                "Non-Enrolled Remarks": nonEnrolledRemark,
+                "Assigned Date": l.assignedAt ? new Date(l.assignedAt).toLocaleDateString() : (l.createdAt ? new Date(l.createdAt).toLocaleDateString() : "-")
+            };
+        });
+
+        const worksheet = XLSX.utils.json_to_sheet(data);
+        worksheet['!cols'] = [
+            { wch: 6 },
+            { wch: 25 },
+            { wch: 22 },
+            { wch: 20 },
+            { wch: 18 },
+            { wch: 18 },
+            { wch: 28 },
+            { wch: 22 },
+            { wch: 14 },
+            { wch: 10 },
+            { wch: 14 },
+            { wch: 16 },
+            { wch: 32 },
+            { wch: 32 },
+            { wch: 35 },
+            { wch: 14 }
+        ];
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Non Enrolled Leads");
+        const dateStr = new Date().toISOString().split('T')[0];
+        XLSX.writeFile(workbook, `New_Inquiries_Non_Enrolled_Leads_${dateStr}.xlsx`);
+        toast.success(`Exported ${filteredLeads.length} leads successfully!`);
+    };
+
     return (<>
         <div className="w-full h-full flex flex-col bg-transparent overflow-y-auto custom-scrollbar font-sans text-slate-100">
             <div className="fade-in">
@@ -594,6 +720,14 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                             </div>
 
                             <div className="relative flex gap-2">
+                                {activeRound === 'non_enrolled' && (
+                                    <button 
+                                        onClick={exportToExcel}
+                                        className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-lg shadow-emerald-500/20 whitespace-nowrap"
+                                    >
+                                        <FaFileExcel size={14} /> EXPORT EXCEL
+                                    </button>
+                                )}
                                 <div className="relative flex-1">
                                     <FaSearch className="absolute left-3.5 top-3.5 text-slate-400 text-sm" />
                                     <input type="text" placeholder="Search leads by phone or name..." value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }} className="w-full bg-[#0F172A] border border-white/10 rounded-xl py-3 pl-10 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-indigo-500 shadow-inner" />

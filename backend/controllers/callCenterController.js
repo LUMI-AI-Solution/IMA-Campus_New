@@ -38,16 +38,18 @@ exports.getPendingRequests = async (req, res) => {
         };
 
         if (businessId && businessId !== 'All') {
-            whereClause.batch = {
-                businessId: parseInt(businessId)
-            };
+            const bizIdInt = parseInt(businessId);
+            whereClause.OR = [
+                { batch: { businessId: bizIdInt } },
+                { phone: { contains: `_BIZ_${bizIdInt}` } }
+            ];
         }
 
         const pendingLeads = await prisma.lead.findMany({
             where: whereClause,
             include: {
                 batch: { include: { business: true } },
-                assignedUser: { select: { id: true, firstName: true, lastName: true, role: true, department: true } }
+                assignedUser: { select: { id: true, firstName: true, lastName: true, phone: true, role: true, department: true } }
             },
             orderBy: { updatedAt: 'desc' }
         });
@@ -107,29 +109,45 @@ exports.getManagerLeads = async (req, res) => {
             }
         }
 
+        const andClauses = [];
+
         if (businessId && businessId !== 'All') {
-            whereClause.batch = {
-                businessId: parseInt(businessId)
-            };
+            const bizIdInt = parseInt(businessId);
+            andClauses.push({
+                OR: [
+                    { batch: { businessId: bizIdInt } },
+                    { phone: { contains: `_BIZ_${bizIdInt}` } }
+                ]
+            });
         }
 
         if (tab === 'unassigned') {
-            whereClause.OR = [
-                { assignedTo: null },
-                { assignedUser: { department: { not: 'Call Center' } } }
-            ];
+            andClauses.push({
+                OR: [
+                    { assignedTo: null },
+                    { assignedUser: { department: { not: 'Call Center' } } }
+                ]
+            });
         } else if (tab === 'assigned') {
-            whereClause.assignedTo = { not: null };
-            whereClause.assignedUser = { department: 'Call Center' };
+            andClauses.push({
+                assignedTo: { not: null },
+                assignedUser: { department: 'Call Center' }
+            });
         } else if (tab === 'completed') {
-            whereClause.callCenterStatus = 'completed';
+            andClauses.push({
+                callCenterStatus: 'completed'
+            });
+        }
+
+        if (andClauses.length > 0) {
+            whereClause.AND = andClauses;
         }
 
         const leads = await prisma.lead.findMany({
             where: whereClause,
             include: {
                 batch: { include: { business: true } },
-                assignedUser: { select: { id: true, firstName: true, lastName: true, role: true, department: true } },
+                assignedUser: { select: { id: true, firstName: true, lastName: true, phone: true, role: true, department: true } },
                 roundProgress: true
             },
             orderBy: { createdAt: 'desc' }
@@ -221,7 +239,9 @@ exports.assignLeadsToAgent = async (req, res) => {
             data: {
                 assignedTo: targetAgentId,
                 isCallCenter: true,
-                callCenterStatus: 'pending' // Reset status for agent to call
+                callCenterStatus: 'pending',
+                callCenterRequestStatus: 'APPROVED',
+                assignedAt: targetAgentId ? new Date() : null
             }
         });
 

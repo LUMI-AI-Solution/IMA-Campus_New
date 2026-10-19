@@ -161,6 +161,34 @@ exports.getPendingDeliveries = async (req, res) => {
             }
         }) : [];
 
+        // Fetch all previously delivered/packed items for these students to detect duplicates
+        const pastDeliveredItems = studentIds.length > 0 ? await prisma.deliveryItem.findMany({
+            where: {
+                delivery: {
+                    studentId: { in: studentIds.map(String) },
+                    id: { notIn: deliveries.map(d => d.id) },
+                    status: { in: ['Packed', 'On the way', 'Delivered', 'Resolved', 'Received'] }
+                }
+            },
+            include: {
+                delivery: {
+                    select: {
+                        id: true,
+                        studentId: true,
+                        status: true,
+                        packedAt: true,
+                        createdAt: true,
+                        payment: {
+                            select: {
+                                groupId: true,
+                                group: { select: { name: true } }
+                            }
+                        }
+                    }
+                }
+            }
+        }) : [];
+
         // Build quick lookup map for past deliveries by studentId
         const pastDelMap = new Map();
         pastDeliveries.forEach(pd => {
@@ -196,6 +224,40 @@ exports.getPendingDeliveries = async (req, res) => {
                 }
             }
 
+            // 🔥 Check for duplicate tutes already delivered to this student previously
+            let hasDuplicate = false;
+            const duplicateWarnings = [];
+            const enrichedItems = itemsWithDetails.map(item => {
+                const normName = (item.tuteName || '').toLowerCase().replace(/[^a-z0-9\u0D80-\u0DFF]/g, '');
+                const priorDup = pastDeliveredItems.find(p => 
+                    p.delivery.studentId === String(std.id) &&
+                    (p.tuteName || '').toLowerCase().replace(/[^a-z0-9\u0D80-\u0DFF]/g, '') === normName
+                );
+                if (priorDup) {
+                    hasDuplicate = true;
+                    const dateStr = priorDup.delivery.packedAt 
+                        ? new Date(priorDup.delivery.packedAt).toLocaleDateString('en-GB')
+                        : new Date(priorDup.delivery.createdAt).toLocaleDateString('en-GB');
+                    const warningInfo = {
+                        orderId: priorDup.delivery.id,
+                        status: priorDup.delivery.status,
+                        date: dateStr,
+                        groupName: priorDup.delivery.payment?.group?.name || 'Previous Order',
+                        tuteName: item.tuteName
+                    };
+                    duplicateWarnings.push(warningInfo);
+                    return {
+                        ...item,
+                        isDuplicate: true,
+                        duplicateDetails: warningInfo
+                    };
+                }
+                return {
+                    ...item,
+                    isDuplicate: false
+                };
+            });
+
             const lastDel = std.id ? pastDelMap.get(String(std.id)) : null;
             let lastDeliveryInfo = null;
             if (lastDel) {
@@ -224,7 +286,9 @@ exports.getPendingDeliveries = async (req, res) => {
                 batchName: d.payment?.batch?.name || 'Batch Not Assigned', 
                 groupName: d.payment?.group?.name || 'No Group',
                 isUpgrade: isUpgrade,
-                items: itemsWithDetails,
+                items: enrichedItems,
+                hasDuplicate,
+                duplicateWarnings,
                 lastDelivery: lastDeliveryInfo
             };
         });

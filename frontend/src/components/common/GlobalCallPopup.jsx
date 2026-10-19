@@ -35,7 +35,7 @@ const GlobalCallPopup = () => {
                     </button>
 
                     <button 
-                        onClick={() => answerCall(incomingCall.callId, incomingCall.sdp)}
+                        onClick={() => answerCall(incomingCall.callId, incomingCall.sdp, incomingCall)}
                         className="flex flex-col items-center gap-2 group"
                     >
                         <div className="bg-emerald-500/20 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white w-14 h-14 rounded-full flex items-center justify-center text-xl transition-all duration-300">

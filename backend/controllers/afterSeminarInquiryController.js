@@ -1488,6 +1488,12 @@ exports.receiveMessage = async (req, res) => {
     try {
         let body = req.body;
         
+        // Delegate incoming WhatsApp calls to freeSeminarController call handler
+        if (body.object === "whatsapp_business_account" && body.entry?.[0]?.changes?.[0]?.value?.calls?.[0]) {
+            const freeSeminarController = require('./freeSeminarController');
+            return freeSeminarController.receiveMessage(req, res);
+        }
+
         if (body.object === "whatsapp_business_account" && body.entry?.[0]?.changes?.[0]?.value?.messages?.[0]) {
             let msgData = body.entry[0].changes[0].value.messages[0];
             let contactData = body.entry[0].changes[0].value.contacts?.[0] || {};

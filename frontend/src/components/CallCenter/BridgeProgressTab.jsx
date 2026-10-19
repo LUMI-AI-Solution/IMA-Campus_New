@@ -429,24 +429,40 @@ export default function BridgeProgressTab({ businesses = [] }) {
                         </div>
                       </div>
 
-                      {/* Stats grid */}
-                      <div className="grid grid-cols-4 gap-1.5 bg-black/40 p-2.5 rounded-xl border border-white/5 mb-3 text-center">
-                        <div>
-                          <p className="text-[9px] font-bold text-slate-400 uppercase">Workload</p>
-                          <p className="text-xs font-black text-slate-200">{agent.totalAssigned}</p>
+                      {/* Stats grid: Workload, Answered, No Ans, Reject, Pending */}
+                      <div className="grid grid-cols-5 gap-1 bg-black/40 p-2 rounded-xl border border-white/5 mb-3 text-center">
+                        <div className="bg-blue-500/5 p-1 rounded-lg">
+                          <p className="text-[8px] font-bold text-blue-400 uppercase">Assigned</p>
+                          <p className="text-xs font-black text-blue-200 mt-0.5">{agent.totalAssigned}</p>
                         </div>
-                        <div>
-                          <p className="text-[9px] font-bold text-amber-400 uppercase">Pending</p>
-                          <p className="text-xs font-black text-amber-300">{agent.pending}</p>
+                        <div className="bg-emerald-500/5 p-1 rounded-lg">
+                          <p className="text-[8px] font-bold text-emerald-400 uppercase">Answer</p>
+                          <p className="text-xs font-black text-emerald-300 mt-0.5">{agent.answered}</p>
                         </div>
-                        <div>
-                          <p className="text-[9px] font-bold text-emerald-400 uppercase">Answered</p>
-                          <p className="text-xs font-black text-emerald-300">{agent.answered}</p>
+                        <div className="bg-orange-500/5 p-1 rounded-lg">
+                          <p className="text-[8px] font-bold text-orange-400 uppercase">No Ans</p>
+                          <p className="text-xs font-black text-orange-300 mt-0.5">{agent.noAnswer}</p>
                         </div>
-                        <div>
-                          <p className="text-[9px] font-bold text-orange-400 uppercase">No Ans</p>
-                          <p className="text-xs font-black text-orange-300">{agent.noAnswer}</p>
+                        <div className="bg-rose-500/5 p-1 rounded-lg">
+                          <p className="text-[8px] font-bold text-rose-400 uppercase">Reject</p>
+                          <p className="text-xs font-black text-rose-300 mt-0.5">{agent.reject || 0}</p>
                         </div>
+                        <div className="bg-amber-500/5 p-1 rounded-lg">
+                          <p className="text-[8px] font-bold text-amber-400 uppercase">Pending</p>
+                          <p className="text-xs font-black text-amber-300 mt-0.5">{agent.pending}</p>
+                        </div>
+                      </div>
+
+                      {/* Multi-segment Progress Bar */}
+                      <div className="w-full bg-slate-800 rounded-full h-1.5 flex overflow-hidden mb-3 border border-white/5">
+                        {agent.totalAssigned > 0 && (
+                          <>
+                            <div style={{ width: `${(agent.answered / agent.totalAssigned) * 100}%` }} className="bg-emerald-500 h-full" title={`Answered: ${agent.answered}`} />
+                            <div style={{ width: `${(agent.noAnswer / agent.totalAssigned) * 100}%` }} className="bg-orange-500 h-full" title={`No Answer: ${agent.noAnswer}`} />
+                            <div style={{ width: `${((agent.reject || 0) / agent.totalAssigned) * 100}%` }} className="bg-rose-500 h-full" title={`Reject: ${agent.reject || 0}`} />
+                            <div style={{ width: `${(agent.pending / agent.totalAssigned) * 100}%` }} className="bg-amber-500/40 h-full" title={`Pending: ${agent.pending}`} />
+                          </>
+                        )}
                       </div>
                     </div>
 

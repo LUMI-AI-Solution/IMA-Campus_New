@@ -155,6 +155,46 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
     return { theoryCount, paperCount };
   };
 
+  const findBestDefaultGroup = (groups, plan) => {
+    if (!groups || groups.length === 0) return null;
+    if (plan !== 'monthly') return groups[0];
+
+    const now = new Date();
+    const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+    const sinhalaMonths = ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"];
+    const curMonth = monthNames[now.getMonth()];
+    const curSinMonth = sinhalaMonths[now.getMonth()];
+
+    // 1. Try to find the group matching current calendar month
+    const curMonthGroup = groups.find(g => {
+      const name = (g.name || '').toLowerCase();
+      return name.includes(curMonth) || name.includes(curSinMonth);
+    });
+
+    if (curMonthGroup) {
+      const paidInCur = groupPaidSubjects[curMonthGroup.id] || [];
+      const totalInCur = curMonthGroup.courses?.length || 0;
+      if (totalInCur === 0 || paidInCur.length < totalInCur) {
+        return curMonthGroup;
+      }
+      // If current month is already fully paid, pick next month in order
+      const curIdx = groups.findIndex(g => g.id === curMonthGroup.id);
+      if (curIdx !== -1 && curIdx + 1 < groups.length) {
+        return groups[curIdx + 1];
+      }
+      return curMonthGroup;
+    }
+
+    // 2. Fallback: find the first group with unpaid subjects
+    const unpaidGroup = groups.find(g => {
+      const paid = groupPaidSubjects[g.id] || [];
+      const total = g.courses?.length || 0;
+      return total === 0 || paid.length < total;
+    });
+
+    return unpaidGroup || groups[0];
+  };
+
   const proceedToPaymentOrSubjects = (batch, classType) => {
     const targetType = classType === 'paper' ? 2 : 1;
     const availableGroups = (batch?.groups || []).filter(g => {
@@ -168,7 +208,7 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
     if (hasMonthly && !hasFull) {
         setPaymentPlan('monthly');
         const monthlyGroups = availableGroups.filter(g => g.type === 1).sort((a, b) => a.itemOrder - b.itemOrder);
-        setSelectedGroup(monthlyGroups[0] || null);
+        setSelectedGroup(findBestDefaultGroup(monthlyGroups, 'monthly') || null);
         setSelectionLevel(4);
     } else if (hasFull && !hasMonthly) {
         setPaymentPlan('full');
@@ -279,7 +319,7 @@ const EnrollmentTab = ({ businesses, setActiveTab }) => {
       const groups = getFilteredGroups();
       if (groups.length > 0) {
         if (!selectedGroup || !groups.some(g => g.id === selectedGroup.id)) {
-          setSelectedGroup(groups[0]);
+          setSelectedGroup(findBestDefaultGroup(groups, paymentPlan));
         }
       } else {
         setSelectedGroup(null);

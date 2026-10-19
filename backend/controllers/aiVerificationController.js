@@ -895,31 +895,12 @@ const createDeliveryForVerifiedPayment = async (payment) => {
             return;
         }
 
-        if (subIds.length === 0) return;
-
-        const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
-        if (!courses || courses.length === 0) return;
-
-        const { getDeliverableCoursesForPayment } = require('./paymentController');
-        const deliverableCourses = await getDeliverableCoursesForPayment(payment, courses);
-
-        if (deliverableCourses && deliverableCourses.length > 0) {
-            const pType = parseInt(payment.payment_type !== undefined ? payment.payment_type : payment.paymentType, 10);
-            const paymentTypeStr = pType === 1 ? 'Monthly' : (pType === 2 ? 'Installment' : 'Full');
-
-            await prisma.delivery.create({
-                data: {
-                    paymentId: payment.id,
-                    studentId: payment.studentId.toString(),
-                    businessId: payment.businessId,
-                    paymentType: paymentTypeStr,
-                    status: 'Pending',
-                    items: { create: deliverableCourses }
-                }
-            });
-            console.log(`[AI-Delivery] Created Delivery for Payment ID ${payment.id} with ${deliverableCourses.length} tutes.`);
+        const { createAutoDeliveryForPayment } = require('./paymentController');
+        const delivery = await createAutoDeliveryForPayment(payment);
+        if (delivery) {
+            console.log(`[AI-Delivery] Created Delivery for Payment ID ${payment.id} (ORD-${delivery.id}).`);
         } else {
-            console.log(`[AI-Delivery] No deliverable tutes for Payment ID ${payment.id}.`);
+            console.log(`[AI-Delivery] No deliverable tutes or already delivered for Payment ID ${payment.id}.`);
         }
     } catch(err) {
         console.error("[AI-Delivery] Error in createDeliveryForVerifiedPayment:", err.message);

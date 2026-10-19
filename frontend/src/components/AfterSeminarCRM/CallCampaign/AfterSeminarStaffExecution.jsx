@@ -189,7 +189,8 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
                                     leads={leads} drafts={drafts} setDrafts={setDrafts} 
                                     handleUpdateLocalLead={handleUpdateLocalLead} handleSaveCallData={handleSaveCallData} 
                                     handleTempUnlock={handleTempUnlock} setChatModalLead={setSelectedLead} 
-                                    isManager={isManager} externalSearch={campaignSearchPhone}
+                                    isManager={isManager} allBatches={allBatches} filters={filters}
+                                    externalSearch={campaignSearchPhone}
                                 />
                             </div>
                         )}

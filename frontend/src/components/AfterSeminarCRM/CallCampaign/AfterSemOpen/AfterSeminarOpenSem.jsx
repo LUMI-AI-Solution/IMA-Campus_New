@@ -581,24 +581,123 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
             return;
         }
 
-        const data = filteredLeads.map(l => {
+        const cleanDigits = (num) => (num ? String(num).replace(/[^0-9]/g, '') : '');
+
+        const getBatchName = (l) => {
+            if (l?.batch?.name) return l.batch.name;
+            if (l?.batchName) return l.batchName;
+            if (l?.batchId && allBatches) {
+                const found = allBatches.find(b => String(b.id) === String(l.batchId));
+                if (found?.name) return found.name;
+            }
+            if (filters?.selectedBatch && allBatches) {
+                const found = allBatches.find(b => String(b.id) === String(filters.selectedBatch));
+                if (found?.name) return found.name;
+            }
+            return "-";
+        };
+
+        const data = filteredLeads.map((l, index) => {
+            const rawPrimary = l.phone ? l.phone.split('_')[0].trim() : '-';
+            const primSuffix = cleanDigits(rawPrimary).slice(-9);
+
+            const candidates = [];
+            if (l.registeredUser?.optionalPhone) candidates.push(l.registeredUser.optionalPhone);
+            if (l.registeredUser?.phone) candidates.push(l.registeredUser.phone);
+            if (l.registeredUser?.whatsapp) candidates.push(l.registeredUser.whatsapp);
+            if (l.optionalPhone) candidates.push(l.optionalPhone);
+            if (l.secondPhone) candidates.push(l.secondPhone);
+
+            const secondaryList = candidates.filter(num => {
+                const cClean = cleanDigits(num);
+                return cClean && cClean.length >= 7 && cClean.slice(-9) !== primSuffix;
+            });
+            const uniqueSec = [...new Set(secondaryList)];
+            const secPhone = uniqueSec.length > 0 ? uniqueSec[0] : '-';
+
+            const studentName = (l.registeredUser ? `${l.registeredUser.firstName || ''} ${l.registeredUser.lastName || ''}`.trim() : '') || l.name || '-';
+            const webName = l.registeredUser ? `${l.registeredUser.firstName || ''} ${l.registeredUser.lastName || ''}`.trim() : '-';
+            const waName = l.name || '-';
+
+            const outcome = l.callStatus === 'answered' ? 'Answered' :
+                            l.callStatus === 'reject' ? 'Reject' :
+                            l.callStatus === 'no_answer' ? 'No Answer' : 'Pending';
+
+            const method = l.callMethod === '3cx' ? '3CX' :
+                           l.callMethod === 'whatsapp' ? 'WhatsApp' :
+                           l.callMethod === 'direct' ? 'Direct Call' : (l.callMethod || 'Direct Call');
+
+            const enrollment = l.enrollmentStatus === 'NON_ENROLLED' ? 'Non-Enrolled' :
+                               l.enrollmentStatus === 'ENROLLED_FULL' ? 'Enrolled - Full' :
+                               l.enrollmentStatus === 'ENROLLED_MONTHLY' ? 'Enrolled - Monthly' :
+                               l.enrollmentStatus === 'ENROLLED_INSTALLMENT' ? 'Enrolled - Installment' :
+                               (l.enrollmentStatus || 'Non-Enrolled');
+
+            // Remarks History
+            const r1Remark = l.roundProgress?.find(r => r.roundNum === 1)?.feedback 
+                || (l.openSemRound === 1 || l.coordinationRound === 1 ? (l.openSemFeedback || l.newInqFeedback || l.feedback) : '')
+                || "-";
+            const r2Remark = l.roundProgress?.find(r => r.roundNum === 2)?.feedback 
+                || (l.openSemRound === 2 || l.coordinationRound === 2 ? (l.openSemFeedback || l.newInqFeedback || l.feedback) : '')
+                || "-";
+            const nonEnrolledRemark = l.roundProgress?.find(r => r.roundNum === 3)?.feedback 
+                || l.coordinationRemark 
+                || l.nonEnrolledReason 
+                || (l.openSemRound === 3 || l.coordinationRound === 3 ? (l.openSemFeedback || l.newInqFeedback || l.feedback) : '')
+                || "-";
+
+            // Coordinator
+            const loggedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const assignedCoordinator = (l.assignedUser ? `${l.assignedUser.firstName || ''} ${l.assignedUser.lastName || ''}`.trim() : '')
+                || l.assignedUserName
+                || (loggedUser?.firstName && (!l.assignedTo || String(l.assignedTo) === String(loggedUser.id)) ? `${loggedUser.firstName} ${loggedUser.lastName || ''}`.trim() : '')
+                || "-";
+
             return {
-                "Phone": l.phone || "-",
-                "Name": l.name || "-",
-                "Outcome": l.callStatus === 'answered' ? 'Answered' : l.callStatus === 'reject' ? 'Reject' : l.callStatus === 'no_answer' ? 'No Answer' : 'Pending',
+                "#": index + 1,
+                "Student Name": studentName,
+                "Web Registered Name": webName,
+                "WhatsApp Name": waName,
+                "Primary Phone": rawPrimary,
+                "Secondary Phone": secPhone,
+                "Batch": getBatchName(l),
+                "Assigned Coordinator": assignedCoordinator,
+                "Outcome": outcome,
                 "Attempt": l.callAttempt || 1,
-                "Method": l.callMethod || "-",
-                "Enrollment": l.enrollmentStatus || "-",
-                "Round 1 Remark": l.roundProgress?.find(r => r.roundNum === 1)?.feedback || "-",
-                "Round 2 Remark": l.roundProgress?.find(r => r.roundNum === 2)?.feedback || "-",
-                "Non-Enrolled Remarks": l.roundProgress?.find(r => r.roundNum === 3)?.feedback || l.coordinationRemark || "-"
+                "Method": method,
+                "Enrollment": enrollment,
+                "Round 1 Remark": r1Remark,
+                "Round 2 Remark": r2Remark,
+                "Non-Enrolled Remarks": nonEnrolledRemark,
+                "Assigned Date": l.assignedAt ? new Date(l.assignedAt).toLocaleDateString() : (l.createdAt ? new Date(l.createdAt).toLocaleDateString() : "-")
             };
         });
 
         const worksheet = XLSX.utils.json_to_sheet(data);
+        worksheet['!cols'] = [
+            { wch: 6 },
+            { wch: 25 },
+            { wch: 22 },
+            { wch: 20 },
+            { wch: 18 },
+            { wch: 18 },
+            { wch: 28 },
+            { wch: 22 },
+            { wch: 14 },
+            { wch: 10 },
+            { wch: 14 },
+            { wch: 16 },
+            { wch: 32 },
+            { wch: 32 },
+            { wch: 35 },
+            { wch: 14 }
+        ];
+
         const workbook = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(workbook, worksheet, "Non Enrolled Leads");
-        XLSX.writeFile(workbook, "Open_Seminar_Non_Enrolled_Leads.xlsx");
+        const dateStr = new Date().toISOString().split('T')[0];
+        XLSX.writeFile(workbook, `Open_Seminar_Non_Enrolled_Leads_${dateStr}.xlsx`);
+        toast.success(`Exported ${filteredLeads.length} leads successfully!`);
     };
 
     return (

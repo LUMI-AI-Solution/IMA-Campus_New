@@ -384,6 +384,15 @@ exports.bulkActions = async (req, res) => {
             if (!staffId || isNaN(parseInt(staffId))) {
                 return res.status(400).json({ error: "Invalid staff ID provided for assignment." });
             }
+            const staffMember = await prisma.user.findUnique({
+                where: { id: parseInt(staffId) },
+                select: { id: true, department: true, role: true }
+            });
+            const isCallCenterStaff = staffMember && (
+                String(staffMember.department || '').toUpperCase().includes('CALL') ||
+                ['CALLER', 'CALL_CENTER_AGENT', 'CALL CENTER AGENT', 'CALL_CENTER'].includes(String(staffMember.role || '').toUpperCase())
+            );
+
             const updateData = { 
                 assignedTo: parseInt(staffId), 
                 status: 'OPEN', 
@@ -391,6 +400,15 @@ exports.bulkActions = async (req, res) => {
                 callStatus: 'pending',
                 assignedAt: new Date()
             };
+            if (isCallCenterStaff) {
+                updateData.isCallCenter = true;
+                updateData.callCenterStatus = 'pending';
+                updateData.callCenterRequestStatus = 'APPROVED';
+            } else {
+                updateData.isCallCenter = false;
+                updateData.callCenterStatus = 'pending';
+                updateData.callCenterRequestStatus = null;
+            }
             if (batchId && !isNaN(parseInt(batchId))) {
                 updateData.batchId = parseInt(batchId);
             }
@@ -441,7 +459,7 @@ exports.assignLeads = async (req, res) => {
         const { type, staffId, count, sort, autoAssignConfig, batchId, businessId, assignType, campaignType } = req.body;
 
         if (type === 'bulk') {
-            let whereClause = { assignedTo: null, status: 'NEW', campaignType: campaignType || 'FREE_SEMINAR' };
+            let whereClause = { assignedTo: null, status: { not: 'BLOCKED' }, campaignType: campaignType || 'FREE_SEMINAR' };
 
             if (batchId && batchId !== '' && batchId !== 'ALL' && batchId !== 'UNASSIGNED') {
                 whereClause.batchId = parseInt(batchId);
@@ -483,6 +501,15 @@ exports.assignLeads = async (req, res) => {
                 return res.status(400).json({ error: "Please select a staff member to assign." });
             }
 
+            const staffMember = await prisma.user.findUnique({
+                where: { id: parseInt(staffId) },
+                select: { id: true, department: true, role: true }
+            });
+            const isCallCenterStaff = staffMember && (
+                String(staffMember.department || '').toUpperCase().includes('CALL') ||
+                ['CALLER', 'CALL_CENTER_AGENT', 'CALL CENTER AGENT', 'CALL_CENTER'].includes(String(staffMember.role || '').toUpperCase())
+            );
+
             const updateData = { 
                 assignedTo: parseInt(staffId), 
                 status: 'OPEN', 
@@ -490,6 +517,15 @@ exports.assignLeads = async (req, res) => {
                 callStatus: 'pending',
                 assignedAt: new Date()
             };
+            if (isCallCenterStaff) {
+                updateData.isCallCenter = true;
+                updateData.callCenterStatus = 'pending';
+                updateData.callCenterRequestStatus = 'APPROVED';
+            } else {
+                updateData.isCallCenter = false;
+                updateData.callCenterStatus = 'pending';
+                updateData.callCenterRequestStatus = null;
+            }
             if (batchId && batchId !== 'ALL' && batchId !== 'UNASSIGNED' && !isNaN(parseInt(batchId))) {
                 updateData.batchId = parseInt(batchId);
             }
@@ -714,6 +750,11 @@ exports.receiveMessage = async (req, res) => {
                     }
                 }
 
+                global.callIdToWaNumId = global.callIdToWaNumId || new Map();
+                if (callData.id && receivingWaNumId) {
+                    global.callIdToWaNumId.set(callData.id, receivingWaNumId);
+                }
+
                 if (callData.event === "connect") {
                     console.log("\n📞 ====== WHATSAPP CALL WEBHOOK ======");
                     console.log(JSON.stringify(callData, null, 2));
@@ -763,8 +804,9 @@ exports.receiveMessage = async (req, res) => {
                             let assignedTargetAgentId = null;
 
                             try {
+                                let settings = null;
                                 if (receivingWaNumId) {
-                                    const settings = await prisma.crmSettings.findFirst({
+                                    settings = await prisma.crmSettings.findFirst({
                                         where: { waNumId: receivingWaNumId }
                                     });
                                     if (settings && settings.businessId) {
@@ -772,20 +814,60 @@ exports.receiveMessage = async (req, res) => {
                                     }
                                 }
 
-                                const leadWhere = { phone: { startsWith: callData.from } };
                                 if (businessIdForLog) {
-                                    leadWhere.batch = { businessId: businessIdForLog };
+                                    const biz = await prisma.business.findUnique({ where: { id: businessIdForLog } });
+                                    if (biz) {
+                                        if (biz.name) businessType = String(biz.name).trim();
+                                        if (biz.ringtone) businessRingtoneUrl = `/api/storage/ringtone/${biz.ringtone}`;
+                                    }
                                 }
 
-                                const lead = await prisma.lead.findFirst({
-                                    where: leadWhere,
-                                    include: { batch: { include: { business: true } } }
-                                });
+                                const fromPhone = String(callData.from || '');
+                                const rawDigits = fromPhone.replace(/[^0-9]/g, '');
+                                const phoneSuffix9 = rawDigits.length >= 9 ? rawDigits.slice(-9) : rawDigits;
+
+                                let candidateLeads = [];
+                                if (phoneSuffix9) {
+                                    candidateLeads = await prisma.lead.findMany({
+                                        where: {
+                                            phone: { contains: phoneSuffix9 }
+                                        },
+                                        include: {
+                                            batch: { include: { business: true } }
+                                        },
+                                        orderBy: { id: 'desc' },
+                                        take: 10
+                                    });
+                                }
+
+                                function scoreLead(l) {
+                                    let score = 0;
+                                    const isBizMatch = businessIdForLog && (
+                                        l.batch?.businessId === businessIdForLog || 
+                                        (l.phone && l.phone.includes(`_BIZ_${businessIdForLog}`))
+                                    );
+                                    const isCampaignMatch = settings?.campaignType && l.campaignType === settings.campaignType;
+                                    
+                                    if (isBizMatch && isCampaignMatch) score += 100;
+                                    else if (isBizMatch) score += 50;
+                                    else if (isCampaignMatch) score += 30;
+                                    
+                                    if (l.assignedTo) score += 15;
+                                    return score;
+                                }
+
+                                const sortedLeads = [...candidateLeads].sort((a, b) => scoreLead(b) - scoreLead(a));
+                                const lead = sortedLeads[0] || null;
 
                                 if (lead) {
                                     if (lead.name) leadName = lead.name;
-                                    if (!businessIdForLog && lead.batch?.businessId) {
-                                        businessIdForLog = lead.batch.businessId;
+                                    if (!businessIdForLog) {
+                                        if (lead.batch?.businessId) {
+                                            businessIdForLog = lead.batch.businessId;
+                                        } else if (lead.phone && lead.phone.includes('_BIZ_')) {
+                                            const m = lead.phone.match(/_BIZ_(\d+)/);
+                                            if (m) businessIdForLog = parseInt(m[1], 10);
+                                        }
                                     }
                                     if (lead.batch?.business?.name) {
                                         businessType = String(lead.batch.business.name).trim();
@@ -793,20 +875,36 @@ exports.receiveMessage = async (req, res) => {
                                             businessRingtoneUrl = `/api/storage/ringtone/${lead.batch.business.ringtone}`;
                                         }
                                     }
+
+                                    // Check if lead is assigned to a coordinator
                                     if (lead.assignedTo) {
                                         const staff = await prisma.user.findUnique({
                                             where: { id: lead.assignedTo },
-                                            select: { id: true, agentStatus: true, role: true }
+                                            select: { id: true, firstName: true, lastName: true, role: true, department: true, agentStatus: true, businessType: true }
                                         });
-                                        if (staff && staff.agentStatus === 'ACTIVE') {
+
+                                        if (staff) {
                                             const roleUpper = staff.role ? String(staff.role).toUpperCase().replace(/ /g, '_') : "";
-                                            const isRestrictedRole = ['STUDENT', 'GUEST', 'DELIVERY', 'FINANCE'].some(r => roleUpper.includes(r));
-                                            
-                                            if (!isRestrictedRole) {
-                                                const agentRoom = io.sockets.adapter.rooms.get(`user_${staff.id}`);
-                                                if (agentRoom && agentRoom.size > 0) {
-                                                    assignedTargetAgentId = staff.id;
-                                                }
+                                            const deptLower = staff.department ? String(staff.department).trim().toLowerCase() : "";
+
+                                            const isRestrictedRole = ['SYSTEM_ADMIN', 'ADMIN', 'DIRECTOR', 'STUDENT', 'GUEST', 'DEVELOPER', 'CALLER', 'CALL_CENTER'].some(r => roleUpper.includes(r));
+                                            const isRestrictedDept = ['delivery', 'finance', 'social media', 'physical', 'academic', 'technical', 'administration', 'call center'].some(d => deptLower.includes(d));
+
+                                            const isCoordinationDept = deptLower.includes('class coordination') || (deptLower.includes('coordination') && !deptLower.includes('call center'));
+                                            const isCoordinationRole = roleUpper.includes('COORDINATOR') && !roleUpper.includes('CALLER') && !roleUpper.includes('CALL_CENTER');
+                                            const isCoordinationManager = roleUpper.includes('MANAGER') && isCoordinationDept;
+
+                                            const isCoordinator = !isRestrictedRole && !isRestrictedDept && Boolean(isCoordinationRole || isCoordinationManager) && !roleUpper.includes('PAPER_MARKER');
+
+                                            const isAgentActive = staff.agentStatus === 'ACTIVE';
+                                            const agentRoom = io.sockets.adapter.rooms.get(`user_${staff.id}`);
+                                            const isAgentOnline = agentRoom && agentRoom.size > 0;
+
+                                            if (isCoordinator && isAgentActive && isAgentOnline) {
+                                                assignedTargetAgentId = staff.id;
+                                                console.log(`[WA Call Routing] Assigned coordinator ${staff.id} (${staff.firstName}) is ACTIVE & ONLINE. Routing EXCLUSIVELY to them.`);
+                                            } else {
+                                                console.log(`[WA Call Routing] Assigned coordinator ${staff.id} (${staff.firstName}) is NOT available (status: ${staff.agentStatus}, online: ${isAgentOnline}, isCoordinator: ${isCoordinator}). Falling back to live coordinator pool.`);
                                             }
                                         }
                                     }
@@ -827,7 +925,13 @@ exports.receiveMessage = async (req, res) => {
                             let poolSnapshot = [];
                             try {
                                 const agentsInBiz = await prisma.user.findMany({
-                                    where: { businessType: businessType },
+                                    where: {
+                                        OR: [
+                                            { businessType: { contains: businessType } },
+                                            { businessType: { contains: "ALL" } },
+                                            { businessType: businessType }
+                                        ]
+                                    },
                                     select: { id: true, firstName: true, lastName: true, agentStatus: true, appChatUsername: true }
                                 });
                                 poolSnapshot = agentsInBiz.map(a => ({
@@ -892,15 +996,17 @@ exports.receiveMessage = async (req, res) => {
                                 console.log(`[WA Call Routing] Routing EXCLUSIVELY to assigned active online agent: ${assignedTargetAgentId}`);
                                 io.to(`user_${assignedTargetAgentId}`).emit('incoming_wa_call', callPayload);
                             } else {
-                                if (specificAgents && specificAgents.size > 0) {
+                                const specificCount = specificAgents ? specificAgents.size : 0;
+                                const allCount = allAgents ? allAgents.size : 0;
+                                if (specificCount > 0 || allCount > 0) {
                                     hasOnlineAgents = true;
-                                    console.log(`[WA Call Routing] Routing EXCLUSIVELY to business pool: ${roomName} (members: ${specificAgents.size})`);
-                                    io.to(roomName).emit('incoming_wa_call', callPayload);
+                                    console.log(`[WA Call Routing] Routing to business pool: ${roomName} (${specificCount} agents) and ${roomAll} (${allCount} agents)`);
+                                    io.to(roomName).to(roomAll).emit('incoming_wa_call', callPayload);
                                 }
                             }
                             
                             if (!hasOnlineAgents) {
-                                console.log(`No idle agents available in ${roomName} to take the WhatsApp call! Triggering Headless IVR Bot.`);
+                                console.log(`No idle agents available in ${roomName} or ${roomAll} to take the WhatsApp call! Triggering Headless IVR Bot.`);
                                 io.to(`wa_call_headless_bot`).emit('incoming_wa_call', callPayload);
                                 const { launchIvrBot } = require('../services/ivrBot');
                                 launchIvrBot(callPayload);

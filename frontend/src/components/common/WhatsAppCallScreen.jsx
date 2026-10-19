@@ -209,7 +209,7 @@ export default function WhatsAppCallScreen() {
                             <FaPhoneSlash className="transform -scale-x-100 mb-0.5" />
                         </button>
                         <button 
-                            onClick={() => answerCall(incomingCall.callId, incomingCall.sdp)}
+                            onClick={() => answerCall(incomingCall.callId, incomingCall.sdp, incomingCall)}
                             className="w-12 h-12 bg-[#00A884] rounded-full flex items-center justify-center text-xl hover:scale-105 active:scale-95 transition-transform animate-pulse shadow-[0_4px_12px_rgba(0,168,132,0.4)]"
                         >
                             <FaPhoneAlt />
@@ -246,9 +246,6 @@ export default function WhatsAppCallScreen() {
                     </div>
                 ) : null}
             </div>
-
-            {/* Permanent WebRTC Remote Audio Sink */}
-            <audio id="webrtc-remote-audio" autoPlay playsInline style={{ display: 'none' }} />
         </div>
     );
 }

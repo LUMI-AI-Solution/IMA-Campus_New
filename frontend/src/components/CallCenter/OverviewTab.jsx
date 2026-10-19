@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
+import CoordinatorStatsBreakdown from './CoordinatorStatsBreakdown';
 
 export default function OverviewTab() {
   const [businesses, setBusinesses] = useState([]);
@@ -531,46 +532,13 @@ export default function OverviewTab() {
                   </div>
                 </div>
 
-                {/* Agent Breakdown Table */}
-                <div className="bg-slate-900/80 backdrop-blur-md rounded-2xl border border-slate-700 overflow-hidden mt-2 shadow-xl">
-                  <div className="p-4 bg-slate-800/80 border-b border-slate-700 font-black text-white flex gap-2 items-center uppercase tracking-wider text-sm">
-                    <Users size={18} className="text-red-400"/> Agent Performance Breakdown
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-sm">
-                      <thead className="bg-[#0f172a] text-slate-400 uppercase text-xs font-black">
-                        <tr>
-                          <th className="px-5 py-4">Agent Name</th>
-                          <th className="px-5 py-4 text-center border-l border-slate-800 text-blue-400 bg-blue-500/5">Total Assigned</th>
-                          <th className="px-5 py-4 text-center text-orange-400 border-l border-slate-800 bg-orange-500/5">R1 Pending</th>
-                          <th className="px-5 py-4 text-center text-emerald-400 border-r border-slate-800 bg-emerald-500/5">R1 Covered</th>
-                          <th className="px-5 py-4 text-center text-orange-400 border-l border-slate-800 bg-orange-500/5">R2 Pending</th>
-                          <th className="px-5 py-4 text-center text-emerald-400 bg-emerald-500/5">R2 Covered</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-800/50">
-                        {Object.values(agentsMap).map((ag, i) => (
-                          <tr key={i} className="hover:bg-slate-800/40 transition-colors">
-                            <td className="px-5 py-4 font-bold text-white flex items-center gap-3">
-                               <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs text-slate-400 border border-slate-700">
-                                 {ag.name.charAt(0)}
-                               </div>
-                               {ag.name}
-                            </td>
-                            <td className="px-5 py-4 text-center font-black text-blue-300 border-l border-slate-800 bg-blue-500/5">{ag.assigned}</td>
-                            <td className="px-5 py-4 text-center font-black text-orange-300 border-l border-slate-800 bg-orange-500/5">{ag.r1p}</td>
-                            <td className="px-5 py-4 text-center font-black text-emerald-300 border-r border-slate-800 bg-emerald-500/5">{ag.r1c}</td>
-                            <td className="px-5 py-4 text-center font-black text-orange-300 border-l border-slate-800 bg-orange-500/5">{ag.r2p}</td>
-                            <td className="px-5 py-4 text-center font-black text-emerald-300 bg-emerald-500/5">{ag.r2c}</td>
-                          </tr>
-                        ))}
-                        {Object.keys(agentsMap).length === 0 && (
-                          <tr><td colSpan="6" className="text-center py-12 text-slate-500 font-bold bg-slate-900/50">No assigned leads found for this view</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                {/* Coordinator Performance Breakdown */}
+                <CoordinatorStatsBreakdown 
+                  leads={filtered} 
+                  title="Coordinator Performance Breakdown" 
+                  subtitle={`Staff breakdown for ${overviewBiz?.name || ''} • ${overviewCampaign.replace('_', ' ')} • ${batches.find(b => b.id === parseInt(overviewBatch))?.name || 'All Batches'}`} 
+                  campaignLabel={overviewCampaign} 
+                />
               </>
             );
           })()}

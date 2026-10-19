@@ -187,18 +187,31 @@ export default function StaffMissedCallTasksDrawer({ isOpen, onClose, onTaskComp
         if (!startOutboundCall) {
             return toast.error("WhatsApp calling service not initialized");
         }
+        const cleanPhone = getCleanPhone(task.phone);
+        if (!cleanPhone) {
+            return toast.error("Invalid phone number for call");
+        }
+
+        // Prime audio sink on direct user gesture so browser never blocks WebRTC incoming sound
+        try {
+            const sink = document.getElementById('webrtc-remote-audio-sink') || document.querySelector('audio');
+            if (sink) sink.play().catch(() => {});
+        } catch (e) {}
+
+        const targetCampaign = (task.source === 'AFTER_SEMINAR' || Boolean(task.batchId)) ? 'AFTER_SEMINAR' : (task.source || 'FREE_SEMINAR');
+
         startOutboundCall({
             lead: {
                 id: task.existingLeadId || task.leadId || null,
-                phone: task.phone,
-                name: task.studentName || task.name || task.phone,
+                phone: cleanPhone,
+                name: task.studentName || task.name || cleanPhone,
                 businessId: task.businessId,
                 batchId: task.batchId,
                 batch: task.batch,
                 business: task.business
             },
             businessId: task.businessId,
-            campaignType: task.batch?.business?.id ? 'AFTER_SEMINAR' : (task.source || 'FREE_SEMINAR')
+            campaignType: targetCampaign
         });
         
         // Auto increment attempts draft

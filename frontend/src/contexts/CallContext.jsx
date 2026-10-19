@@ -20,6 +20,7 @@ export const CallProvider = ({ children }) => {
     const [outboundCall, setOutboundCall] = useState(null);
     const outboundPcRef = useRef(null);
     const outboundStreamRef = useRef(null);
+    const outboundRemoteStreamRef = useRef(null);
     const outboundTimerRef = useRef(null);
     const outboundRecorderRef = useRef(null);
     const outboundChunksRef = useRef([]);
@@ -33,16 +34,18 @@ export const CallProvider = ({ children }) => {
     const getOrCreateRemoteAudio = () => {
         let audio = remoteAudioRef.current;
         if (!audio || !document.body.contains(audio)) {
-            audio = document.getElementById('webrtc-remote-audio');
+            audio = document.getElementById('webrtc-remote-audio-sink');
             if (!audio) {
                 audio = document.createElement('audio');
-                audio.id = 'webrtc-remote-audio';
+                audio.id = 'webrtc-remote-audio-sink';
                 audio.autoplay = true;
                 audio.playsInline = true;
                 audio.style.position = 'fixed';
                 audio.style.top = '-9999px';
                 audio.style.left = '-9999px';
-                audio.style.opacity = '0';
+                audio.style.width = '1px';
+                audio.style.height = '1px';
+                audio.style.opacity = '0.01';
                 audio.style.pointerEvents = 'none';
                 document.body.appendChild(audio);
             }
@@ -83,7 +86,7 @@ export const CallProvider = ({ children }) => {
     const originalTitleRef = useRef('');
     const notificationRef = useRef(null);
 
-    // Unlock audio context and request notification permission on first user interaction (avoids Safari gesture error)
+    // Unlock audio context, audio sink, and request notification permission on first user interaction
     useEffect(() => {
         const unlockUserMediaAndNotifications = () => {
             if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -96,6 +99,20 @@ export const CallProvider = ({ children }) => {
                     ringAudioRef.current.load();
                 } catch(e) {}
             }
+            try {
+                const audio = getOrCreateRemoteAudio();
+                if (audio) {
+                    audio.muted = false;
+                    audio.volume = 1.0;
+                }
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+                    audioContextRef.current = new AudioContextClass();
+                }
+                if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+                    audioContextRef.current.resume().catch(() => {});
+                }
+            } catch(e) {}
         };
         window.addEventListener('click', unlockUserMediaAndNotifications, { once: true });
         window.addEventListener('keydown', unlockUserMediaAndNotifications, { once: true });
@@ -120,7 +137,7 @@ export const CallProvider = ({ children }) => {
             const status = String(data.status).toUpperCase();
             
             if (status === 'RINGING') {
-                setOutboundCall(prev => prev ? { ...prev, status: 'RINGING' } : null);
+                setOutboundCall(prev => prev ? { ...prev, status: prev.status === 'CONNECTED' ? 'CONNECTED' : 'RINGING' } : null);
             } else if (status === 'REJECTED' || status === 'FAILED') {
                 if (outboundRingingTimeoutRef.current) {
                     clearTimeout(outboundRingingTimeoutRef.current);
@@ -143,8 +160,16 @@ export const CallProvider = ({ children }) => {
                     clearTimeout(outboundRingingTimeoutRef.current);
                     outboundRingingTimeoutRef.current = null;
                 }
-                setOutboundCall(prev => prev ? { ...prev, status: 'CONNECTED' } : null);
-                startOutboundTimer();
+                setOutboundCall(prev => {
+                    if (!prev) return null;
+                    if (prev.status !== 'CONNECTED') {
+                        startOutboundTimer();
+                        if (outboundStreamRef.current && outboundRemoteStreamRef.current) {
+                            startOutboundRecording(outboundStreamRef.current, outboundRemoteStreamRef.current, prev.lead?.phone);
+                        }
+                    }
+                    return { ...prev, status: 'CONNECTED' };
+                });
             }
         };
 
@@ -153,16 +178,11 @@ export const CallProvider = ({ children }) => {
             if (data?.callId && outboundCallIdRef.current && data.callId !== outboundCallIdRef.current) {
                 return;
             }
-            if (outboundRingingTimeoutRef.current) {
-                clearTimeout(outboundRingingTimeoutRef.current);
-                outboundRingingTimeoutRef.current = null;
-            }
             if (outboundPcRef.current && outboundPcRef.current.signalingState !== 'closed') {
                 try {
                     await outboundPcRef.current.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: data.sdp }));
-                    console.log("[Global Outbound] setRemoteDescription success!");
-                    setOutboundCall(prev => prev ? { ...prev, status: 'CONNECTED' } : null);
-                    startOutboundTimer();
+                    console.log("[Global Outbound] setRemoteDescription success! Audio channel ready, recipient phone is ringing.");
+                    setOutboundCall(prev => prev ? { ...prev, status: prev.status === 'CONNECTED' ? 'CONNECTED' : 'RINGING' } : null);
                 } catch (e) { 
                     console.error("SDP Answer Error:", e); 
                 }
@@ -213,7 +233,10 @@ export const CallProvider = ({ children }) => {
 
     const startOutboundRecording = (local, remote, leadPhone) => {
         try {
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            const audioCtx = (audioContextRef.current && audioContextRef.current.state !== 'closed')
+                ? audioContextRef.current
+                : new AudioContextClass();
             audioContextRef.current = audioCtx;
             if (audioCtx.state === 'suspended') {
                 audioCtx.resume().catch(e => console.warn('[Global Outbound] audioCtx resume failed:', e));
@@ -371,6 +394,8 @@ export const CallProvider = ({ children }) => {
                     { urls: 'stun:stun.l.google.com:19302' },
                     { urls: 'stun:stun1.l.google.com:19302' },
                     { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' },
                     { urls: 'stun:global.stun.twilio.com:3478' }
                 ]
             });
@@ -395,21 +420,18 @@ export const CallProvider = ({ children }) => {
             }, 40000);
 
             pc.ontrack = (e) => {
-                console.log("[Global Outbound] Remote audio track received");
-                if (outboundRingingTimeoutRef.current) {
-                    clearTimeout(outboundRingingTimeoutRef.current);
-                    outboundRingingTimeoutRef.current = null;
-                }
+                console.log("[Global Outbound] Remote audio track received from Meta");
                 const audio = getOrCreateRemoteAudio();
                 const remoteStream = (e.streams && e.streams[0]) ? e.streams[0] : new MediaStream([e.track]);
+                outboundRemoteStreamRef.current = remoteStream;
                 audio.srcObject = remoteStream;
                 audio.muted = false;
                 audio.volume = 1.0;
                 audio.play().catch(err => console.warn("[Global Outbound] Audio autoplay error:", err));
-                
-                setOutboundCall(prev => prev ? { ...prev, status: 'CONNECTED' } : null);
-                startOutboundTimer();
-                startOutboundRecording(stream, remoteStream, lead.phone);
+
+                // Note: remoteStream is played directly via audio element above for clean hardware AEC.
+                // It is NOT connected to audioContext.destination to prevent echo loops and AEC mic suppression.
+                setOutboundCall(prev => prev ? { ...prev, status: prev.status === 'CONNECTED' ? 'CONNECTED' : 'RINGING' } : null);
             };
 
             // 3. Create Offer
@@ -622,15 +644,15 @@ export const CallProvider = ({ children }) => {
                 const roleUpper = storedUser?.role ? String(storedUser.role).toUpperCase() : '';
                 const deptLower = storedUser?.department ? String(storedUser.department).trim().toLowerCase() : '';
                 
-                // Exclude Delivery, Finance, Social Media, Physical, Academic, etc.
-                const isNonCoordination = ['delivery', 'finance', 'social media', 'physical', 'academic'].some(d => deptLower.includes(d));
-                const isRestrictedRole = ['STUDENT', 'GUEST'].some(r => roleUpper.includes(r));
+                // Exclude system admin, admins, directors, students, and non-coordination departments (Delivery, Finance, Physical, etc.)
+                const isRestrictedRole = ['SYSTEM_ADMIN', 'ADMIN', 'DIRECTOR', 'STUDENT', 'GUEST', 'DEVELOPER'].some(r => roleUpper.includes(r));
+                const isRestrictedDept = ['delivery', 'finance', 'social media', 'physical', 'academic', 'technical', 'administration'].some(d => deptLower.includes(d));
                 
-                const isClassCoordination = !isNonCoordination && !isRestrictedRole && (
-                    deptLower.includes('class coordination') || 
-                    roleUpper.includes('COORDINATOR') || 
-                    (roleUpper.includes('MANAGER') && !['DELIVERY', 'FINANCE', 'PHYSICAL'].some(r => roleUpper.includes(r)))
-                );
+                const isCoordinationDept = deptLower.includes('class coordination') || deptLower.includes('call center') || deptLower.includes('coordination');
+                const isCoordinationRole = roleUpper.includes('COORDINATOR') || roleUpper.includes('CALLER');
+                const isCoordinationManager = roleUpper.includes('MANAGER') && isCoordinationDept;
+
+                const isClassCoordination = !isRestrictedRole && !isRestrictedDept && Boolean(isCoordinationRole || isCoordinationManager) && !roleUpper.includes('PAPER_MARKER');
 
                 if (isClassCoordination) {
                     const savedStatus = localStorage.getItem('agentStatus') || storedUser?.agentStatus || 'ACTIVE';
@@ -658,6 +680,22 @@ export const CallProvider = ({ children }) => {
 
         newSocket.on('connect_error', (err) => {
             console.warn('[Socket CallContext] Connection warning:', err.message);
+        });
+
+        newSocket.on('user_profile_sync', (data) => {
+            if (data?.user) {
+                try {
+                    const current = JSON.parse(localStorage.getItem('user') || '{}');
+                    const merged = { ...current, ...data.user };
+                    localStorage.setItem('user', JSON.stringify(merged));
+                    if (data.user.agentStatus) {
+                        localStorage.setItem('agentStatus', data.user.agentStatus);
+                    }
+                    console.log('[Socket CallContext] Synced latest user profile from server:', merged);
+                } catch (e) {
+                    console.error('[Socket CallContext] Failed to sync user profile:', e);
+                }
+            }
         });
 
         // Watchdog & Wake-up Handlers for background tabs and network switches
@@ -702,33 +740,43 @@ export const CallProvider = ({ children }) => {
         const handleIncomingCall = (data) => {
             console.log("Incoming WhatsApp Call:", data);
             
-            // 1. Department Check: ONLY Class Coordination staff should ring!
+            // 1. Coordinator & Class Coordination Manager Check
             const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
             const deptLower = (storedUser?.department || '').trim().toLowerCase();
             const roleUpper = (storedUser?.role || '').trim().toUpperCase();
 
-            const isNonCoordinationDept = ['delivery', 'finance', 'social media', 'physical', 'academic'].some(d => deptLower.includes(d));
-            const isRestrictedRole = ['STUDENT', 'GUEST'].some(r => roleUpper.includes(r));
+            // Strict Call Center exclusion: Call Center staff / managers NEVER receive incoming WhatsApp calls
+            const isCallCenterStaff = deptLower.includes('call center') || 
+                                     roleUpper.includes('CALLER') || 
+                                     roleUpper.includes('CALL_CENTER');
+            if (isCallCenterStaff) {
+                console.log(`[CallContext] Suppressing WhatsApp call for Call Center staff user ${storedUser?.id} (${storedUser?.firstName}, Dept: ${storedUser?.department}, Role: ${storedUser?.role})`);
+                return;
+            }
+
+            const isRestrictedRole = ['SYSTEM_ADMIN', 'ADMIN', 'DIRECTOR', 'STUDENT', 'GUEST', 'DEVELOPER', 'CALLER', 'CALL_CENTER'].some(r => roleUpper.includes(r));
+            const isRestrictedDept = ['delivery', 'finance', 'social media', 'physical', 'academic', 'technical', 'administration', 'call center'].some(d => deptLower.includes(d));
             
-            const isClassCoordination = !isNonCoordinationDept && !isRestrictedRole && (
-                deptLower.includes('class coordination') || 
-                roleUpper.includes('COORDINATOR') || 
-                (roleUpper.includes('MANAGER') && !['DELIVERY', 'FINANCE', 'PHYSICAL'].some(r => roleUpper.includes(r)))
-            );
+            const isCoordinationDept = deptLower.includes('class coordination') || (deptLower.includes('coordination') && !deptLower.includes('call center'));
+            const isCoordinationRole = roleUpper.includes('COORDINATOR') && !roleUpper.includes('CALLER') && !roleUpper.includes('CALL_CENTER');
+            const isCoordinationManager = roleUpper.includes('MANAGER') && isCoordinationDept;
+
+            const isClassCoordination = !isRestrictedRole && !isRestrictedDept && Boolean(isCoordinationRole || isCoordinationManager) && !roleUpper.includes('PAPER_MARKER');
 
             if (!isClassCoordination) {
-                console.log(`[CallContext] Suppressing call for user ${storedUser?.id} (Dept: ${storedUser?.department}, Role: ${storedUser?.role}) - Not in Class Coordination`);
+                console.log(`[CallContext] Suppressing call for user ${storedUser?.id} (Dept: ${storedUser?.department}, Role: ${storedUser?.role}) - Excluded from Coordination calls`);
                 return;
             }
 
             // 2. Business Type Check: If call is for a specific business (e.g. Art), Tech/Commerce staff must NOT ring!
-            if (data?.businessType && data.businessType !== 'ALL') {
+            if (data?.businessType && String(data.businessType).trim().toUpperCase() !== 'ALL') {
                 const userBiz = (storedUser?.businessType || '').trim();
                 const userBizList = userBiz.split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
-                const incomingBiz = data.businessType.trim().toLowerCase();
+                const incomingBiz = String(data.businessType).trim().toLowerCase();
 
                 // If coordinator has specific businesses assigned (and is not ALL), check if incoming call matches
-                if (userBizList.length > 0 && !userBizList.includes('all')) {
+                const handlesAll = userBizList.length === 0 || userBizList.some(b => b === 'all');
+                if (!handlesAll) {
                     const matches = userBizList.some(b => b === incomingBiz || incomingBiz.includes(b) || b.includes(incomingBiz));
                     if (!matches) {
                         console.log(`[CallContext] Suppressing call for '${data.businessType}' - User only handles [${userBiz}]`);
@@ -817,10 +865,8 @@ export const CallProvider = ({ children }) => {
         };
 
         const handleCallAnsweredByOther = (data) => {
-            if (incomingCall && incomingCall.callId === data.callId) {
-                console.log("Call was answered by another agent.");
-                stopRinging();
-            }
+            console.log("Call was answered by another coordinator:", data);
+            stopRinging();
         };
 
         const handleCallDisconnected = (data) => {
@@ -870,31 +916,66 @@ export const CallProvider = ({ children }) => {
         }
     };
 
-    const answerCall = async (callId, offerSdp) => {
-        stopRinging();
+    const answerCall = async (callId, offerSdp, incomingData) => {
+        // Capture call data snapshot so it cannot be lost on state changes
+        const currentCall = incomingData || incomingCall || {};
+        
+        // 1. Immediately transition to active call state to keep CallScreen mounted
+        setActiveCall({
+            callId: currentCall.callId || callId,
+            from: currentCall.from,
+            leadName: currentCall.leadName,
+            businessType: currentCall.businessType,
+            receivingWaNumId: currentCall.receivingWaNumId,
+            isNewInquiry: currentCall.isNewInquiry,
+            businessId: currentCall.businessId,
+            startTime: new Date(),
+            peerConnection: null,
+            localStream: null,
+            status: 'CONNECTING'
+        });
+
+        // 2. Stop ringtone and desktop alerts
+        if (incomingRingingTimeoutRef.current) {
+            clearTimeout(incomingRingingTimeoutRef.current);
+            incomingRingingTimeoutRef.current = null;
+        }
+        setIsRinging(false);
+        setIncomingCall(null);
+        if (ringAudioRef.current) {
+            ringAudioRef.current.pause();
+            ringAudioRef.current.currentTime = 0;
+        }
+        if (titleIntervalRef.current) {
+            clearInterval(titleIntervalRef.current);
+            titleIntervalRef.current = null;
+            if (originalTitleRef.current) {
+                document.title = originalTitleRef.current;
+            }
+        }
+        if (notificationRef.current) {
+            try { notificationRef.current.close(); } catch (e) {}
+            notificationRef.current = null;
+        }
         
         try {
-            // Prime audio element immediately upon user gesture to satisfy browser autoplay policy
-            const primedAudio = getOrCreateRemoteAudio();
-            primedAudio.muted = false;
-            primedAudio.volume = 1.0;
-            primedAudio.play().catch(() => {});
+            // 3. User Gesture: unlock AudioContext and HTML5 audio sink immediately on click
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (!audioContextRef.current || audioContextRef.current.state === 'closed') {
+                audioContextRef.current = new AudioContextClass();
+            }
+            if (audioContextRef.current.state === 'suspended') {
+                audioContextRef.current.resume().catch(e => console.warn('[Global Inbound] AudioContext resume failed:', e));
+            }
+            const audioCtx = audioContextRef.current;
 
-            // Setup WebRTC RTCPeerConnection to generate answer SDP
-            const pc = new RTCPeerConnection({
-                iceServers: [
-                    { urls: 'stun:stun.l.google.com:19302' },
-                    { urls: 'stun:stun1.l.google.com:19302' },
-                    { urls: 'stun:stun2.l.google.com:19302' },
-                    { urls: 'stun:global.stun.twilio.com:3478' }
-                ]
-            });
-            
-            pc.oniceconnectionstatechange = () => {
-                console.log(`[Global Incoming] ICE State: ${pc.iceConnectionState}`);
-            };
-            
-            // Acquire microphone stream with echo cancellation and noise suppression
+            const primedAudio = getOrCreateRemoteAudio();
+            if (primedAudio) {
+                primedAudio.muted = false;
+                primedAudio.volume = 1.0;
+            }
+
+            // 4. Acquire microphone stream with echo cancellation and noise suppression
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 audio: {
                     echoCancellation: true,
@@ -904,38 +985,84 @@ export const CallProvider = ({ children }) => {
                 video: false 
             });
 
-            pc.ontrack = (event) => {
-                console.log('[Global Inbound] Remote track received from WhatsApp.');
-                const audio = getOrCreateRemoteAudio();
-                const remoteStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
-                audio.srcObject = remoteStream;
-                audio.muted = false;
-                audio.volume = 1.0;
-                audio.play().catch(err => console.warn('[Global Inbound] Audio play error:', err));
-                
-                // Start Recording with both local mic and remote audio
-                startRecording(stream, remoteStream, incomingCall?.from, callId);
+            // 5. Setup WebRTC RTCPeerConnection with multiple reliable STUN servers
+            const pc = new RTCPeerConnection({
+                iceServers: [
+                    { urls: 'stun:stun.l.google.com:19302' },
+                    { urls: 'stun:stun1.l.google.com:19302' },
+                    { urls: 'stun:stun2.l.google.com:19302' },
+                    { urls: 'stun:stun3.l.google.com:19302' },
+                    { urls: 'stun:stun4.l.google.com:19302' },
+                    { urls: 'stun:global.stun.twilio.com:3478' }
+                ]
+            });
+            
+            pc.oniceconnectionstatechange = () => {
+                console.log(`[Global Incoming] ICE State: ${pc.iceConnectionState}`);
             };
 
-            // CRITICAL WebRTC order:
-            // 1. setRemoteDescription FIRST with offer SDP from Meta
-            await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerSdp }));
-
-            // 2. addTrack AFTER setRemoteDescription so the microphone track binds
-            // to the remote offer's mid:audio m-line with direction 'sendrecv' (bidirectional).
+            // Bind microphone track
             stream.getTracks().forEach(t => pc.addTrack(t, stream));
 
-            // 3. createAnswer and setLocalDescription
+            // 6. Handle remote audio track arrival
+            pc.ontrack = (event) => {
+                console.log('[Global Inbound] Remote track received from WhatsApp:', event.track);
+                const remoteStream = (event.streams && event.streams[0]) ? event.streams[0] : new MediaStream([event.track]);
+                
+                // Pipeline A: HTML5 audio element
+                const audio = getOrCreateRemoteAudio();
+                if (audio) {
+                    audio.srcObject = remoteStream;
+                    audio.muted = false;
+                    audio.volume = 1.0;
+                    audio.play().catch(err => {
+                        console.warn('[Global Inbound] HTML5 audio.play() warning:', err);
+                    });
+                }
+
+                // Pipeline B: Direct Web Audio API pipeline to physical speakers (Autoplay-immune)
+                try {
+                    if (audioCtx) {
+                        if (audioCtx.state === 'suspended') {
+                            audioCtx.resume().catch(() => {});
+                        }
+                        const remoteSpeakerSource = audioCtx.createMediaStreamSource(remoteStream);
+                        remoteSpeakerSource.connect(audioCtx.destination);
+                        console.log('[Global Inbound] WebAudio remote stream routed directly to destination speakers.');
+                    }
+                } catch (waErr) {
+                    console.warn('[Global Inbound] WebAudio destination connection error:', waErr);
+                }
+                
+                // Start Recording with both local mic and remote audio
+                startRecording(stream, remoteStream, currentCall.from, currentCall.callId || callId);
+            };
+
+            // 7. Set Remote Offer Description
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerSdp }));
+
+            // 8. Ensure all audio transceivers are set to 'sendrecv'
+            if (pc.getTransceivers) {
+                pc.getTransceivers().forEach(t => {
+                    if (t.receiver?.track?.kind === 'audio' || t.sender?.track?.kind === 'audio') {
+                        t.direction = 'sendrecv';
+                    }
+                });
+            }
+
+            // 9. Generate SDP Answer
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
 
-            // Function to send answer to Meta via backend
+            // 10. Send Answer to Meta via backend API
             const sendAnswer = async (sdp) => {
                 await api.post('/admin/whatsapp-call/answer', {
-                    callId: callId,
+                    callId: currentCall.callId || callId,
                     sdp: sdp,
-                    businessType: incomingCall.businessType,
-                    receivingWaNumId: incomingCall.receivingWaNumId
+                    businessType: currentCall.businessType,
+                    receivingWaNumId: currentCall.receivingWaNumId,
+                    leadPhone: currentCall.from,
+                    businessId: currentCall.businessId
                 });
             };
 
@@ -948,10 +1075,14 @@ export const CallProvider = ({ children }) => {
                 }
             };
 
-            // Fast candidate gathering: trigger when gathering completes OR after 1.2s timeout
+            // Fast candidate gathering with reflexive candidate optimization
             pc.onicecandidate = (event) => {
                 if (!event.candidate) {
+                    console.log('[Global Inbound] ICE candidate gathering complete');
                     triggerAnswer();
+                } else if (event.candidate.candidate && event.candidate.candidate.includes('typ srflx')) {
+                    console.log('[Global Inbound] STUN srflx candidate gathered:', event.candidate.candidate);
+                    setTimeout(triggerAnswer, 200);
                 }
             };
 
@@ -960,25 +1091,29 @@ export const CallProvider = ({ children }) => {
                     triggerAnswer();
                 }
             };
-            setTimeout(triggerAnswer, 1200);
+            // 2.5s fallback timeout allows STUN to complete over slower mobile/LTE networks
+            setTimeout(triggerAnswer, 2500);
 
-            // Set as active call
-            setActiveCall({
-                callId: incomingCall.callId,
-                from: incomingCall.from,
-                leadName: incomingCall.leadName,
-                businessType: incomingCall.businessType,
-                receivingWaNumId: incomingCall.receivingWaNumId,
-                isNewInquiry: incomingCall.isNewInquiry,
-                businessId: incomingCall.businessId,
+            // Finalize active call state with connection objects
+            setActiveCall(prev => ({
+                ...prev,
+                callId: currentCall.callId || callId,
+                from: currentCall.from,
+                leadName: currentCall.leadName,
+                businessType: currentCall.businessType,
+                receivingWaNumId: currentCall.receivingWaNumId,
+                isNewInquiry: currentCall.isNewInquiry,
+                businessId: currentCall.businessId,
                 startTime: new Date(),
                 peerConnection: pc,
-                localStream: stream
-            });
+                localStream: stream,
+                status: 'CONNECTED'
+            }));
 
         } catch (err) {
             console.error("Error answering call:", err);
-            alert("Failed to connect call: " + (err.message || ""));
+            toast.error("Failed to connect call: " + (err.message || "Microphone or network error"));
+            setActiveCall(null);
         }
     };
 
@@ -1002,7 +1137,10 @@ export const CallProvider = ({ children }) => {
 
     const startRecording = (local, remote, leadPhone, callId) => {
         try {
-            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            const audioCtx = (audioContextRef.current && audioContextRef.current.state !== 'closed')
+                ? audioContextRef.current
+                : new AudioContextClass();
             audioContextRef.current = audioCtx;
             if (audioCtx.state === 'suspended') {
                 audioCtx.resume().catch(e => console.warn('[Global Inbound] audioCtx resume failed:', e));

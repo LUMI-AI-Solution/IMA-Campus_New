@@ -58,6 +58,29 @@ const getCourseGroupPrice = (course, groupId) => {
     return price;
 };
 
+const normStr = (str) => (str || '').toLowerCase().replace(/[\s\-_]+/g, ' ').trim();
+
+const getCleanZoomMeetingId = (urlOrId) => {
+    if (!urlOrId) return null;
+    const match = String(urlOrId).match(/(?:j\/|join\/|zoom\.us\/s\/)(\d+)/) || String(urlOrId).match(/\b(\d{9,11})\b/);
+    return match ? match[1] : null;
+};
+
+const ensureAbsoluteUrl = (link, meetingId) => {
+    if (link && String(link).trim()) {
+        const trimmed = String(link).trim();
+        if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+        if (trimmed.includes('zoom.us') || trimmed.includes('youtube.com') || trimmed.includes('youtu.be')) return `https://${trimmed}`;
+        if (/^\d{9,12}$/.test(trimmed)) return `https://zoom.us/j/${trimmed}`;
+        return `https://${trimmed}`;
+    }
+    if (meetingId && String(meetingId).trim()) {
+        const cleanId = String(meetingId).trim().replace(/\s+/g, '');
+        return `https://zoom.us/j/${cleanId}`;
+    }
+    return '';
+};
+
 const calculateGroupAmount = (group, courses) => {
     if (!courses || courses.length === 0) return 0;
 
@@ -219,10 +242,47 @@ exports.getStudentDashboard = async (req, res) => {
     try {
         const studentId = req.user?.userId || req.user?.id;
 
+        const overdueBatchIds = await getStudentOverdueInstallmentBatchIds(studentId);
+
         // 1. ළමයාගේ Valid Payments ගන්නවා
-        const validPayments = await prisma.payment.findMany({
-            where: { studentId: parseInt(studentId), status: { in: [1, 4] } }
+        const allValidPayments = await prisma.payment.findMany({
+            where: { studentId: parseInt(studentId), status: { in: [1, 4] } },
+            include: { group: true }
         });
+
+        // Filter out installment payments for batches with overdue installments,
+        // unless the student also has a valid full or monthly payment for that batch
+        const validPayments = allValidPayments.filter(p => {
+            if (p.payment_type === 2 && overdueBatchIds.has(p.batchId)) {
+                const hasValidAlternative = allValidPayments.some(other =>
+                    other.id !== p.id &&
+                    other.batchId === p.batchId &&
+                    [1, 3].includes(other.payment_type) &&
+                    other.status === 1
+                );
+                return hasValidAlternative;
+            }
+            return true;
+        });
+
+        const fullOrInstallmentPayments = validPayments.filter(p => [2, 3].includes(p.payment_type));
+        const monthlyPayments = validPayments.filter(p => p.payment_type === 1);
+
+        const fullOrInstSubjectIds = new Set();
+        fullOrInstallmentPayments.forEach(p => {
+            if (p.subjects) {
+                parseSafeSubjectIds(p.subjects).forEach(id => fullOrInstSubjectIds.add(id));
+            }
+        });
+
+        const monthlySubjectIds = new Set();
+        monthlyPayments.forEach(p => {
+            if (p.subjects) {
+                parseSafeSubjectIds(p.subjects).forEach(id => monthlySubjectIds.add(id));
+            }
+        });
+
+        const enrolledSubjectIds = new Set([...fullOrInstSubjectIds, ...monthlySubjectIds]);
 
         // 2. ළමයා ඉන්න Business IDs සහ Batch IDs වෙන් කරලා BigInt වලට හරවනවා
         const enrolledBusinessIds = [...new Set(validPayments.map(p => p.businessId).filter(Boolean))].map(id => BigInt(id));
@@ -245,14 +305,6 @@ exports.getStudentDashboard = async (req, res) => {
             },
             orderBy: { created_at: 'desc' },
             take: 5
-        });
-
-        let enrolledSubjectIds = new Set();
-        validPayments.forEach(p => {
-            if (p.subjects) {
-                const subs = parseSafeSubjectIds(p.subjects);
-                subs.forEach(id => enrolledSubjectIds.add(id));
-            }
         });
 
         let alerts = [];
@@ -392,7 +444,10 @@ exports.getStudentDashboard = async (req, res) => {
         let studyMaterials = 0;
         let upcomingLives = []; 
 
+        const enrolledBatchIdNums = [...new Set(validPayments.map(p => p.batchId).filter(Boolean))].map(Number);
         let enrolledCourses = [];
+        const expandedCourseIds = new Set();
+
         if (enrolledSubjectIds.size > 0) {
             const rawSubjectIds = Array.from(enrolledSubjectIds).map(Number);
             enrolledCourses = await prisma.course.findMany({
@@ -400,36 +455,45 @@ exports.getStudentDashboard = async (req, res) => {
                 include: { group: true }
             });
 
-            // 🔥 FIX: Expand course IDs to include:
-            // 1. Duplicate courses in the same group
-            // 2. Matching subject courses in the same batch (so live classes assigned to the batch/subject are visible to enrolled students)
-            const expandedCourseIds = new Set(rawSubjectIds);
-            for (const ec of enrolledCourses) {
+            // Start with only the courses the student directly paid for
+            rawSubjectIds.forEach(id => expandedCourseIds.add(id));
+
+            // 🔥 CRITICAL: ONLY expand sibling courses across monthly groups for FULL payment (payment_type: 3)
+            // or active INSTALLMENT (payment_type: 2) students!
+            // Monthly students (payment_type: 1) only paid for that specific month and MUST NOT be expanded to other months!
+            const fullOrInstCourses = enrolledCourses.filter(c => fullOrInstSubjectIds.has(c.id));
+
+            for (const ec of fullOrInstCourses) {
                 if (ec.group?.batchId) {
                     const targetClassType = parseInt(ec.courseType || ec.group?.classType || 1, 10);
+                    const ecNorm = normStr(ec.name);
+                    const ecCode = ec.code ? ec.code.trim() : '';
+
                     const siblingCourses = await prisma.course.findMany({
                         where: {
-                            group: { 
-                                batchId: ec.group.batchId,
-                                classType: targetClassType
-                            },
-                            courseType: targetClassType,
-                            OR: [
-                                { name: ec.name },
-                                ec.code ? { code: ec.code } : undefined
-                            ].filter(Boolean)
+                            group: { batchId: ec.group.batchId }
                         },
-                        select: { id: true, name: true, code: true, courseType: true, group: { select: { classType: true } } }
+                        select: { id: true, name: true, code: true, courseType: true, lecturerName: true, group: { select: { classType: true } } }
                     });
+
                     siblingCourses.forEach(sc => {
                         const scClassType = parseInt(sc.courseType || sc.group?.classType || 1, 10);
-                        if (scClassType === targetClassType && (sc.name === ec.name || (ec.code && sc.code === ec.code))) {
-                            expandedCourseIds.add(sc.id);
+                        if (scClassType === targetClassType) {
+                            const scNorm = normStr(sc.name);
+                            const scCode = sc.code ? sc.code.trim() : '';
+                            const isSameName = scNorm === ecNorm;
+                            const isSameLecturer = Boolean(ec.lecturerName && sc.lecturerName && normStr(ec.lecturerName) === normStr(sc.lecturerName));
+                            const isCodeAndNameMatch = Boolean(ecCode && scCode && scCode === ecCode && (isSameLecturer || scNorm.includes(ecNorm) || ecNorm.includes(scNorm)));
+
+                            if (isSameName || (isSameLecturer && (scNorm.includes(ecNorm) || ecNorm.includes(scNorm))) || isCodeAndNameMatch) {
+                                expandedCourseIds.add(sc.id);
+                            }
                         }
                     });
                 }
             }
 
+            // Stats calculation from ContentCourse
             const courseIds = Array.from(expandedCourseIds).map(id => BigInt(id));
             const linkedContents = await prisma.contentCourse.findMany({ where: { course_id: { in: courseIds } } });
             
@@ -439,30 +503,227 @@ exports.getStudentDashboard = async (req, res) => {
                 
                 unlockedVideos = allContents.filter(c => ['live', 'recording', '1', '2'].includes(c.contentType)).length;
                 studyMaterials = allContents.filter(c => ['document', 'paper', 'sPaper', 'rankingTest', 'ranking_test', 'test', '3', '4', '5'].includes(c.contentType)).length;
+            }
+        }
 
-                const startOfToday = new Date();
-                startOfToday.setHours(0, 0, 0, 0); 
+        // ================= UPCOMING / ACTIVE LIVE CLASSES LOGIC =================
+        const now = new Date();
+        // 24-hr buffer ensures classes saved in SLT (18:30 UTC yesterday) aren't cut off
+        const startOfLiveWindow = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        startOfLiveWindow.setHours(0, 0, 0, 0);
 
-                const liveClasses = allContents
-                    .filter(c => ['live', '1'].includes(c.contentType) && c.date && new Date(c.date) >= startOfToday)
-                    .sort((a, b) => new Date(a.date) - new Date(b.date)); 
+        const courseIdsBigInt = Array.from(expandedCourseIds).map(id => BigInt(id));
+        const liveContentList = [];
 
-                for (const lc of liveClasses) {
-                    const courseLink = linkedContents.find(l => l.content_id === lc.id);
-                    const courseDetails = courseLink ? (enrolledCourses.find(c => c.id === Number(courseLink.course_id)) || await prisma.course.findUnique({ where: { id: Number(courseLink.course_id) } })) : null;
+        // 1. Fetch live classes from Content table
+        if (courseIdsBigInt.length > 0 || enrolledBatchIdNums.length > 0) {
+            const linkedContents = courseIdsBigInt.length > 0 ? await prisma.contentCourse.findMany({
+                where: { course_id: { in: courseIdsBigInt } },
+                select: { content_id: true, course_id: true }
+            }) : [];
+            const linkedContentIdSet = new Set(linkedContents.map(lc => lc.content_id));
 
-                    upcomingLives.push({
-                        id: lc.id,
-                        title: lc.title,
-                        link: lc.link,
-                        date: lc.date,
-                        startTime: lc.startTime,
-                        endTime: lc.endTime,
-                        courseName: courseDetails?.name || 'Live Class'
+            const contentOrClauses = [];
+            if (linkedContentIdSet.size > 0) {
+                contentOrClauses.push({ id: { in: Array.from(linkedContentIdSet) } });
+            }
+            if (enrolledBatchIdNums.length > 0) {
+                contentOrClauses.push({ batchId: { in: enrolledBatchIdNums } });
+                enrolledBatchIdNums.forEach(bId => {
+                    contentOrClauses.push({ additionalBatchIds: { contains: `${bId}` } });
+                });
+            }
+
+            const candidateContents = await prisma.content.findMany({
+                where: {
+                    contentType: { in: ['live', '1'] },
+                    date: { gte: startOfLiveWindow },
+                    OR: contentOrClauses
+                },
+                include: { group: true }
+            });
+
+            for (const c of candidateContents) {
+                const isDirectCourseLink = linkedContentIdSet.has(c.id);
+                if (isDirectCourseLink) {
+                    const cLink = linkedContents.find(l => l.content_id === c.id);
+                    const courseDetails = enrolledCourses.find(ec => ec.id === Number(cLink?.course_id)) || await prisma.course.findUnique({ where: { id: Number(cLink?.course_id || 0) } });
+                    liveContentList.push({
+                        id: c.id,
+                        source: 'content',
+                        title: c.title,
+                        link: ensureAbsoluteUrl(c.link, c.meetingId),
+                        date: c.date,
+                        startTime: c.startTime,
+                        endTime: c.endTime,
+                        courseName: courseDetails?.name || 'Live Class',
+                        batchId: c.batchId
                     });
+                    continue;
+                }
+
+                // If not directly linked by courseId, ONLY match if content has NO linked courses (general batch announcement)
+                // AND student has active access to this batch/month!
+                const isBatchMatch = enrolledBatchIdNums.includes(c.batchId) || (c.additionalBatchIds && enrolledBatchIdNums.some(bId => c.additionalBatchIds.includes(`${bId}`)));
+                if (isBatchMatch) {
+                    const cLinks = await prisma.contentCourse.findMany({ where: { content_id: c.id } });
+                    if (cLinks.length === 0) {
+                        const cDate = c.date ? new Date(c.date) : now;
+                        const cMonth = cDate.toLocaleString('en-US', { month: 'long' }).toLowerCase();
+                        const cMonthShort = cDate.toLocaleString('en-US', { month: 'short' }).toLowerCase();
+
+                        const hasBatchAccess = fullOrInstallmentPayments.some(p => p.batchId === c.batchId) ||
+                            monthlyPayments.some(p => p.batchId === c.batchId && p.group && (normStr(p.group.name).includes(cMonth) || normStr(p.group.name).includes(cMonthShort)));
+
+                        if (hasBatchAccess) {
+                            liveContentList.push({
+                                id: c.id,
+                                source: 'content',
+                                title: c.title,
+                                link: ensureAbsoluteUrl(c.link, c.meetingId),
+                                date: c.date,
+                                startTime: c.startTime,
+                                endTime: c.endTime,
+                                courseName: 'Live Class',
+                                batchId: c.batchId
+                            });
+                        }
+                    }
                 }
             }
         }
+
+        // 2. Fetch live classes from Timetable table (delivered or has liveLink)
+        const timetableLives = [];
+        if (enrolledBatchIdNums.length > 0) {
+            const ttOrClauses = [
+                { batchId: { in: enrolledBatchIdNums } }
+            ];
+            enrolledBatchIdNums.forEach(bId => {
+                ttOrClauses.push({ additionalBatchIds: { contains: `${bId}` } });
+            });
+
+            const candidateTimetables = await prisma.timetable.findMany({
+                where: {
+                    date: { gte: startOfLiveWindow },
+                    liveLink: { not: null },
+                    OR: ttOrClauses
+                },
+                include: { batch: true }
+            });
+
+            for (const tt of candidateTimetables) {
+                const rawLink = tt.liveLink ? tt.liveLink.trim() : '';
+                if (!rawLink || rawLink.toUpperCase() === 'PENDING') continue;
+
+                const ttNormSub = normStr(tt.subjectName);
+                const ttDate = tt.date ? new Date(tt.date) : now;
+                const ttMonth = ttDate.toLocaleString('en-US', { month: 'long' }).toLowerCase();
+                const ttMonthShort = ttDate.toLocaleString('en-US', { month: 'short' }).toLowerCase();
+
+                // Check if student has paid access to this timetable class:
+                // 1. Full or Installment payment for this batch matching subject
+                const hasFullOrInstAccess = fullOrInstallmentPayments.some(p => {
+                    if (p.batchId !== tt.batchId) return false;
+                    const pSubs = parseSafeSubjectIds(p.subjects);
+                    if (pSubs.length === 0) return true;
+                    return pSubs.some(subId => {
+                        const crs = enrolledCourses.find(ec => ec.id === subId);
+                        if (!crs) return false;
+                        const crsNorm = normStr(crs.name);
+                        return ttNormSub.includes(crsNorm) || crsNorm.includes(ttNormSub);
+                    });
+                });
+
+                // 2. Monthly payment for this batch for THIS specific month matching subject
+                const hasMonthlyAccess = monthlyPayments.some(p => {
+                    if (p.batchId !== tt.batchId) return false;
+                    if (!p.group) return false;
+                    const grpNameNorm = normStr(p.group.name);
+                    const isForThisMonth = grpNameNorm.includes(ttMonth) || grpNameNorm.includes(ttMonthShort);
+                    if (!isForThisMonth) return false;
+
+                    const pSubs = parseSafeSubjectIds(p.subjects);
+                    if (pSubs.length === 0) return true;
+                    return pSubs.some(subId => {
+                        const crs = enrolledCourses.find(ec => ec.id === subId);
+                        if (!crs) return false;
+                        const crsNorm = normStr(crs.name);
+                        return ttNormSub.includes(crsNorm) || crsNorm.includes(ttNormSub);
+                    });
+                });
+
+                if (!hasFullOrInstAccess && !hasMonthlyAccess) {
+                    continue; // Student has NOT paid for this subject/month!
+                }
+
+                // Check lecturer match to avoid teacher mixing
+                const ttLecturerNorm = normStr(tt.lecturerName);
+                if (ttLecturerNorm) {
+                    const sameSubjectCourses = enrolledCourses.filter(ec => {
+                        const ecNorm = normStr(ec.name);
+                        return ttNormSub.includes(ecNorm) || ecNorm.includes(ttNormSub);
+                    });
+                    const hasDifferentLecturer = sameSubjectCourses.some(ec => {
+                        const ecLecNorm = normStr(ec.lecturerName);
+                        return ecLecNorm && ecLecNorm !== ttLecturerNorm && !ttLecturerNorm.includes(ecLecNorm) && !ecLecNorm.includes(ttLecturerNorm);
+                    });
+                    const hasMatchingLecturer = sameSubjectCourses.some(ec => {
+                        const ecLecNorm = normStr(ec.lecturerName);
+                        return ecLecNorm && (ecLecNorm === ttLecturerNorm || ttLecturerNorm.includes(ecLecNorm) || ecLecNorm.includes(ttLecturerNorm));
+                    });
+                    if (hasDifferentLecturer && !hasMatchingLecturer) {
+                        continue; // Skip timetable for another teacher
+                    }
+                }
+
+                timetableLives.push({
+                    id: `tt_${tt.id}`,
+                    source: 'timetable',
+                    title: tt.title,
+                    link: ensureAbsoluteUrl(tt.liveLink),
+                    date: tt.date,
+                    startTime: tt.startTime,
+                    endTime: tt.endTime,
+                    courseName: tt.subjectName || tt.batch?.name || 'Live Class',
+                    batchId: tt.batchId
+                });
+            }
+        }
+
+        // 3. Deduplicate between Content and Timetable
+        const mergedLives = [...liveContentList];
+        for (const tt of timetableLives) {
+            const ttMeetingId = getCleanZoomMeetingId(tt.link);
+            const ttDateStr = tt.date ? new Date(tt.date).toISOString().split('T')[0] : '';
+            const ttNormTitle = normStr(tt.title);
+
+            const isDuplicate = mergedLives.some(existing => {
+                const exMeetingId = getCleanZoomMeetingId(existing.link);
+                if (ttMeetingId && exMeetingId && ttMeetingId === exMeetingId) return true;
+                if (existing.link && tt.link && existing.link === tt.link) return true;
+
+                const exDateStr = existing.date ? new Date(existing.date).toISOString().split('T')[0] : '';
+                if (exDateStr === ttDateStr && existing.startTime === tt.startTime && (exNormTitle === ttNormTitle || ttNormTitle.includes(normStr(existing.title)) || normStr(existing.title).includes(ttNormTitle))) {
+                    return true;
+                }
+                return false;
+            });
+
+            if (!isDuplicate) {
+                mergedLives.push(tt);
+            }
+        }
+
+        // Sort by date and startTime ascending
+        mergedLives.sort((a, b) => {
+            const da = new Date(a.date || 0);
+            const db = new Date(b.date || 0);
+            if (da - db !== 0) return da - db;
+            return (a.startTime || '').localeCompare(b.startTime || '');
+        });
+
+        upcomingLives = mergedLives;
 
         res.status(200).json(safeJson({
             enrolledCount: enrolledSubjectIds.size, 
@@ -1193,6 +1454,54 @@ exports.getCourseModules = async (req, res) => {
 
                 if (validFullPayments.length > 0) {
                     targetCourseIds = similarCourses.map(c => BigInt(c.id));
+                }
+            }
+
+            // 🔥 FIX: Also for monthly payments, if student has paid for multiple monthly groups of the same subject in this batch,
+            // merge them into targetCourseIds so the student can access contents across all the months they have paid for!
+            const validMonthlyPayments = await prisma.payment.findMany({
+                where: {
+                    studentId: parseInt(studentId),
+                    batchId: batchId,
+                    payment_type: 1,
+                    status: { in: [1, 4] },
+                    group: { classType: targetClassType }
+                }
+            });
+
+            if (validMonthlyPayments.length > 0) {
+                const paidSubIds = new Set();
+                validMonthlyPayments.forEach(p => {
+                    if (p.subjects) {
+                        parseSafeSubjectIds(p.subjects).forEach(id => paidSubIds.add(id));
+                    }
+                });
+
+                if (paidSubIds.size > 0) {
+                    const paidMonthlyCourses = await prisma.course.findMany({
+                        where: {
+                            id: { in: Array.from(paidSubIds) },
+                            group: { batchId: batchId, classType: targetClassType }
+                        }
+                    });
+
+                    const reqNorm = (requestedCourse.name || '').trim().toLowerCase();
+                    const reqCode = (requestedCourse.code || '').trim().toLowerCase();
+
+                    paidMonthlyCourses.forEach(pmc => {
+                        const pmcNorm = (pmc.name || '').trim().toLowerCase();
+                        const pmcCode = (pmc.code || '').trim().toLowerCase();
+
+                        const isMatch = (reqNorm && pmcNorm && reqNorm === pmcNorm) ||
+                                        (reqCode && pmcCode && reqCode === pmcCode);
+
+                        if (isMatch) {
+                            const pmcBig = BigInt(pmc.id);
+                            if (!targetCourseIds.some(tid => tid.toString() === pmcBig.toString())) {
+                                targetCourseIds.push(pmcBig);
+                            }
+                        }
+                    });
                 }
             }
         }

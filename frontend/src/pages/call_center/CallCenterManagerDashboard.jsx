@@ -11,6 +11,7 @@ import toast from 'react-hot-toast';
 import OverviewTab from '../../components/CallCenter/OverviewTab';
 import BridgeHandOversTab from '../../components/CallCenter/BridgeHandOversTab';
 import BridgeProgressTab from '../../components/CallCenter/BridgeProgressTab';
+import CoordinatorStatsBreakdown from '../../components/CallCenter/CoordinatorStatsBreakdown';
 
 import DelegateSocialMediaTaskModal from '../../components/common/DelegateSocialMediaTaskModal';
 
@@ -438,7 +439,7 @@ export default function CallCenterManagerDashboard() {
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 pb-8">
                         {businesses.map(biz => {
-                          const bizList = getLevel1List().filter(l => l.batch?.businessId === biz.id);
+                          const bizList = getLevel1List().filter(l => l.batch?.businessId === biz.id || (l.phone && l.phone.includes(`_BIZ_${biz.id}`)));
                           const pendingCount = bizList.length;
                           
                           return (
@@ -521,23 +522,22 @@ export default function CallCenterManagerDashboard() {
 
                     <div className="flex-1 overflow-y-auto pb-4">
                       {activeSubTab === 'overview' ? (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-fade-in">
-                          <div className="bg-slate-800/50 border border-slate-700 p-8 rounded-3xl text-center shadow-lg">
-                            <p className="text-slate-400 font-bold uppercase text-xs tracking-wider mb-2">Total Leads In Scope</p>
-                            <h3 className="text-5xl font-black text-white">{detailedLeads.filter(l => selectedBatch === 'All' || l.batchId === parseInt(selectedBatch)).length}</h3>
-                          </div>
-                          <div className="bg-red-500/10 border border-red-500/30 p-8 rounded-3xl text-center shadow-lg shadow-red-500/5">
-                            <p className="text-red-400 font-bold uppercase text-xs tracking-wider mb-2">Needs Assignment</p>
-                            <h3 className="text-5xl font-black text-red-300">
-                              {detailedLeads.filter(l => (selectedBatch === 'All' || l.batchId === parseInt(selectedBatch)) && (l.callCenterRequestStatus === 'APPROVED' || l.isCallCenter) && (!l.assignedTo || !isCCAgent(l.assignedUser))).length}
-                            </h3>
-                          </div>
-                          <div className="bg-emerald-500/10 border border-emerald-500/30 p-8 rounded-3xl text-center shadow-lg shadow-emerald-500/5">
-                            <p className="text-emerald-400 font-bold uppercase text-xs tracking-wider mb-2">Actively Managed</p>
-                            <h3 className="text-5xl font-black text-emerald-300">
-                              {detailedLeads.filter(l => (selectedBatch === 'All' || l.batchId === parseInt(selectedBatch)) && l.assignedTo !== null && isCCAgent(l.assignedUser)).length}
-                            </h3>
-                          </div>
+                        <div className="animate-fade-in pb-4">
+                          <CoordinatorStatsBreakdown 
+                            leads={detailedLeads.filter(l => selectedBatch === 'All' || l.batchId === parseInt(selectedBatch))}
+                            staff={staff}
+                            title="Coordinator Performance Breakdown"
+                            subtitle={
+                              selectedBatch === 'All'
+                                ? `All Batches Overview • ${selectedBizCard?.name || 'Business Leads Pool'}`
+                                : `${batches.find(b => b.id === parseInt(selectedBatch))?.name || 'Selected Batch'} • ${selectedBizCard?.name || 'Business Leads Pool'}`
+                            }
+                            campaignLabel={activeTab === 'free-sem' ? 'Free_Seminar' : 'After_Seminar'}
+                            onSelectAgent={(agent) => {
+                              setSearchQuery(agent.name);
+                              setActiveSubTab('assigned');
+                            }}
+                          />
                         </div>
                       ) : (
                         <div className="bg-slate-900/80 rounded-2xl overflow-hidden border border-slate-700 flex flex-col h-full animate-fade-in shadow-xl">

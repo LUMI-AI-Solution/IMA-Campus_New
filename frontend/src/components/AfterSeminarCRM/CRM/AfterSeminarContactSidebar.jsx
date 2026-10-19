@@ -224,7 +224,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
               const selBizId = String(filters.selectedBusiness).toLowerCase().trim();
               const selBizName = String(bizName).toLowerCase().trim();
               
-              return cBizList.includes(selBizId) || cBizList.some(biz => biz.includes(selBizName)) || String(c.businessId) === String(filters.selectedBusiness);
+              return cBizList.includes('all') || cBizList.includes(selBizId) || cBizList.some(biz => biz.includes(selBizName)) || String(c.businessId) === String(filters.selectedBusiness);
           });
       }
       setCoordinators(coords);

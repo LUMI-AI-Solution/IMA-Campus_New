@@ -283,9 +283,22 @@ const createAutoDeliveryForPayment = async (payment, isSelfPicked = false) => {
         const paymentTypeStr = pType === 1 ? 'Monthly' : (pType === 2 ? 'Installment' : 'Full');
 
         // 4. Scoped deduplication check:
-        // - Fetch student's prior deliveries in this batch (or scope)
+        // - For Monthly (pType === 1): check prior deliveries for student in the SAME month / group (groupId).
+        //   Month 1 (September) tutes NEVER block Month 2 (October) tutes!
+        //   Within the same month, duplicate tutes are avoided.
+        // - For Full / Installment (pType === 2 or 3): check prior deliveries in the SAME batch (batchId),
+        //   because Full payment covers the full batch course.
         let existingDeliveries = [];
-        if (payment.batchId) {
+        if (pType === 1 && payment.groupId) {
+            existingDeliveries = await prisma.delivery.findMany({
+                where: {
+                    studentId: payment.studentId.toString(),
+                    payment: { groupId: parseInt(payment.groupId, 10) },
+                    status: { notIn: ['Trash', 'Cancelled', 'Rejected'] }
+                },
+                include: { items: true, payment: true }
+            });
+        } else if (payment.batchId) {
             existingDeliveries = await prisma.delivery.findMany({
                 where: {
                     studentId: payment.studentId.toString(),
@@ -791,13 +804,15 @@ exports.paymentAction = async (req, res) => {
                     const courses = await prisma.course.findMany({ where: { id: { in: subIds } } });
                     if (courses.length > 0) {
                         const deliverableItems = await getDeliverableCoursesForPayment(payRecord, courses);
-                        const finalItems = deliverableItems.length > 0 ? deliverableItems : courses.map(c => ({ courseId: c.id, tuteName: c.name || "Tute", quantity: 1 }));
+                        if (!deliverableItems || deliverableItems.length === 0) {
+                            return res.status(400).json({ error: "None of the selected courses have 'Deliver Tute' enabled in Content Hub." });
+                        }
                         const paymentTypeStr = parseInt(payRecord.payment_type) === 1 ? 'Monthly' : (parseInt(payRecord.payment_type) === 2 ? 'Installment' : 'Full');
                         await prisma.delivery.create({
                             data: {
                                 paymentId: payRecord.id, studentId: payRecord.studentId.toString(), businessId: payRecord.businessId,
                                 paymentType: paymentTypeStr, status: 'Pending',
-                                items: { create: finalItems }
+                                items: { create: deliverableItems }
                             }
                         });
                         return res.status(200).json({ message: `Sent to Delivery Hub successfully` });

@@ -1,13 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import axios from '../../api/axios';
 import toast from 'react-hot-toast';
-import { Repeat, ChevronRight, Users, Loader2, Building2, UserCheck, PlayCircle, Phone, User, Calendar, CheckCircle2 } from 'lucide-react';
+import { Repeat, ChevronRight, Users, Loader2, Building2, UserCheck, PlayCircle, Phone, User, Calendar, CheckCircle2, Filter, BarChart3 } from 'lucide-react';
 import { FaUserTie } from 'react-icons/fa';
+import CoordinatorStatsBreakdown from './CoordinatorStatsBreakdown';
 
 export default function BridgeHandOversTab({ staff = [] }) {
     const [businesses, setBusinesses] = useState([]);
     const [loading, setLoading] = useState(true);
     const [selectedBizId, setSelectedBizId] = useState(null);
+    const [selectedBatch, setSelectedBatch] = useState('All');
+    const [bridgeSubTab, setBridgeSubTab] = useState('breakdown'); // 'breakdown' | 'assignment'
     const [fetchedStaff, setFetchedStaff] = useState([]);
     
     const [checkedLeads, setCheckedLeads] = useState([]);
@@ -57,6 +60,21 @@ export default function BridgeHandOversTab({ staff = [] }) {
     const detailedLeads = React.useMemo(() => {
         return selectedBiz?.leads || [];
     }, [selectedBiz]);
+
+    const batches = React.useMemo(() => {
+        const map = new Map();
+        detailedLeads.forEach(l => {
+            if (l.batch && l.batch.id) {
+                map.set(l.batch.id, l.batch);
+            }
+        });
+        return Array.from(map.values());
+    }, [detailedLeads]);
+
+    const batchFilteredLeads = React.useMemo(() => {
+        if (selectedBatch === 'All') return detailedLeads;
+        return detailedLeads.filter(l => l.batchId === parseInt(selectedBatch) || l.batch?.id === parseInt(selectedBatch));
+    }, [detailedLeads, selectedBatch]);
 
     const availableAgents = React.useMemo(() => {
         const map = new Map();
@@ -235,36 +253,99 @@ export default function BridgeHandOversTab({ staff = [] }) {
                 // DETAILED LEADS VIEW
                 <div className="flex-1 flex flex-col gap-6 animate-fade-in-up">
                     
-                    {/* Top Action Bar */}
-                    <div className="flex flex-col md:flex-row justify-between items-center bg-white/5 border border-white/10 p-5 rounded-[24px] gap-4">
-                        <div className="flex items-center gap-6">
-                            <div className="text-center">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Handed Over</p>
-                                <p className="text-2xl font-black text-white">{detailedLeads.length}</p>
-                            </div>
-                            <div className="w-px h-10 bg-white/10"></div>
-                            <div className="text-center">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-rose-400">Pending Approval</p>
-                                <p className="text-2xl font-black text-rose-300">{pendingApprovalCount}</p>
-                            </div>
-                            <div className="w-px h-10 bg-white/10"></div>
-                            <div className="text-center">
-                                <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Assigned Workload</p>
-                                <p className="text-2xl font-black text-emerald-300">{assignedCount}</p>
-                            </div>
+                    {/* Top Switcher Bar: Business Name, Batch Filter & View Toggle */}
+                    <div className="flex flex-col sm:flex-row justify-between items-center bg-[#0f172a]/90 border border-slate-700/80 p-4 rounded-2xl gap-4">
+                        <div className="flex items-center gap-3 w-full sm:w-auto">
+                            <span className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                                <Building2 size={16} className="text-indigo-400" /> {selectedBiz.businessName}
+                            </span>
+                            {batches.length > 0 && (
+                                <div className="flex items-center gap-2">
+                                    <Filter size={14} className="text-indigo-400" />
+                                    <select
+                                        value={selectedBatch}
+                                        onChange={(e) => { setSelectedBatch(e.target.value); setCheckedLeads([]); }}
+                                        className="bg-[#1e293b] border border-slate-600 text-slate-200 rounded-xl px-3 py-1.5 text-xs font-bold outline-none focus:border-indigo-500 cursor-pointer"
+                                    >
+                                        <option value="All">All Batches Overview</option>
+                                        {batches.map(b => (
+                                            <option key={b.id} value={b.id}>{b.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                         </div>
 
-                        <div className="flex items-center gap-3 w-full md:w-auto">
-                            <button 
-                                onClick={handleStartRoundTwo}
-                                disabled={isProcessing || assignedCount === 0}
-                                className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-[0_0_15px_rgba(99,102,241,0.3)] disabled:opacity-50 transition-all border border-indigo-400/50 w-full md:w-auto justify-center"
+                        <div className="flex bg-slate-900 p-1 rounded-xl border border-slate-700/80 gap-1 w-full sm:w-auto">
+                            <button
+                                onClick={() => setBridgeSubTab('breakdown')}
+                                className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+                                    bridgeSubTab === 'breakdown' 
+                                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' 
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
                             >
-                                {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <PlayCircle size={16} />}
-                                Start Round 2
+                                <BarChart3 size={14} /> Coordinator Breakdown
+                            </button>
+                            <button
+                                onClick={() => setBridgeSubTab('assignment')}
+                                className={`flex-1 sm:flex-none px-4 py-2 rounded-lg text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
+                                    bridgeSubTab === 'assignment' 
+                                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' 
+                                        : 'text-slate-400 hover:text-white'
+                                }`}
+                            >
+                                <Users size={14} /> Assign & Leads Pool
                             </button>
                         </div>
                     </div>
+
+                    {bridgeSubTab === 'breakdown' ? (
+                        <div className="animate-fade-in pb-4">
+                            <CoordinatorStatsBreakdown 
+                                leads={batchFilteredLeads}
+                                staff={availableAgents}
+                                title="Bridge Caller Performance Breakdown"
+                                subtitle={`Bridge staff breakdown for ${selectedBiz.businessName} • ${batches.find(b => b.id === parseInt(selectedBatch))?.name || 'All Batches'}`}
+                                campaignLabel="Bridge"
+                                onSelectAgent={(agent) => {
+                                    setSelectedAgent(agent.id.toString());
+                                    setBridgeSubTab('assignment');
+                                }}
+                            />
+                        </div>
+                    ) : (
+                        <>
+                            {/* Top Action Bar */}
+                            <div className="flex flex-col md:flex-row justify-between items-center bg-white/5 border border-white/10 p-5 rounded-[24px] gap-4">
+                                <div className="flex items-center gap-6">
+                                    <div className="text-center">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Total Handed Over</p>
+                                        <p className="text-2xl font-black text-white">{batchFilteredLeads.length}</p>
+                                    </div>
+                                    <div className="w-px h-10 bg-white/10"></div>
+                                    <div className="text-center">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-rose-400">Pending Approval</p>
+                                        <p className="text-2xl font-black text-rose-300">{batchFilteredLeads.filter(l => l.callCenterStatus === 'pending_approval').length}</p>
+                                    </div>
+                                    <div className="w-px h-10 bg-white/10"></div>
+                                    <div className="text-center">
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-400">Assigned Workload</p>
+                                        <p className="text-2xl font-black text-emerald-300">{batchFilteredLeads.filter(l => l.callCenterStatus !== 'pending_approval' && l.assignedTo).length}</p>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-3 w-full md:w-auto">
+                                    <button 
+                                        onClick={handleStartRoundTwo}
+                                        disabled={isProcessing || assignedCount === 0}
+                                        className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-6 py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-[0_0_15px_rgba(99,102,241,0.3)] disabled:opacity-50 transition-all border border-indigo-400/50 w-full md:w-auto justify-center"
+                                    >
+                                        {isProcessing ? <Loader2 size={16} className="animate-spin" /> : <PlayCircle size={16} />}
+                                        Start Round 2
+                                    </button>
+                                </div>
+                            </div>
 
                     {/* Table and Assignment section */}
                     <div className="bg-black/40 border border-white/10 rounded-[24px] flex flex-col overflow-hidden flex-1 shadow-2xl">
@@ -426,7 +507,9 @@ export default function BridgeHandOversTab({ staff = [] }) {
                             </table>
                         </div>
                     </div>
-                </div>
+                  </>
+                )}
+              </div>
             )}
         </div>
     );
