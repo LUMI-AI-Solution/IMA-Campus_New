@@ -395,11 +395,11 @@ exports.unallocateClass = async (req, res) => {
                 class: { include: { teachers: true } },
                 school: true,
                 enrollments: { include: { class: { include: { teachers: true } } } },
-                feePayments: { orderBy: { month: 'desc' } }
+                feePayments: { include: { class: true }, orderBy: { month: 'desc' } }
             }
         });
 
-        res.json({ success: true, student: updatedStudent, message: 'Class enrollment removed successfully' });
+        res.json({ success: true, student: updatedStudent, message: 'Class de-allocated successfully. Historical fees and cashflow records are preserved.' });
     } catch (error) {
         console.error('Error removing class enrollment:', error);
         res.status(500).json({ error: 'Failed to remove class: ' + error.message });

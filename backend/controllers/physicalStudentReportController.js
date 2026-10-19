@@ -306,7 +306,14 @@ exports.getStudentFullDetails = async (req, res) => {
         class: { include: { timetables: true, teachers: true } },
         enrollments: { include: { class: { include: { timetables: true, teachers: true } } } },
         feePayments: { include: { class: true }, orderBy: { month: 'desc' } },
-        attendances: { orderBy: { date: 'desc' } }
+        attendances: { 
+          include: { 
+            class: { 
+              select: { id: true, name: true, grade: true } 
+            } 
+          }, 
+          orderBy: { date: 'desc' } 
+        }
       }
     });
 
@@ -314,15 +321,22 @@ exports.getStudentFullDetails = async (req, res) => {
       return res.status(404).json({ error: 'Student not found.' });
     }
 
-    const smsLogs = await prisma.physicalSmsLog.findMany({
-      where: { studentId: student.id },
-      orderBy: { createdAt: 'desc' },
-      take: 50
-    });
+    const [smsLogs, transactions] = await Promise.all([
+      prisma.physicalSmsLog.findMany({
+        where: { studentId: student.id },
+        orderBy: { createdAt: 'desc' },
+        take: 50
+      }),
+      prisma.physicalTransaction.findMany({
+        where: { studentId: student.id, isDeleted: false },
+        orderBy: { date: 'desc' }
+      })
+    ]);
 
     return res.json({
       success: true,
       student,
+      transactions,
       smsLogs
     });
 

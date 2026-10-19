@@ -8,11 +8,12 @@ import {
   History, X, Clock, DollarSign, CreditCard, Check, Printer,
   Calendar as CalendarIcon, AlertCircle, Phone, Shield, Sparkles,
   Trash2, Plus, ArrowRight, CheckCircle2, TrendingUp, Receipt,
-  Columns, LayoutGrid, CalendarCheck, UserCheck, Eye, Building2, Zap, Lock, RotateCcw
+  Columns, LayoutGrid, CalendarCheck, UserCheck, Eye, Building2, Zap, Lock, RotateCcw, FileText
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { format, subMonths, addMonths, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday } from 'date-fns';
 import ThermalReceiptModal from '../../components/PhysicalCRM/ThermalReceiptModal';
+import StudentDetailModal from '../../components/PhysicalCRM/StudentDetailModal';
 import { printThermalReceipt } from '../../utils/thermalReceiptPrinter';
 
 
@@ -50,6 +51,9 @@ export default function AttendancePortal() {
     const [receiptModalOpen, setReceiptModalOpen] = useState(false);
     const [currentReceiptData, setCurrentReceiptData] = useState(null);
     const [autoPrintReceipt, setAutoPrintReceipt] = useState(true);
+
+    // Full Student Report Modal State
+    const [isStudentReportModalOpen, setIsStudentReportModalOpen] = useState(false);
 
     // Per-Class Monthly History Modal State
     const [classHistoryModal, setClassHistoryModal] = useState({
@@ -415,6 +419,28 @@ export default function AttendancePortal() {
             toast.success(`Removed "${className}" from allocated classes`);
         } catch (error) {
             toast.error('Failed to remove class: ' + (error.response?.data?.error || error.message));
+        }
+    };
+
+    // Reverse Accidental / Future Month Fee Payment & cleanly adjust cashflow
+    const handleReverseFeePayment = async (classId, monthStr) => {
+        if (!studentData) return;
+        const clsObj = studentEnrolledClasses.find(c => c.id === classId) || availableClasses.find(c => c.id === classId) || { name: 'Class' };
+        if (!window.confirm(`⚠️ Reverse class fee payment for "${clsObj.name}" (${monthStr})?\n\nThis will revert this month's status to UNPAID and adjust the Cashflow balance.`)) {
+            return;
+        }
+        try {
+            const res = await physicalCrmService.reverseFeePayment({
+                studentId: studentData.id,
+                classId,
+                month: monthStr,
+                reason: 'Accidental/future month class fee entry reversed by staff'
+            });
+            toast.success(res.message || `Payment for ${monthStr} reversed successfully! Cashflow adjusted.`, { icon: '🔄' });
+            handleScan(studentData.studentId || studentData.id);
+        } catch (error) {
+            console.error('Error reversing fee payment:', error);
+            toast.error('Failed to reverse payment: ' + (error.response?.data?.error || error.message));
         }
     };
 
@@ -984,6 +1010,24 @@ export default function AttendancePortal() {
         return Array.from(map.values());
     }, [studentData]);
 
+    // Extract previously enrolled / de-allocated classes that have preserved fee records
+    const studentHistoricalClasses = useMemo(() => {
+        if (!studentData || !feePayments || feePayments.length === 0) return [];
+        const activeIds = new Set(studentEnrolledClasses.map(c => c.id));
+        const histMap = new Map();
+        feePayments.forEach(p => {
+            if (p.class && !activeIds.has(p.classId)) {
+                if (!histMap.has(p.classId)) {
+                    histMap.set(p.classId, {
+                        ...p.class,
+                        isHistorical: true
+                    });
+                }
+            }
+        });
+        return Array.from(histMap.values());
+    }, [studentData, feePayments, studentEnrolledClasses]);
+
     const todayDayName = useMemo(() => {
         const dayMap = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
         return dayMap[new Date().getDay()];
@@ -1415,6 +1459,17 @@ export default function AttendancePortal() {
                                         </p>
                                     </div>
                                 </div>
+
+                                {/* FULL STUDENT REPORT BUTTON (History & Statement) */}
+                                <button
+                                    type="button"
+                                    onClick={() => setIsStudentReportModalOpen(true)}
+                                    className="w-full py-2 px-3 rounded-xl text-xs font-black bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-purple-600/30 active:scale-95"
+                                    title="View complete student history: 🟣 Payments & 🟣 Attendance"
+                                >
+                                    <FileText size={15} />
+                                    <span>📊 Full Student Report (History)</span>
+                                </button>
 
                                 {/* QUICK ATTENDANCE TOGGLE BUTTON (Zero Scroll Attendance Marking!) */}
                                 <button
@@ -2075,14 +2130,25 @@ export default function AttendancePortal() {
                                                                     </button>
 
                                                                     {(isPaidRecord || isPartialRecord) && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handlePrintClassReceipt(cls, activeMonthStr, pRecord)}
-                                                                            className="p-2 rounded-xl bg-blue-500/15 hover:bg-blue-500/30 text-blue-300 border border-blue-500/25 transition-all cursor-pointer active:scale-95"
-                                                                            title="Print 80mm Receipt"
-                                                                        >
-                                                                            <Printer size={14} />
-                                                                        </button>
+                                                                        <>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handlePrintClassReceipt(cls, activeMonthStr, pRecord)}
+                                                                                className="p-2 rounded-xl bg-blue-500/15 hover:bg-blue-500/30 text-blue-300 border border-blue-500/25 transition-all cursor-pointer active:scale-95"
+                                                                                title="Print 80mm Receipt"
+                                                                            >
+                                                                                <Printer size={14} />
+                                                                            </button>
+
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleReverseFeePayment(cls.id, activeMonthStr)}
+                                                                                className="p-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/25 transition-all cursor-pointer active:scale-95"
+                                                                                title="Reverse Mistaken / Future Month Payment"
+                                                                            >
+                                                                                <RotateCcw size={14} />
+                                                                            </button>
+                                                                        </>
                                                                     )}
 
                                                                     <button
@@ -2277,6 +2343,47 @@ export default function AttendancePortal() {
                                             })}
                                         </div>
                                     )}
+
+                                    {/* PRESERVED HISTORICAL / DE-ALLOCATED CLASSES SECTION */}
+                                    {studentHistoricalClasses.length > 0 && (
+                                        <div className="mt-4 pt-3.5 border-t border-white/10 space-y-2.5">
+                                            <div className="flex items-center justify-between">
+                                                <span className="text-[11px] font-black text-amber-300 uppercase tracking-wider flex items-center gap-1.5">
+                                                    <span>📜</span> Preserved Historical / De-allocated Classes ({studentHistoricalClasses.length})
+                                                </span>
+                                                <span className="text-[10px] text-white/50">Past Fee Records Intact</span>
+                                            </div>
+                                            <div className="space-y-2">
+                                                {studentHistoricalClasses.map(hCls => (
+                                                    <div key={hCls.id} className="p-3 rounded-2xl bg-gradient-to-r from-amber-950/20 via-black/40 to-black/60 border border-amber-500/30 flex items-center justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <div className="flex items-center gap-2">
+                                                                <h4 className="font-bold text-white text-xs truncate">{hCls.name}</h4>
+                                                                <span className="text-[9px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold border border-amber-500/30 shrink-0">
+                                                                    De-allocated
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-[10px] text-white/50 mt-0.5 truncate">{hCls.grade} • Previous Fee Payments Preserved in Database</p>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5 shrink-0">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => setClassHistoryModal({
+                                                                    isOpen: true,
+                                                                    classObj: hCls,
+                                                                    year: viewMonth.getFullYear()
+                                                                })}
+                                                                className="p-1.5 px-2.5 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/30 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition-all active:scale-95"
+                                                                title="View 12 Months Payment History for this Class"
+                                                            >
+                                                                <CalendarIcon size={12} /> View History
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -2425,18 +2532,28 @@ export default function AttendancePortal() {
                                             {cType !== 'FREE' && (
                                                 <>
                                                     {isPaid && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                if (window.confirm(`Are you sure you want to mark ${format(mDate, 'MMMM yyyy')} as UNPAID for "${classHistoryModal.classObj?.name}"?`)) {
-                                                                    handleClassFeePayment(classHistoryModal.classObj.id, mStr, 'PAID');
-                                                                }
-                                                            }}
-                                                            className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-[11px] font-bold cursor-pointer transition-all"
-                                                            title="Mark this month as UNPAID"
-                                                        >
-                                                            Mark Unpaid
-                                                        </button>
+                                                        <>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleReverseFeePayment(classHistoryModal.classObj.id, mStr)}
+                                                                className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1"
+                                                                title="Reverse accidental/future month payment & adjust cashflow"
+                                                            >
+                                                                <RotateCcw size={11} /> Reverse
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (window.confirm(`Are you sure you want to mark ${format(mDate, 'MMMM yyyy')} as UNPAID for "${classHistoryModal.classObj?.name}"?`)) {
+                                                                        handleClassFeePayment(classHistoryModal.classObj.id, mStr, 'PAID');
+                                                                    }
+                                                                }}
+                                                                className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/60 text-[11px] font-bold cursor-pointer transition-all"
+                                                                title="Mark this month as UNPAID"
+                                                            >
+                                                                Mark Unpaid
+                                                            </button>
+                                                        </>
                                                     )}
                                                     <button
                                                         type="button"
@@ -2972,6 +3089,15 @@ export default function AttendancePortal() {
                 receiptData={currentReceiptData}
                 autoPrint={false}
             />
+
+            {/* Comprehensive Student History Report Modal (🟣 Payment & Attendance History) */}
+            {studentData && (
+                <StudentDetailModal
+                    studentId={studentData.id}
+                    isOpen={isStudentReportModalOpen}
+                    onClose={() => setIsStudentReportModalOpen(false)}
+                />
+            )}
         </div>
     );
 }

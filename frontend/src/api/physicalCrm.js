@@ -35,6 +35,7 @@ export const physicalCrmService = {
   // Fee Matrix & Payments
   getClassFeeMatrix: (classId) => api.get(`/physical-crm/classes/${classId}/fee-matrix`).then(res => res.data),
   toggleFeePayment: (data) => api.post('/physical-crm/classes/toggle-fee', data).then(res => res.data),
+  reverseFeePayment: (data) => api.post('/physical-crm/classes/reverse-fee', data).then(res => res.data),
   bulkToggleFeePayment: (data) => api.post('/physical-crm/classes/bulk-fee-payment', data).then(res => res.data),
 
   // Teacher Reports & Invoices

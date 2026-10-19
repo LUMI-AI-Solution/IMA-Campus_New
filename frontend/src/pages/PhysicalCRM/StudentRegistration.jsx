@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { physicalCrmService } from '../../api/physicalCrm';
 import { physicalFinanceService } from '../../api/physicalFinance';
 import SchoolManagerModal from '../../components/PhysicalCRM/SchoolManagerModal';
-import { User, Search, GraduationCap, Users, Filter, Edit2, Trash2, X, FileSpreadsheet, Upload, Loader2, CheckCircle2, AlertCircle, Sparkles, CreditCard, BookOpen, ChevronDown, Check } from 'lucide-react';
+import StudentDetailModal from '../../components/PhysicalCRM/StudentDetailModal';
+import { User, Search, GraduationCap, Users, Filter, Edit2, Trash2, X, FileSpreadsheet, Upload, Loader2, CheckCircle2, AlertCircle, Sparkles, CreditCard, BookOpen, ChevronDown, Check, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 import { printThermalReceipt } from '../../utils/thermalReceiptPrinter';
@@ -33,6 +34,7 @@ export default function StudentRegistration() {
   const [classes, setClasses] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isSchoolModalOpen, setIsSchoolModalOpen] = useState(false);
+  const [selectedStudentForReport, setSelectedStudentForReport] = useState(null);
   
   // Bulk Excel Import & Class Allocator Modal State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -923,7 +925,15 @@ export default function StudentRegistration() {
                       <div key={student.id} className="group bg-white/5 border border-white/10 p-5 rounded-2xl hover:border-brand-accent/50 hover:bg-white/10 hover:shadow-lg transition-all relative overflow-hidden flex flex-col justify-between shadow-inner">
                         <div className="absolute top-0 right-0 w-16 h-16 bg-brand-accent/5 rounded-bl-full -mr-4 -mt-4 transition-transform group-hover:scale-110"></div>
                         
-                        <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10 opacity-0 group-hover:opacity-100 transition-all">
+                        <div className="absolute top-3 right-3 flex items-center gap-1.5 z-10 opacity-90 group-hover:opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all">
+                          <button 
+                            onClick={() => setSelectedStudentForReport(student.id)}
+                            className="p-1.5 px-2 bg-purple-600/30 hover:bg-purple-600 rounded-lg text-purple-200 hover:text-white transition-all border border-purple-500/40 flex items-center gap-1 text-[11px] font-bold cursor-pointer shadow-sm active:scale-95"
+                            title="View Full Student Report (🟣 Payments & 🟣 Attendance)"
+                          >
+                            <FileText size={12} />
+                            <span>Report</span>
+                          </button>
                           <button 
                             onClick={() => handleEditClick(student)}
                             className="p-1.5 bg-black/40 hover:bg-brand-accent rounded-lg text-gray-300 hover:text-white transition-all border border-white/10"
@@ -1661,6 +1671,15 @@ export default function StudentRegistration() {
           physicalCrmService.getSchools().then(setSchools);
         }} 
       />
+
+      {/* Comprehensive Student History Report Modal */}
+      {selectedStudentForReport && (
+        <StudentDetailModal
+          studentId={selectedStudentForReport}
+          isOpen={Boolean(selectedStudentForReport)}
+          onClose={() => setSelectedStudentForReport(null)}
+        />
+      )}
     </div>
   );
 }

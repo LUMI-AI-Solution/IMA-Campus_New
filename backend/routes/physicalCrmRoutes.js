@@ -59,6 +59,7 @@ router.delete('/teachers/:id', physicalCrmController.deleteTeacher);
 // Class Fee Matrix & Payment
 router.get('/classes/:classId/fee-matrix', physicalCrmController.getClassFeeMatrix);
 router.post('/classes/toggle-fee', physicalCrmController.toggleStudentFeePayment);
+router.post('/classes/reverse-fee', physicalCrmController.reverseStudentFeePayment);
 router.post('/classes/bulk-fee-payment', physicalCrmController.bulkStudentFeePayment);
 
 // Teacher Reports & Invoices

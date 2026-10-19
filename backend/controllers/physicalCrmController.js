@@ -964,8 +964,27 @@ exports.allocateExcelToClass = async (req, res) => {
 exports.deleteStudent = async (req, res) => {
   try {
     const { id } = req.params;
+    const sId = parseInt(id);
+
+    // Safeguard: Check if student has fee payments or active financial transactions
+    const hasPayments = await prisma.physicalClassFeePayment.count({
+      where: { studentId: sId }
+    });
+    const hasTransactions = await prisma.physicalTransaction.count({
+      where: { studentId: sId, isDeleted: false }
+    });
+
+    const force = req.query.force === 'true';
+
+    if ((hasPayments > 0 || hasTransactions > 0) && !force) {
+      return res.status(400).json({
+        error: `Cannot delete student because they have ${hasPayments} historical fee payment(s) and ${hasTransactions} cashflow transaction(s). Deleting the student would permanently wipe these accounting records. Please de-allocate/drop the student's classes instead to preserve cashflow integrity.`,
+        hasFinancialRecords: true
+      });
+    }
+
     await prisma.physicalStudent.delete({
-      where: { id: parseInt(id) },
+      where: { id: sId },
     });
     res.json({ message: 'Student deleted successfully' });
   } catch (error) {
@@ -1952,6 +1971,110 @@ exports.bulkStudentFeePayment = async (req, res) => {
   } catch (error) {
     console.error('Error in bulk student fee payment:', error);
     res.status(500).json({ error: error.message });
+  }
+};
+
+// --- REVERSE ACCIDENTAL / FUTURE MONTH CLASS FEE PAYMENT ---
+exports.reverseStudentFeePayment = async (req, res) => {
+  try {
+    const { studentId, classId, month, reason } = req.body;
+    const sId = parseInt(studentId);
+    const cId = parseInt(classId);
+
+    if (!sId || !cId || !month) {
+      return res.status(400).json({ error: 'Valid studentId, classId, and month are required' });
+    }
+
+    const existingPayment = await prisma.physicalClassFeePayment.findUnique({
+      where: {
+        studentId_classId_month: {
+          studentId: sId,
+          classId: cId,
+          month
+        }
+      },
+      include: {
+        class: true,
+        student: true
+      }
+    });
+
+    if (!existingPayment) {
+      return res.status(404).json({ error: `No fee payment record found for ${month}` });
+    }
+
+    const targetClass = existingPayment.class || await prisma.physicalClass.findUnique({ where: { id: cId } });
+    const targetStudent = existingPayment.student || await prisma.physicalStudent.findUnique({ where: { id: sId } });
+    const sName = targetStudent?.studentName || `${targetStudent?.firstName || ''} ${targetStudent?.lastName || ''}`.trim() || 'Student';
+    const sIdCode = targetStudent?.studentId || String(sId);
+    const staffName = req.user?.name || req.user?.username || 'Staff';
+    const reversalReason = reason?.trim() || 'Accidental/future month class fee entry reversed';
+    const previousAmount = existingPayment.amount || 0;
+
+    // 1. Delete the physicalClassFeePayment so student is UNPAID for that month
+    await prisma.physicalClassFeePayment.delete({
+      where: {
+        id: existingPayment.id
+      }
+    });
+
+    // 2. Adjust Cash Flow cleanly
+    if (previousAmount > 0) {
+      // Find the matching INCOME PhysicalTransaction created for this student, category 'Class Fee', and month
+      const matchingTx = await prisma.physicalTransaction.findFirst({
+        where: {
+          studentId: sId,
+          type: 'INCOME',
+          category: 'Class Fee',
+          isDeleted: false,
+          description: { contains: month }
+        },
+        orderBy: { date: 'desc' }
+      });
+
+      if (matchingTx) {
+        // Soft delete the mistaken transaction so cashflow calculation ignores it
+        await prisma.physicalTransaction.update({
+          where: { id: matchingTx.id },
+          data: {
+            isDeleted: true,
+            deletedReason: `Reversed: ${reversalReason} [Class: ${targetClass?.name || cId}, Month: ${month}]`,
+            deletedAt: new Date(),
+            deletedBy: staffName
+          }
+        });
+      } else {
+        // If not found (e.g. older date or merged transaction), create an offsetting REFUND expense transaction
+        await prisma.physicalTransaction.create({
+          data: {
+            type: 'EXPENSE',
+            category: 'Refund',
+            amount: previousAmount,
+            description: `Reversal of accidental Class Fee (${month}) - ${targetClass?.name || 'Class'} - ${sIdCode} (${sName}) - Reason: ${reversalReason}`,
+            studentId: sId,
+            affectsCash: true,
+            isVerified: true
+          }
+        });
+      }
+    }
+
+    // Refetch student's remaining fee payments
+    const updatedFeePayments = await prisma.physicalClassFeePayment.findMany({
+      where: { studentId: sId },
+      include: { class: true },
+      orderBy: { month: 'desc' }
+    });
+
+    return res.json({
+      success: true,
+      status: 'PENDING',
+      message: `Fee payment for ${month} reversed successfully! Cashflow adjusted.`,
+      feePayments: updatedFeePayments
+    });
+  } catch (error) {
+    console.error('Error reversing class fee payment:', error);
+    return res.status(500).json({ error: 'Failed to reverse payment: ' + error.message });
   }
 };
 
