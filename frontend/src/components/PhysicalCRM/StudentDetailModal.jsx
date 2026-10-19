@@ -175,8 +175,6 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
     window.print();
   };
 
-  if (!isOpen) return null;
-
   const student = data?.student;
   const transactions = data?.transactions || [];
   const smsLogs = data?.smsLogs || [];
@@ -269,6 +267,8 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
   }, [attendances, attendanceClassFilter, attendanceStartDate, attendanceEndDate, attendanceSearch]);
 
   const isAttendanceFilterActive = attendanceClassFilter !== 'ALL' || attendanceStartDate !== '' || attendanceEndDate !== '' || attendanceSearch.trim() !== '';
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
