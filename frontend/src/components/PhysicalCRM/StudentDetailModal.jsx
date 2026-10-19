@@ -4,7 +4,7 @@ import {
   X, User, Calendar, CreditCard, MessageSquare, GraduationCap, Phone, 
   MapPin, Building, ShieldCheck, CheckCircle2, Clock, AlertCircle, 
   Loader2, Sparkles, Printer, RotateCcw, Search, Filter, ArrowUpRight,
-  FileText, Check, AlertTriangle, ChevronRight
+  FileText, Check, AlertTriangle, ChevronRight, CalendarRange, Layers
 } from 'lucide-react';
 import { printThermalReceipt } from '../../utils/thermalReceiptPrinter';
 import toast from 'react-hot-toast';
@@ -12,11 +12,18 @@ import toast from 'react-hot-toast';
 export default function StudentDetailModal({ studentId, isOpen, onClose }) {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState(null);
-  const [activeTab, setActiveTab] = useState('payments'); // default to payments as requested: 'payments' | 'attendance' | 'overview' | 'sms'
+  const [activeTab, setActiveTab] = useState('payments'); // 'payments' | 'attendance' | 'overview' | 'sms'
   
-  // Search & Filter within tabs
+  // Payment Filters
+  const [paymentClassFilter, setPaymentClassFilter] = useState('ALL');
   const [paymentSearch, setPaymentSearch] = useState('');
+  
+  // Attendance Filters (Class-wise & Date Range)
+  const [attendanceClassFilter, setAttendanceClassFilter] = useState('ALL');
+  const [attendanceStartDate, setAttendanceStartDate] = useState('');
+  const [attendanceEndDate, setAttendanceEndDate] = useState('');
   const [attendanceSearch, setAttendanceSearch] = useState('');
+  const [attendanceActivePreset, setAttendanceActivePreset] = useState('ALL');
   
   // Reversal confirmation modal state
   const [reversingPayment, setReversingPayment] = useState(null);
@@ -34,6 +41,14 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
       setIsEditingCard(false);
       setCardInput('');
       setReversingPayment(null);
+      // Reset filters on open
+      setPaymentClassFilter('ALL');
+      setPaymentSearch('');
+      setAttendanceClassFilter('ALL');
+      setAttendanceStartDate('');
+      setAttendanceEndDate('');
+      setAttendanceSearch('');
+      setAttendanceActivePreset('ALL');
     }
   }, [isOpen, studentId]);
 
@@ -125,7 +140,37 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
     toast.success('Sent receipt to 80mm thermal printer!', { icon: '🖨️' });
   };
 
-  // Print Complete Student History Report (A4 / Standard Print)
+  // Date Range Quick Preset Helper
+  const handleSetDatePreset = (preset) => {
+    setAttendanceActivePreset(preset);
+    const now = new Date();
+    if (preset === 'ALL') {
+      setAttendanceStartDate('');
+      setAttendanceEndDate('');
+    } else if (preset === 'THIS_MONTH') {
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
+      setAttendanceStartDate(`${year}-${month}-01`);
+      setAttendanceEndDate(`${year}-${month}-${String(lastDay).padStart(2, '0')}`);
+    } else if (preset === 'LAST_MONTH') {
+      const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const year = prevDate.getFullYear();
+      const month = String(prevDate.getMonth() + 1).padStart(2, '0');
+      const lastDay = new Date(year, prevDate.getMonth() + 1, 0).getDate();
+      setAttendanceStartDate(`${year}-${month}-01`);
+      setAttendanceEndDate(`${year}-${month}-${String(lastDay).padStart(2, '0')}`);
+    } else if (preset === 'LAST_30_DAYS') {
+      const past = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      setAttendanceStartDate(past.toISOString().split('T')[0]);
+      setAttendanceEndDate(now.toISOString().split('T')[0]);
+    } else if (preset === 'THIS_YEAR') {
+      const year = now.getFullYear();
+      setAttendanceStartDate(`${year}-01-01`);
+      setAttendanceEndDate(`${year}-12-31`);
+    }
+  };
+
   const handlePrintFullReport = () => {
     window.print();
   };
@@ -138,42 +183,101 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
 
   const studentDisplayName = student ? (student.studentName || `${student.firstName || ''} ${student.lastName || ''}`.trim() || 'Student') : '';
 
-  // Fee Payments calculations
+  // Extract All Distinct Classes associated with this student (enrolled, historical fees, attendances)
+  const studentClasses = useMemo(() => {
+    if (!student) return [];
+    const map = new Map();
+    if (student.class) {
+      map.set(student.class.id, student.class);
+    }
+    if (student.enrollments) {
+      student.enrollments.forEach(e => {
+        if (e.class) map.set(e.class.id, e.class);
+      });
+    }
+    if (student.feePayments) {
+      student.feePayments.forEach(p => {
+        if (p.class) map.set(p.class.id, p.class);
+      });
+    }
+    if (student.attendances) {
+      student.attendances.forEach(a => {
+        if (a.class) map.set(a.class.id, a.class);
+      });
+    }
+    return Array.from(map.values()).sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  }, [student]);
+
+  // Fee Payments calculations & filtering
   const feePayments = student?.feePayments || [];
   const totalPaidAmount = feePayments.reduce((sum, p) => sum + (p.amount || 0), 0);
   const paidMonthsCount = feePayments.filter(p => p.status === 'PAID' || p.status === 'FREE_CARD' || p.status === 'HALF_PAYMENT').length;
 
-  const filteredPayments = feePayments.filter(p => {
-    if (!paymentSearch.trim()) return true;
-    const term = paymentSearch.trim().toLowerCase();
-    return (
-      (p.month && p.month.toLowerCase().includes(term)) ||
-      (p.class?.name && p.class.name.toLowerCase().includes(term)) ||
-      (p.status && p.status.toLowerCase().includes(term)) ||
-      (p.paymentMethod && p.paymentMethod.toLowerCase().includes(term))
-    );
-  });
+  const filteredPayments = useMemo(() => {
+    return feePayments.filter(p => {
+      if (paymentClassFilter !== 'ALL') {
+        if (String(p.classId) !== String(paymentClassFilter)) return false;
+      }
+      if (paymentSearch.trim()) {
+        const term = paymentSearch.trim().toLowerCase();
+        const match =
+          (p.month && p.month.toLowerCase().includes(term)) ||
+          (p.class?.name && p.class.name.toLowerCase().includes(term)) ||
+          (p.status && p.status.toLowerCase().includes(term)) ||
+          (p.paymentMethod && p.paymentMethod.toLowerCase().includes(term));
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [feePayments, paymentClassFilter, paymentSearch]);
 
-  // Attendances calculations
+  const filteredPaymentTotal = filteredPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+
+  // Attendances calculations & filtering
   const attendances = student?.attendances || [];
-  const filteredAttendances = attendances.filter(att => {
-    if (!attendanceSearch.trim()) return true;
-    const term = attendanceSearch.trim().toLowerCase();
-    const dateStr = new Date(att.date).toLocaleDateString('en-GB');
-    return (
-      dateStr.toLowerCase().includes(term) ||
-      (att.class?.name && att.class.name.toLowerCase().includes(term)) ||
-      (att.status && att.status.toLowerCase().includes(term))
-    );
-  });
+  const filteredAttendances = useMemo(() => {
+    return attendances.filter(att => {
+      // 1. Class-wise filter
+      if (attendanceClassFilter !== 'ALL') {
+        if (attendanceClassFilter === 'GATE') {
+          if (att.classId !== null) return false;
+        } else {
+          if (String(att.classId) !== String(attendanceClassFilter)) return false;
+        }
+      }
+
+      // 2. Date Range filter
+      if (attendanceStartDate || attendanceEndDate) {
+        const attDateStr = new Date(att.date).toISOString().split('T')[0];
+        if (attendanceStartDate && attDateStr < attendanceStartDate) return false;
+        if (attendanceEndDate && attDateStr > attendanceEndDate) return false;
+      }
+
+      // 3. Search query
+      if (attendanceSearch.trim()) {
+        const term = attendanceSearch.trim().toLowerCase();
+        const dateStr = new Date(att.date).toLocaleDateString('en-GB');
+        const match =
+          dateStr.toLowerCase().includes(term) ||
+          (att.class?.name && att.class.name.toLowerCase().includes(term)) ||
+          (att.status && att.status.toLowerCase().includes(term));
+        if (!match) return false;
+      }
+
+      return true;
+    });
+  }, [attendances, attendanceClassFilter, attendanceStartDate, attendanceEndDate, attendanceSearch]);
+
+  const isAttendanceFilterActive = attendanceClassFilter !== 'ALL' || attendanceStartDate !== '' || attendanceEndDate !== '' || attendanceSearch.trim() !== '';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-      <div className="relative w-full max-w-5xl bg-gradient-to-b from-slate-900 via-slate-900 to-[#0b1120] border border-white/15 rounded-3xl shadow-[0_25px_70px_rgba(0,0,0,0.85)] overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md animate-fade-in">
+      {/* EXPANDED EXTRA WIDE MODAL WINDOW (max-w-[1400px] / 95vw) */}
+      <div className="relative w-full max-w-[1400px] xl:w-[95vw] bg-gradient-to-b from-slate-900 via-slate-900 to-[#0b1120] border border-white/15 rounded-3xl shadow-[0_25px_80px_rgba(0,0,0,0.9)] overflow-hidden flex flex-col max-h-[94vh]">
         
         {/* Modal Header */}
         <div className="p-5 sm:p-6 border-b border-white/10 flex flex-wrap items-center justify-between gap-4 bg-white/5 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
+          <div className="absolute top-0 right-0 w-96 h-96 bg-purple-500/10 rounded-full blur-3xl pointer-events-none"></div>
           
           <div className="flex items-center gap-4 relative z-10 min-w-0">
             <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-purple-600 via-indigo-600 to-blue-500 flex items-center justify-center text-white font-black text-xl shadow-lg border border-white/20 shrink-0">
@@ -201,6 +305,8 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
                 <span>Phone: <strong className="text-slate-200 font-mono">{student?.phone || 'N/A'}</strong></span>
                 <span>•</span>
                 <span>RFID: <strong className="text-emerald-400 font-mono">{student?.rfid || 'Unassigned'}</strong></span>
+                <span>•</span>
+                <span>Total Classes: <strong className="text-indigo-300">{studentClasses.length} Associated</strong></span>
               </p>
             </div>
           </div>
@@ -208,7 +314,7 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
           <div className="flex items-center gap-2 relative z-10 shrink-0 ml-auto">
             <button
               onClick={handlePrintFullReport}
-              className="p-2.5 px-3.5 text-xs font-bold text-white bg-white/10 hover:bg-white/20 rounded-xl transition-all border border-white/10 flex items-center gap-1.5 cursor-pointer shadow-sm"
+              className="p-2.5 px-4 text-xs font-bold text-white bg-white/10 hover:bg-white/20 rounded-xl transition-all border border-white/10 flex items-center gap-1.5 cursor-pointer shadow-sm"
               title="Print History Report"
             >
               <Printer size={15} />
@@ -228,7 +334,7 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
           {[
             { id: 'payments', label: `🟣 Payment History (${feePayments.length})`, icon: CreditCard, color: 'text-purple-400' },
             { id: 'attendance', label: `🟣 Attendance History (${attendances.length})`, icon: Calendar, color: 'text-emerald-400' },
-            { id: 'overview', label: `Profile & Classes (${[...(student?.class ? [student.class] : []), ...(student?.enrollments || []).map(e => e.class).filter(Boolean)].length})`, icon: User, color: 'text-blue-400' },
+            { id: 'overview', label: `Profile & Classes (${studentClasses.length})`, icon: User, color: 'text-blue-400' },
             { id: 'sms', label: `SMS Logs (${smsLogs.length})`, icon: MessageSquare, color: 'text-amber-400' }
           ].map(tab => {
             const Icon = tab.icon;
@@ -264,19 +370,23 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
                 <div className="space-y-5">
                   {/* Summary Stat Bar */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <div className="bg-gradient-to-br from-purple-950/40 via-purple-900/20 to-slate-900 border border-purple-500/30 p-3.5 rounded-2xl shadow-lg">
+                    <div className="bg-gradient-to-br from-purple-950/40 via-purple-900/20 to-slate-900 border border-purple-500/30 p-4 rounded-2xl shadow-lg">
                       <span className="text-[10px] font-bold text-purple-300 uppercase tracking-wider block mb-1">Total Fee Collected</span>
-                      <p className="text-xl font-black text-white font-mono">Rs. {totalPaidAmount.toLocaleString()}</p>
+                      <p className="text-2xl font-black text-white font-mono">Rs. {totalPaidAmount.toLocaleString()}</p>
+                      {paymentClassFilter !== 'ALL' && (
+                        <p className="text-[10px] text-purple-300 mt-1">Filtered: Rs. {filteredPaymentTotal.toLocaleString()}</p>
+                      )}
                     </div>
 
-                    <div className="bg-gradient-to-br from-indigo-950/40 via-indigo-900/20 to-slate-900 border border-indigo-500/30 p-3.5 rounded-2xl shadow-lg">
+                    <div className="bg-gradient-to-br from-indigo-950/40 via-indigo-900/20 to-slate-900 border border-indigo-500/30 p-4 rounded-2xl shadow-lg">
                       <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider block mb-1">Paid Months</span>
-                      <p className="text-xl font-black text-indigo-200">{paidMonthsCount} Months</p>
+                      <p className="text-2xl font-black text-indigo-200">{paidMonthsCount} Months</p>
+                      <p className="text-[10px] text-slate-400 mt-1">Total Records: {feePayments.length}</p>
                     </div>
 
-                    <div className="bg-gradient-to-br from-emerald-950/40 via-emerald-900/20 to-slate-900 border border-emerald-500/30 p-3.5 rounded-2xl shadow-lg">
+                    <div className="bg-gradient-to-br from-emerald-950/40 via-emerald-900/20 to-slate-900 border border-emerald-500/30 p-4 rounded-2xl shadow-lg">
                       <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider block mb-1">Registration Fee</span>
-                      <span className={`inline-block text-xs font-black px-2.5 py-1 rounded-lg border mt-0.5 ${
+                      <span className={`inline-block text-xs font-black px-2.5 py-1 rounded-lg border mt-1 ${
                         student?.registrationFeeStatus === 'PAID'
                           ? 'bg-emerald-500/25 text-emerald-300 border-emerald-400/40'
                           : 'bg-amber-500/25 text-amber-300 border-amber-400/40'
@@ -285,47 +395,81 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
                       </span>
                     </div>
 
-                    <div className="bg-gradient-to-br from-blue-950/40 via-blue-900/20 to-slate-900 border border-blue-500/30 p-3.5 rounded-2xl shadow-lg">
+                    <div className="bg-gradient-to-br from-blue-950/40 via-blue-900/20 to-slate-900 border border-blue-500/30 p-4 rounded-2xl shadow-lg">
                       <span className="text-[10px] font-bold text-blue-300 uppercase tracking-wider block mb-1">Card Allocation</span>
-                      <p className="text-xs font-black text-blue-200 mt-1">{student?.cardType || 'FULL'} CARD</p>
+                      <p className="text-sm font-black text-blue-200 mt-1">{student?.cardType || 'FULL'} CARD</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Assigned Rate</p>
                     </div>
                   </div>
 
-                  {/* Search / Filter & Actions Header */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 bg-black/30 p-3 rounded-2xl border border-white/10">
-                    <div className="relative flex-1 min-w-[200px]">
-                      <Search size={14} className="absolute left-3 top-3 text-slate-400" />
-                      <input
-                        type="text"
-                        placeholder="Search by month (e.g. 2026-10) or class name..."
-                        value={paymentSearch}
-                        onChange={(e) => setPaymentSearch(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-purple-500 font-medium"
-                      />
+                  {/* Payment Filters Bar (Class-wise & Keyword Search) */}
+                  <div className="flex flex-wrap items-center justify-between gap-3 bg-black/40 p-3.5 rounded-2xl border border-white/10">
+                    <div className="flex flex-wrap items-center gap-2.5 flex-1 min-w-[280px]">
+                      {/* Class Filter Dropdown */}
+                      <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-xl px-2.5 py-1.5">
+                        <Layers size={14} className="text-purple-400 shrink-0" />
+                        <select
+                          value={paymentClassFilter}
+                          onChange={(e) => setPaymentClassFilter(e.target.value)}
+                          className="bg-transparent text-xs font-bold text-white outline-none cursor-pointer"
+                        >
+                          <option value="ALL" className="bg-slate-900 text-white">All Classes ({feePayments.length} records)</option>
+                          {studentClasses.map(cls => (
+                            <option key={cls.id} value={cls.id} className="bg-slate-900 text-white">
+                              {cls.name} ({cls.grade})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Keyword Search */}
+                      <div className="relative flex-1 min-w-[200px]">
+                        <Search size={14} className="absolute left-3 top-2.5 text-slate-400" />
+                        <input
+                          type="text"
+                          placeholder="Search month (e.g. 2026-10), class, or method..."
+                          value={paymentSearch}
+                          onChange={(e) => setPaymentSearch(e.target.value)}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:border-purple-500 font-medium"
+                        />
+                      </div>
                     </div>
-                    <span className="text-xs text-slate-400 font-bold">
-                      Showing {filteredPayments.length} of {feePayments.length} payments
-                    </span>
+
+                    <div className="flex items-center gap-2 text-xs text-slate-400 font-bold shrink-0">
+                      {(paymentClassFilter !== 'ALL' || paymentSearch) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPaymentClassFilter('ALL');
+                            setPaymentSearch('');
+                          }}
+                          className="px-2.5 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-[11px] text-slate-300 cursor-pointer"
+                        >
+                          Clear Filter
+                        </button>
+                      )}
+                      <span>Showing {filteredPayments.length} of {feePayments.length} records</span>
+                    </div>
                   </div>
 
                   {/* Payment Records Table */}
                   {filteredPayments.length === 0 ? (
                     <div className="text-center py-16 text-slate-500 text-xs bg-white/5 rounded-2xl border border-white/5">
                       <CreditCard size={32} className="mx-auto mb-2 opacity-30 text-purple-400" />
-                      No fee payment records found matching your query.
+                      No fee payment records found matching your filters.
                     </div>
                   ) : (
                     <div className="overflow-x-auto rounded-2xl border border-white/10 bg-black/20">
                       <table className="w-full text-left text-xs border-collapse">
                         <thead>
                           <tr className="border-b border-white/10 bg-white/5 text-slate-300 font-extrabold uppercase tracking-wider">
-                            <th className="py-3 px-3.5">Month</th>
-                            <th className="py-3 px-3.5">Class</th>
-                            <th className="py-3 px-3.5">Amount</th>
-                            <th className="py-3 px-3.5">Status</th>
-                            <th className="py-3 px-3.5">Paid Date</th>
-                            <th className="py-3 px-3.5">Method</th>
-                            <th className="py-3 px-3.5 text-right">Actions</th>
+                            <th className="py-3 px-4">Month</th>
+                            <th className="py-3 px-4">Class</th>
+                            <th className="py-3 px-4">Amount</th>
+                            <th className="py-3 px-4">Status</th>
+                            <th className="py-3 px-4">Paid Date</th>
+                            <th className="py-3 px-4">Method</th>
+                            <th className="py-3 px-4 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-white/5 text-slate-200 font-medium">
@@ -333,21 +477,21 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
                             const isPaid = p.status === 'PAID' || p.status === 'FREE_CARD' || p.status === 'HALF_PAYMENT';
                             return (
                               <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                                <td className="py-3 px-3.5">
-                                  <span className="font-mono font-bold text-white bg-white/10 px-2 py-0.5 rounded-lg border border-white/15">
+                                <td className="py-3.5 px-4">
+                                  <span className="font-mono font-bold text-white bg-white/10 px-2.5 py-1 rounded-lg border border-white/15">
                                     {p.month}
                                   </span>
                                 </td>
-                                <td className="py-3 px-3.5 font-bold text-indigo-300">
+                                <td className="py-3.5 px-4 font-bold text-indigo-300">
                                   {p.class?.name || `Class #${p.classId}`}
                                   {p.class?.grade && (
                                     <span className="text-[10px] text-slate-400 ml-1.5 font-normal">({p.class.grade})</span>
                                   )}
                                 </td>
-                                <td className="py-3 px-3.5 font-black text-emerald-400 font-mono text-sm">
+                                <td className="py-3.5 px-4 font-black text-emerald-400 font-mono text-sm">
                                   Rs. {Number(p.amount || 0).toLocaleString()}
                                 </td>
-                                <td className="py-3 px-3.5">
+                                <td className="py-3.5 px-4">
                                   <span className={`px-2.5 py-1 rounded-full text-[10px] font-black border uppercase tracking-wider inline-flex items-center gap-1 ${
                                     p.status === 'PAID' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-400/30' :
                                     p.status === 'FREE_CARD' ? 'bg-purple-500/20 text-purple-300 border-purple-400/30' :
@@ -359,24 +503,24 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
                                     {p.status}
                                   </span>
                                 </td>
-                                <td className="py-3 px-3.5 text-slate-400 font-mono text-[11px]">
+                                <td className="py-3.5 px-4 text-slate-400 font-mono text-[11px]">
                                   {p.paidDate ? new Date(p.paidDate).toLocaleDateString('en-GB') : '-'}
                                 </td>
-                                <td className="py-3 px-3.5 text-slate-300 font-mono text-[11px]">
+                                <td className="py-3.5 px-4 text-slate-300 font-mono text-[11px]">
                                   <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10">
                                     {p.paymentMethod || 'CASH'}
                                   </span>
                                 </td>
-                                <td className="py-3 px-3.5 text-right">
+                                <td className="py-3.5 px-4 text-right">
                                   <div className="flex items-center justify-end gap-1.5">
                                     {isPaid && (
                                       <button
                                         type="button"
                                         onClick={() => handlePrintPastReceipt(p)}
-                                        className="p-1.5 px-2.5 rounded-lg bg-blue-500/15 hover:bg-blue-500/30 text-blue-300 border border-blue-500/25 transition-all text-[11px] font-bold flex items-center gap-1 cursor-pointer"
+                                        className="p-1.5 px-3 rounded-lg bg-blue-500/15 hover:bg-blue-500/30 text-blue-300 border border-blue-500/25 transition-all text-xs font-bold flex items-center gap-1 cursor-pointer"
                                         title="Print 80mm Receipt"
                                       >
-                                        <Printer size={12} /> Receipt
+                                        <Printer size={13} /> Receipt
                                       </button>
                                     )}
 
@@ -388,10 +532,10 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
                                           setReversingPayment(p);
                                           setReversalReason('');
                                         }}
-                                        className="p-1.5 px-2.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/25 transition-all text-[11px] font-bold flex items-center gap-1 cursor-pointer active:scale-95"
+                                        className="p-1.5 px-3 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/25 transition-all text-xs font-bold flex items-center gap-1 cursor-pointer active:scale-95"
                                         title="Reverse Accidental / Future Month Payment"
                                       >
-                                        <RotateCcw size={12} /> Reverse
+                                        <RotateCcw size={13} /> Reverse
                                       </button>
                                     )}
                                   </div>
@@ -406,51 +550,184 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
                 </div>
               )}
 
-              {/* TAB 2: 🟣 ATTENDANCE HISTORY */}
+              {/* TAB 2: 🟣 ATTENDANCE HISTORY (CLASS-WISE & DATE RANGE) */}
               {activeTab === 'attendance' && (
                 <div className="space-y-5">
                   {/* Attendance Stats Bar */}
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                    <div className="bg-gradient-to-br from-emerald-950/40 via-emerald-900/20 to-slate-900 border border-emerald-500/30 p-3.5 rounded-2xl shadow-lg">
-                      <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider block mb-1">Total Present Days</span>
-                      <p className="text-2xl font-black text-white font-mono">{attendances.length} Days</p>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div className="bg-gradient-to-br from-emerald-950/40 via-emerald-900/20 to-slate-900 border border-emerald-500/30 p-4 rounded-2xl shadow-lg">
+                      <span className="text-[10px] font-bold text-emerald-300 uppercase tracking-wider block mb-1">
+                        {isAttendanceFilterActive ? 'Filtered Days Present' : 'Total Days Present'}
+                      </span>
+                      <p className="text-2xl font-black text-white font-mono">{filteredAttendances.length} Days</p>
+                      {isAttendanceFilterActive && (
+                        <p className="text-[10px] text-emerald-400 mt-1">Out of {attendances.length} total recorded</p>
+                      )}
                     </div>
 
-                    <div className="bg-gradient-to-br from-indigo-950/40 via-indigo-900/20 to-slate-900 border border-indigo-500/30 p-3.5 rounded-2xl shadow-lg">
-                      <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider block mb-1">Last Attended</span>
-                      <p className="text-sm font-bold text-white font-mono mt-1">
-                        {attendances.length > 0 ? new Date(attendances[0].date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : 'No Record'}
+                    <div className="bg-gradient-to-br from-indigo-950/40 via-indigo-900/20 to-slate-900 border border-indigo-500/30 p-4 rounded-2xl shadow-lg">
+                      <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider block mb-1">Selected Class</span>
+                      <p className="text-xs font-black text-indigo-200 mt-1 truncate" title={attendanceClassFilter === 'ALL' ? 'All Classes' : studentClasses.find(c => String(c.id) === String(attendanceClassFilter))?.name || 'Class'}>
+                        {attendanceClassFilter === 'ALL' ? 'All Classes' : studentClasses.find(c => String(c.id) === String(attendanceClassFilter))?.name || 'Class'}
                       </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Filter Active</p>
                     </div>
 
-                    <div className="bg-gradient-to-br from-purple-950/40 via-purple-900/20 to-slate-900 border border-purple-500/30 p-3.5 rounded-2xl shadow-lg col-span-2 sm:col-span-1">
-                      <span className="text-[10px] font-bold text-purple-300 uppercase tracking-wider block mb-1">RFID Card Tracking</span>
-                      <p className="text-xs font-bold text-purple-200 mt-1">{student?.rfid ? `💳 ${student.rfid}` : 'Manual Scanner'}</p>
+                    <div className="bg-gradient-to-br from-purple-950/40 via-purple-900/20 to-slate-900 border border-purple-500/30 p-4 rounded-2xl shadow-lg">
+                      <span className="text-[10px] font-bold text-purple-300 uppercase tracking-wider block mb-1">Date Range Filter</span>
+                      <p className="text-xs font-black text-purple-200 mt-1">
+                        {attendanceStartDate || attendanceEndDate ? `${attendanceStartDate || 'Start'} to ${attendanceEndDate || 'End'}` : 'All Recorded Dates'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Preset: {attendanceActivePreset}</p>
+                    </div>
+
+                    <div className="bg-gradient-to-br from-blue-950/40 via-blue-900/20 to-slate-900 border border-blue-500/30 p-4 rounded-2xl shadow-lg">
+                      <span className="text-[10px] font-bold text-blue-300 uppercase tracking-wider block mb-1">RFID Card Tracking</span>
+                      <p className="text-xs font-bold text-blue-200 mt-1">{student?.rfid ? `💳 ${student.rfid}` : 'Manual Scanner'}</p>
+                      <p className="text-[10px] text-slate-400 mt-0.5">Gate / Terminal</p>
                     </div>
                   </div>
 
-                  {/* Attendance Filter Bar */}
-                  <div className="flex flex-wrap items-center justify-between gap-3 bg-black/30 p-3 rounded-2xl border border-white/10">
-                    <div className="relative flex-1 min-w-[200px]">
-                      <Search size={14} className="absolute left-3 top-3 text-slate-400" />
-                      <input
-                        type="text"
-                        placeholder="Search by date (DD/MM/YYYY) or class name..."
-                        value={attendanceSearch}
-                        onChange={(e) => setAttendanceSearch(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 outline-none focus:border-emerald-500 font-medium"
-                      />
+                  {/* ADVANCED CLASS-WISE & DATE RANGE FILTER CONTROLS */}
+                  <div className="bg-black/40 p-4 rounded-2xl border border-white/10 space-y-3 shadow-lg">
+                    <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                      
+                      {/* 1. Class-wise Selector (5 Cols) */}
+                      <div className="md:col-span-5">
+                        <label className="text-[10px] font-extrabold text-slate-300 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+                          <Layers size={13} className="text-purple-400" /> Filter by Class:
+                        </label>
+                        <div className="bg-white/5 border border-white/15 rounded-xl px-3 py-2 flex items-center gap-2 focus-within:border-emerald-500 transition-all">
+                          <select
+                            value={attendanceClassFilter}
+                            onChange={(e) => setAttendanceClassFilter(e.target.value)}
+                            className="bg-transparent text-xs font-bold text-white outline-none w-full cursor-pointer"
+                          >
+                            <option value="ALL" className="bg-slate-900 text-white">All Classes ({attendances.length} Sessions)</option>
+                            {studentClasses.map(cls => {
+                              const classCount = attendances.filter(a => a.classId === cls.id).length;
+                              return (
+                                <option key={cls.id} value={cls.id} className="bg-slate-900 text-white">
+                                  {cls.name} ({cls.grade}) — {classCount} Days Present
+                                </option>
+                              );
+                            })}
+                            {attendances.some(a => !a.classId) && (
+                              <option value="GATE" className="bg-slate-900 text-white">
+                                Physical Gate Entrance (General) — {attendances.filter(a => !a.classId).length} Days
+                              </option>
+                            )}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* 2. Date Range Inputs: Start Date & End Date (5 Cols) */}
+                      <div className="md:col-span-5">
+                        <label className="text-[10px] font-extrabold text-slate-300 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+                          <CalendarRange size={13} className="text-emerald-400" /> Date Range:
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="bg-white/5 border border-white/15 rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 focus-within:border-emerald-500">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase shrink-0">From</span>
+                            <input
+                              type="date"
+                              value={attendanceStartDate}
+                              onChange={(e) => {
+                                setAttendanceStartDate(e.target.value);
+                                setAttendanceActivePreset('CUSTOM');
+                              }}
+                              className="bg-transparent text-xs font-bold text-white outline-none w-full cursor-pointer [color-scheme:dark]"
+                            />
+                          </div>
+
+                          <div className="bg-white/5 border border-white/15 rounded-xl px-2.5 py-1.5 flex items-center gap-1.5 focus-within:border-emerald-500">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase shrink-0">To</span>
+                            <input
+                              type="date"
+                              value={attendanceEndDate}
+                              onChange={(e) => {
+                                setAttendanceEndDate(e.target.value);
+                                setAttendanceActivePreset('CUSTOM');
+                              }}
+                              className="bg-transparent text-xs font-bold text-white outline-none w-full cursor-pointer [color-scheme:dark]"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 3. Search / Reset (2 Cols) */}
+                      <div className="md:col-span-2 flex flex-col justify-end">
+                        <label className="text-[10px] font-extrabold text-slate-300 uppercase tracking-wider block mb-1.5">
+                          Search Keyword:
+                        </label>
+                        <div className="relative">
+                          <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
+                          <input
+                            type="text"
+                            placeholder="Keyword..."
+                            value={attendanceSearch}
+                            onChange={(e) => setAttendanceSearch(e.target.value)}
+                            className="w-full bg-white/5 border border-white/15 rounded-xl pl-8 pr-2 py-1.5 text-xs text-white placeholder-slate-500 outline-none focus:border-emerald-500 font-medium"
+                          />
+                        </div>
+                      </div>
+
                     </div>
-                    <span className="text-xs text-slate-400 font-bold">
-                      Showing {filteredAttendances.length} of {attendances.length} records
-                    </span>
+
+                    {/* Quick Range Presets & Filter Status */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/5">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">Quick Presets:</span>
+                        {[
+                          { id: 'ALL', label: 'All Time' },
+                          { id: 'THIS_MONTH', label: 'This Month' },
+                          { id: 'LAST_MONTH', label: 'Last Month' },
+                          { id: 'LAST_30_DAYS', label: 'Last 30 Days' },
+                          { id: 'THIS_YEAR', label: 'This Year' }
+                        ].map(p => (
+                          <button
+                            key={p.id}
+                            type="button"
+                            onClick={() => handleSetDatePreset(p.id)}
+                            className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                              attendanceActivePreset === p.id 
+                                ? 'bg-emerald-500 text-slate-950 shadow-md font-black' 
+                                : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10'
+                            }`}
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {isAttendanceFilterActive && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAttendanceClassFilter('ALL');
+                              setAttendanceStartDate('');
+                              setAttendanceEndDate('');
+                              setAttendanceSearch('');
+                              setAttendanceActivePreset('ALL');
+                            }}
+                            className="px-3 py-1 bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1"
+                          >
+                            <X size={12} /> Clear Filters
+                          </button>
+                        )}
+                        <span className="text-xs text-slate-400 font-bold">
+                          Showing {filteredAttendances.length} of {attendances.length} attendance records
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Attendance Records List / Table */}
+                  {/* Attendance Records Table */}
                   {filteredAttendances.length === 0 ? (
                     <div className="text-center py-16 text-slate-500 text-xs bg-white/5 rounded-2xl border border-white/5">
                       <Calendar size={32} className="mx-auto mb-2 opacity-30 text-emerald-400" />
-                      No attendance history records found matching your query.
+                      No attendance history records found for the selected class and date range.
                     </div>
                   ) : (
                     <div className="overflow-x-auto rounded-2xl border border-white/10 bg-black/20">
@@ -470,27 +747,27 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
                             const dateFormatted = dateObj.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
                             return (
                               <tr key={att.id} className="hover:bg-white/5 transition-colors">
-                                <td className="py-3 px-4">
+                                <td className="py-3.5 px-4">
                                   <div className="flex items-center gap-2">
-                                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[10px] uppercase">
+                                    <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold text-[10px] uppercase font-mono">
                                       {dayName}
                                     </span>
-                                    <span className="font-bold text-white font-mono">{dateFormatted}</span>
+                                    <span className="font-bold text-white font-mono text-sm">{dateFormatted}</span>
                                   </div>
                                 </td>
-                                <td className="py-3 px-4 font-bold text-indigo-300">
+                                <td className="py-3.5 px-4 font-bold text-indigo-300 text-sm">
                                   {att.class?.name || (att.classId ? `Class #${att.classId}` : 'Physical Gate Entrance')}
                                   {att.class?.grade && (
-                                    <span className="text-[10px] text-slate-400 ml-1.5 font-normal">({att.class.grade})</span>
+                                    <span className="text-xs text-slate-400 ml-2 font-normal">({att.class.grade})</span>
                                   )}
                                 </td>
-                                <td className="py-3 px-4">
-                                  <span className="px-2.5 py-1 rounded-full text-[10px] font-black border uppercase tracking-wider inline-flex items-center gap-1 bg-emerald-500/20 text-emerald-300 border-emerald-400/30">
-                                    <CheckCircle2 size={12} className="text-emerald-400" />
+                                <td className="py-3.5 px-4">
+                                  <span className="px-3 py-1 rounded-full text-xs font-black border uppercase tracking-wider inline-flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border-emerald-400/30">
+                                    <CheckCircle2 size={13} className="text-emerald-400" />
                                     {att.status || 'PRESENT'}
                                   </span>
                                 </td>
-                                <td className="py-3 px-4 text-slate-400 font-mono text-[11px]">
+                                <td className="py-3.5 px-4 text-slate-400 font-mono text-xs">
                                   {att.createdAt ? new Date(att.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '-'}
                                 </td>
                               </tr>
@@ -601,16 +878,13 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
                     </div>
                   </div>
 
-                  {/* Enrolled Physical Classes */}
+                  {/* Associated Physical Classes */}
                   <div>
                     <h3 className="text-xs font-black text-slate-300 uppercase tracking-widest mb-3 flex items-center gap-2">
-                      <GraduationCap size={15} className="text-indigo-400" /> Allocated Physical Classes
+                      <GraduationCap size={15} className="text-indigo-400" /> Associated Physical Classes ({studentClasses.length})
                     </h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      {[
-                        ...(student?.class ? [student.class] : []),
-                        ...(student?.enrollments || []).map(e => e.class).filter(Boolean)
-                      ].filter((c, idx, arr) => arr.findIndex(x => x.id === c.id) === idx).map(cls => (
+                      {studentClasses.map(cls => (
                         <div key={cls.id} className="bg-white/5 border border-white/10 p-4 rounded-2xl flex items-center justify-between">
                           <div>
                             <h4 className="text-sm font-black text-white">{cls.name}</h4>
@@ -718,9 +992,9 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
         )}
 
         {/* Footer */}
-        <div className="p-4 border-t border-white/10 bg-black/30 flex items-center justify-between">
+        <div className="p-4 px-6 border-t border-white/10 bg-black/40 flex items-center justify-between">
           <div className="text-xs text-slate-400">
-            Student: <strong className="text-white font-mono">{student?.studentId}</strong>
+            Student: <strong className="text-white font-mono">{student?.studentId}</strong> • {studentDisplayName}
           </div>
           <button
             onClick={onClose}
