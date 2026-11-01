@@ -5,6 +5,7 @@ import { Toaster } from 'react-hot-toast';
 // Layout & Pages
 import Home from './pages/web/pages/Home';
 import NewCampusLandingPage from './pages/web/pages/NewCampusLandingPage';
+import SM48LandingPage from './pages/web/pages/SM48LandingPage';
 import AcademyLandingPage from './pages/web/pages/AcademyLandingPage';
 import FastTrackLandingPage from './pages/web/pages/FastTrackLandingPage';
 import AboutUs from './pages/web/pages/AboutUs';
@@ -209,7 +210,7 @@ export default function App() {
   const getPublicRootComponent = () => {
     if (isAcademySubdomain) return <AcademyLandingPage />;
     if (isFastTrackSubdomain) return <FastTrackLandingPage />;
-    return <NewCampusLandingPage loggedInUser={loggedInUser} />;
+    return <SM48LandingPage />;
   };
 
   return (
