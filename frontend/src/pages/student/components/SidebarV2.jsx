@@ -1,7 +1,7 @@
 import React from 'react';
-import { LayoutDashboard, BookOpen, Wallet, Video, Settings, LogOut, X, Truck, Sparkles } from 'lucide-react';
+import { LayoutDashboard, BookOpen, Wallet, Video, Settings, LogOut, X, Truck, Sparkles, Sun, Moon } from 'lucide-react';
 
-const SidebarV2 = ({ activeTab, setActiveTab, sidebarOpen, setSidebarOpen, handleLogout, bgImage, setBgImage }) => {
+const SidebarV2 = ({ activeTab, setActiveTab, sidebarOpen, setSidebarOpen, handleLogout, bgImage, setBgImage, uiTheme, isDarkMode, toggleThemeMode }) => {
 
     const menuItems = [
         { id: 'home', label: 'Overview', icon: LayoutDashboard },
@@ -17,6 +17,54 @@ const SidebarV2 = ({ activeTab, setActiveTab, sidebarOpen, setSidebarOpen, handl
         { id: 'crimson', url: '/bg2.jpg', label: 'Crimson' },
         { id: 'midnight', url: '/bg3.jpg', label: 'Midnight' }
     ];
+
+    if (uiTheme === 'sm48') {
+        return (
+            <>
+                <div
+                    className={`fixed inset-0 bg-black/60 z-40 lg:hidden transition-opacity duration-300 ${sidebarOpen ? 'opacity-100 visible' : 'opacity-0 invisible'}`}
+                    onClick={() => setSidebarOpen(false)}
+                ></div>
+                <aside className={`sm48-side fixed lg:static top-2.5 left-2.5 bottom-2.5 lg:top-auto lg:bottom-auto lg:left-auto lg:h-[calc(100dvh-24px)] lg:my-3 lg:ml-3 w-[min(280px,86vw)] lg:w-[244px] flex flex-col z-50 transition-transform duration-300 ease-out ${sidebarOpen ? 'translate-x-0' : '-translate-x-[115%] lg:translate-x-0'}`}>
+                    <div className="sm48-brand flex items-center justify-between px-5 pt-5 pb-3 shrink-0">
+                        <img src="/sm48-logo-light.png" alt="SM Forty Eight" className="h-12 w-auto object-contain" />
+                        <button onClick={() => setSidebarOpen(false)} aria-label="Close menu" className="lg:hidden w-9 h-9 rounded-xl bg-[#1A1F24] text-[#98A3AC] hover:text-white flex items-center justify-center">
+                            <X size={18} />
+                        </button>
+                    </div>
+                    <div className="px-5 pb-2"><span className="text-[11px] font-bold tracking-[.16em] uppercase text-[#6C7882]">Student portal</span></div>
+                    <nav className="flex-1 overflow-y-auto px-3 py-1 custom-scrollbar" aria-label="Student menu">
+                        {menuItems.map((item) => {
+                            const isActive = activeTab === item.id;
+                            return (
+                                <button
+                                    key={item.id}
+                                    type="button"
+                                    aria-current={isActive ? 'page' : undefined}
+                                    onClick={() => { setActiveTab(item.id); setSidebarOpen(false); }}
+                                    className={`sm48-nav w-full${isActive ? ' is-active' : ''}`}
+                                >
+                                    <item.icon size={18} />
+                                    <span>{item.label}</span>
+                                </button>
+                            );
+                        })}
+                    </nav>
+                    <div className="sm48-foot p-3 shrink-0 flex flex-col gap-2 border-t border-[#1C2329]">
+                        <div className="flex items-center gap-2">
+                            <div role="group" aria-label="Theme" className="flex gap-0.5 p-1 rounded-full bg-[#1A1F24]">
+                                <button type="button" aria-label="Light mode" aria-pressed={!isDarkMode} onClick={() => isDarkMode && toggleThemeMode && toggleThemeMode()} className={`w-9 h-8 rounded-full flex items-center justify-center ${!isDarkMode ? 'bg-[#F2F4F5] text-[#0B0F14]' : 'text-[#98A3AC] hover:text-white'}`}><Sun size={15} /></button>
+                                <button type="button" aria-label="Dark mode" aria-pressed={!!isDarkMode} onClick={() => !isDarkMode && toggleThemeMode && toggleThemeMode()} className={`w-9 h-8 rounded-full flex items-center justify-center ${isDarkMode ? 'bg-[#F2F4F5] text-[#0B0F14]' : 'text-[#98A3AC] hover:text-white'}`}><Moon size={15} /></button>
+                            </div>
+                            <button type="button" onClick={handleLogout} className="ml-auto h-10 px-4 rounded-xl text-[13px] font-semibold text-[#FF7A7E] hover:bg-[#2A1416] flex items-center gap-2">
+                                <LogOut size={16} /> Sign out
+                            </button>
+                        </div>
+                    </div>
+                </aside>
+            </>
+        );
+    }
 
     return (
         <>

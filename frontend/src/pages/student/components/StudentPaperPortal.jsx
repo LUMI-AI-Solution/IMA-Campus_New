@@ -735,7 +735,7 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
 
           <img 
             src="/logo.png" 
-            alt="IMA Campus" 
+            alt="SM48" 
             className="h-7 sm:h-8 w-auto object-contain shrink-0 hidden xs:block" 
             onError={(e) => { e.currentTarget.style.display = 'none'; }}
           />

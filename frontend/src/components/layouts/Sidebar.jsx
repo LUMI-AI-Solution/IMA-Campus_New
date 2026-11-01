@@ -150,13 +150,18 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
     }
   }, [loggedInUser]);
 
+  const isSm48 = uiTheme === 'sm48';
+  const SM48_NAV = "sm48-nav w-full flex items-center gap-3 px-3 rounded-xl transition-colors";
+
   const getNavLinkClass = ({ isActive }) => 
+    isSm48 ? `${SM48_NAV}${isActive ? ' is-active' : ''}` :
     isActive 
       ? "w-full flex items-center space-x-3 px-3 py-2 rounded-lg bg-white/20 border border-white/30 backdrop-blur-md text-white font-bold transition-all shadow-[0_0_15px_rgba(255,255,255,0.1)] scale-[1.02]"
       : "w-full flex items-center space-x-3 px-3 py-2 rounded-lg bg-white/5 border border-white/5 text-gray-300 hover:bg-white/10 hover:border-white/10 transition-all font-medium mb-1";
 
   const getQueryNavLinkClass = (mode) => {
     const isActive = location.pathname === '/coordinator/dashboard' && location.search.includes(`mode=${mode}`);
+    if (isSm48) return `${SM48_NAV}${isActive ? ' is-active' : ''}`;
     return isActive 
       ? "w-full flex items-center space-x-3 px-3 py-2 rounded-lg bg-white/20 border border-white/30 backdrop-blur-md text-white font-bold transition-all shadow-[0_0_15px_rgba(255,255,255,0.1)] scale-[1.02]"
       : "w-full flex items-center space-x-3 px-3 py-2 rounded-lg bg-white/5 border border-white/5 text-gray-300 hover:bg-white/10 hover:border-white/10 transition-all font-medium mb-1";
@@ -171,6 +176,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
     const isSocialMedia = location.pathname.includes('/social-media/');
     const isPhysical = location.pathname.includes('/physical/');
 
+    if (isSm48) return `${SM48_NAV}${activeTab === tabName && (isDelivery || isSocialMedia || isPhysical) ? ' is-active' : ''}`;
     return activeTab === tabName && (isDelivery || isSocialMedia || isPhysical) 
       ? "w-full flex items-center space-x-3 px-3 py-2 rounded-lg bg-white/20 border border-white/30 backdrop-blur-md text-white font-bold transition-all shadow-[0_0_15px_rgba(255,255,255,0.1)] scale-[1.02]"
       : "w-full flex items-center space-x-3 px-3 py-2 rounded-lg bg-white/5 border border-white/5 text-gray-300 hover:bg-white/10 hover:border-white/10 transition-all font-medium mb-1";
@@ -226,7 +232,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
       )}
 
       {/* SIDEBAR CONTAINER */}
-      <aside className={`bg-black/10 border-r border-white/20 transition-all duration-300 flex flex-col h-full
+      <aside className={`${isSm48 ? 'sm48-side ' : ''}bg-black/10 border-r border-white/20 transition-all duration-300 flex flex-col h-full
         fixed inset-y-0 left-0 z-[100] w-64 bg-[#090E17]/95 backdrop-blur-2xl shadow-2xl lg:shadow-none lg:backdrop-blur-none lg:bg-black/10 lg:static lg:z-20
         ${isSidebarOpen ? 'translate-x-0 lg:w-64' : '-translate-x-full lg:translate-x-0 lg:w-20'}
       `}>
@@ -238,12 +244,21 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
           {isSidebarOpen ? <ChevronLeft size={16} /> : <ChevronRight size={16} />}
         </button>
 
-        <div className="h-14 flex items-center px-4 space-x-2 w-full absolute top-0 left-0 z-30">
+        {!isSm48 && <div className="h-14 flex items-center px-4 space-x-2 w-full absolute top-0 left-0 z-30">
           <div className="w-3 h-3 rounded-full bg-[#FF5F56] border border-[#E0443E] shadow-sm cursor-pointer hover:opacity-80"></div>
           <div className="w-3 h-3 rounded-full bg-[#FFBD2E] border border-[#DEA123] shadow-sm cursor-pointer hover:opacity-80"></div>
           <div className="w-3 h-3 rounded-full bg-[#27C93F] border border-[#1AAB29] shadow-sm cursor-pointer hover:opacity-80"></div>
-        </div>
+        </div>}
 
+        {isSm48 ? (
+          <div className={`sm48-brand flex items-center w-full relative z-10 ${isSidebarOpen ? 'justify-start px-5 pt-5 pb-3' : 'justify-center pt-5 pb-3'}`}>
+            {isSidebarOpen ? (
+              <img src="/sm48-logo-light.png" alt="SM Forty Eight" className="h-12 w-auto object-contain" />
+            ) : (
+              <img src="/sm48-mark-light.png" alt="SM Forty Eight" className="w-10 h-10 object-contain" />
+            )}
+          </div>
+        ) : (
         <div className={`h-16 mt-10 mb-4 flex items-center justify-center w-full relative z-10 transition-all`}>
           {isSidebarOpen ? (
             <img src="/logo.png" alt="Company Logo" className="w-35 h-auto object-contain drop-shadow-lg" />
@@ -251,6 +266,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <img src="/favicon.svg" alt="Icon" className="w-8 h-8 object-contain drop-shadow-md" />
           )}
         </div>
+        )}
 
         <nav onClick={() => { if (window.innerWidth < 1024) setIsSidebarOpen(false); }} className="flex-1 px-3 py-2 space-y-1 overflow-y-auto custom-scrollbar">
         {/* PAPER GUIDER PORTAL MENU (Dedicated Paper & Ranking Hub) */}
@@ -295,7 +311,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} className="text-yellow-400" /> {isSidebarOpen && <span className="truncate text-sm">Announcements & Events</span>}</NavLink>
             <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
             <NavLink to="/paper-guider/hub" className={getNavLinkClass}><Trophy size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">Paper & Ranking Hub</span>}</NavLink>
-            <NavLink to="/admin/pusthakalaya" className={getNavLinkClass}><BookOpen size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">IMA පුස්තකාලය</span>}</NavLink>
+            <NavLink to="/admin/pusthakalaya" className={getNavLinkClass}><BookOpen size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">SM48 පුස්තකාලය</span>}</NavLink>
             <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className="text-emerald-400" /> {isSidebarOpen && <span className="truncate text-sm">Manage Payments</span>}</NavLink>
 
             <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} className="text-cyan-400" /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
@@ -367,7 +383,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/admin/announcements" className={getNavLinkClass}><Megaphone size={18} className="text-yellow-400" /> {isSidebarOpen && <span className="truncate text-sm">Announcements</span>}</NavLink>
             <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className="text-purple-400" /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
             <NavLink to="/paper-guider/hub" className={getNavLinkClass}><Trophy size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">Paper & Ranking Hub</span>}</NavLink>
-            <NavLink to="/manager/pusthakalaya" className={getNavLinkClass}><BookOpen size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">IMA පුස්තකාලය</span>}</NavLink>
+            <NavLink to="/manager/pusthakalaya" className={getNavLinkClass}><BookOpen size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">SM48 පුස්තකාලය</span>}</NavLink>
             {isClassCoordinatorManager && (
               <NavLink to="/admin/crm-setup" className={getNavLinkClass}><HeadphonesIcon size={18} className="text-pink-400" /> {isSidebarOpen && <span className="truncate text-sm">CRM Setup</span>}</NavLink>
             )}
@@ -467,7 +483,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
             <NavLink to="/workspace/tasks" className={getNavLinkClass}><CheckSquare size={18} /> {isSidebarOpen && <span className="truncate text-sm">Task Center</span>}</NavLink>
             <NavLink to="/workspace/roster" className={getNavLinkClass}><CalendarCheck size={18} className="text-pink-400" />{isSidebarOpen && <span className="truncate text-sm">My Roster</span>}</NavLink>
             {(!isSystemAdmin && !isManager) && (
-              <NavLink to="/coordinator/pusthakalaya" className={getNavLinkClass}><BookOpen size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">IMA පුස්තකාලය</span>}</NavLink>
+              <NavLink to="/coordinator/pusthakalaya" className={getNavLinkClass}><BookOpen size={18} className="text-amber-400" /> {isSidebarOpen && <span className="truncate text-sm font-bold text-amber-300">SM48 පුස්තකාලය</span>}</NavLink>
             )}
 
             {isSidebarOpen && <p className="px-3 text-xs font-semibold text-emerald-400/80 uppercase tracking-wider mb-2 mt-4">Free Seminar</p>}
@@ -567,7 +583,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
       </nav>
 
       {/* Theme Popup & Profile Section */}
-      <div className={`px-3 py-3 border-t border-white/20 flex ${isSidebarOpen ? 'flex-row items-center justify-between' : 'flex-col items-center'} gap-2 shrink-0 bg-transparent relative`}>
+      <div className={`sm48-foot px-3 py-3 border-t border-white/20 flex ${isSidebarOpen ? 'flex-row items-center justify-between' : 'flex-col items-center'} gap-2 shrink-0 bg-transparent relative`}>
         <div className={`flex ${isSidebarOpen ? 'flex-row' : 'flex-col'} items-center gap-2`}>
           <button 
             onClick={toggleThemeMode} 
@@ -604,7 +620,20 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
 
             {/* Themes Group */}
             <p className="text-[10px] text-gray-400 mb-2 font-bold uppercase tracking-wider">UI Theme</p>
-            <div className="grid grid-cols-3 gap-1.5 mb-4">
+            <div className="grid grid-cols-2 gap-1.5 mb-4">
+              <button
+                type="button"
+                onClick={() => setUiTheme && setUiTheme('sm48')}
+                className={`py-2 px-1 rounded-xl text-[11px] font-bold transition-all text-center border flex flex-col items-center justify-center gap-1 ${
+                  uiTheme === 'sm48'
+                    ? 'bg-[#F26A21] text-[#0B0F14] border-[#F26A21]'
+                    : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'
+                }`}
+                title="SM48 Bento (default)"
+              >
+                <LayoutDashboard size={13} />
+                <span>SM48</span>
+              </button>
               <button
                 type="button"
                 onClick={() => setUiTheme && setUiTheme('glass')}
@@ -682,7 +711,7 @@ export default function Sidebar({ userRole, loggedInUser, handleLogout, isSideba
               </>
             ) : (
               <div className="text-[11px] text-gray-400 p-2.5 rounded-xl bg-white/5 border border-white/10 text-center leading-relaxed">
-                Background wallpapers are custom to <span className="font-semibold text-gray-200">Classic Glass</span>. In {(uiTheme === 'aurora' || uiTheme === 'chatline') ? 'Aurora Glass' : 'Bento'} mode, ambient frosted panels are active.
+                Background wallpapers are custom to <span className="font-semibold text-gray-200">Classic Glass</span>. {uiTheme === 'sm48' ? 'SM48 uses clean Bento tiles. Use the sun / moon button for light or dark mode.' : <>In {(uiTheme === 'aurora' || uiTheme === 'chatline') ? 'Aurora Glass' : 'Bento'} mode, ambient frosted panels are active.</>}
               </div>
             )}
           </div>

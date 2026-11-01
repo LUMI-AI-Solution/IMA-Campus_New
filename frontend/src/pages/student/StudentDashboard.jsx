@@ -138,7 +138,7 @@ const StudentDashboard = () => {
           <main className="flex-1 flex flex-col h-full overflow-hidden relative z-10 w-full">
             
             <header className="lg:hidden bg-black/40 backdrop-blur-md border-b border-white/10 p-4 flex items-center justify-between sticky top-0 z-30">
-              <img src="/logo.png" alt="IMA Campus" className="h-8 w-auto" />
+              <img src="/logo.png" alt="SM48" className="h-8 w-auto" />
               <div className="flex items-center gap-3">
                   <button onClick={handleLogout} className="text-white/70 hover:text-red-500 p-2 bg-white/5 rounded-xl transition-colors"><LogOut size={20}/></button>
                   <button onClick={() => setSidebarOpen(true)} className="text-white p-2 bg-red-600/20 rounded-xl transition-colors"><Menu size={24} /></button>

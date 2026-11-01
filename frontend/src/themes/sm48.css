@@ -1,0 +1,438 @@
+/* ==========================================================================
+   SM48 BENTO THEME
+   --------------------------------------------------------------------------
+   Global skin for the whole system. Scoped to html[data-theme="sm48"], so the
+   older themes (glass / aurora / bento) keep working when selected.
+
+   How it works
+   1. Tailwind v4 compiles every colour utility to a CSS variable
+      (bg-slate-900 -> var(--color-slate-900)). Re-pointing those variables
+      re-colours every component in the app at once, including opacity
+      variants (bg-emerald-500/20) and gradients.
+   2. Arbitrary colours (bg-[#0f172a] ...) and the light-mode fixes for
+      dark-only screens live in sm48.generated.css, produced by
+      scripts/gen-sm48-theme.mjs from every class used in src/.
+   3. This file adds the Bento shape language: Inter type, tile radii,
+      inputs, tables, modals, no glass blur, no neon glows.
+
+   Brand: orange #F26A21 (primary) + teal #17B8AE (secondary) on ink.
+   ========================================================================== */
+
+/* ---------- 1. PALETTE (both modes) ---------- */
+html[data-theme="sm48"] {
+  /* brand tokens */
+  --sm-or: #F26A21;
+  --sm-or-hover: #FF7D38;
+  --sm-te: #17B8AE;
+  --sm-te-hover: #2CCBC1;
+  --sm-ink: #0B0F14;
+  --sm-paper: #F2F4F5;
+
+  /* existing app accent hooks */
+  --theme-color: #F26A21;
+  --theme-hover: #FF7D38;
+  --theme-light: rgba(242, 106, 33, 0.14);
+
+  /* neutral ramp: slate / gray / zinc / neutral / stone */
+  --sm-n-50: #F6F8F7;  --sm-n-100: #EEF2F1; --sm-n-200: #DCE2E0; --sm-n-300: #C3CCD4;
+  --sm-n-400: #98A3AC; --sm-n-500: #7A868F; --sm-n-600: #4A545E; --sm-n-700: #262D33;
+  --sm-n-800: #1A1F24; --sm-n-900: #111518; --sm-n-950: #08090B;
+
+  /* orange ramp: orange / purple / violet / fuchsia / pink */
+  --sm-o-50: #FFF4EC;  --sm-o-100: #FFE5D3; --sm-o-200: #FFC8A6; --sm-o-300: #FFA673;
+  --sm-o-400: #FF8E52; --sm-o-500: #F26A21; --sm-o-600: #D9561A; --sm-o-700: #B4460B;
+  --sm-o-800: #8A360C; --sm-o-900: #5E260B; --sm-o-950: #2E1406;
+
+  /* teal ramp: emerald / green / teal / cyan / sky / blue / indigo / lime */
+  --sm-t-50: #EAFBF9;  --sm-t-100: #CBF4F0; --sm-t-200: #98E8E1; --sm-t-300: #6EDDD4;
+  --sm-t-400: #3FCFC4; --sm-t-500: #17B8AE; --sm-t-600: #0F9A91; --sm-t-700: #0A7770;
+  --sm-t-800: #0B5C57; --sm-t-900: #0B3F3C; --sm-t-950: #062523;
+
+  /* red ramp: red / rose (danger stays red) */
+  --sm-r-50: #FFF1F1;  --sm-r-100: #FFE0E0; --sm-r-200: #FFC2C3; --sm-r-300: #FF9A9D;
+  --sm-r-400: #FF7A7E; --sm-r-500: #E5484D; --sm-r-600: #CC2F35; --sm-r-700: #A8242A;
+  --sm-r-800: #821E23; --sm-r-900: #561418; --sm-r-950: #2E0A0C;
+
+  /* gold ramp: amber / yellow (warnings) */
+  --sm-g-50: #FFF9EB;  --sm-g-100: #FEF0C7; --sm-g-200: #FDDF8E; --sm-g-300: #F9CB5A;
+  --sm-g-400: #F2C14E; --sm-g-500: #E0A82E; --sm-g-600: #B9851C; --sm-g-700: #8F6416;
+  --sm-g-800: #6B4A13; --sm-g-900: #46300D; --sm-g-950: #241806;
+
+  /* surface tokens (dark) */
+  --sm-bg: #050607;
+  --sm-tile: #111518;
+  --sm-tile2: #1A1F24;
+  --sm-tile3: #22282E;
+  --sm-line: #262D33;
+  --sm-text: #F2F4F5;
+  --sm-text2: #C3CCD4;
+  --sm-muted: #98A3AC;
+  --sm-field: #0D1114;
+  --sm-dot: #14191D;
+  --sm-shadow: 0 1px 0 rgba(255,255,255,.03), 0 18px 40px -24px rgba(0,0,0,.65);
+  --sm-te-ink: #3FD3C8;
+  --sm-or-ink: #FF8E52;
+  --sm-te-tint: rgba(23,184,174,.15);
+  --sm-or-tint: rgba(242,106,33,.15);
+
+  --color-brand-accent: var(--sm-or);
+  --color-brand-accentHover: var(--sm-or-hover);
+  --color-brand-accentLight: var(--theme-light);
+  --color-brand-darkBg: var(--sm-bg);
+  --color-brand-darkCard: var(--sm-tile);
+  --color-brand-darkBorder: var(--sm-line);
+  --color-brand-darkHover: var(--sm-tile2);
+  --color-brand-darkTextMuted: var(--sm-muted);
+
+  --font-sans: 'Inter', 'Noto Sans Sinhala', system-ui, sans-serif;
+  --font-outfit: 'Inter', 'Noto Sans Sinhala', system-ui, sans-serif;
+
+  /* Tailwind palette -> SM48 ramps */
+  --color-slate-50: var(--sm-n-50);   --color-slate-100: var(--sm-n-100); --color-slate-200: var(--sm-n-200); --color-slate-300: var(--sm-n-300); --color-slate-400: var(--sm-n-400); --color-slate-500: var(--sm-n-500); --color-slate-600: var(--sm-n-600); --color-slate-700: var(--sm-n-700); --color-slate-800: var(--sm-n-800); --color-slate-900: var(--sm-n-900); --color-slate-950: var(--sm-n-950);
+  --color-gray-50: var(--sm-n-50);    --color-gray-100: var(--sm-n-100);  --color-gray-200: var(--sm-n-200);  --color-gray-300: var(--sm-n-300);  --color-gray-400: var(--sm-n-400);  --color-gray-500: var(--sm-n-500);  --color-gray-600: var(--sm-n-600);  --color-gray-700: var(--sm-n-700);  --color-gray-800: var(--sm-n-800);  --color-gray-900: var(--sm-n-900);  --color-gray-950: var(--sm-n-950);
+  --color-zinc-50: var(--sm-n-50);    --color-zinc-100: var(--sm-n-100);  --color-zinc-200: var(--sm-n-200);  --color-zinc-300: var(--sm-n-300);  --color-zinc-400: var(--sm-n-400);  --color-zinc-500: var(--sm-n-500);  --color-zinc-600: var(--sm-n-600);  --color-zinc-700: var(--sm-n-700);  --color-zinc-800: var(--sm-n-800);  --color-zinc-900: var(--sm-n-900);  --color-zinc-950: var(--sm-n-950);
+  --color-neutral-50: var(--sm-n-50); --color-neutral-100: var(--sm-n-100); --color-neutral-200: var(--sm-n-200); --color-neutral-300: var(--sm-n-300); --color-neutral-400: var(--sm-n-400); --color-neutral-500: var(--sm-n-500); --color-neutral-600: var(--sm-n-600); --color-neutral-700: var(--sm-n-700); --color-neutral-800: var(--sm-n-800); --color-neutral-900: var(--sm-n-900); --color-neutral-950: var(--sm-n-950);
+  --color-stone-50: var(--sm-n-50);   --color-stone-100: var(--sm-n-100); --color-stone-200: var(--sm-n-200); --color-stone-300: var(--sm-n-300); --color-stone-400: var(--sm-n-400); --color-stone-500: var(--sm-n-500); --color-stone-600: var(--sm-n-600); --color-stone-700: var(--sm-n-700); --color-stone-800: var(--sm-n-800); --color-stone-900: var(--sm-n-900); --color-stone-950: var(--sm-n-950);
+
+  --color-orange-50: var(--sm-o-50);  --color-orange-100: var(--sm-o-100); --color-orange-200: var(--sm-o-200); --color-orange-300: var(--sm-o-300); --color-orange-400: var(--sm-o-400); --color-orange-500: var(--sm-o-500); --color-orange-600: var(--sm-o-600); --color-orange-700: var(--sm-o-700); --color-orange-800: var(--sm-o-800); --color-orange-900: var(--sm-o-900); --color-orange-950: var(--sm-o-950);
+  --color-purple-50: var(--sm-o-50);  --color-purple-100: var(--sm-o-100); --color-purple-200: var(--sm-o-200); --color-purple-300: var(--sm-o-300); --color-purple-400: var(--sm-o-400); --color-purple-500: var(--sm-o-500); --color-purple-600: var(--sm-o-600); --color-purple-700: var(--sm-o-700); --color-purple-800: var(--sm-o-800); --color-purple-900: var(--sm-o-900); --color-purple-950: var(--sm-o-950);
+  --color-violet-50: var(--sm-o-50);  --color-violet-100: var(--sm-o-100); --color-violet-200: var(--sm-o-200); --color-violet-300: var(--sm-o-300); --color-violet-400: var(--sm-o-400); --color-violet-500: var(--sm-o-500); --color-violet-600: var(--sm-o-600); --color-violet-700: var(--sm-o-700); --color-violet-800: var(--sm-o-800); --color-violet-900: var(--sm-o-900); --color-violet-950: var(--sm-o-950);
+  --color-fuchsia-50: var(--sm-o-50); --color-fuchsia-100: var(--sm-o-100); --color-fuchsia-200: var(--sm-o-200); --color-fuchsia-300: var(--sm-o-300); --color-fuchsia-400: var(--sm-o-400); --color-fuchsia-500: var(--sm-o-500); --color-fuchsia-600: var(--sm-o-600); --color-fuchsia-700: var(--sm-o-700); --color-fuchsia-800: var(--sm-o-800); --color-fuchsia-900: var(--sm-o-900); --color-fuchsia-950: var(--sm-o-950);
+  --color-pink-50: var(--sm-o-50);    --color-pink-100: var(--sm-o-100);  --color-pink-200: var(--sm-o-200);  --color-pink-300: var(--sm-o-300);  --color-pink-400: var(--sm-o-400);  --color-pink-500: var(--sm-o-500);  --color-pink-600: var(--sm-o-600);  --color-pink-700: var(--sm-o-700);  --color-pink-800: var(--sm-o-800);  --color-pink-900: var(--sm-o-900);  --color-pink-950: var(--sm-o-950);
+
+  --color-emerald-50: var(--sm-t-50); --color-emerald-100: var(--sm-t-100); --color-emerald-200: var(--sm-t-200); --color-emerald-300: var(--sm-t-300); --color-emerald-400: var(--sm-t-400); --color-emerald-500: var(--sm-t-500); --color-emerald-600: var(--sm-t-600); --color-emerald-700: var(--sm-t-700); --color-emerald-800: var(--sm-t-800); --color-emerald-900: var(--sm-t-900); --color-emerald-950: var(--sm-t-950);
+  --color-green-50: var(--sm-t-50);   --color-green-100: var(--sm-t-100); --color-green-200: var(--sm-t-200); --color-green-300: var(--sm-t-300); --color-green-400: var(--sm-t-400); --color-green-500: var(--sm-t-500); --color-green-600: var(--sm-t-600); --color-green-700: var(--sm-t-700); --color-green-800: var(--sm-t-800); --color-green-900: var(--sm-t-900); --color-green-950: var(--sm-t-950);
+  --color-teal-50: var(--sm-t-50);    --color-teal-100: var(--sm-t-100);  --color-teal-200: var(--sm-t-200);  --color-teal-300: var(--sm-t-300);  --color-teal-400: var(--sm-t-400);  --color-teal-500: var(--sm-t-500);  --color-teal-600: var(--sm-t-600);  --color-teal-700: var(--sm-t-700);  --color-teal-800: var(--sm-t-800);  --color-teal-900: var(--sm-t-900);  --color-teal-950: var(--sm-t-950);
+  --color-cyan-50: var(--sm-t-50);    --color-cyan-100: var(--sm-t-100);  --color-cyan-200: var(--sm-t-200);  --color-cyan-300: var(--sm-t-300);  --color-cyan-400: var(--sm-t-400);  --color-cyan-500: var(--sm-t-500);  --color-cyan-600: var(--sm-t-600);  --color-cyan-700: var(--sm-t-700);  --color-cyan-800: var(--sm-t-800);  --color-cyan-900: var(--sm-t-900);  --color-cyan-950: var(--sm-t-950);
+  --color-sky-50: var(--sm-t-50);     --color-sky-100: var(--sm-t-100);   --color-sky-200: var(--sm-t-200);   --color-sky-300: var(--sm-t-300);   --color-sky-400: var(--sm-t-400);   --color-sky-500: var(--sm-t-500);   --color-sky-600: var(--sm-t-600);   --color-sky-700: var(--sm-t-700);   --color-sky-800: var(--sm-t-800);   --color-sky-900: var(--sm-t-900);   --color-sky-950: var(--sm-t-950);
+  --color-blue-50: var(--sm-t-50);    --color-blue-100: var(--sm-t-100);  --color-blue-200: var(--sm-t-200);  --color-blue-300: var(--sm-t-300);  --color-blue-400: var(--sm-t-400);  --color-blue-500: var(--sm-t-500);  --color-blue-600: var(--sm-t-600);  --color-blue-700: var(--sm-t-700);  --color-blue-800: var(--sm-t-800);  --color-blue-900: var(--sm-t-900);  --color-blue-950: var(--sm-t-950);
+  --color-indigo-50: var(--sm-t-50);  --color-indigo-100: var(--sm-t-100); --color-indigo-200: var(--sm-t-200); --color-indigo-300: var(--sm-t-300); --color-indigo-400: var(--sm-t-400); --color-indigo-500: var(--sm-t-500); --color-indigo-600: var(--sm-t-600); --color-indigo-700: var(--sm-t-700); --color-indigo-800: var(--sm-t-800); --color-indigo-900: var(--sm-t-900); --color-indigo-950: var(--sm-t-950);
+  --color-lime-50: var(--sm-t-50);    --color-lime-100: var(--sm-t-100);  --color-lime-200: var(--sm-t-200);  --color-lime-300: var(--sm-t-300);  --color-lime-400: var(--sm-t-400);  --color-lime-500: var(--sm-t-500);  --color-lime-600: var(--sm-t-600);  --color-lime-700: var(--sm-t-700);  --color-lime-800: var(--sm-t-800);  --color-lime-900: var(--sm-t-900);  --color-lime-950: var(--sm-t-950);
+
+  --color-red-50: var(--sm-r-50);     --color-red-100: var(--sm-r-100);   --color-red-200: var(--sm-r-200);   --color-red-300: var(--sm-r-300);   --color-red-400: var(--sm-r-400);   --color-red-500: var(--sm-r-500);   --color-red-600: var(--sm-r-600);   --color-red-700: var(--sm-r-700);   --color-red-800: var(--sm-r-800);   --color-red-900: var(--sm-r-900);   --color-red-950: var(--sm-r-950);
+  --color-rose-50: var(--sm-r-50);    --color-rose-100: var(--sm-r-100);  --color-rose-200: var(--sm-r-200);  --color-rose-300: var(--sm-r-300);  --color-rose-400: var(--sm-r-400);  --color-rose-500: var(--sm-r-500);  --color-rose-600: var(--sm-r-600);  --color-rose-700: var(--sm-r-700);  --color-rose-800: var(--sm-r-800);  --color-rose-900: var(--sm-r-900);  --color-rose-950: var(--sm-r-950);
+
+  --color-amber-50: var(--sm-g-50);   --color-amber-100: var(--sm-g-100); --color-amber-200: var(--sm-g-200); --color-amber-300: var(--sm-g-300); --color-amber-400: var(--sm-g-400); --color-amber-500: var(--sm-g-500); --color-amber-600: var(--sm-g-600); --color-amber-700: var(--sm-g-700); --color-amber-800: var(--sm-g-800); --color-amber-900: var(--sm-g-900); --color-amber-950: var(--sm-g-950);
+  --color-yellow-50: var(--sm-g-50);  --color-yellow-100: var(--sm-g-100); --color-yellow-200: var(--sm-g-200); --color-yellow-300: var(--sm-g-300); --color-yellow-400: var(--sm-g-400); --color-yellow-500: var(--sm-g-500); --color-yellow-600: var(--sm-g-600); --color-yellow-700: var(--sm-g-700); --color-yellow-800: var(--sm-g-800); --color-yellow-900: var(--sm-g-900); --color-yellow-950: var(--sm-g-950);
+}
+
+/* surface tokens (light) */
+html[data-theme="sm48"]:not(.dark) {
+  --sm-bg: #E9EEEC;
+  --sm-tile: #FFFFFF;
+  --sm-tile2: #EEF2F1;
+  --sm-tile3: #E3E9E7;
+  --sm-line: #D3DBD8;
+  --sm-text: #0E1419;
+  --sm-text2: #33404A;
+  --sm-muted: #56616C;
+  --sm-field: #F6F8F7;
+  --sm-dot: #D2DAD7;
+  --sm-shadow: 0 1px 2px rgba(14,20,25,.05), 0 18px 36px -24px rgba(14,20,25,.25);
+  --sm-te-ink: #0A7770;
+  --sm-or-ink: #B4460B;
+  --sm-te-tint: #D8F3F1;
+  --sm-or-tint: #FDE7DB;
+}
+
+/* ---------- 2. BASE ---------- */
+html[data-theme="sm48"] { color-scheme: dark; }
+html[data-theme="sm48"]:not(.dark) { color-scheme: light; }
+
+html[data-theme="sm48"],
+html[data-theme="sm48"] body {
+  background-color: var(--sm-bg) !important;
+  color: var(--sm-text);
+  font-family: 'Inter', 'Noto Sans Sinhala', system-ui, -apple-system, 'Segoe UI', sans-serif !important;
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+html[data-theme="sm48"] :is(.font-outfit, .font-jakarta, .font-sans, .font-display, h1, h2, h3, h4, h5, h6, button, input, select, textarea) {
+  font-family: 'Inter', 'Noto Sans Sinhala', system-ui, sans-serif !important;
+}
+html[data-theme="sm48"] .font-numeric { font-family: 'Inter', system-ui, sans-serif !important; font-variant-numeric: tabular-nums; }
+html[data-theme="sm48"] :is(.font-mono, code, pre, kbd) { font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace !important; }
+
+/* Bento type: heavy weights read as shouting at this density */
+html[data-theme="sm48"] .font-black { font-weight: 800 !important; }
+html[data-theme="sm48"] :is(h1, h2, h3).font-black,
+html[data-theme="sm48"] :is(h1, h2, h3).font-extrabold { letter-spacing: -0.025em; }
+
+/* Legibility: the app uses many micro sizes; lift them a step */
+html[data-theme="sm48"] .text-\[7px\] { font-size: 9.5px !important; }
+html[data-theme="sm48"] .text-\[8px\] { font-size: 10px !important; }
+html[data-theme="sm48"] .text-\[9px\] { font-size: 10.5px !important; }
+html[data-theme="sm48"] .text-\[10px\] { font-size: 11px !important; }
+html[data-theme="sm48"] .text-\[11px\] { font-size: 12px !important; }
+
+/* Selection + scrollbars */
+html[data-theme="sm48"] ::selection { background: rgba(23,184,174,.35); color: inherit; }
+html[data-theme="sm48"] ::-webkit-scrollbar { width: 8px; height: 8px; }
+html[data-theme="sm48"] ::-webkit-scrollbar-track { background: transparent; }
+html[data-theme="sm48"] ::-webkit-scrollbar-thumb { background: var(--sm-line) !important; border-radius: 999px !important; border: 2px solid transparent; background-clip: padding-box !important; }
+html[data-theme="sm48"] * { scrollbar-color: var(--sm-line) transparent; }
+html[data-theme="sm48"] :focus-visible { outline: 2px solid var(--sm-te) !important; outline-offset: 2px; }
+
+/* ---------- 3. NO GLASS, NO NEON ---------- */
+html[data-theme="sm48"] [class*="backdrop-blur"],
+html[data-theme="sm48"] [class*="backdrop-saturate"] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+/* Blurred colour orbs / glow blobs used as decoration */
+html[data-theme="sm48"] [class*="blur-"][class*="pointer-events-none"],
+html[data-theme="sm48"] [class*="blur-"][class*="absolute"][class*="rounded-full"]:empty,
+html[data-theme="sm48"] .orb,
+html[data-theme="sm48"] [class*="animate-float-ball"] { display: none !important; }
+/* Neon box-shadow glows -> soft tile shadow */
+html[data-theme="sm48"] [class*="shadow-[0_0_"],
+html[data-theme="sm48"] [class*="shadow-[0px_0px_"] { box-shadow: none !important; }
+html[data-theme="sm48"] :is(.shadow-xl, .shadow-2xl, .shadow-lg):not(button):not(a) { box-shadow: var(--sm-shadow) !important; }
+html[data-theme="sm48"] :is([class*="shadow-emerald"], [class*="shadow-blue"], [class*="shadow-indigo"], [class*="shadow-purple"], [class*="shadow-cyan"], [class*="shadow-rose"], [class*="shadow-red"], [class*="shadow-amber"], [class*="shadow-pink"], [class*="shadow-brand"], [class*="shadow-teal"], [class*="shadow-green"], [class*="shadow-orange"], [class*="shadow-violet"], [class*="shadow-fuchsia"], [class*="shadow-sky"]) { --tw-shadow-color: transparent !important; }
+html[data-theme="sm48"] [class*="drop-shadow"] { filter: none !important; }
+html[data-theme="sm48"] [class*="text-shadow"] { text-shadow: none !important; }
+
+/* Gradients -> flat brand surfaces (SM48 uses solid tiles) */
+html[data-theme="sm48"] :is([class*="bg-gradient-to-"], [class*="bg-linear-to-"]):not([class*="bg-clip-text"]):not([class*="transparent"]):not(.absolute):not(.fixed) {
+  background-image: none !important;
+  background-color: var(--tw-gradient-from, var(--sm-tile)) !important;
+}
+/* gradient text -> solid accent text */
+html[data-theme="sm48"] [class*="bg-clip-text"] {
+  background-image: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  color: var(--tw-gradient-from, var(--sm-or)) !important;
+}
+/* Fades to transparent (overlays on images) stay as they are */
+
+/* ---------- 4. SHAPES ---------- */
+html[data-theme="sm48"] :is(.rounded-3xl, [class*="rounded-[2rem]"], [class*="rounded-[2.5rem]"], [class*="rounded-[30px]"], [class*="rounded-[32px]"], [class*="rounded-[28px]"]) { border-radius: 26px !important; }
+html[data-theme="sm48"] :is(.rounded-2xl, [class*="rounded-[20px]"], [class*="rounded-[24px]"], [class*="rounded-[22px]"]) { border-radius: 20px !important; }
+html[data-theme="sm48"] .rounded-xl { border-radius: 14px !important; }
+html[data-theme="sm48"] .rounded-lg { border-radius: 11px !important; }
+
+/* ---------- 5. TEXT ON SOLID BRAND COLOURS ----------
+   SM48 puts ink text on orange/teal (white on #F26A21 / #17B8AE fails contrast). */
+html[data-theme="sm48"] :is(
+  .bg-brand-accent,
+  .bg-orange-300, .bg-orange-400, .bg-orange-500, .bg-orange-600,
+  .bg-purple-400, .bg-purple-500, .bg-purple-600, .bg-violet-500, .bg-violet-600, .bg-fuchsia-500, .bg-fuchsia-600, .bg-pink-500, .bg-pink-600,
+  .bg-emerald-300, .bg-emerald-400, .bg-emerald-500, .bg-emerald-600, .bg-green-400, .bg-green-500, .bg-green-600,
+  .bg-teal-400, .bg-teal-500, .bg-teal-600, .bg-cyan-400, .bg-cyan-500, .bg-cyan-600, .bg-sky-400, .bg-sky-500, .bg-sky-600,
+  .bg-blue-400, .bg-blue-500, .bg-blue-600, .bg-indigo-400, .bg-indigo-500, .bg-indigo-600, .bg-lime-400, .bg-lime-500,
+  .bg-amber-300, .bg-amber-400, .bg-amber-500, .bg-yellow-300, .bg-yellow-400, .bg-yellow-500
+) {
+  color: var(--sm-ink) !important;
+}
+html[data-theme="sm48"] :is(
+  .bg-brand-accent,
+  .bg-orange-300, .bg-orange-400, .bg-orange-500, .bg-orange-600,
+  .bg-purple-400, .bg-purple-500, .bg-purple-600, .bg-violet-500, .bg-violet-600, .bg-fuchsia-500, .bg-fuchsia-600, .bg-pink-500, .bg-pink-600,
+  .bg-emerald-300, .bg-emerald-400, .bg-emerald-500, .bg-emerald-600, .bg-green-400, .bg-green-500, .bg-green-600,
+  .bg-teal-400, .bg-teal-500, .bg-teal-600, .bg-cyan-400, .bg-cyan-500, .bg-cyan-600, .bg-sky-400, .bg-sky-500, .bg-sky-600,
+  .bg-blue-400, .bg-blue-500, .bg-blue-600, .bg-indigo-400, .bg-indigo-500, .bg-indigo-600, .bg-lime-400, .bg-lime-500,
+  .bg-amber-300, .bg-amber-400, .bg-amber-500, .bg-yellow-300, .bg-yellow-400, .bg-yellow-500
+) :is(.text-white, [class*="text-white/"], .text-gray-100, .text-slate-100, .text-gray-200, .text-slate-200, svg:not([class*="text-"])) {
+  color: var(--sm-ink) !important;
+}
+/* gradient buttons were flattened to their "from" colour; give them ink text too */
+html[data-theme="sm48"] :is(button, a)[class*="bg-gradient-to-"]:is([class*="from-emerald-"], [class*="from-green-"], [class*="from-teal-"], [class*="from-cyan-"], [class*="from-sky-"], [class*="from-blue-"], [class*="from-indigo-"], [class*="from-purple-"], [class*="from-violet-"], [class*="from-fuchsia-"], [class*="from-pink-"], [class*="from-orange-"], [class*="from-amber-"], [class*="from-yellow-"], [class*="from-brand-accent"]),
+html[data-theme="sm48"] :is(button, a)[class*="bg-gradient-to-"]:is([class*="from-emerald-"], [class*="from-green-"], [class*="from-teal-"], [class*="from-cyan-"], [class*="from-sky-"], [class*="from-blue-"], [class*="from-indigo-"], [class*="from-purple-"], [class*="from-violet-"], [class*="from-fuchsia-"], [class*="from-pink-"], [class*="from-orange-"], [class*="from-amber-"], [class*="from-yellow-"], [class*="from-brand-accent"]) :is(.text-white, svg) {
+  color: var(--sm-ink) !important;
+}
+
+/* ---------- 6. FORMS ---------- */
+html[data-theme="sm48"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]), select, textarea) {
+  background-color: var(--sm-field) !important;
+  color: var(--sm-text) !important;
+  border: 1px solid var(--sm-line) !important;
+  border-radius: 12px !important;
+  background-image: none;
+  box-shadow: none !important;
+}
+html[data-theme="sm48"] select {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2398A3AC' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") !important;
+  background-repeat: no-repeat !important;
+  background-position: right 12px center !important;
+  padding-right: 34px !important;
+}
+html[data-theme="sm48"] select option { background: var(--sm-tile); color: var(--sm-text); }
+html[data-theme="sm48"] :is(input, select, textarea):focus {
+  border-color: var(--sm-te) !important;
+  box-shadow: 0 0 0 3px var(--sm-te-tint) !important;
+  outline: none !important;
+}
+html[data-theme="sm48"] :is(input, textarea)::placeholder { color: var(--sm-muted) !important; opacity: 1; }
+html[data-theme="sm48"] :is(input[type="checkbox"], input[type="radio"], input[type="range"]) { accent-color: var(--sm-te); }
+/* inputs that are deliberately borderless/transparent (chat boxes, inline edits) stay clean */
+html[data-theme="sm48"] :is(input, textarea).bg-transparent:is(.border-none, .border-0, .outline-none) {
+  background-color: transparent !important;
+  border-color: transparent !important;
+}
+
+/* ---------- 7. TABLES ---------- */
+html[data-theme="sm48"] table { border-collapse: separate; border-spacing: 0; }
+html[data-theme="sm48"] thead th,
+html[data-theme="sm48"] thead td {
+  background-color: transparent !important;
+  color: var(--sm-muted) !important;
+  font-size: 11.5px !important;
+  font-weight: 600 !important;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--sm-line) !important;
+}
+html[data-theme="sm48"] tbody td { border-color: var(--sm-line) !important; }
+html[data-theme="sm48"] tbody tr { transition: background-color .12s; }
+html[data-theme="sm48"] tbody tr:hover > td { background-color: var(--sm-tile2); }
+
+/* ---------- 8. MODALS & POPOVERS ---------- */
+/* full-screen backdrops: dim + no blur */
+html[data-theme="sm48"] :is(.fixed.inset-0, .fixed.top-0.left-0.w-full.h-full):is([class*="bg-black/"], [class*="bg-slate-900/"], [class*="bg-gray-900/"], [class*="bg-[#0"]) {
+  background-color: rgba(3, 5, 7, .62) !important;
+  background-image: none !important;
+}
+
+/* ---------- 9. BUTTON FEEL ---------- */
+html[data-theme="sm48"] button { -webkit-tap-highlight-color: transparent; }
+html[data-theme="sm48"] button:not(:disabled):active { transform: scale(.98); }
+html[data-theme="sm48"] .animate-pulse:is(svg) { animation: none !important; }
+
+/* ---------- 10. PAGE CANVAS ---------- */
+html[data-theme="sm48"] .sm48-canvas {
+  background-color: var(--sm-bg) !important;
+  background-image: radial-gradient(var(--sm-dot) 1.2px, transparent 1.2px) !important;
+  background-size: 24px 24px !important;
+}
+
+/* ---------- 11. CHAT SURFACES (WhatsApp-style CRM) ---------- */
+html[data-theme="sm48"] :is([class*="bg-[#efeae2]"], [class*="bg-[#0b141a]"], .chat-wallpaper-area) {
+  background-color: var(--sm-bg) !important;
+  background-image: radial-gradient(var(--sm-dot) 1.2px, transparent 1.2px) !important;
+  background-size: 22px 22px !important;
+}
+html[data-theme="sm48"] :is([class*="bg-[#d9fdd3]"], [class*="bg-[#005c4b]"], [class*="bg-[#005C4B]"]) {
+  background-color: var(--sm-te) !important;
+  color: var(--sm-ink) !important;
+}
+html[data-theme="sm48"] :is([class*="bg-[#d9fdd3]"], [class*="bg-[#005c4b]"], [class*="bg-[#005C4B]"]) :is(.text-white, [class*="text-[#"], [class*="text-gray-"], [class*="text-slate-"]) {
+  color: var(--sm-ink) !important;
+}
+
+/* ---------- 12. STAFF SHELL: island sidebar ---------- */
+html[data-theme="sm48"] .sm48-frame { background: transparent !important; border: 0 !important; box-shadow: none !important; }
+
+html[data-theme="sm48"] aside.sm48-side {
+  background: #0B0F14 !important;
+  color: #F2F4F5 !important;
+  border: 1px solid #1C2329 !important;
+  border-radius: 24px !important;
+  box-shadow: 0 18px 40px -18px rgba(0,0,0,.55) !important;
+  overflow: visible;
+}
+@media (max-width: 1023.98px) {
+  html[data-theme="sm48"] aside.sm48-side { top: 10px !important; bottom: 10px !important; left: 10px !important; height: auto !important; width: min(280px, 86vw) !important; }
+}
+/* collapse handle */
+html[data-theme="sm48"] aside.sm48-side > button:first-child {
+  background: #1A1F24 !important; border: 1px solid #262D33 !important; color: #98A3AC !important;
+  width: 26px; height: 26px; padding: 0 !important; display: flex; align-items: center; justify-content: center; top: 26px !important;
+}
+html[data-theme="sm48"] aside.sm48-side > button:first-child:hover { color: #fff !important; background: #22282E !important; }
+
+/* section labels */
+html[data-theme="sm48"] aside.sm48-side nav > p,
+html[data-theme="sm48"] aside.sm48-side nav p {
+  color: #6C7882 !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: .16em !important;
+  margin: 14px 0 6px 6px !important;
+  padding-left: 6px !important;
+}
+html[data-theme="sm48"] aside.sm48-side nav { padding: 6px 12px !important; }
+html[data-theme="sm48"] aside.sm48-side nav > * + * { margin-top: 2px; }
+
+/* links */
+html[data-theme="sm48"] aside.sm48-side :is(a.sm48-nav, a.lumi-nav-item) {
+  position: relative;
+  display: flex !important; align-items: center; gap: 12px;
+  min-height: 40px; padding: 0 12px !important; margin: 0 0 2px !important;
+  border-radius: 12px !important; border: 0 !important;
+  background: transparent !important; box-shadow: none !important;
+  color: #A3ADB5 !important; font-size: 13.5px; font-weight: 500;
+  transform: none !important; --tw-ring-color: transparent !important;
+}
+html[data-theme="sm48"] aside.sm48-side :is(a.sm48-nav, a.lumi-nav-item)::before { display: none !important; }
+html[data-theme="sm48"] aside.sm48-side :is(a.sm48-nav, a.lumi-nav-item) :is(span, svg) { color: inherit !important; font-weight: inherit !important; animation: none !important; }
+html[data-theme="sm48"] aside.sm48-side :is(a.sm48-nav, a.lumi-nav-item) svg { flex: none; width: 18px; height: 18px; }
+html[data-theme="sm48"] aside.sm48-side .lumi-nav-icon { background: transparent !important; box-shadow: none !important; width: auto !important; height: auto !important; border: 0 !important; display: flex; }
+html[data-theme="sm48"] aside.sm48-side .lumi-nav-text { background: none !important; -webkit-text-fill-color: currentColor !important; }
+html[data-theme="sm48"] aside.sm48-side :is(a.sm48-nav, a.lumi-nav-item):hover { background: #151A1F !important; color: #FFFFFF !important; }
+html[data-theme="sm48"] aside.sm48-side :is(a.sm48-nav.is-active, a.lumi-nav-item.active) { background: #1A1F24 !important; color: #FFFFFF !important; font-weight: 600; }
+html[data-theme="sm48"] aside.sm48-side :is(a.sm48-nav.is-active, a.lumi-nav-item.active) svg { color: #17B8AE !important; }
+html[data-theme="sm48"] aside.sm48-side :is(a.sm48-nav.is-active, a.lumi-nav-item.active)::after {
+  content: ""; position: absolute; right: 12px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; background: #F26A21;
+}
+html[data-theme="sm48"] aside.sm48-side.lg\:w-20 :is(a.sm48-nav, a.lumi-nav-item) { justify-content: center; padding: 0 !important; }
+
+/* side widgets (today's classes etc.) */
+html[data-theme="sm48"] aside.sm48-side :is(.bg-black\/20, .bg-white\/5) { background: #111518 !important; border-color: #1C2329 !important; }
+html[data-theme="sm48"] aside.sm48-side [class*="border-white/"] { border-color: #1C2329 !important; }
+html[data-theme="sm48"] aside.sm48-side :is(.text-white, .text-gray-200, .text-gray-300) { color: #E6EAED !important; }
+
+/* footer */
+html[data-theme="sm48"] aside.sm48-side .sm48-foot button { border-radius: 12px !important; }
+html[data-theme="sm48"] aside.sm48-side .sm48-foot > div > button { background: #151A1F !important; border-color: #222A31 !important; color: #A3ADB5 !important; }
+html[data-theme="sm48"] aside.sm48-side .sm48-foot > div > button:hover { color: #FFFFFF !important; background: #1E252B !important; }
+html[data-theme="sm48"] aside.sm48-side .sm48-foot .absolute.bottom-full { background: #0B0F14 !important; border: 1px solid #222A31 !important; box-shadow: 0 24px 50px -20px rgba(0,0,0,.8) !important; }
+
+/* mobile "Menu" button + backdrop */
+html[data-theme="sm48"] button.lg\:hidden.fixed[title="Open Menu"] {
+  background: #0B0F14 !important; color: #F2F4F5 !important; border: 1px solid #1C2329 !important; border-radius: 14px !important;
+}
+html[data-theme="sm48"] button.lg\:hidden.fixed[title="Open Menu"] * { color: inherit !important; }
+
+/* page area */
+html[data-theme="sm48"] .sm48-main { background: transparent !important; }
+
+/* student sidebar uses <button> items */
+html[data-theme="sm48"] aside.sm48-side button.sm48-nav {
+  position: relative; display: flex; align-items: center; gap: 12px; width: 100%;
+  min-height: 42px; padding: 0 12px; margin-bottom: 2px; border: 0; border-radius: 12px;
+  background: transparent; color: #A3ADB5; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer;
+}
+html[data-theme="sm48"] aside.sm48-side button.sm48-nav:hover { background: #151A1F; color: #fff; }
+html[data-theme="sm48"] aside.sm48-side button.sm48-nav.is-active { background: #1A1F24; color: #fff; font-weight: 600; }
+html[data-theme="sm48"] aside.sm48-side button.sm48-nav.is-active svg { color: #17B8AE; }
+html[data-theme="sm48"] aside.sm48-side button.sm48-nav.is-active::after { content: ""; position: absolute; right: 12px; top: 50%; width: 7px; height: 7px; margin-top: -3.5px; border-radius: 50%; background: #F26A21; }
+html[data-theme="sm48"] aside.sm48-side .sm48-foot > div > div[role="group"] button { border-radius: 999px !important; }
+html[data-theme="sm48"] aside.sm48-side .sm48-foot button { background-color: transparent; }
+html[data-theme="sm48"] aside.sm48-side .sm48-foot [aria-pressed="true"] { background: #F2F4F5 !important; color: #0B0F14 !important; }
+
+/* ---------- 13. STUDENT SHELL ---------- */
+html[data-theme="sm48"] .sm48-student { color: var(--sm-text); }
+html[data-theme="sm48"] .sm48-student-main > header {
+  position: relative !important; top: auto !important;
+  background: var(--sm-tile) !important; border: 1px solid var(--sm-line) !important; border-radius: 22px !important;
+  box-shadow: none !important; margin: 0 !important; padding: 14px 18px !important;
+}
+html[data-theme="sm48"] .sm48-student-main > header h1 { font-size: clamp(20px, 2vw, 26px) !important; font-weight: 800 !important; letter-spacing: -.025em; }
+html[data-theme="sm48"] .sm48-student-main > div.flex-1 {
+  background: transparent !important; border: 0 !important; box-shadow: none !important; border-radius: 0 !important;
+}
+html[data-theme="sm48"] .sm48-student-main > div.flex-1 > div { padding: 0 !important; }
+html[data-theme="sm48"] .sm48-student-main > header .rounded-full.p-\[2px\] { background: var(--sm-te) !important; }
+html[data-theme="sm48"] .sm48-student-main > div.flex-1:not(#sm48):not(#sm48-x) { background: transparent !important; border-color: transparent !important; }
+
+/* LUMI nav items: drop the spinning light-beam borders */
+html[data-theme="sm48"] aside.sm48-side a.lumi-nav-item { overflow: visible !important; }
+html[data-theme="sm48"] aside.sm48-side a.lumi-nav-item::after { content: none !important; animation: none !important; }
+html[data-theme="sm48"] aside.sm48-side a.lumi-nav-item.active::after {
+  content: "" !important; position: absolute; top: 50% !important; left: auto !important; right: 12px; width: 7px !important; height: 7px !important;
+  margin-top: -3.5px; border-radius: 50%; background: #F26A21 !important; opacity: 1 !important; z-index: 1;
+}
+html[data-theme="sm48"] aside.sm48-side .lumi-nav-text { margin-left: 0 !important; font-size: 13.5px !important; }

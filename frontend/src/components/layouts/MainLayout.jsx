@@ -23,7 +23,7 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
 
   const [uiTheme, setUiTheme] = useState(() => {
     const saved = localStorage.getItem('uiTheme');
-    return (saved === 'chatline' ? 'aurora' : saved) || 'glass';
+    return (saved === 'chatline' ? 'aurora' : saved) || 'sm48';
   });
 
   useEffect(() => {
@@ -128,8 +128,8 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
 
   return (
     <div 
-      className={`font-sans flex items-center justify-center w-full overflow-hidden antialiased transition-all duration-300 fixed inset-0 m-0 p-0 ${uiTheme === 'glass' ? getBackgroundClass() : 'bg-[#090D10]'}`} 
-      style={{ ...(uiTheme === 'glass' ? getBackgroundStyle() : { backgroundColor: '#090D10' }), zoom: zoomLevel }}
+      className={`font-sans flex items-center justify-center w-full overflow-hidden antialiased transition-all duration-300 fixed inset-0 m-0 p-0 ${uiTheme === 'glass' ? getBackgroundClass() : uiTheme === 'sm48' ? 'sm48-canvas' : 'bg-[#090D10]'}`} 
+      style={{ ...(uiTheme === 'glass' ? getBackgroundStyle() : uiTheme === 'sm48' ? {} : { backgroundColor: '#090D10' }), zoom: zoomLevel }}
     >
       
       {/* 🌌 AURORA ERP GLOWING AMBIENT ORBS (Aurora theme) */}
@@ -173,6 +173,8 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
           ? "flex w-full h-full sm:w-[98%] sm:h-[96vh] bg-[#0B101E]/90 sm:bg-black/40 border border-white/10 text-gray-100 sm:rounded-[20px] overflow-hidden relative z-10 transition-all duration-300"
           : (uiTheme === 'aurora' || uiTheme === 'chatline')
           ? "flex w-full h-full sm:w-[98%] sm:h-[96vh] bg-[rgba(255,255,255,0.06)] backdrop-blur-2xl border border-[rgba(255,255,255,0.14)] shadow-[0_10px_40px_rgba(0,0,0,0.30)] text-gray-100 sm:rounded-[22px] overflow-hidden relative z-10 transition-all duration-300"
+          : uiTheme === 'sm48'
+          ? "sm48-frame flex w-full h-full gap-3 p-0 lg:p-3 overflow-hidden relative z-10"
           : "flex w-full h-full text-gray-100 border-0 rounded-none overflow-hidden relative z-10 transition-all duration-300"
       }>
         <Sidebar 
@@ -191,8 +193,8 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
           uiTheme={uiTheme}
           setUiTheme={setUiTheme}
         />
-        <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
-          <div className="flex-1 overflow-auto p-4 lg:p-6 relative custom-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
+        <main className={`flex-1 flex flex-col overflow-hidden bg-transparent ${uiTheme === 'sm48' ? 'sm48-main min-w-0' : ''}`}>
+          <div className={`flex-1 overflow-auto relative custom-scrollbar ${uiTheme === 'sm48' ? 'p-3 pt-16 lg:p-1 lg:pr-2' : 'p-4 lg:p-6'}`} style={{ WebkitOverflowScrolling: 'touch' }}>
             <Outlet />
           </div>
         </main>

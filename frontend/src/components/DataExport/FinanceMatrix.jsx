@@ -262,7 +262,7 @@ export default function FinanceMatrix({ loggedInUser }) {
             });
         });
 
-        const bizName = businesses.find(b => String(b.id) === String(selectedBiz))?.name || 'IMA Campus';
+        const bizName = businesses.find(b => String(b.id) === String(selectedBiz))?.name || 'SM48';
         const batchName = batches.find(b => String(b.id) === String(selectedBatch))?.name || `Batch ${selectedBatch}`;
         const classLabel = classType === '1' ? 'Theory Class' : classType === '2' ? 'Paper Class' : 'Combined (Theory & Paper)';
         const sheetName = classType === '1' ? 'Theory_Matrix' : classType === '2' ? 'Paper_Matrix' : 'Combined_Matrix';

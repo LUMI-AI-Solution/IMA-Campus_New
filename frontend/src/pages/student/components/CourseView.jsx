@@ -32,7 +32,7 @@ export default function CourseView({ courseId, onBack }) {
     const [watermarkPos, setWatermarkPos] = useState({ top: 50, left: 50 });
     const [playType, setPlayType] = useState('zoom'); // 'zoom' or 'yt'
     const user = JSON.parse(localStorage.getItem('user') || '{}') || {};
-    const studentIdStr = user.id ? `IMA-STU-${user.id} ${user.firstName||''}` : 'IMA-STUDENT';
+    const studentIdStr = user.id ? `SM48-STU-${user.id} ${user.firstName||''}` : 'SM48-STUDENT';
 
     useEffect(() => {
         const interval = setInterval(() => {

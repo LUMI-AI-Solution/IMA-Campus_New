@@ -192,7 +192,7 @@ export default function StudentRegistrationTab() {
           <div className="absolute top-0 w-full h-32 bg-gradient-to-r from-brand-accent to-purple-600 opacity-20 blur-2xl"></div>
           
           <div className="relative z-10 flex flex-col items-center pt-8">
-            <img src="/logo.png" alt="IMA Campus" className="h-10 mb-6 drop-shadow-md" onError={(e) => e.target.style.display = 'none'} />
+            <img src="/logo.png" alt="SM48" className="h-10 mb-6 drop-shadow-md" onError={(e) => e.target.style.display = 'none'} />
             
             {/* Profile Photo Placeholder */}
             <div className="w-28 h-28 bg-[#0B1120] border-4 border-white/10 rounded-xl flex items-center justify-center shadow-lg overflow-hidden mb-4">

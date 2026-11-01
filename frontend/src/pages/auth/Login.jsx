@@ -54,67 +54,79 @@ export default function Login({ setLoggedInUser }) {
   };
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center p-4 font-sans overflow-hidden">
-      
-      {/* 🚀 Background Image & Frosted Glass Overlay 🚀 */}
-      <div className="absolute inset-0 z-0">
-          <img src="/mainglass.jpg" alt="Background" className="w-full h-full object-cover scale-105" />
-          {/* මෙතනින් තමයි මුළු background එකම ලස්සනට Blur කරන්නේ */}
-          <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-xl"></div> 
-      </div>
+    <div className="sm48-login sm48-canvas min-h-screen w-full flex items-stretch p-3 sm:p-4 gap-3 font-sans">
 
-      {/* 🚀 Darker Glass Card for perfect readability 🚀 */}
-      <div className="relative z-10 w-full max-w-[420px] bg-slate-900/60 backdrop-blur-2xl border border-white/10 p-10 rounded-[2.5rem] shadow-[0_25px_50px_rgba(0,0,0,0.5)] transform transition-all animate-fade-in">
-        
-        <div className="text-center mb-10">
-          <img src="/logo.png" alt="IMA Campus Logo" className="h-25 mx-auto mb-4 drop-shadow-2xl object-contain" />
-          <h2 className="text-2xl font-black text-white tracking-wide">Welcome Back</h2>
-          <p className="text-white/60 text-xs mt-2 font-medium">Enter your credentials to continue</p>
+      {/* Brand panel (hidden on small screens) */}
+      <section className="sm48-keep-dark hidden lg:flex relative flex-1 overflow-hidden rounded-[28px] bg-[#0B0F14] border border-[#1C2329] p-12 flex-col justify-between">
+        <svg viewBox="0 0 600 600" aria-hidden="true" className="absolute -right-40 -bottom-48 w-[640px] h-[640px] pointer-events-none">
+          <circle cx="300" cy="300" r="290" fill="none" stroke="#161D23" strokeWidth="2" />
+          <circle cx="300" cy="300" r="210" fill="none" stroke="#161D23" strokeWidth="2" />
+          <circle cx="300" cy="300" r="130" fill="none" stroke="#161D23" strokeWidth="2" />
+          <circle cx="190" cy="410" r="44" fill="#17B8AE" />
+          <circle cx="430" cy="180" r="28" fill="#F26A21" />
+        </svg>
+        <img src="/sm48-logo-light.png" alt="SM Forty Eight" className="relative h-14 w-auto self-start object-contain" />
+        <div className="relative max-w-lg">
+          <p className="text-[13px] font-semibold tracking-[.14em] uppercase text-[#98A3AC] mb-4">Learning platform</p>
+          <h1 className="text-[52px] leading-[1.02] font-extrabold tracking-tight text-[#F2F4F5]">
+            Learn, teach and<br />run your campus<span className="text-[#F26A21]">.</span>
+          </h1>
+          <p className="mt-5 text-[16px] leading-relaxed text-[#A3ADB5] max-w-md">Live classes, recordings, papers, payments and CRM in one place.</p>
         </div>
-
-        <form onSubmit={handleLogin} className="space-y-6">
-          <div>
-            <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-2 block">Phone Number</label>
-            <div className="relative group">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <User size={18} className="text-white/40 group-focus-within:text-white transition-colors" />
-              </div>
-              <input type="tel" required value={username} onChange={handleUsernameChange}
-                className="w-full bg-black/40 border border-white/10 rounded-2xl pl-12 pr-4 py-4 text-white placeholder-white/30 focus:border-red-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner"
-                placeholder="Enter your username"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-2 block">Password</label>
-            <div className="relative group">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <Lock size={18} className="text-white/40 group-focus-within:text-white transition-colors" />
-              </div>
-              <input type={showPassword ? 'text' : 'password'} required value={password} onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-black/40 border border-white/10 rounded-2xl pl-12 pr-12 py-4 text-white placeholder-white/30 focus:border-red-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner"
-                placeholder="••••••••"
-              />
-              <button type="button" onClick={() => setShowPassword(!showPassword)}
-                className="absolute inset-y-0 right-0 pr-4 flex items-center text-white/40 hover:text-white focus:outline-none transition-colors"
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-          </div>
-
-          <button type="submit" disabled={loading}
-            className="w-full bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-black py-4 rounded-2xl transition-all shadow-[0_0_20px_rgba(239,68,68,0.4)] disabled:opacity-70 flex items-center justify-center gap-2 mt-8 text-sm uppercase tracking-widest hover:scale-[1.02]"
-          >
-            {loading ? <Loader2 size={20} className="animate-spin" /> : <>Login Securely <ArrowRight size={18}/></>}
-          </button>
-        </form>
-        
-        <div className="mt-8 pt-6 border-t border-white/10 text-center text-xs text-white/50 font-medium">
-            Don't have a student account? <Link to="/register" className="text-red-400 font-bold hover:text-red-300 hover:underline transition-colors ml-1">Register Here</Link>
+        <div className="relative flex gap-3">
+          <span className="px-4 py-2 rounded-full bg-[#F26A21] text-[#0B0F14] text-[13px] font-bold">Students</span>
+          <span className="px-4 py-2 rounded-full bg-[#17B8AE] text-[#0B0F14] text-[13px] font-bold">Teachers</span>
+          <span className="px-4 py-2 rounded-full bg-[#1A1F24] text-[#F2F4F5] text-[13px] font-bold">Staff</span>
         </div>
-      </div>
+      </section>
+
+      {/* Form panel */}
+      <section className="flex-1 lg:flex-none lg:w-[520px] flex items-center justify-center rounded-[28px] bg-[var(--sm-tile,#111518)] p-6 sm:p-12">
+        <div className="w-full max-w-[380px]">
+          <img src="/sm48-mark-light.png" alt="SM Forty Eight" className="sm48-login-mark h-14 w-14 mb-8 object-contain rounded-2xl bg-[#0B0F14] p-1.5" />
+          <h2 className="text-[30px] font-extrabold tracking-tight text-[var(--sm-text,#F2F4F5)]">Welcome back</h2>
+          <p className="text-[var(--sm-muted,#98A3AC)] text-[15px] mt-2">Log in with your mobile number and password.</p>
+
+          <form onSubmit={handleLogin} className="mt-8 space-y-5">
+            <div>
+              <label htmlFor="login-phone" className="text-[13px] font-semibold text-[var(--sm-muted,#98A3AC)] mb-2 block">Mobile number</label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[var(--sm-muted,#98A3AC)]"><User size={18} /></span>
+                <input id="login-phone" type="tel" inputMode="tel" autoComplete="username" required value={username} onChange={handleUsernameChange}
+                  className="w-full !h-12 !pl-12 pr-4 text-[15px]"
+                  placeholder="07X XXX XXXX"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="login-password" className="text-[13px] font-semibold text-[var(--sm-muted,#98A3AC)] mb-2 block">Password</label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-[var(--sm-muted,#98A3AC)]"><Lock size={18} /></span>
+                <input id="login-password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" required value={password} onChange={(e) => setPassword(e.target.value)}
+                  className="w-full !h-12 !pl-12 !pr-12 text-[15px]"
+                  placeholder="Your password"
+                />
+                <button type="button" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute inset-y-0 right-0 w-12 flex items-center justify-center text-[var(--sm-muted,#98A3AC)] hover:text-[var(--sm-text,#F2F4F5)]"
+                >
+                  {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" disabled={loading}
+              className="sm48-btn-primary w-full h-12 rounded-full bg-[#F26A21] hover:bg-[#FF7D38] text-[#0B0F14] font-bold text-[15px] flex items-center justify-center gap-2 disabled:opacity-70 transition-colors"
+            >
+              {loading ? <Loader2 size={20} className="animate-spin" /> : <>Log in <ArrowRight size={18} /></>}
+            </button>
+          </form>
+
+          <p className="mt-8 pt-6 border-t border-[var(--sm-line,#262D33)] text-[14px] text-[var(--sm-muted,#98A3AC)]">
+            New student? <Link to="/register" className="text-[var(--sm-te-ink,#3FD3C8)] font-semibold hover:underline ml-1">Create an account</Link>
+          </p>
+        </div>
+      </section>
     </div>
   );
 }

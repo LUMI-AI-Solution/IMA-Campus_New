@@ -258,7 +258,7 @@ export default function StudentOverview({ setActiveTab }) {
                     name: r.student?.name || 'Student',
                     firstName: r.student?.firstName,
                     image: r.student?.image,
-                    city: r.student?.city || 'IMA Campus',
+                    city: r.student?.city || 'SM48',
                     score: r.score,
                     grade: r.grade
                 })),
@@ -498,7 +498,7 @@ export default function StudentOverview({ setActiveTab }) {
                         </div>
                         <div>
                             <h4 className="text-white font-black text-sm sm:text-lg md:text-xl tracking-wide leading-tight mb-0.5">
-                                Download the Official IMA Campus App
+                                Download the Official SM48 App
                             </h4>
                             <p className="text-blue-200/70 text-[11px] sm:text-xs md:text-sm font-medium">
                                 Experience seamless learning directly from your mobile device.
@@ -932,7 +932,7 @@ export default function StudentOverview({ setActiveTab }) {
                                         </span>
                                         <div className="min-w-0">
                                             <p className="text-white font-bold text-xs truncate">{r.name}</p>
-                                            <p className="text-white/50 text-[10px] truncate">{r.city || 'IMA Campus'}</p>
+                                            <p className="text-white/50 text-[10px] truncate">{r.city || 'SM48'}</p>
                                         </div>
                                     </div>
                                     <div className="text-right shrink-0">

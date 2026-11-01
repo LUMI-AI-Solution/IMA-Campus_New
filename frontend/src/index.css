@@ -3,6 +3,8 @@
 @import "./themes/aurora.css";
 @import "./themes/chatline.css";
 @import "./themes/bento.css";
+@import "./themes/sm48.css";
+@import "./themes/sm48.generated.css";
 @plugin "@tailwindcss/typography";
 
 /* 🔥 FIX: Tailwind v4 Class-based Dark Mode 🔥 */

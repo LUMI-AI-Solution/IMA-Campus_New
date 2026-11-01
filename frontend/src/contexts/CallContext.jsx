@@ -822,7 +822,7 @@ export const CallProvider = ({ children }) => {
                     try {
                         const callerName = data.leadName || data.from || 'Customer';
                         const callerPhone = data.from || '';
-                        const biz = data.businessType || 'IMA Campus';
+                        const biz = data.businessType || 'SM48';
                         
                         const notif = new Notification(`📞 Incoming WhatsApp Call: ${callerName}`, {
                             body: `From: ${callerPhone} (${biz})\nClick here to open and answer!`,

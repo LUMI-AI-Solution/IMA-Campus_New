@@ -11,7 +11,7 @@ const GlassInput = ({ label, name, required, type = "text", placeholder, options
     </label>
     {options ? (
       <div className="relative">
-        <select name={name} required={required} value={value} onChange={onChange} className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white focus:border-red-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner appearance-none cursor-pointer">
+        <select name={name} required={required} value={value} onChange={onChange} className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white focus:border-teal-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner appearance-none cursor-pointer">
           {/* 🔥 FIX: Dropdown Placeholder eka dynamic kara 🔥 */}
           <option value="" disabled className="bg-slate-900">{placeholder || "Select an option"}</option>
           {options.map(opt => <option key={opt} value={opt} className="bg-slate-900">{opt}</option>)}
@@ -20,7 +20,7 @@ const GlassInput = ({ label, name, required, type = "text", placeholder, options
     ) : (
       <div className="relative flex items-center">
         {prefix && <span className={`absolute left-4 text-sm ${value ? 'text-white' : 'text-white/50'}`}>{prefix}</span>}
-        <input type={type} name={name} required={required} value={value} onChange={onChange} placeholder={placeholder} className={`w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white placeholder-white/30 focus:border-red-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner ${prefix ? 'pl-[1.7rem]' : ''}`} />
+        <input type={type} name={name} required={required} value={value} onChange={onChange} placeholder={placeholder} className={`w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white placeholder-white/30 focus:border-teal-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner ${prefix ? 'pl-[1.7rem]' : ''}`} />
       </div>
     )}
   </div>
@@ -158,21 +158,14 @@ export default function Register() {
   };
 
   return (
-    <div className="relative min-h-screen flex items-center justify-center p-4 py-12 font-sans overflow-hidden">
+    <div className="sm48-canvas relative min-h-screen flex items-center justify-center p-3 sm:p-4 py-8 sm:py-12 font-sans overflow-hidden">
 
-      <div className="absolute inset-0 z-0 fixed">
-        <img src="/mainglass.jpg" alt="Background" className="w-full h-full object-cover scale-105" />
-        <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-xl"></div>
-      </div>
-
-      <div className="relative z-10 w-full max-w-4xl bg-slate-900/60 backdrop-blur-2xl border border-white/10 rounded-[2.5rem] shadow-[0_25px_50px_rgba(0,0,0,0.5)] p-8 md:p-12 animate-fade-in">
+      <div className="relative z-10 w-full max-w-4xl bg-slate-900 border border-white/10 rounded-[2.5rem] p-6 sm:p-8 md:p-12 animate-fade-in">
 
         <div className="text-center mb-10">
-          <div className="bg-white/5 p-4 rounded-[2rem] inline-block mb-4 border border-white/10 shadow-inner">
-            <UserPlus size={40} className="text-red-500 drop-shadow-lg" />
-          </div>
+          <img src="/sm48-mark-light.png" alt="SM Forty Eight" className="h-14 w-14 mx-auto mb-5 object-contain rounded-2xl bg-[#0B0F14] p-1.5" />
           <h2 className="text-3xl font-black text-white tracking-wide">Create an account</h2>
-          <p className="text-white/60 text-sm mt-2 font-medium">Join the IMA Campus student portal today</p>
+          <p className="text-white/60 text-sm mt-2 font-medium">Join the SM48 student portal today</p>
         </div>
 
         <form onSubmit={handleRegister} className="space-y-6">
@@ -182,7 +175,7 @@ export default function Register() {
 
             <div className="md:col-span-2">
               <label className="flex items-center gap-2 text-[11px] font-bold text-white/80 uppercase tracking-widest cursor-pointer mb-2 w-max">
-                <input type="checkbox" checked={isInternational} onChange={(e) => setIsInternational(e.target.checked)} className="accent-red-500 w-4 h-4" />
+                <input type="checkbox" checked={isInternational} onChange={(e) => setIsInternational(e.target.checked)} className="accent-teal-500 w-4 h-4" />
                 විදේශීය දුරකථන අංකයක් භාවිතා කරන්නේ නම් මෙහි Tick එකක් දාන්න
               </label>
             </div>
@@ -192,7 +185,7 @@ export default function Register() {
                 <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-4 gap-6">
                   <div className="md:col-span-1">
                     <label className="text-[10px] font-bold text-white/60 uppercase tracking-widest mb-2 block">Code <span className="text-red-500">*</span></label>
-                    <input type="text" value={countryCode} onChange={(e) => handleCountryCodeChange(e, setCountryCode)} required className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white focus:border-red-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner" />
+                    <input type="text" value={countryCode} onChange={(e) => handleCountryCodeChange(e, setCountryCode)} required className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white focus:border-teal-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner" />
                   </div>
                   <div className="md:col-span-3">
                     <GlassInput label="Phone Number" name="phone" type="tel" required placeholder="දුරකථන අංකය" value={formData.phone} onChange={handleChange} />
@@ -202,7 +195,7 @@ export default function Register() {
                 <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-4 gap-6">
                   <div className="md:col-span-1">
                     <label className="text-[10px] font-bold text-white/60 uppercase tracking-widest mb-2 block">Code</label>
-                    <input type="text" value={secondaryCountryCode} onChange={(e) => handleCountryCodeChange(e, setSecondaryCountryCode)} className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white focus:border-red-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner" />
+                    <input type="text" value={secondaryCountryCode} onChange={(e) => handleCountryCodeChange(e, setSecondaryCountryCode)} className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 text-white focus:border-teal-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner" />
                   </div>
                   <div className="md:col-span-3">
                     <GlassInput label="Secondary Number" name="directPhone" type="tel" placeholder="සෘජු දුරකථන අංකය" value={formData.directPhone} onChange={handleChange} />
@@ -239,7 +232,7 @@ export default function Register() {
                   <input
                     type={showPassword ? "text" : "password"}
                     name="password" required value={formData.password} onChange={handleChange}
-                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 pr-14 text-white placeholder-white/30 focus:border-red-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner"
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 pr-14 text-white placeholder-white/30 focus:border-teal-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner"
                     placeholder="Create a strong password"
                   />
                   <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute inset-y-0 right-4 flex items-center text-white/40 hover:text-white transition-colors">
@@ -265,7 +258,7 @@ export default function Register() {
                   <input
                     type={showPassword ? "text" : "password"}
                     name="confirmPassword" required value={formData.confirmPassword} onChange={handleChange}
-                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 pr-14 text-white placeholder-white/30 focus:border-red-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner"
+                    className="w-full bg-black/40 border border-white/10 rounded-2xl p-4 pr-14 text-white placeholder-white/30 focus:border-teal-500 focus:bg-black/60 outline-none transition-all text-sm shadow-inner"
                     placeholder="Re-enter your password"
                   />
                 </div>
@@ -275,11 +268,11 @@ export default function Register() {
           </div>
 
           <div className="pt-10 flex flex-col items-center">
-            <button type="submit" disabled={loading} className="w-full md:w-auto md:min-w-[300px] px-12 py-4 bg-gradient-to-r from-red-600 to-orange-500 hover:from-red-500 hover:to-orange-400 text-white font-black rounded-2xl transition-all shadow-[0_0_20px_rgba(239,68,68,0.4)] flex items-center justify-center gap-2 text-sm uppercase tracking-widest hover:scale-105 disabled:opacity-70">
+            <button type="submit" disabled={loading} className="w-full md:w-auto md:min-w-[300px] px-12 py-4 bg-[#F26A21] hover:bg-[#FF7D38] text-[#0B0F14] font-bold rounded-full transition-all shadow-[0_0_20px_rgba(239,68,68,0.4)] flex items-center justify-center gap-2 text-sm uppercase tracking-widest hover:scale-105 disabled:opacity-70">
               {loading ? <Loader2 size={20} className="animate-spin" /> : 'Create Account'}
             </button>
             <p className="mt-8 text-sm text-white/60 font-medium">
-              Already have an account? <Link to="/login" className="text-red-400 font-bold hover:text-red-300 hover:underline transition-colors ml-1">Log in here</Link>
+              Already have an account? <Link to="/login" className="text-teal-400 font-bold hover:text-teal-300 hover:underline transition-colors ml-1">Log in here</Link>
             </p>
           </div>
         </form>

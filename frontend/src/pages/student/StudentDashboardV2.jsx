@@ -132,12 +132,25 @@ const StudentDashboardV2 = () => {
 
   const [uiTheme, setUiTheme] = useState(() => {
     const saved = localStorage.getItem('uiTheme');
-    return (saved === 'chatline' ? 'aurora' : saved) || 'glass';
+    return (saved === 'chatline' ? 'aurora' : saved) || 'sm48';
+  });
+  const isSm48 = uiTheme === 'sm48';
+
+  // SM48 supports light + dark; the older wallpaper themes stay dark-only
+  const [isDarkMode, setIsDarkMode] = useState(() => localStorage.getItem('themeMode') !== 'light');
+  const toggleThemeMode = () => setIsDarkMode((prev) => {
+    const next = !prev;
+    localStorage.setItem('themeMode', next ? 'dark' : 'light');
+    return next;
   });
 
   useEffect(() => {
-    // Ensure dark mode is active to prevent any flat white washout
-    document.documentElement.classList.add('dark');
+    document.documentElement.classList.toggle('dark', !isSm48 || isDarkMode);
+  }, [isSm48, isDarkMode]);
+
+  useEffect(() => {
+    // Ensure dark mode is active to prevent any flat white washout (wallpaper themes)
+    if (uiTheme !== 'sm48') document.documentElement.classList.add('dark');
     if (uiTheme !== 'glass') {
       document.documentElement.dataset.theme = uiTheme === 'chatline' ? 'aurora' : uiTheme;
     } else {
@@ -170,7 +183,7 @@ const StudentDashboardV2 = () => {
   };
 
   if (loading) return (
-      <div className="flex h-[100dvh] items-center justify-center bg-gray-900">
+      <div className={`flex h-[100dvh] items-center justify-center ${isSm48 ? 'sm48-canvas' : 'bg-gray-900'}`}>
           <div className="relative w-16 h-16">
               <div className="absolute inset-0 border-4 border-white/20 rounded-full"></div>
               <div className="absolute inset-0 border-4 border-white rounded-full border-t-transparent animate-spin"></div>
@@ -179,9 +192,9 @@ const StudentDashboardV2 = () => {
   );
 
   return (
-    <div className="min-h-[100dvh] w-full relative overflow-hidden font-sans text-white bg-[#060a14]">
+    <div className={`min-h-[100dvh] w-full relative overflow-hidden font-sans ${isSm48 ? 'sm48-canvas sm48-student' : 'text-white bg-[#060a14]'}`}>
       {/* Dedicated Fixed Hardware-Accelerated Wallpaper Layer (Eliminates jitter/gassi-gassi) */}
-      <div 
+      {!isSm48 && <><div 
         className="fixed inset-0 z-0 bg-cover bg-center pointer-events-none transition-opacity duration-300"
         style={{ 
           backgroundImage: `url(${getSecureImageUrl(bgImage)})`,
@@ -191,7 +204,7 @@ const StudentDashboardV2 = () => {
         }}
       />
       {/* Deep elegant dark frosted overlay to soften background noise & eliminate banding lines */}
-      <div className="fixed inset-0 z-0 bg-black/50 pointer-events-none" />
+      <div className="fixed inset-0 z-0 bg-black/50 pointer-events-none" /></>}
 
       {/* Aurora Teal Ambient Orbs when Aurora / Teal Glass theme is active */}
       {(uiTheme === 'aurora' || uiTheme === 'chatline') && (
@@ -214,9 +227,11 @@ const StudentDashboardV2 = () => {
             setBgImage={handleBgChange}
             uiTheme={uiTheme}
             setUiTheme={setUiTheme}
+            isDarkMode={isDarkMode}
+            toggleThemeMode={toggleThemeMode}
           />
 
-          <main className="flex-1 flex flex-col h-full overflow-hidden relative z-10 w-full lg:py-[20px] lg:pr-[20px] lg:pl-[20px]">
+          <main className={`flex-1 flex flex-col h-full overflow-hidden relative z-10 w-full ${isSm48 ? 'sm48-student-main p-2.5 lg:p-3 gap-3 min-w-0' : 'lg:py-[20px] lg:pr-[20px] lg:pl-[20px]'}`}>
             
             {/* Top Navigation Bar - Clean Frosted Glass */}
             <header className="bg-black/30 backdrop-blur-2xl border-b lg:border border-white/20 lg:rounded-3xl px-3 sm:px-6 py-2.5 sm:py-4 lg:mb-[20px] flex items-center justify-between sticky top-0 lg:top-auto z-30 shadow-[0_8px_32px_rgba(0,0,0,0.2)]">
@@ -238,7 +253,7 @@ const StudentDashboardV2 = () => {
 
               <div className="flex items-center gap-2.5 sm:gap-4">
                   {/* Quick Wallpaper Switcher Popover (Accessible on Mobile & Desktop) */}
-                  <div className="relative" ref={wallpaperMenuRef}>
+                  {!isSm48 && <div className="relative" ref={wallpaperMenuRef}>
                       <button
                           type="button"
                           onClick={() => setShowWallpaperMenu(!showWallpaperMenu)}
@@ -299,7 +314,7 @@ const StudentDashboardV2 = () => {
                               </div>
                           </div>
                       )}
-                  </div>
+                  </div>}
 
                   {/* Notifications Bell */}
                   <div className="relative group cursor-pointer">
@@ -321,7 +336,7 @@ const StudentDashboardV2 = () => {
                   >
                       <div className="hidden md:block text-right">
                           <p className="text-sm font-bold text-white drop-shadow-sm leading-tight">{currentUser.fName ? `${currentUser.fName} ${currentUser.lName || ''}`.trim() : 'Student Portal'}</p>
-                          <p className="text-[10px] text-white/70 uppercase tracking-[0.15em] font-semibold">IMA Campus</p>
+                          <p className="text-[10px] text-white/70 uppercase tracking-[0.15em] font-semibold">{isSm48 ? 'SM48 Student' : 'IMA Campus'}</p>
                       </div>
                       <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-500 p-[2px] shadow-lg shrink-0">
                           <div className="w-full h-full rounded-full bg-[#0a0f1d] flex items-center justify-center overflow-hidden">
