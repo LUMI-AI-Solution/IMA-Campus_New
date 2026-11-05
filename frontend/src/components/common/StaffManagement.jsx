@@ -4,8 +4,12 @@ import { Users, Edit3, Trash2, Shield, UserPlus, X, Loader2, Search, Briefcase, 
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
 import BusinessBadge from './BusinessBadge';
+import { useTheme } from '../../contexts/ThemeContext';
 
 export default function StaffManagement({ loggedInUser }) {
+  const { appTheme, isDarkMode } = useTheme();
+  const isModern = appTheme === 'modern';
+
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const urlDept = searchParams.get('dept');
@@ -22,16 +26,21 @@ export default function StaffManagement({ loggedInUser }) {
   const [roleFilter, setRoleFilter] = useState('');
 
   const userRole = loggedInUser?.role || '';
-  const isAdmin = userRole === 'System Admin' || userRole === 'Director' || userRole === 'SYSTEM_ADMIN';
+  const isTopRole = (r) => {
+    if (!r) return false;
+    const norm = String(r).toUpperCase().replace(/[\s_-]+/g, '_');
+    return norm === 'SYSTEM_ADMIN' || norm === 'DIRECTOR' || norm === 'ADMIN_MANAGER';
+  };
+  const isAdmin = isTopRole(userRole);
   const isManager = userRole === 'Manager' || userRole === 'Ass Manager';
   const isSocialMediaDept = loggedInUser?.department === 'Social Media' || userRole === 'Social Media Manager' || userRole === 'SOCIAL_MEDIA_MANAGER';
   const isPhysicalDept = urlDept === 'Physical' || loggedInUser?.department === 'Physical';
   const canManageStaff = isAdmin || isManager;
 
-  const allDepts = ['Class Coordination', 'Academic', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media'];
-  const staffDepts = ['Academic', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media']; 
+  const allDepts = ['Administration', 'Class Coordination', 'Academic', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media'];
+  const staffDepts = ['Administration', 'Academic', 'Finance', 'Technical', 'Call Center', 'Delivery', 'Physical', 'Social Media']; 
   
-  const allRoles = ['System Admin', 'Director', 'Manager', 'Ass Manager', 'Coordinator', 'Paper Marker', 'Lecture', 'Paper Guider', 'Caller', 'Call Center Agent', 'Staff', 'Social Media Manager', 'Social Media Staff'];
+  const allRoles = ['System Admin', 'Director', 'Admin Manager', 'Manager', 'Ass Manager', 'Coordinator', 'Paper Marker', 'Lecture', 'Paper Guider', 'Caller', 'Call Center Agent', 'Petty Cash Officer', 'Staff', 'Social Media Manager', 'Social Media Staff'];
   
   const [formData, setFormData] = useState({
     firstName: '', lastName: '', phone: '', nic: '', password: '', 
@@ -52,7 +61,7 @@ export default function StaffManagement({ loggedInUser }) {
         params: { role: userRole, department: targetDept, businessType: loggedInUser?.businessType }
       });
       setStaffList(res.data);
-    } catch (error) {
+    } catch {
       toast.error("Failed to load staff");
     } finally {
       setLoading(false);
@@ -77,7 +86,7 @@ export default function StaffManagement({ loggedInUser }) {
             localStorage.setItem('admin_token', localStorage.getItem('token'));
             localStorage.setItem('admin_user', localStorage.getItem('user'));
             
-            const { password, ...safeUser } = res.data.user;
+            const { password: _password, ...safeUser } = res.data.user;
             localStorage.setItem('token', res.data.token);
             localStorage.setItem('user', JSON.stringify(safeUser));
             
@@ -91,8 +100,8 @@ export default function StaffManagement({ loggedInUser }) {
 
     const handleRoleChange = (newRole) => {
     let newDept = formData.department;
-    if (newRole === 'System Admin' || newRole === 'Director') {
-        newDept = ''; 
+    if (isTopRole(newRole)) {
+        newDept = 'Administration'; 
     } else if (newRole === 'Coordinator' || newRole === 'Paper Marker') {
         newDept = 'Class Coordination';
     } else if (newRole === 'Lecture' || newRole === 'Paper Guider') {
@@ -173,7 +182,7 @@ export default function StaffManagement({ loggedInUser }) {
           await api.delete(`/admin/staff/${id}`);
           toast.success("Staff deleted!");
           fetchStaff();
-      } catch (error) {
+      } catch {
           toast.error("Failed to delete.");
       }
   };
@@ -201,15 +210,16 @@ export default function StaffManagement({ loggedInUser }) {
   };
 
   const filteredStaff = staffList.filter(s => {
-    const matchesSearch = (s.firstName + " " + s.lastName).toLowerCase().includes(searchQuery.toLowerCase()) || s.phone.includes(searchQuery);
-    const matchesDept = deptFilter ? s.department === deptFilter : true;
-    const matchesRole = roleFilter ? s.role === roleFilter : true;
+    const matchesSearch = (s.firstName + " " + s.lastName).toLowerCase().includes(searchQuery.toLowerCase()) || (s.phone && s.phone.includes(searchQuery));
+    const isTop = isTopRole(s.role);
+    const matchesDept = deptFilter ? (s.department === deptFilter || (deptFilter === 'Administration' && (isTop || s.department === 'Administration'))) : true;
+    const matchesRole = roleFilter ? (s.role === roleFilter || String(s.role).toUpperCase().replace(/[\s_-]+/g, '_') === String(roleFilter).toUpperCase().replace(/[\s_-]+/g, '_')) : true;
     return matchesSearch && matchesDept && matchesRole;
   });
 
-  const topLevelStaff = filteredStaff.filter(s => s.role === 'System Admin' || s.role === 'Director');
+  const topLevelStaff = filteredStaff.filter(s => isTopRole(s.role) || s.department === 'Administration');
   
-  const classCoordStaff = filteredStaff.filter(s => s.department === 'Class Coordination');
+  const classCoordStaff = filteredStaff.filter(s => !isTopRole(s.role) && s.department === 'Class Coordination');
   const groupedByBusiness = classCoordStaff.reduce((acc, staff) => {
       const biz = staff.businessType || 'Unassigned';
       if(!acc[biz]) acc[biz] = [];
@@ -217,7 +227,7 @@ export default function StaffManagement({ loggedInUser }) {
       return acc;
   }, {});
 
-  const otherDeptsStaff = filteredStaff.filter(s => s.department && s.department !== 'Class Coordination');
+  const otherDeptsStaff = filteredStaff.filter(s => !isTopRole(s.role) && s.department && s.department !== 'Class Coordination' && s.department !== 'Administration');
   const groupedByDept = otherDeptsStaff.reduce((acc, staff) => {
       const dept = staff.department;
       if(!acc[dept]) acc[dept] = [];
@@ -225,7 +235,13 @@ export default function StaffManagement({ loggedInUser }) {
       return acc;
   }, {});
 
-  if (loading) return <div className="flex h-full items-center justify-center min-h-[60vh]"><Loader2 size={40} className="animate-spin text-brand-accent" /></div>;
+  const unassignedStaff = filteredStaff.filter(s => !isTopRole(s.role) && (!s.department || s.department === ''));
+
+  if (loading) return (
+    <div className="flex h-full items-center justify-center min-h-[60vh]">
+      <Loader2 size={40} className={`animate-spin ${isModern ? 'text-blue-500' : 'text-brand-accent'}`} />
+    </div>
+  );
 
   return (
     <div className="w-full animate-fade-in pb-12">
@@ -234,64 +250,102 @@ export default function StaffManagement({ loggedInUser }) {
       {(isPhysicalDept || urlDept === 'Physical') && (
         <button
           onClick={() => navigate('/physical/dashboard/overview')}
-          className="mb-4 flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/15 px-4 py-2 rounded-xl text-white font-bold text-xs shadow-lg backdrop-blur-md transition-all active:scale-95 group cursor-pointer"
+          className={`mb-4 flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs shadow-sm transition-all active:scale-95 group cursor-pointer ${
+            isModern 
+              ? (isDarkMode 
+                  ? 'bg-slate-800/80 hover:bg-slate-800 text-slate-200 border border-slate-700' 
+                  : 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-sm')
+              : 'bg-white/10 hover:bg-white/20 border border-white/15 text-white backdrop-blur-md shadow-lg'
+          }`}
         >
-          <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform text-red-400" />
+          <ArrowLeft size={16} className={`group-hover:-translate-x-1 transition-transform ${isModern ? 'text-red-500' : 'text-red-400'}`} />
           <span>Back to Physical Dashboard</span>
         </button>
       )}
 
-      {/* Clean Glass Header Area */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-10">
+      {/* Header Area */}
+      <div className={`flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-8 ${
+        isModern 
+          ? (isDarkMode 
+              ? 'bg-[#0D1424] border border-slate-800 p-6 md:p-8 rounded-2xl shadow-sm' 
+              : 'bg-white border border-slate-200 p-6 md:p-8 rounded-2xl shadow-sm')
+          : 'mb-10'
+      }`}>
         <div>
-          <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight flex items-center gap-3 drop-shadow-md">
-            <Users className={isSocialMediaDept ? "text-indigo-400" : (isPhysicalDept ? "text-red-400" : "text-brand-accent")} size={32}/> 
+          <h1 className={`text-2xl md:text-3xl font-extrabold tracking-tight flex items-center gap-3 ${
+            isModern ? (isDarkMode ? 'text-white' : 'text-slate-900') : 'text-white drop-shadow-md'
+          }`}>
+            <Users className={isSocialMediaDept ? "text-indigo-500" : (isPhysicalDept ? "text-red-500" : (isModern ? "text-blue-500" : "text-brand-accent"))} size={32}/> 
             {isAdmin ? 'Staff Directory' : (isSocialMediaDept ? 'Social Media Team' : (isPhysicalDept ? 'Physical Campus Team' : 'My Team'))}
           </h1>
-          <p className="text-gray-300 text-sm font-medium mt-1">
+          <p className={`text-sm font-medium mt-1 ${
+            isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-500') : 'text-gray-300'
+          }`}>
             {isAdmin ? 'Manage system roles, departments, and user access levels.' : (isSocialMediaDept ? 'Manage editors, designers, and creators for Social Media.' : `Manage members for ${isPhysicalDept ? 'Physical Department' : loggedInUser?.department}.`)}
           </p>
         </div>
         
         <div className="flex flex-col xl:flex-row gap-3 w-full lg:w-auto items-center">
           <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-emerald-400" size={16} />
+            <Search className={`absolute left-3 top-1/2 -translate-y-1/2 ${isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-400') : 'text-emerald-400'}`} size={16} />
             <input 
               type="text" 
               placeholder="Search staff..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#0F172A]/80 border border-white/10 backdrop-blur-md rounded-xl py-2.5 pl-9 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-emerald-500 focus:bg-[#0F172A] transition-all shadow-inner placeholder-slate-500"
+              className={`w-full rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium outline-none transition-all ${
+                isModern
+                  ? (isDarkMode 
+                      ? 'bg-slate-900 border border-slate-700 text-slate-100 placeholder-slate-500 focus:border-blue-500' 
+                      : 'bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400 focus:bg-white focus:border-blue-500 shadow-sm')
+                  : 'w-full bg-[#0F172A]/80 border border-white/10 backdrop-blur-md rounded-xl py-2.5 pl-9 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-emerald-500 focus:bg-[#0F172A] shadow-inner placeholder-slate-500'
+              }`}
             />
           </div>
           
           {!isSocialMediaDept && (
             <div className="relative w-full sm:w-48">
-              <Layers className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-400" size={16} />
+              <Layers className={`absolute left-3 top-1/2 -translate-y-1/2 ${isModern ? 'text-slate-400' : 'text-blue-400'}`} size={16} />
               <select 
                 value={deptFilter} 
                 onChange={(e) => setDeptFilter(e.target.value)}
-                className="w-full bg-[#0F172A]/80 border border-white/10 backdrop-blur-md rounded-xl py-2.5 pl-9 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-blue-500 focus:bg-[#0F172A] transition-all shadow-inner appearance-none cursor-pointer"
+                className={`w-full rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium outline-none appearance-none cursor-pointer transition-all ${
+                  isModern
+                    ? (isDarkMode 
+                        ? 'bg-slate-900 border border-slate-700 text-slate-200 focus:border-blue-500' 
+                        : 'bg-slate-50 border border-slate-200 text-slate-700 focus:bg-white focus:border-blue-500 shadow-sm')
+                    : 'w-full bg-[#0F172A]/80 border border-white/10 backdrop-blur-md rounded-xl py-2.5 pl-9 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-blue-500 focus:bg-[#0F172A] shadow-inner'
+                }`}
               >
-                 <option value="" className="bg-[#0F172A] text-slate-200">All Departments</option>
-                 {allDepts.map(d => <option key={d} value={d} className="bg-[#0F172A] text-slate-200">{d}</option>)}
+                 <option value="" className={isModern ? (isDarkMode ? 'bg-slate-900 text-slate-200' : 'bg-white text-slate-800') : 'bg-[#0F172A] text-slate-200'}>All Departments</option>
+                 {allDepts.map(d => <option key={d} value={d} className={isModern ? (isDarkMode ? 'bg-slate-900 text-slate-200' : 'bg-white text-slate-800') : 'bg-[#0F172A] text-slate-200'}>{d}</option>)}
               </select>
             </div>
           )}
 
           <div className="relative w-full sm:w-48">
-            <Briefcase className="absolute left-3 top-1/2 -translate-y-1/2 text-purple-400" size={16} />
+            <Briefcase className={`absolute left-3 top-1/2 -translate-y-1/2 ${isModern ? 'text-slate-400' : 'text-purple-400'}`} size={16} />
             <select 
               value={roleFilter} 
               onChange={(e) => setRoleFilter(e.target.value)}
-              className="w-full bg-[#0F172A]/80 border border-white/10 backdrop-blur-md rounded-xl py-2.5 pl-9 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-purple-500 focus:bg-[#0F172A] transition-all shadow-inner appearance-none cursor-pointer"
+              className={`w-full rounded-xl py-2.5 pl-9 pr-4 text-sm font-medium outline-none appearance-none cursor-pointer transition-all ${
+                isModern
+                  ? (isDarkMode 
+                      ? 'bg-slate-900 border border-slate-700 text-slate-200 focus:border-blue-500' 
+                      : 'bg-slate-50 border border-slate-200 text-slate-700 focus:bg-white focus:border-blue-500 shadow-sm')
+                  : 'w-full bg-[#0F172A]/80 border border-white/10 backdrop-blur-md rounded-xl py-2.5 pl-9 pr-4 text-sm font-bold text-slate-200 outline-none focus:border-purple-500 focus:bg-[#0F172A] shadow-inner'
+              }`}
             >
-               <option value="" className="bg-[#0F172A] text-slate-200">All Positions</option>
-               {allRoles.map(r => <option key={r} value={r} className="bg-[#0F172A] text-slate-200">{r}</option>)}
+               <option value="" className={isModern ? (isDarkMode ? 'bg-slate-900 text-slate-200' : 'bg-white text-slate-800') : 'bg-[#0F172A] text-slate-200'}>All Positions</option>
+               {allRoles.map(r => <option key={r} value={r} className={isModern ? (isDarkMode ? 'bg-slate-900 text-slate-200' : 'bg-white text-slate-800') : 'bg-[#0F172A] text-slate-200'}>{r}</option>)}
             </select>
           </div>
 
-          <button onClick={() => { resetForm(); setShowModal(true); }} className="w-full sm:w-auto bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white px-6 py-2.5 rounded-xl font-black uppercase tracking-wider text-xs flex items-center justify-center gap-2 transition-all shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.5)] outline-none border border-transparent shrink-0">
+          <button onClick={() => { resetForm(); setShowModal(true); }} className={`w-full sm:w-auto px-6 py-2.5 rounded-xl font-bold uppercase tracking-wider text-xs flex items-center justify-center gap-2 transition-all outline-none shrink-0 cursor-pointer ${
+            isModern 
+              ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md active:scale-95' 
+              : 'bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_0_25px_rgba(99,102,241,0.5)]'
+          }`}>
             <UserPlus size={16}/> Add Staff
           </button>
         </div>
@@ -302,8 +356,12 @@ export default function StaffManagement({ loggedInUser }) {
         {/* Physical Department Dedicated Section */}
         {(isPhysicalDept || deptFilter === 'Physical') && filteredStaff.length > 0 && (
           <section>
-            <h2 className="text-sm font-extrabold text-white mb-4 border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-wider drop-shadow-sm">
-              <Users className="text-red-400" size={18}/> Physical Campus Staff & Members ({filteredStaff.length})
+            <h2 className={`text-sm font-extrabold mb-4 pb-2 flex items-center gap-2 uppercase tracking-wider ${
+              isModern 
+                ? (isDarkMode ? 'text-slate-200 border-b border-slate-800' : 'text-slate-800 border-b border-slate-200') 
+                : 'text-white border-b border-white/10 drop-shadow-sm'
+            }`}>
+              <Users className="text-red-500" size={18}/> Physical Campus Staff & Members ({filteredStaff.length})
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
               {filteredStaff.map(staff => (
@@ -315,6 +373,8 @@ export default function StaffManagement({ loggedInUser }) {
                   handleGhostLogin={handleGhostLogin} 
                   color="red" 
                   canEdit={true} 
+                  isModern={isModern}
+                  isDarkMode={isDarkMode}
                 />
               ))}
             </div>
@@ -324,8 +384,12 @@ export default function StaffManagement({ loggedInUser }) {
         {/* Social Media Department Dedicated Section */}
         {isSocialMediaDept && !isPhysicalDept && filteredStaff.length > 0 && (
           <section>
-            <h2 className="text-sm font-extrabold text-white mb-4 border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-wider drop-shadow-sm">
-              <Users className="text-indigo-400" size={18}/> Social Media Staff & Editors ({filteredStaff.length})
+            <h2 className={`text-sm font-extrabold mb-4 pb-2 flex items-center gap-2 uppercase tracking-wider ${
+              isModern 
+                ? (isDarkMode ? 'text-slate-200 border-b border-slate-800' : 'text-slate-800 border-b border-slate-200') 
+                : 'text-white border-b border-white/10 drop-shadow-sm'
+            }`}>
+              <Users className="text-indigo-500" size={18}/> Social Media Staff & Editors ({filteredStaff.length})
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
               {filteredStaff.map(staff => (
@@ -337,6 +401,8 @@ export default function StaffManagement({ loggedInUser }) {
                   handleGhostLogin={handleGhostLogin} 
                   color="purple" 
                   canEdit={true} 
+                  isModern={isModern}
+                  isDarkMode={isDarkMode}
                 />
               ))}
             </div>
@@ -344,13 +410,29 @@ export default function StaffManagement({ loggedInUser }) {
         )}
 
         {/* System Administration */}
-        {!isSocialMediaDept && isAdmin && topLevelStaff.length > 0 && (
+        {!isSocialMediaDept && topLevelStaff.length > 0 && (
           <section>
-            <h2 className="text-sm font-extrabold text-white mb-4 border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-wider drop-shadow-sm">
-              <Shield className="text-purple-400" size={18}/> Administration
+            <h2 className={`text-sm font-extrabold mb-4 pb-2 flex items-center gap-2 uppercase tracking-wider ${
+              isModern 
+                ? (isDarkMode ? 'text-slate-200 border-b border-slate-800' : 'text-slate-800 border-b border-slate-200') 
+                : 'text-white border-b border-white/10 drop-shadow-sm'
+            }`}>
+              <Shield className="text-purple-500" size={18}/> Administration
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-              {topLevelStaff.map(staff => <MinimalStaffCard key={staff.id} staff={staff} openEditModal={openEditModal} handleDelete={handleDelete} handleGhostLogin={handleGhostLogin} color="purple" canEdit={true} />)}
+              {topLevelStaff.map(staff => (
+                <MinimalStaffCard 
+                  key={staff.id} 
+                  staff={staff} 
+                  openEditModal={openEditModal} 
+                  handleDelete={handleDelete} 
+                  handleGhostLogin={handleGhostLogin} 
+                  color="purple" 
+                  canEdit={true} 
+                  isModern={isModern}
+                  isDarkMode={isDarkMode}
+                />
+              ))}
             </div>
           </section>
         )}
@@ -358,15 +440,35 @@ export default function StaffManagement({ loggedInUser }) {
         {/* Class Coordination Department */}
         {!isSocialMediaDept && Object.keys(groupedByBusiness).length > 0 && (
            <section>
-              <h2 className="text-sm font-extrabold text-white mb-4 border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-wider drop-shadow-sm">
-                <Layers className="text-blue-400" size={18}/> Class Coordination
+              <h2 className={`text-sm font-extrabold mb-4 pb-2 flex items-center gap-2 uppercase tracking-wider ${
+                isModern 
+                  ? (isDarkMode ? 'text-slate-200 border-b border-slate-800' : 'text-slate-800 border-b border-slate-200') 
+                  : 'text-white border-b border-white/10 drop-shadow-sm'
+              }`}>
+                <Layers className="text-blue-500" size={18}/> Class Coordination
               </h2>
               <div className="space-y-8 mt-4">
                  {Object.keys(groupedByBusiness).map(biz => (
                     <div key={biz}>
-                       <h3 className="text-[11px] font-extrabold text-gray-400 uppercase tracking-widest mb-3">Business: {biz}</h3>
+                       <h3 className={`text-[11px] font-extrabold uppercase tracking-widest mb-3 ${
+                         isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-500') : 'text-gray-400'
+                       }`}>
+                         Business: {biz}
+                       </h3>
                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                          {groupedByBusiness[biz].map(staff => <MinimalStaffCard key={staff.id} staff={staff} openEditModal={openEditModal} handleDelete={handleDelete} handleGhostLogin={handleGhostLogin} color="blue" canEdit={true} />)}
+                          {groupedByBusiness[biz].map(staff => (
+                            <MinimalStaffCard 
+                              key={staff.id} 
+                              staff={staff} 
+                              openEditModal={openEditModal} 
+                              handleDelete={handleDelete} 
+                              handleGhostLogin={handleGhostLogin} 
+                              color="blue" 
+                              canEdit={true} 
+                              isModern={isModern}
+                              isDarkMode={isDarkMode}
+                            />
+                          ))}
                        </div>
                     </div>
                  ))}
@@ -377,15 +479,35 @@ export default function StaffManagement({ loggedInUser }) {
         {/* Other Departments */}
         {!isSocialMediaDept && Object.keys(groupedByDept).length > 0 && (
            <section>
-              <h2 className="text-sm font-extrabold text-white mb-4 border-b border-white/10 pb-2 flex items-center gap-2 uppercase tracking-wider drop-shadow-sm">
-                <Briefcase className="text-emerald-400" size={18}/> Other Departments
+              <h2 className={`text-sm font-extrabold mb-4 pb-2 flex items-center gap-2 uppercase tracking-wider ${
+                isModern 
+                  ? (isDarkMode ? 'text-slate-200 border-b border-slate-800' : 'text-slate-800 border-b border-slate-200') 
+                  : 'text-white border-b border-white/10 drop-shadow-sm'
+              }`}>
+                <Briefcase className="text-emerald-500" size={18}/> Other Departments
               </h2>
               <div className="space-y-8 mt-4">
                  {Object.keys(groupedByDept).map(dept => (
                     <div key={dept}>
-                       <h3 className="text-[11px] font-extrabold text-gray-400 uppercase tracking-widest mb-3">Dept: {dept}</h3>
+                       <h3 className={`text-[11px] font-extrabold uppercase tracking-widest mb-3 ${
+                         isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-500') : 'text-gray-400'
+                       }`}>
+                         Dept: {dept}
+                       </h3>
                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-                          {groupedByDept[dept].map(staff => <MinimalStaffCard key={staff.id} staff={staff} openEditModal={openEditModal} handleDelete={handleDelete} handleGhostLogin={handleGhostLogin} color="emerald" canEdit={true} />)}
+                          {groupedByDept[dept].map(staff => (
+                            <MinimalStaffCard 
+                              key={staff.id} 
+                              staff={staff} 
+                              openEditModal={openEditModal} 
+                              handleDelete={handleDelete} 
+                              handleGhostLogin={handleGhostLogin} 
+                              color="emerald" 
+                              canEdit={true} 
+                              isModern={isModern}
+                              isDarkMode={isDarkMode}
+                            />
+                          ))}
                        </div>
                     </div>
                  ))}
@@ -393,71 +515,137 @@ export default function StaffManagement({ loggedInUser }) {
            </section>
         )}
 
+        {/* Unassigned / General Staff */}
+        {!isSocialMediaDept && unassignedStaff.length > 0 && (
+           <section>
+              <h2 className={`text-sm font-extrabold mb-4 pb-2 flex items-center gap-2 uppercase tracking-wider ${
+                isModern 
+                  ? (isDarkMode ? 'text-slate-200 border-b border-slate-800' : 'text-slate-800 border-b border-slate-200') 
+                  : 'text-white border-b border-white/10 drop-shadow-sm'
+              }`}>
+                <Users className="text-amber-500" size={18}/> Other Staff (General / Unassigned)
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5 mt-4">
+                 {unassignedStaff.map(staff => (
+                    <MinimalStaffCard 
+                      key={staff.id} 
+                      staff={staff} 
+                      openEditModal={openEditModal} 
+                      handleDelete={handleDelete} 
+                      handleGhostLogin={handleGhostLogin} 
+                      color="amber" 
+                      canEdit={true} 
+                      isModern={isModern}
+                      isDarkMode={isDarkMode}
+                    />
+                 ))}
+              </div>
+           </section>
+        )}
+
         {filteredStaff.length === 0 && (
-          <div className="text-center py-20 bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.1)]">
-            <Users size={40} className="mx-auto mb-4 text-gray-500" />
-            <p className="text-sm font-medium text-gray-400">No staff members found.</p>
+          <div className={`text-center py-20 rounded-2xl border ${
+            isModern 
+              ? (isDarkMode ? 'bg-[#0D1424] border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-500 shadow-sm')
+              : 'bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 text-gray-400 shadow-[0_8px_32px_0_rgba(0,0,0,0.1)]'
+          }`}>
+            <Users size={40} className="mx-auto mb-4 opacity-40" />
+            <p className="text-sm font-medium">No staff members found.</p>
           </div>
         )}
       </div>
 
-      {/* Edit/Add Modal - Pure Glassmorphism */}
+      {/* Edit/Add Modal */}
       {showModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-          <div className="bg-[#090E17]/80 backdrop-blur-3xl border border-white/20 rounded-2xl p-6 w-full max-w-xl shadow-[0_8px_32px_0_rgba(0,0,0,0.6)] overflow-y-auto max-h-[90vh] custom-scrollbar">
+          <div className={`rounded-2xl p-6 w-full max-w-xl overflow-y-auto max-h-[90vh] custom-scrollbar transition-all ${
+            isModern
+              ? (isDarkMode 
+                  ? 'bg-[#0D1424] border border-slate-800 text-slate-100 shadow-2xl' 
+                  : 'bg-white border border-slate-200 text-slate-900 shadow-2xl')
+              : 'bg-[#090E17]/80 backdrop-blur-3xl border border-white/20 text-white shadow-[0_8px_32px_0_rgba(0,0,0,0.6)]'
+          }`}>
             
-            <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
-              <h3 className="text-lg font-extrabold text-white">
+            <div className={`flex justify-between items-center mb-6 pb-4 border-b ${
+              isModern ? (isDarkMode ? 'border-slate-800' : 'border-slate-200') : 'border-white/10'
+            }`}>
+              <h3 className={`text-lg font-extrabold ${isModern ? (isDarkMode ? 'text-white' : 'text-slate-900') : 'text-white'}`}>
                  {editMode ? 'Edit Staff Profile' : 'Add New Staff'}
               </h3>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white transition-colors outline-none"><X size={20}/></button>
+              <button onClick={() => setShowModal(false)} className={`${isModern ? (isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900') : 'text-gray-400 hover:text-white'} transition-colors outline-none cursor-pointer`}><X size={20}/></button>
             </div>
             
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">First Name</label>
-                  <input type="text" required value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/50 transition-all shadow-inner placeholder-gray-500" />
+                  <label className={`text-[11px] font-bold mb-1.5 block uppercase tracking-wider ${isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-600') : 'text-gray-400'}`}>First Name</label>
+                  <input type="text" required value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} className={`w-full rounded-lg p-2.5 text-sm outline-none transition-all ${
+                    isModern 
+                      ? (isDarkMode ? 'bg-slate-900 border border-slate-700 text-white focus:border-blue-500' : 'bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:border-blue-500 shadow-sm')
+                      : 'bg-black/30 border border-white/10 text-white focus:border-brand-accent focus:bg-black/50 shadow-inner placeholder-gray-500'
+                  }`} />
                 </div>
                 <div>
-                  <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Last Name</label>
-                  <input type="text" required value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/50 transition-all shadow-inner placeholder-gray-500" />
+                  <label className={`text-[11px] font-bold mb-1.5 block uppercase tracking-wider ${isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-600') : 'text-gray-400'}`}>Last Name</label>
+                  <input type="text" required value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} className={`w-full rounded-lg p-2.5 text-sm outline-none transition-all ${
+                    isModern 
+                      ? (isDarkMode ? 'bg-slate-900 border border-slate-700 text-white focus:border-blue-500' : 'bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:border-blue-500 shadow-sm')
+                      : 'bg-black/30 border border-white/10 text-white focus:border-brand-accent focus:bg-black/50 shadow-inner placeholder-gray-500'
+                  }`} />
                 </div>
                 <div>
-                  <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Phone</label>
-                  <input type="text" required value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/50 transition-all shadow-inner placeholder-gray-500" />
+                  <label className={`text-[11px] font-bold mb-1.5 block uppercase tracking-wider ${isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-600') : 'text-gray-400'}`}>Phone</label>
+                  <input type="text" required value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className={`w-full rounded-lg p-2.5 text-sm outline-none transition-all ${
+                    isModern 
+                      ? (isDarkMode ? 'bg-slate-900 border border-slate-700 text-white focus:border-blue-500' : 'bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:border-blue-500 shadow-sm')
+                      : 'bg-black/30 border border-white/10 text-white focus:border-brand-accent focus:bg-black/50 shadow-inner placeholder-gray-500'
+                  }`} />
                 </div>
                 <div>
-                  <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">NIC</label>
-                  <input type="text" required value={formData.nic} onChange={e => setFormData({...formData, nic: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/50 transition-all shadow-inner placeholder-gray-500" />
+                  <label className={`text-[11px] font-bold mb-1.5 block uppercase tracking-wider ${isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-600') : 'text-gray-400'}`}>NIC</label>
+                  <input type="text" required value={formData.nic} onChange={e => setFormData({...formData, nic: e.target.value})} className={`w-full rounded-lg p-2.5 text-sm outline-none transition-all ${
+                    isModern 
+                      ? (isDarkMode ? 'bg-slate-900 border border-slate-700 text-white focus:border-blue-500' : 'bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:border-blue-500 shadow-sm')
+                      : 'bg-black/30 border border-white/10 text-white focus:border-brand-accent focus:bg-black/50 shadow-inner placeholder-gray-500'
+                  }`} />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 border-t border-white/5 pt-5 mt-2">
-                <div className={(formData.role === 'System Admin' || formData.role === 'Director') ? 'col-span-2' : 'col-span-1'}>
-                  <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Role</label>
-                  <select disabled={!canManageStaff} value={formData.role} onChange={e => handleRoleChange(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
-                    {canManageStaff ? allRoles.filter(r => isAdmin ? ((r !== 'Caller' && r !== 'Call Center Agent') || r === formData.role) : (['Manager', 'Ass Manager', 'Coordinator', 'Paper Marker', 'Caller', 'Call Center Agent', 'Staff', 'Social Media Staff'].includes(r) || r === formData.role)).map(r => <option key={r} value={r} className="bg-slate-800 text-white">{r}</option>) : <option value={formData.role} className="bg-slate-800 text-white">{formData.role}</option>}
+              <div className={`grid grid-cols-2 gap-4 border-t pt-5 mt-2 ${
+                isModern ? (isDarkMode ? 'border-slate-800' : 'border-slate-100') : 'border-white/5'
+              }`}>
+                <div className={isTopRole(formData.role) ? 'col-span-2' : 'col-span-1'}>
+                  <label className={`text-[11px] font-bold mb-1.5 block uppercase tracking-wider ${isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-600') : 'text-gray-400'}`}>Role</label>
+                  <select disabled={!canManageStaff} value={formData.role} onChange={e => handleRoleChange(e.target.value)} className={`w-full rounded-lg p-2.5 text-sm outline-none disabled:opacity-60 cursor-pointer appearance-none ${
+                    isModern 
+                      ? (isDarkMode ? 'bg-slate-900 border border-slate-700 text-white focus:border-blue-500' : 'bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:border-blue-500 shadow-sm')
+                      : 'bg-black/30 border border-white/10 text-white focus:border-brand-accent shadow-inner'
+                  }`}>
+                    {canManageStaff ? allRoles.filter(r => isAdmin ? ((r !== 'Caller' && r !== 'Call Center Agent') || r === formData.role) : (['Admin Manager', 'Manager', 'Ass Manager', 'Coordinator', 'Paper Marker', 'Caller', 'Call Center Agent', 'Petty Cash Officer', 'Staff', 'Social Media Staff'].includes(r) || r === formData.role)).map(r => <option key={r} value={r} className={isModern && !isDarkMode ? 'bg-white text-slate-800' : 'bg-slate-800 text-white'}>{r}</option>) : <option value={formData.role} className={isModern && !isDarkMode ? 'bg-white text-slate-800' : 'bg-slate-800 text-white'}>{formData.role}</option>}
                   </select>
                 </div>
 
-                {formData.role !== 'System Admin' && formData.role !== 'Director' && (
+                {!isTopRole(formData.role) && (
                   <div className="col-span-1">
-                    <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Department</label>
-                    <select disabled={!canManageStaff || formData.role === 'Coordinator' || formData.role === 'Caller' || formData.role === 'Call Center Agent' || formData.role === 'Social Media Manager' || formData.role === 'Social Media Staff'} value={formData.department} onChange={e => handleDeptChange(e.target.value)} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent disabled:opacity-60 shadow-inner cursor-pointer appearance-none">
+                    <label className={`text-[11px] font-bold mb-1.5 block uppercase tracking-wider ${isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-600') : 'text-gray-400'}`}>Department</label>
+                    <select disabled={!canManageStaff || formData.role === 'Coordinator' || formData.role === 'Caller' || formData.role === 'Call Center Agent' || formData.role === 'Social Media Manager' || formData.role === 'Social Media Staff'} value={formData.department} onChange={e => handleDeptChange(e.target.value)} className={`w-full rounded-lg p-2.5 text-sm outline-none disabled:opacity-60 cursor-pointer appearance-none ${
+                      isModern 
+                        ? (isDarkMode ? 'bg-slate-900 border border-slate-700 text-white focus:border-blue-500' : 'bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:border-blue-500 shadow-sm')
+                        : 'bg-black/30 border border-white/10 text-white focus:border-brand-accent shadow-inner'
+                    }`}>
                       {canManageStaff 
                           ? (formData.role === 'Staff' 
-                              ? staffDepts.map(d => <option key={d} value={d} className="bg-slate-800 text-white">{d}</option>) 
-                              : allDepts.map(d => <option key={d} value={d} className="bg-slate-800 text-white">{d}</option>)) 
-                          : <option value={formData.department} className="bg-slate-800 text-white">{formData.department}</option>
+                              ? staffDepts.map(d => <option key={d} value={d} className={isModern && !isDarkMode ? 'bg-white text-slate-800' : 'bg-slate-800 text-white'}>{d}</option>) 
+                              : allDepts.map(d => <option key={d} value={d} className={isModern && !isDarkMode ? 'bg-white text-slate-800' : 'bg-slate-800 text-white'}>{d}</option>)) 
+                          : <option value={formData.department} className={isModern && !isDarkMode ? 'bg-white text-slate-800' : 'bg-slate-800 text-white'}>{formData.department}</option>
                       }
                     </select>
                   </div>
                 )}
 
-                {formData.role !== 'System Admin' && formData.role !== 'Director' && (
+                {!isTopRole(formData.role) && (
                   <div className="col-span-2">
-                    <label className="text-[11px] font-bold text-gray-400 mb-1.5 block uppercase tracking-wider">Business Assignment(s)</label>
+                    <label className={`text-[11px] font-bold mb-1.5 block uppercase tracking-wider ${isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-600') : 'text-gray-400'}`}>Business Assignment(s)</label>
                     <div className="flex flex-wrap gap-2">
                         {businesses.length > 0 ? businesses.map(b => {
                             const isSelected = (formData.businessType || '').split(',').map(x => x.trim()).includes(b.name.trim());
@@ -466,7 +654,15 @@ export default function StaffManagement({ loggedInUser }) {
                                     key={b.id} 
                                     type="button"
                                     onClick={() => handleBusinessToggle(b.name)}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${isSelected ? 'bg-brand-accent/20 text-brand-accent border-brand-accent/50' : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'}`}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all border cursor-pointer ${
+                                      isModern
+                                        ? (isSelected 
+                                            ? 'bg-blue-50 text-blue-700 border-blue-300 dark:bg-blue-500/20 dark:text-blue-300 dark:border-blue-500/40' 
+                                            : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200/60 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700 dark:hover:bg-slate-700')
+                                        : (isSelected 
+                                            ? 'bg-brand-accent/20 text-brand-accent border-brand-accent/50' 
+                                            : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10')
+                                    }`}
                                 >
                                     {b.name}
                                 </button>
@@ -477,17 +673,31 @@ export default function StaffManagement({ loggedInUser }) {
                 )}
               </div>
               
-              <div className="border-t border-white/5 pt-5 mt-2">
-                <label className="text-[11px] font-bold text-gray-400 mb-1.5 flex justify-between uppercase tracking-wider">
+              <div className={`border-t pt-5 mt-2 ${
+                isModern ? (isDarkMode ? 'border-slate-800' : 'border-slate-100') : 'border-white/5'
+              }`}>
+                <label className={`text-[11px] font-bold mb-1.5 flex justify-between uppercase tracking-wider ${isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-600') : 'text-gray-400'}`}>
                   <span>Password</span>
-                  {editMode && <span className="text-brand-accent lowercase font-medium tracking-normal">Optional: Leave blank</span>}
+                  {editMode && <span className={`${isModern ? 'text-blue-500' : 'text-brand-accent'} lowercase font-medium tracking-normal`}>Optional: Leave blank</span>}
                 </label>
-                <input type="password" required={!editMode} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-black/30 border border-white/10 rounded-lg p-2.5 text-sm text-white outline-none focus:border-brand-accent focus:bg-black/50 transition-all shadow-inner" />
+                <input type="password" required={!editMode} value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className={`w-full rounded-lg p-2.5 text-sm outline-none transition-all ${
+                  isModern 
+                    ? (isDarkMode ? 'bg-slate-900 border border-slate-700 text-white focus:border-blue-500' : 'bg-slate-50 border border-slate-200 text-slate-900 focus:bg-white focus:border-blue-500 shadow-sm')
+                    : 'bg-black/30 border border-white/10 text-white focus:border-brand-accent focus:bg-black/50 shadow-inner'
+                }`} />
               </div>
               
               <div className="pt-4 flex justify-end gap-3">
-                <button type="button" onClick={() => setShowModal(false)} className="px-5 py-2.5 rounded-lg text-sm font-bold text-gray-400 hover:text-white hover:bg-white/5 transition-all outline-none border border-transparent">Cancel</button>
-                <button type="submit" disabled={saving} className="bg-brand-accent/90 hover:bg-brand-accent text-white font-bold py-2.5 px-6 rounded-lg flex items-center justify-center disabled:opacity-70 transition-all shadow-[0_4px_15px_rgba(225,29,72,0.4)] border border-transparent outline-none">
+                <button type="button" onClick={() => setShowModal(false)} className={`px-5 py-2.5 rounded-lg text-sm font-bold transition-all outline-none border border-transparent cursor-pointer ${
+                  isModern 
+                    ? (isDarkMode ? 'text-slate-400 hover:text-white hover:bg-slate-800' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100')
+                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                }`}>Cancel</button>
+                <button type="submit" disabled={saving} className={`font-bold py-2.5 px-6 rounded-xl flex items-center justify-center disabled:opacity-70 transition-all outline-none cursor-pointer ${
+                  isModern
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-md'
+                    : 'bg-brand-accent/90 hover:bg-brand-accent text-white shadow-[0_4px_15px_rgba(225,29,72,0.4)]'
+                }`}>
                   {saving ? <Loader2 className="animate-spin" size={18}/> : (editMode ? 'Save Changes' : 'Create Staff')}
                 </button>
               </div>
@@ -500,84 +710,144 @@ export default function StaffManagement({ loggedInUser }) {
   );
 }
 
-// Glassmorphism Staff Card Component
-function MinimalStaffCard({ staff, openEditModal, handleDelete, handleGhostLogin, color, canEdit }) {
+// Staff Card Component
+function MinimalStaffCard({ staff, openEditModal, handleDelete, handleGhostLogin, color, canEdit, isModern, isDarkMode }) {
   const isPaperMarker = staff.role === 'Paper Marker';
   const resolvedColor = isPaperMarker ? 'amber' : color;
 
+  // Modern Clean Badges
+  const modernBadgeColors = {
+    purple: isDarkMode ? 'bg-purple-500/15 text-purple-300 border-purple-500/30' : 'bg-purple-50 text-purple-700 border-purple-200',
+    blue: isDarkMode ? 'bg-blue-500/15 text-blue-300 border-blue-500/30' : 'bg-blue-50 text-blue-700 border-blue-200',
+    emerald: isDarkMode ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    amber: isDarkMode ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' : 'bg-amber-50 text-amber-700 border-amber-200',
+    red: isDarkMode ? 'bg-rose-500/15 text-rose-300 border-rose-500/30' : 'bg-rose-50 text-rose-700 border-rose-200',
+  };
+
   // Pure Glassmorphism Badges
-  const roleBadgeColors = {
+  const classicBadgeColors = {
     purple: 'bg-purple-500/10 text-purple-300 border-purple-500/30',
     blue: 'bg-blue-500/10 text-blue-300 border-blue-500/30',
     emerald: 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30',
     amber: 'bg-amber-500/10 text-amber-300 border-amber-500/30',
+    red: 'bg-rose-500/10 text-rose-300 border-rose-500/30',
   };
 
-  return (
-    <div className="relative bg-[#0F172A]/40 hover:bg-[#0F172A]/80 border border-white/5 hover:border-white/20 rounded-3xl p-6 transition-all duration-500 flex flex-col h-full group overflow-hidden shadow-lg hover:shadow-2xl hover:-translate-y-1 backdrop-blur-sm">
-      
-      {/* Ghost Background Accent - Subtle glow */}
-      <div className={`absolute -top-10 -right-10 w-32 h-32 blur-[60px] opacity-20 group-hover:opacity-40 transition-opacity duration-500 pointer-events-none rounded-full ${resolvedColor === 'purple' ? 'bg-purple-500' : resolvedColor === 'blue' ? 'bg-blue-500' : resolvedColor === 'amber' ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
+  const badgeStyle = isModern ? (modernBadgeColors[resolvedColor] || modernBadgeColors.blue) : (classicBadgeColors[resolvedColor] || classicBadgeColors.blue);
 
-      <div className="flex justify-between items-start mb-5 relative z-10">
+  return (
+    <div className={`relative rounded-2xl p-5 transition-all duration-300 flex flex-col h-full group overflow-hidden ${
+      isModern
+        ? (isDarkMode 
+            ? 'bg-[#0D1424] hover:bg-[#111A2E] border border-slate-800 hover:border-slate-700 shadow-md hover:shadow-xl' 
+            : 'bg-white hover:bg-slate-50/80 border border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md')
+        : 'bg-[#0F172A]/40 hover:bg-[#0F172A]/80 border border-white/5 hover:border-white/20 rounded-3xl p-6 shadow-lg hover:shadow-2xl hover:-translate-y-1 backdrop-blur-sm'
+    }`}>
+      
+      {/* Background Accent glow (Classic only) */}
+      {!isModern && (
+        <div className={`absolute -top-10 -right-10 w-32 h-32 blur-[60px] opacity-20 group-hover:opacity-40 transition-opacity duration-500 pointer-events-none rounded-full ${resolvedColor === 'purple' ? 'bg-purple-500' : resolvedColor === 'blue' ? 'bg-blue-500' : resolvedColor === 'amber' ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
+      )}
+
+      <div className="flex justify-between items-start mb-4 relative z-10">
         <div className="flex items-center gap-3">
-          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-inner font-black text-lg ${resolvedColor === 'purple' ? 'bg-gradient-to-br from-purple-500/80 to-indigo-600/80 shadow-purple-500/20' : resolvedColor === 'blue' ? 'bg-gradient-to-br from-blue-500/80 to-cyan-600/80 shadow-blue-500/20' : resolvedColor === 'amber' ? 'bg-gradient-to-br from-amber-500/80 to-orange-600/80 shadow-amber-500/20' : 'bg-gradient-to-br from-emerald-500/80 to-teal-600/80 shadow-emerald-500/20'}`}>
+          <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-white font-black text-base shadow-sm shrink-0 ${
+            resolvedColor === 'purple' ? 'bg-gradient-to-br from-purple-600 to-indigo-600' :
+            resolvedColor === 'blue' ? 'bg-gradient-to-br from-blue-600 to-cyan-600' :
+            resolvedColor === 'amber' ? 'bg-gradient-to-br from-amber-500 to-orange-600' :
+            resolvedColor === 'red' ? 'bg-gradient-to-br from-red-500 to-rose-600' :
+            'bg-gradient-to-br from-emerald-500 to-teal-600'
+          }`}>
             {staff.firstName.charAt(0)}{staff.lastName.charAt(0)}
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h3 className="text-base font-black text-slate-100 tracking-wide drop-shadow-sm" title={`${staff.firstName} ${staff.lastName}`}>
+              <h3 className={`text-sm font-bold tracking-tight truncate ${
+                isModern ? (isDarkMode ? 'text-slate-100' : 'text-slate-900') : 'text-slate-100 drop-shadow-sm'
+              }`} title={`${staff.firstName} ${staff.lastName}`}>
                  {staff.firstName} {staff.lastName}
               </h3>
               <BusinessBadge businessType={staff.businessType} role={staff.role} />
             </div>
-            <p className="text-[11px] text-slate-400 font-mono mt-0.5 font-bold tracking-widest">{staff.phone}</p>
+            <p className={`text-[11px] font-mono mt-0.5 font-semibold ${
+              isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-500') : 'text-slate-400 tracking-widest'
+            }`}>{staff.phone}</p>
           </div>
         </div>
       </div>
 
-      <div className="mb-6 relative z-10 space-y-2">
+      <div className="mb-5 relative z-10 space-y-2">
          <div className="flex items-center justify-between">
-           <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Position</span>
-           <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-wider border ${roleBadgeColors[resolvedColor] || roleBadgeColors.blue}`}>
+           <span className={`text-[10px] font-bold uppercase tracking-widest ${
+             isModern ? (isDarkMode ? 'text-slate-500' : 'text-slate-400') : 'text-slate-500'
+           }`}>Position</span>
+           <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-wider border ${badgeStyle}`}>
              {staff.role}
            </span>
          </div>
          {staff.department && (
             <div className="flex items-center justify-between">
-               <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Department</span>
-               <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5"><Briefcase size={10} className="opacity-80"/> {staff.department}</span>
+               <span className={`text-[10px] font-bold uppercase tracking-widest ${
+                 isModern ? (isDarkMode ? 'text-slate-500' : 'text-slate-400') : 'text-slate-500'
+               }`}>Department</span>
+               <span className={`text-[11px] font-semibold flex items-center gap-1.5 ${
+                 isModern ? (isDarkMode ? 'text-slate-300' : 'text-slate-700') : 'text-slate-300'
+               }`}><Briefcase size={10} className="opacity-70"/> {staff.department}</span>
             </div>
          )}
          {staff.businessType && (
             <div className="flex items-center justify-between">
-               <span className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">Business</span>
-               <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5"><Layers size={10} className="opacity-80"/> {staff.businessType}</span>
+               <span className={`text-[10px] font-bold uppercase tracking-widest ${
+                 isModern ? (isDarkMode ? 'text-slate-500' : 'text-slate-400') : 'text-slate-500'
+               }`}>Business</span>
+               <span className={`text-[11px] font-semibold flex items-center gap-1.5 ${
+                 isModern ? (isDarkMode ? 'text-slate-300' : 'text-slate-700') : 'text-slate-300'
+               }`}><Layers size={10} className="opacity-70"/> {staff.businessType}</span>
             </div>
          )}
       </div>
 
       {canEdit && (
-        <div className="mt-auto grid grid-cols-3 gap-2 relative z-10 pt-4 border-t border-white/10">
+        <div className={`mt-auto grid grid-cols-3 gap-2 relative z-10 pt-3 border-t ${
+          isModern ? (isDarkMode ? 'border-slate-800' : 'border-slate-100') : 'border-white/10'
+        }`}>
             <button 
                 onClick={() => handleGhostLogin(staff.id)} 
                 title="Ghost Login to Account"
-                className="bg-purple-500/15 border border-purple-500/30 hover:border-purple-400 hover:bg-purple-500/30 text-purple-300 py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all text-xs font-bold outline-none shadow-sm group/btn cursor-pointer">
-                <Ghost size={15} className="group-hover/btn:scale-110 transition-transform text-purple-300"/>
+                className={`py-2 rounded-xl flex items-center justify-center gap-1.5 transition-all text-xs font-bold outline-none cursor-pointer ${
+                  isModern
+                    ? (isDarkMode 
+                        ? 'bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20' 
+                        : 'bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 shadow-sm')
+                    : 'bg-purple-500/15 border border-purple-500/30 hover:border-purple-400 hover:bg-purple-500/30 text-purple-300 shadow-sm'
+                }`}>
+                <Ghost size={14} className={isModern ? (isDarkMode ? 'text-purple-300' : 'text-purple-600') : 'text-purple-300'}/>
                 <span className="text-[10px]">Ghost</span>
             </button>
             <button 
                 onClick={() => openEditModal(staff)} 
                 title="Edit Details"
-                className="bg-white/5 border border-white/10 hover:border-blue-500 hover:bg-blue-500/20 text-slate-300 hover:text-blue-300 py-2 rounded-xl flex items-center justify-center gap-1 transition-all text-xs outline-none shadow-sm group/btn cursor-pointer">
-                <Edit3 size={14} className="group-hover/btn:scale-110 transition-transform"/>
+                className={`py-2 rounded-xl flex items-center justify-center gap-1 transition-all text-xs font-medium outline-none cursor-pointer ${
+                  isModern
+                    ? (isDarkMode 
+                        ? 'bg-slate-800/60 hover:bg-slate-800 text-slate-300 border border-slate-700' 
+                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 shadow-sm')
+                    : 'bg-white/5 border border-white/10 hover:border-blue-500 hover:bg-blue-500/20 text-slate-300 hover:text-blue-300 shadow-sm'
+                }`}>
+                <Edit3 size={13}/>
                 <span className="text-[10px]">Edit</span>
             </button>
             <button 
                 onClick={() => handleDelete(staff.id)} 
                 title="Delete User"
-                className="bg-white/5 border border-white/10 hover:border-rose-500 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 py-2 rounded-xl flex items-center justify-center gap-1 transition-all text-xs outline-none shadow-sm group/btn cursor-pointer">
-                <Trash2 size={14} className="group-hover/btn:scale-110 transition-transform"/>
+                className={`py-2 rounded-xl flex items-center justify-center gap-1 transition-all text-xs font-medium outline-none cursor-pointer ${
+                  isModern
+                    ? (isDarkMode 
+                        ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20' 
+                        : 'bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 shadow-sm')
+                    : 'bg-white/5 border border-white/10 hover:border-rose-500 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 shadow-sm'
+                }`}>
+                <Trash2 size={13}/>
                 <span className="text-[10px]">Delete</span>
             </button>
         </div>

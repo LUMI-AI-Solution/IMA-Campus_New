@@ -720,9 +720,16 @@ exports.getPayments = async (req, res) => {
             systemTotal = systemTotal - walletBalance;
             if (systemTotal < 0) systemTotal = 0; // Prevent negative expected amount
             
-            const resolvedClassType = p.group?.classType 
-                ? parseInt(p.group.classType) 
-                : (parsedSubjects.some(s => s.courseType === 2) ? 2 : 1);
+            let resolvedClassType = 1;
+            if (parsedSubjects.length > 0) {
+                const hasPaper = parsedSubjects.some(s => s.courseType === 2);
+                const hasTheory = parsedSubjects.some(s => s.courseType === 1);
+                if (hasPaper && !hasTheory) resolvedClassType = 2;
+                else if (hasTheory && !hasPaper) resolvedClassType = 1;
+                else resolvedClassType = parseInt(p.group?.classType || 1, 10);
+            } else {
+                resolvedClassType = parseInt(p.group?.classType || 1, 10);
+            }
             const classTypeName = resolvedClassType === 2 ? 'Paper Class' : 'Theory Class';
 
             const leadDetails = resolveLeadDetails(p, phoneLeadMap);
@@ -963,7 +970,7 @@ const createNextInstallmentPhase = async (payRecord, nextDueDate = null) => {
 
                 if (existingNext) return existingNext;
 
-                let finalNextDueDate = nextDueDate ? new Date(nextDueDate) : new Date();
+                let finalNextDueDate = nextDueDate ? new Date(nextDueDate) : new Date(payRecord.updatedAt || new Date());
                 if (!nextDueDate) {
                     const currentPhase = phases[currentPhaseIndex];
                     const gapDays = parseInt(currentPhase.gapDays || '30', 10);

@@ -550,11 +550,28 @@ const UpgradeOfferWidget = ({ triggerShow, onClose, hideFloatingWidget, compactM
                                                 if (!batch.subjectDetails || batch.subjectDetails.length === 0) return null;
                                                 return (
                                                     <div key={batch.batchId} className="space-y-3.5">
-                                                        <div className="flex items-center gap-2 pl-1">
-                                                            <div className="w-1.5 h-4 bg-gradient-to-b from-rose-500 to-amber-500 rounded-full"></div>
-                                                            <h3 className="text-xs md:text-sm font-black text-slate-300 uppercase tracking-wider">
-                                                                {batch.businessName} - {batch.batchName}
-                                                            </h3>
+                                                        <div className="flex items-center justify-between flex-wrap gap-2 pl-1">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="w-1.5 h-4 bg-gradient-to-b from-rose-500 to-amber-500 rounded-full"></div>
+                                                                <h3 className="text-xs md:text-sm font-black text-slate-300 uppercase tracking-wider">
+                                                                    {batch.businessName} - {batch.batchName}
+                                                                </h3>
+                                                            </div>
+                                                            {batch.upgradeOption && (
+                                                                <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full border ${
+                                                                    batch.upgradeOption === 1 
+                                                                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' 
+                                                                        : batch.upgradeOption === 2 
+                                                                            ? 'bg-blue-500/20 text-blue-300 border-blue-500/30' 
+                                                                            : 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                                                }`}>
+                                                                    {batch.upgradeOption === 1 
+                                                                        ? 'Option 01 • Month 2 Upgrade' 
+                                                                        : batch.upgradeOption === 2 
+                                                                            ? 'Option 02 • Month 3 Upgrade' 
+                                                                            : 'Option 03 • Month 4 Upgrade (Final Chance)'}
+                                                                </span>
+                                                            )}
                                                         </div>
 
                                                         <div className="flex flex-col gap-3">

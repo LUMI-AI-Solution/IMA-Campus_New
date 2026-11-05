@@ -72,8 +72,8 @@ export default function CallCenterAgentDashboard() {
     }
   };
 
-  const fetchBusinessLeads = async () => {
-    setDetailLoading(true);
+  const fetchBusinessLeads = async (keepCurrentPage = false) => {
+    if (!keepCurrentPage) setDetailLoading(true);
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get('/call-center/agent-v2/business-leads', {
@@ -84,7 +84,7 @@ export default function CallCenterAgentDashboard() {
         }
       });
       setLeads(response.data || []);
-      setCurrentPage(1); 
+      if (!keepCurrentPage) setCurrentPage(1); 
     } catch (error) {
       console.error("Leads fetch error", error);
       toast.error("Failed to load leads for this business.");
@@ -96,6 +96,42 @@ export default function CallCenterAgentDashboard() {
   const handleSaveLead = async (leadId, roundNum, data) => {
     try {
       const token = localStorage.getItem('token');
+      // Optimistic update so UI immediately reflects remarks and outcome
+      setLeads(prevLeads => prevLeads.map(l => {
+        if (l.id !== leadId) return l;
+        if (roundNum === 2) {
+          const existingRps = l.roundProgress || [];
+          const r2Index = existingRps.findIndex(r => r.roundNum === 2);
+          const updatedR2 = {
+            roundNum: 2,
+            phase: data.callOutcome === 'NO_ANSWER' ? Math.min(3, (l.roundData?.phase || 1) + 1) : (l.roundData?.phase || 1),
+            callStatus: data.callOutcome || l.roundData?.callStatus,
+            callMethod: data.callMethod || l.roundData?.callMethod,
+            callAttempt: data.attempts || l.roundData?.callAttempt,
+            feedback: data.feedback !== undefined ? data.feedback : l.roundData?.feedback
+          };
+          const newRps = r2Index >= 0 
+            ? existingRps.map((r, i) => i === r2Index ? { ...r, ...updatedR2 } : r)
+            : [...existingRps, updatedR2];
+          return {
+            ...l,
+            feedback: data.feedback !== undefined ? data.feedback : l.feedback,
+            callCenterStatus: ['ANSWERED', 'REJECT'].includes((data.callOutcome || '').toUpperCase()) ? 'completed' : l.callCenterStatus,
+            roundProgress: newRps
+          };
+        } else {
+          return {
+            ...l,
+            callStatus: data.callOutcome || l.callStatus,
+            callMethod: data.callMethod || l.callMethod,
+            callAttempt: data.attempts || l.callAttempt,
+            feedback: data.feedback !== undefined ? data.feedback : l.feedback,
+            phase: data.callOutcome === 'NO_ANSWER' ? Math.min(3, (l.phase || 1) + 1) : (l.phase || 1),
+            callCenterStatus: ['ANSWERED', 'REJECT'].includes((data.callOutcome || '').toUpperCase()) ? 'completed' : l.callCenterStatus
+          };
+        }
+      }));
+
       await axios.post('/call-center/agent-v2/update-progress', {
         leadId,
         roundNum,
@@ -104,11 +140,12 @@ export default function CallCenterAgentDashboard() {
         headers: { Authorization: `Bearer ${token}` }
       });
       toast.success("Lead progress saved!");
-      fetchBusinessLeads();
+      fetchBusinessLeads(true);
       fetchOverview(); // Refresh counts
     } catch (error) {
       console.error("Save lead error", error);
       toast.error("Failed to update lead.");
+      fetchBusinessLeads(true);
     }
   };
 
@@ -626,7 +663,7 @@ export default function CallCenterAgentDashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
                   {paginatedLeads.map((lead, index) => (
                     <LeadCallCard 
-                      key={lead.id} 
+                      key={`${lead.id}_r${activeRound}`} 
                       lead={lead} 
                       roundData={lead.roundData}
                       activeRound={activeRound}

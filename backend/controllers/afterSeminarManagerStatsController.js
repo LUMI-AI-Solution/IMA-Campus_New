@@ -1,6 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, HeadingLevel, AlignmentType, WidthType, ShadingType } = require('docx');
+const { isOpenSeminarLocked } = require('./afterSeminarInquiryController');
 
 // Helper: Get all active staff IDs (No strict business filtering to prevent breaking cross-business assignments)
 const getActiveStaffIds = async (businessId, batchId) => {
@@ -2489,10 +2490,51 @@ exports.assignLeadsToBatch = async (req, res) => {
         }
 
         const batchId = parseInt(targetBatchId);
+        if (await isOpenSeminarLocked(batchId)) {
+            const openSemCount = await prisma.lead.count({
+                where: {
+                    id: { in: leadIds.map(id => parseInt(id)) },
+                    inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL'] }
+                }
+            });
+            if (openSemCount > 0) {
+                return res.status(403).json({ error: "Opening Seminar campaign for this batch is locked by Management. Cannot assign Open Seminar leads to it." });
+            }
+        }
+
+        const parsedLeadIds = leadIds.map(id => parseInt(id));
         const result = await prisma.lead.updateMany({
-            where: { id: { in: leadIds } },
-            data: { batchId }
+            where: { id: { in: parsedLeadIds } },
+            data: { 
+                batchId,
+                callStatus: 'pending',
+                openSemCallStatus: 'pending',
+                newInqCallStatus: 'pending',
+                phase: 1,
+                openSemPhase: 1,
+                newInqPhase: 1,
+                callAttempt: 1,
+                openSemCallAttempt: 1,
+                newInqCallAttempt: 1,
+                coordinationRound: 1,
+                openSemRound: 1,
+                newInqRound: 1,
+                feedback: '',
+                openSemFeedback: '',
+                newInqFeedback: '',
+                callMethod: null,
+                openSemCallMethod: null,
+                newInqCallMethod: null,
+                nonEnrolledReason: null,
+                r1DelayedDays: 0,
+                r2DelayedDays: 0,
+                lastAttemptAt: null
+            }
         });
+
+        await prisma.leadRoundProgress.deleteMany({
+            where: { leadId: { in: parsedLeadIds } }
+        }).catch(() => {});
 
         res.status(200).json({ message: "Leads successfully assigned to batch", count: result.count });
     } catch (error) {

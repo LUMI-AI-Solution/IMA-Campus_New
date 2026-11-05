@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import axios from '../../api/axios'; 
+import { resolveAvatarUrl } from '../../utils/avatarUtils';
 import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaClock, FaLock, FaUserCheck, FaHeadset, FaHistory, FaCommentDots, FaLayerGroup, FaFilter, FaChartBar, FaWhatsapp, FaExchangeAlt, FaBan } from 'react-icons/fa';
 import { FiPhoneIncoming, FiPhoneOutgoing, FiPhoneMissed } from 'react-icons/fi';
 import toast from 'react-hot-toast';
@@ -37,6 +38,7 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
   const [callTabCounts, setCallTabCounts] = useState({ INBOUND: 0, OUTBOUND: 0, MISSED: 0, NEW_INQUIRY: 0 });
   const [tabCounts, setTabCounts] = useState({ NEW: 0, IMPORTED: 0, ASSIGNED: 0, ALL: 0 });
   const [unreadCounts, setUnreadCounts] = useState({ NEW: 0, IMPORTED: 0, ASSIGNED: 0, ALL: 0 });
+  const [activeSessionLeadId, setActiveSessionLeadId] = useState(null);
   const [totalUnread, setTotalUnread] = useState(0);
   const [loading, setLoading] = useState(false); 
   const [coordinators, setCoordinators] = useState([]);
@@ -106,6 +108,28 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
       setDebouncedSearchQuery(searchVal);
     }
   }, [location.search]);
+
+  useEffect(() => {
+    const handleAvatarUpdate = (e) => {
+      const { phone, rawPhone, avatar } = e.detail || {};
+      if (!avatar) return;
+      setLeads(prevLeads => prevLeads.map(l => {
+        const lClean = String(l.phone || '').split('_')[0].replace(/[^0-9]/g, '');
+        const pClean = String(phone || '').split('_')[0].replace(/[^0-9]/g, '');
+        const rawClean = String(rawPhone || '').split('_')[0].replace(/[^0-9]/g, '');
+        const lRawClean = String(l.rawPhone || '').split('_')[0].replace(/[^0-9]/g, '');
+        
+        const isMatch = (pClean && lClean && (lClean.endsWith(pClean.slice(-9)) || pClean.endsWith(lClean.slice(-9)))) ||
+                        (rawClean && lRawClean && (lRawClean.endsWith(rawClean.slice(-9)) || rawClean.endsWith(lRawClean.slice(-9))));
+        if (isMatch) {
+          return { ...l, avatar, image: avatar };
+        }
+        return l;
+      }));
+    };
+    window.addEventListener('lead-avatar-updated', handleAvatarUpdate);
+    return () => window.removeEventListener('lead-avatar-updated', handleAvatarUpdate);
+  }, []);
 
   const formatDate = (dateString) => {
       if (!dateString) return '';
@@ -461,6 +485,7 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
   const handleLeadClick = async (lead) => {
       setSelectedLead(lead);
       if (lead.unreadCount > 0) {
+          setActiveSessionLeadId(lead.id);
           setLeads(prevLeads => prevLeads.map(l => l.id === lead.id ? { ...l, unreadCount: 0 } : l));
           try {
               const token = localStorage.getItem('token');
@@ -468,10 +493,12 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
           } catch (e) {
               console.error("Failed to mark as read in DB");
           }
+      } else {
+          setActiveSessionLeadId(null);
       }
   };
 
-  // 🔥 OPTIMIZED SEARCH 🔥
+  // 🔥 OPTIMIZED SEARCH & SESSION PINNING 🔥
   const filteredLeads = useMemo(() => {
       let currentLeads = leads.filter(lead => !lead.isBlocked && lead.status !== 'BLOCKED');
 
@@ -484,17 +511,19 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
           });
       }
       
-      if (selectedLead && !selectedLead.isBlocked && selectedLead.status !== 'BLOCKED') {
-          const idx = currentLeads.findIndex(l => l.id === selectedLead.id);
-          if (idx > -1) {
-              const [sel] = currentLeads.splice(idx, 1);
-              currentLeads.unshift(sel);
-          } else {
-              currentLeads.unshift(selectedLead);
+      // If an unread chat is currently active in this session, keep it pinned on top
+      // When the user opens the NEXT chat, activeSessionLeadId changes/clears, and the previous chat drops below unread chats!
+      if (activeSessionLeadId) {
+          const activeLead = currentLeads.find(l => l.id === activeSessionLeadId);
+          if (activeLead) {
+              const otherUnread = currentLeads.filter(l => l.id !== activeSessionLeadId && l.unreadCount > 0);
+              const otherRead = currentLeads.filter(l => l.id !== activeSessionLeadId && l.unreadCount === 0);
+              return [activeLead, ...otherUnread, ...otherRead];
           }
       }
+
       return currentLeads;
-  }, [leads, searchQuery, selectedLead]);
+  }, [leads, searchQuery, activeSessionLeadId]);
 
   // 🔥 LOAD MORE LOGIC 🔥
   const displayedLeads = filteredLeads.slice(0, visibleCount);
@@ -993,7 +1022,15 @@ export default function ContactSidebar({ activeMode, selectedLead, setSelectedLe
                 </div>
 
                 <div className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer" onClick={() => handleLeadClick(lead)}>
-                  <FaUserCircle className="text-3xl text-slate-500 shrink-0" />
+                  <img 
+                    src={resolveAvatarUrl([lead.image, lead.avatar], lead.phone, axios.defaults.baseURL)} 
+                    alt="DP" 
+                    className="w-9 h-9 rounded-full object-cover shrink-0 border border-slate-700/60 shadow-sm"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src = resolveAvatarUrl(null, lead.phone, axios.defaults.baseURL);
+                    }}
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start mb-1">
                       

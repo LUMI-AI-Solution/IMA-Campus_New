@@ -12,92 +12,50 @@ import RNFS from 'react-native-fs';
 
 import api from '../services/api';
 import COLORS from '../constants/colors';
-import GlobalDownloadWidget from '../components/GlobalDownloadWidget';
-import downloadManager from '../services/downloadManager';
-import { DeviceEventEmitter } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import CustomAlert from '../components/CustomAlert';
 import { AuthContext } from '../context/AuthContext';
+import YouTubePlayer, { parseYouTube as parseYouTubeUrl } from '../components/YouTubePlayer';
 
 const KNOWN_TABS = [
     { key: 'recordings', title: 'Recordings', type: 'recording', icon: 'video-outline' },
-    { key: 'liveClasses', title: 'Live Classes', type: 'live', icon: 'broadcast' },
-    { key: 'documents', title: 'Documents', type: 'document', icon: 'file-document-outline' },
-    { key: 'testRanking', title: 'Ranking Tests', type: 'testRanking', icon: 'trophy-outline' }
+    { key: 'liveClasses', title: 'Live Class', type: 'live', icon: 'broadcast' },
+    { key: 'documents', title: 'PDF / Docs', type: 'document', icon: 'file-document-outline' },
+    { key: 'testRanking', title: 'Ranking Tests', type: 'paper', icon: 'trophy-outline' }
 ];
 
 // 🔥 SECURE INTERNAL PATH DEFINITION 🔥
 const secureStoragePath = Platform.OS === 'ios' ? RNFS.LibraryDirectoryPath : RNFS.DocumentDirectoryPath;
 
+export const getYouTubeID = (url) => {
+    if (!url) return null;
+    const parsed = parseYouTubeUrl(url);
+    return parsed?.videoId || null;
+};
+
+export const extractYouTubeFromItem = (item) => {
+    if (!item) return null;
+    const fields = [
+        item.youtubeLink, item.youtube_link, item.youtubeUrl, item.youtube_url,
+        item.ytId, item.yt_id, item.videoId, item.video_id,
+        item.link, item.url, item.videoUrl, item.video_url, item.file,
+        item.recording_url, item.recordingUrl, item.embed, item.embeddedLink,
+        item.content, item.stream_url, item.streamUrl
+    ];
+    for (const val of fields) {
+        if (val) {
+            const parsed = parseYouTubeUrl(val);
+            if (parsed && (parsed.videoId || parsed.listId)) {
+                return { ytId: parsed.videoId, listId: parsed.listId, link: String(val).trim() };
+            }
+        }
+    }
+    return null;
+};
+
 const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onShowAlert, courseTitle, onTakeExam }) => {
     const [openFolders, setOpenFolders] = useState({});
-    const [downloadingItems, setDownloadingItems] = useState({});
-
-    useEffect(() => {
-        // Load active downloads
-        const initialDownloads = downloadManager.getActiveDownloads();
-        const initialItems = {};
-        Object.keys(initialDownloads).forEach(id => {
-            initialItems[id] = initialDownloads[id].progress;
-        });
-        setDownloadingItems(initialItems);
-
-        const onProgress = (data) => {
-            setDownloadingItems(prev => ({ ...prev, [data.itemId]: data.progress }));
-        };
-
-        const onComplete = (data) => {
-            setDownloadingItems(prev => {
-                const newState = { ...prev };
-                delete newState[data.itemId];
-                return newState;
-            });
-            onShowAlert({ title: "Download Complete", msg: "Video has been saved successfully.", type: "success" });
-        };
-
-        const onError = (data) => {
-            setDownloadingItems(prev => {
-                const newState = { ...prev };
-                delete newState[data.itemId];
-                return newState;
-            });
-            onShowAlert({ title: "Download Error", msg: data.errorMsg || "Failed to download the video.", type: "error" });
-        };
-
-        const onExists = (data) => {
-            onShowAlert({ title: "Already Downloaded", msg: "You can find this video in My Downloads section or Play Offline.", type: "warning" });
-        };
-
-        const progressSub = DeviceEventEmitter.addListener('DOWNLOAD_PROGRESS', onProgress);
-        const completeSub = DeviceEventEmitter.addListener('DOWNLOAD_COMPLETE', onComplete);
-        const errorSub = DeviceEventEmitter.addListener('DOWNLOAD_ERROR', onError);
-        const existsSub = DeviceEventEmitter.addListener('DOWNLOAD_ALREADY_EXISTS', onExists);
-
-        return () => {
-            progressSub.remove();
-            completeSub.remove();
-            errorSub.remove();
-            existsSub.remove();
-        };
-    }, []);
-
-    // 🔥 NEW: Download වෙලා තියෙන ඒවගේ IDs තියාගන්න අලුත් State එක 🔥
-    const [downloadedItems, setDownloadedItems] = useState(new Set());
-
-    // 🔥 NEW: Component එක Load වෙද්දි කලින් Download කරපුවා තියෙනවද බලනවා 🔥
-    useEffect(() => {
-        const checkDownloadedItems = async () => {
-            try {
-                const res = await AsyncStorage.getItem('my_downloads');
-                if (res) {
-                    const parsed = JSON.parse(res);
-                    setDownloadedItems(new Set(parsed.map(i => i.id)));
-                }
-            } catch (e) { console.log("Error checking downloads:", e); }
-        };
-        checkDownloadedItems();
-    }, []);
 
     const toggleFolder = (folderId) => setOpenFolders(prev => ({
         ...prev,
@@ -109,30 +67,42 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
     if (!data || data.length === 0) {
         return (
             <View style={styles.emptyContainer}>
-                <View style={styles.emptyIconBox}>
-                    <Icon name={type === 'testRanking' ? "trophy-outline" : "folder-open-outline"} size={50} color="#D1D5DB" />
-                </View>
-                <Text style={styles.emptyTitle}>{type === 'testRanking' ? "No Tests Yet" : "No Content Yet"}</Text>
-                <Text style={styles.emptyText}>
-                    {type === 'testRanking'
-                        ? "Ranking tests for this course will appear here once scheduled by the lecturer."
-                        : "Materials for this section will appear here once uploaded by the lecturer."}
-                </Text>
+                <View style={styles.emptyIconBox}><Icon name="folder-open-outline" size={50} color="#D1D5DB" /></View>
+                <Text style={styles.emptyTitle}>No Content Yet</Text>
+                <Text style={styles.emptyText}>Materials for this section will appear here once uploaded by the lecturer.</Text>
             </View>
         );
     }
 
-    const isTestType = type === 'testRanking' || type === 'paper' || type === 'sPaper';
-    const isDocumentType = type === 'document';
+    const isPaperType = type === 'paper' || tabKey === 'testRanking';
+    const isDocumentType = ['document'].includes(type) && tabKey !== 'testRanking';
+    const isLiveType = type === 'live' || tabKey === 'liveClasses';
 
-    const formatDuration = (mins) => {
-        if (!mins) return '60 Mins';
-        const total = parseInt(mins, 10);
-        const h = Math.floor(total / 60);
-        const m = total % 60;
-        if (h > 0 && m > 0) return `${h}h ${m}m`;
-        if (h > 0) return `${h} Hour${h > 1 ? 's' : ''}`;
-        return `${m} Mins`;
+    const handleOpenLive = async (item) => {
+        const liveUrl = item.link || item.url || item.meetingUrl || item.zoomLink;
+        if (!liveUrl) {
+            onShowAlert({
+                title: "Live Link Unavailable",
+                msg: "The link for this live class has not been updated yet.",
+                type: "warning"
+            });
+            return;
+        }
+
+        try {
+            let formattedLink = liveUrl.trim();
+            if (!formattedLink.startsWith('http://') && !formattedLink.startsWith('https://')) {
+                formattedLink = 'https://' + formattedLink;
+            }
+            await Linking.openURL(formattedLink);
+        } catch (error) {
+            console.log("Error opening live class URL:", error);
+            onShowAlert({
+                title: "Could Not Open Link",
+                msg: "Failed to open the live class link. Please make sure Zoom or a browser is installed.",
+                type: "error"
+            });
+        }
     };
 
     const normalizeFolderTitle = (title) => {
@@ -151,20 +121,13 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
             case 'document': return 3;
             case 'sPaper': return 4;
             case 'paper': return 5;
-            case 'testRanking': return 4;
             default: return 1;
         }
     };
     const targetTypeInt = getTypeInt(type);
 
     const allTypeFolders = (contentGroups || [])
-        .filter(f => {
-            if (type === 'testRanking') {
-                const fType = parseInt(f.type);
-                return fType === 4 || fType === 5;
-            }
-            return parseInt(f.type) === targetTypeInt;
-        })
+        .filter(f => tabKey === 'testRanking' ? (parseInt(f.type) === 4 || parseInt(f.type) === 5) : parseInt(f.type) === targetTypeInt)
         .sort((a, b) => parseInt(a.itemOrder || 1) - parseInt(b.itemOrder || 1));
 
     // Root folders: folders that do not have parentId or whose parent is not in allTypeFolders
@@ -217,22 +180,13 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
 
     const isItemMatchFolder = (item, rf) => {
         const fId = String(item.contentGroupId ?? item.content_group_id ?? item.folder_id ?? '');
-        if (fId) {
-            if (rf.allFolderIds.includes(fId)) {
-                return true;
-            }
-            // If item has a specific folder ID assigned and that folder exists, DO NOT fallback to month!
-            const assignedToOther = rootFolders.some(f => f.allFolderIds && f.allFolderIds.includes(fId));
-            if (assignedToOther) return false;
+        if (fId && rf.allFolderIds.includes(fId)) {
+            return true;
         }
 
         const itemParentId = String(item.group?.parentId ?? '');
-        if (itemParentId) {
-            if (rf.ids.includes(itemParentId)) {
-                return true;
-            }
-            const parentInOther = rootFolders.some(f => f.ids && f.ids.includes(itemParentId));
-            if (parentInOther) return false;
+        if (itemParentId && rf.ids.includes(itemParentId)) {
+            return true;
         }
 
         const itemGroupTitle = item.groupTitle || item.group?.title;
@@ -248,25 +202,16 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
                     }
                 }
             }
-            // If item has a specific group title that matches another folder, DO NOT match month!
-            const titleFolderExists = rootFolders.some(f => 
-                (f.titles || []).some(t => {
-                    const tRaw = (t || '').trim().toLowerCase();
-                    const tNorm = normalizeFolderTitle(t);
-                    return tRaw === rawItem || (normItem && tNorm && normItem === tNorm);
-                })
-            );
-            if (titleFolderExists) return false;
         }
 
-        // Smart Month Fallback Matching ONLY for items with NO assigned folder!
-        if (!fId && !itemGroupTitle && rf.titles && rf.titles.length > 0) {
+        // Smart Month Fallback Matching
+        if (rf.titles && rf.titles.length > 0) {
             let targetMonthIdx = -1;
             if (item.date) {
                 try {
                     const d = new Date(item.date);
                     if (!isNaN(d.getTime())) targetMonthIdx = d.getMonth();
-                } catch (err) {}
+                } catch (err) { }
             }
             if (targetMonthIdx === -1 && item.title) {
                 const titleLower = item.title.toLowerCase();
@@ -328,10 +273,6 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
         }
     };
 
-    const handleVideoDownload = async (item) => {
-        downloadManager.startDownload(item, courseTitle);
-    };
-
     const renderItemCard = (item) => {
         let imgUri = null;
 
@@ -343,55 +284,26 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
             imgUri = `https://imacampus.online/api/storage/documents/${item.fileName}`;
         }
 
-        const downloadProgress = downloadingItems[item.id];
-        const isDownloading = downloadProgress !== undefined;
-        // 🔥 NEW: මේ වීඩියෝ එක දැනටමත් Download වෙලාද කියලා බලනවා 🔥
-        const isDownloaded = downloadedItems.has(item.id);
+        const isDoc = isDocumentType;
+        const isLive = isLiveType;
+        const isPaper = isPaperType;
 
-        const canDownloadVideo = !isDocumentType && !isTestType && item.link && item.meetingId;
-        const paperType = item.paper?.paperType || (item.contentType === 'sPaper' || item.contentType === '4' ? 'STRUCTURED' : 'MCQ');
-        const timerMode = item.paper?.timerMode || 'FLEXIBLE';
+        const ytCandidate = item.youtubeLink || item.youtube_link || item.youtubeUrl || item.youtube_url;
+        const ytSource = extractYouTubeFromItem(item) || (ytCandidate ? extractYouTubeFromItem({ link: ytCandidate }) : null);
+        const hasYt = !!ytSource || (!!ytCandidate && (ytCandidate.includes('youtube') || ytCandidate.includes('youtu.be')));
+
+        const zoomCandidate = item.zoomLink || item.zoom_link || item.meetingUrl || 
+            (item.link && !item.link.includes('youtube') && !item.link.includes('youtu.be') ? item.link : null) || 
+            (item.url && !item.url.includes('youtube') && !item.url.includes('youtu.be') ? item.url : null) || 
+            (item.videoUrl && !item.videoUrl.includes('youtube') && !item.videoUrl.includes('youtu.be') ? item.videoUrl : null) || 
+            item.file;
+        const hasZoom = !!zoomCandidate;
 
         return (
             <View key={item.id} style={styles.itemCard}>
 
                 {imgUri ? (
                     <Image source={{ uri: imgUri }} style={styles.landscapeImage} resizeMode="cover" />
-                ) : isTestType ? (
-                    <View style={[
-                        styles.landscapeImage,
-                        {
-                            backgroundColor: paperType === 'MCQ' ? '#064e3b' : paperType === 'STRUCTURED' ? '#3b0764' : '#172554',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            padding: 10
-                        }
-                    ]}>
-                        <View style={{
-                            width: 52,
-                            height: 52,
-                            borderRadius: 26,
-                            backgroundColor: paperType === 'MCQ' ? 'rgba(52, 211, 153, 0.2)' : paperType === 'STRUCTURED' ? 'rgba(192, 132, 252, 0.2)' : 'rgba(96, 165, 250, 0.2)',
-                            justifyContent: 'center',
-                            alignItems: 'center',
-                            marginBottom: 8
-                        }}>
-                            <Icon
-                                name="trophy"
-                                size={28}
-                                color={paperType === 'MCQ' ? '#34d399' : paperType === 'STRUCTURED' ? '#c084fc' : '#60a5fa'}
-                            />
-                        </View>
-                        <Text style={{
-                            color: paperType === 'MCQ' ? '#a7f3d0' : paperType === 'STRUCTURED' ? '#e9d5ff' : '#bfdbfe',
-                            fontSize: 11,
-                            fontWeight: '900',
-                            letterSpacing: 1,
-                            textTransform: 'uppercase'
-                        }}>
-                            {paperType === 'MCQ' ? 'MCQ Test Exam' : paperType === 'STRUCTURED' ? 'Structured Essay' : 'Combined Test Exam'}
-                        </Text>
-                    </View>
                 ) : (
                     <View style={[styles.landscapeImage, { backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center' }]}>
                         <Image source={{ uri: 'https://imacampus.online/logo.png' }} style={{ width: 100, height: 100, opacity: 0.15 }} resizeMode="contain" />
@@ -399,157 +311,114 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
                 )}
 
                 <View style={styles.itemInfo}>
-                    {/* Test Badges Row */}
-                    {isTestType && (
-                        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 8, alignItems: 'center' }}>
-                            <View style={[
-                                styles.badge,
-                                paperType === 'MCQ'
-                                    ? { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }
-                                    : paperType === 'STRUCTURED'
-                                    ? { backgroundColor: '#FAF5FF', borderColor: '#E9D5FF' }
-                                    : { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }
-                            ]}>
-                                <Text style={[
-                                    styles.badgeText,
-                                    paperType === 'MCQ'
-                                        ? { color: '#059669' }
-                                        : paperType === 'STRUCTURED'
-                                        ? { color: '#7E22CE' }
-                                        : { color: '#1D4ED8' }
-                                ]}>
-                                    {paperType === 'MCQ' ? 'MCQ Only' : paperType === 'STRUCTURED' ? 'Structure Essay' : 'MCQ + Structured'}
-                                </Text>
-                            </View>
-
-                            <View style={[styles.badge, { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB', flexDirection: 'row', alignItems: 'center' }]}>
-                                <Icon name="clock-outline" size={11} color="#059669" style={{ marginRight: 3 }} />
-                                <Text style={[styles.badgeText, { color: '#374151' }]}>
-                                    {formatDuration(item.paper?.durationMinutes || item.paperTime || 60)}
-                                </Text>
-                            </View>
-
-                            {timerMode === 'SCHEDULED' && item.paper?.scheduledStartTime && (
-                                <View style={[styles.badge, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A' }]}>
-                                    <Text style={[styles.badgeText, { color: '#B45309' }]}>
-                                        ⏰ Scheduled: {new Date(item.paper.scheduledStartTime).toLocaleDateString([], { month: 'short', day: 'numeric' })} {new Date(item.paper.scheduledStartTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                    </Text>
-                                </View>
-                            )}
-                        </View>
-                    )}
-
                     <Text style={styles.itemTitle} numberOfLines={2}>{item.title}</Text>
-
-                    {item.date && (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, marginBottom: 12 }}>
-                            <Icon name="calendar-blank-outline" size={13} color="#9CA3AF" style={{ marginRight: 4 }} />
-                            <Text style={[styles.itemDate, { marginBottom: 0 }]}>{item.date.split('T')[0]}</Text>
+                    {item.date && <Text style={styles.itemDate}>{item.date.split('T')[0]}</Text>}
+                    {item.startTime && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 3 }}>
+                            <Icon name="clock-outline" size={13} color="#6B7280" style={{ marginRight: 4 }} />
+                            <Text style={styles.itemDate}>{item.startTime}{item.endTime ? ` - ${item.endTime}` : ''}</Text>
                         </View>
                     )}
 
                     <View style={styles.actionRow}>
-                        {isTestType ? (
+                        {isPaper ? (
+                            <TouchableOpacity
+                                onPress={() => onTakeExam && onTakeExam(item)}
+                                style={[styles.takeExamBtn, { flex: 1 }]}
+                                activeOpacity={0.8}
+                            >
+                                <Icon name="trophy-award" size={18} color="#ffffff" style={{ marginRight: 6 }} />
+                                <Text style={styles.takeExamBtnText}>
+                                    {item.paper?.paperType === 'STRUCTURED' ? 'Structured Paper' : (item.paper?.paperType === 'BOTH' ? 'Combined Paper' : 'Exam Paper')}
+                                </Text>
+                            </TouchableOpacity>
+                        ) : isLive ? (
+                            <TouchableOpacity
+                                onPress={() => handleOpenLive(item)}
+                                style={[styles.watchBtn, { flex: 1, backgroundColor: '#059669', flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]}
+                                activeOpacity={0.8}
+                            >
+                                <Icon name="video" size={18} color="#ffffff" style={{ marginRight: 6 }} />
+                                <Text style={styles.watchBtnText}>Join Live Class</Text>
+                            </TouchableOpacity>
+                        ) : isDoc ? (
                             <>
                                 <TouchableOpacity
-                                    onPress={() => onTakeExam && onTakeExam(item)}
-                                    style={[
-                                        styles.takeExamBtn,
-                                        { flex: 1 },
-                                        paperType === 'MCQ' ? { backgroundColor: '#059669' } :
-                                        paperType === 'STRUCTURED' ? { backgroundColor: '#7E22CE' } :
-                                        { backgroundColor: '#2563eb' }
-                                    ]}
-                                    activeOpacity={0.8}
-                                >
-                                    <Icon name="trophy-outline" size={18} color="#ffffff" style={{ marginRight: 6 }} />
-                                    <Text style={styles.takeExamBtnText}>
-                                        {paperType === 'STRUCTURED' ? 'Structured Paper' : 'Start Test / Rankings'}
-                                    </Text>
-                                </TouchableOpacity>
-
-                                {item.fileName && (
-                                    <TouchableOpacity
-                                        onPress={() => handleDocDownload(item)}
-                                        style={[styles.docDownloadBtn, { backgroundColor: '#FEF2F2', borderColor: '#FECACA' }]}
-                                        activeOpacity={0.8}
-                                    >
-                                        <Icon name="file-pdf-box" size={16} color="#DC2626" />
-                                        <Text style={[styles.docDownloadText, { color: '#DC2626' }]}>PDF</Text>
-                                    </TouchableOpacity>
-                                )}
-                            </>
-                        ) : (
-                            <TouchableOpacity
-                                onPress={() => {
-                                    if (isDocumentType) {
+                                    onPress={() => {
                                         const docUrl = item.link || item.url || item.file || item.fileName;
                                         if (docUrl) {
                                             let link = docUrl.startsWith('http') ? docUrl : `https://imacampus.online/api/storage/documents/${docUrl}`;
                                             Linking.openURL(link).catch(err => onShowAlert({ title: "Error", msg: "Could not open document.", type: "error" }));
                                         }
-                                    } else if (type === 'live' || item.contentType === 'live' || item.contentType === '1') {
-                                        // 🔥 FIX: Live Class links should open via Linking.openURL (Direct Zoom App) instead of in-app video player WebView!
-                                        const liveUrl = item.originalLink || item.link || item.url;
-                                        if (liveUrl) {
-                                            let link = liveUrl.trim();
-                                            if (!link.startsWith('http://') && !link.startsWith('https://')) link = 'https://' + link;
-                                            Linking.openURL(link).catch(err => onShowAlert({ title: "Error", msg: "Could not open live class link.", type: "error" }));
-                                        } else {
-                                            onShowAlert({ title: "Please Wait", msg: "Live class link is not available yet.", type: "warning" });
-                                        }
-                                    } else onPlay(item);
-                                }}
-                                style={[styles.watchBtn, { flex: 1 }, (type === 'live' || item.contentType === 'live' || item.contentType === '1') && { backgroundColor: '#B91C1C' }]}
-                            >
-                                <Text style={styles.watchBtnText}>
-                                    {isDocumentType ? 'View Document' : (type === 'live' || item.contentType === 'live' || item.contentType === '1') ? 'Join Live Class' : 'Play Recoding'}
-                                </Text>
-                            </TouchableOpacity>
-                        )}
+                                    }}
+                                    style={[styles.watchBtn, { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]}
+                                    activeOpacity={0.8}
+                                >
+                                    <Icon name="file-document-outline" size={18} color="#ffffff" style={{ marginRight: 6 }} />
+                                    <Text style={styles.watchBtnText}>View Document</Text>
+                                </TouchableOpacity>
 
-                        {!isTestType && isDocumentType && (
-                            <TouchableOpacity onPress={() => handleDocDownload(item)} style={styles.docDownloadBtn}>
-                                <Icon name="download" size={16} color={COLORS.primary} />
-                                <Text style={styles.docDownloadText}>Save</Text>
-                            </TouchableOpacity>
-                        )}
+                                <TouchableOpacity onPress={() => handleDocDownload(item)} style={styles.docDownloadBtn} activeOpacity={0.8}>
+                                    <Icon name="download" size={16} color={COLORS.primary} />
+                                    <Text style={styles.docDownloadText}>Save</Text>
+                                </TouchableOpacity>
+                            </>
+                        ) : (
+                            /* 🔥 RECORDINGS - YOUTUBE / ZOOM DYNAMIC BUTTONS 🔥 */
+                            hasYt && hasZoom ? (
+                                <View style={{ flexDirection: 'row', gap: 8, flex: 1 }}>
+                                    <TouchableOpacity
+                                        onPress={() => onPlay(item, 'yt')}
+                                        style={[styles.playBtn, styles.ytBtn, { flex: 1 }]}
+                                        activeOpacity={0.8}
+                                    >
+                                        <Icon name="youtube" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                                        <Text style={styles.playBtnText}>YouTube</Text>
+                                    </TouchableOpacity>
 
-                        {/* 🔥 NEW: බට්න් එකේ පාට සහ අකුරු වෙනස් වෙන කෑල්ල 🔥 */}
-                        {!isTestType && canDownloadVideo && (
-                            <TouchableOpacity
-                                onPress={() => isDownloaded ? onShowAlert({ title: "Already Downloaded", msg: "You can find this video in My Downloads section.", type: "warning" }) : handleVideoDownload(item)}
-                                style={[
-                                    styles.docDownloadBtn,
-                                    isDownloaded ? { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' } : {} // ඩවුන්ලෝඩ් වෙලා නම් කොළ පාට වෙනවා
-                                ]}
-                                disabled={isDownloading}
-                            >
-                                {isDownloading ? (
-                                    <>
-                                        <ActivityIndicator size="small" color={COLORS.primary} style={{ marginRight: 4 }} />
-                                        <Text style={styles.docDownloadText}>
-                                            {downloadProgress === '...'
-                                                ? 'Extracting...'
-                                                : downloadProgress === true
-                                                    ? 'Starting...'
-                                                    : `${downloadProgress}%`}
-                                        </Text>
-                                    </>
-                                ) : isDownloaded ? (
-                                    <>
-                                        <Icon name="check-circle" size={16} color="#059669" />
-                                        <Text style={[styles.docDownloadText, { color: '#059669' }]}>Downloaded</Text>
-                                    </>
-                                ) : (
-                                    <>
-                                        <Icon name="download" size={16} color={COLORS.primary} />
-                                        <Text style={styles.docDownloadText}>Download</Text>
-                                    </>
-                                )}
-                            </TouchableOpacity>
+                                    <TouchableOpacity
+                                        onPress={() => onPlay(item, 'zoom')}
+                                        style={[styles.playBtn, styles.zoomBtn, { flex: 1 }]}
+                                        activeOpacity={0.8}
+                                    >
+                                        <Icon name="video" size={18} color="#FFFFFF" style={{ marginRight: 6 }} />
+                                        <Text style={styles.playBtnText}>Zoom</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            ) : hasYt ? (
+                                <TouchableOpacity
+                                    onPress={() => onPlay(item, 'yt')}
+                                    style={[styles.playBtn, styles.ytBtn, { flex: 1 }]}
+                                    activeOpacity={0.8}
+                                >
+                                    <Icon name="youtube" size={19} color="#FFFFFF" style={{ marginRight: 8 }} />
+                                    <Text style={styles.playBtnText}>Play on YouTube</Text>
+                                </TouchableOpacity>
+                            ) : hasZoom ? (
+                                <TouchableOpacity
+                                    onPress={() => onPlay(item, 'zoom')}
+                                    style={[styles.playBtn, styles.zoomBtn, { flex: 1 }]}
+                                    activeOpacity={0.8}
+                                >
+                                    <Icon name="video" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                                    <Text style={styles.playBtnText}>Play on Zoom</Text>
+                                </TouchableOpacity>
+                            ) : (item.url || item.file) ? (
+                                <TouchableOpacity
+                                    onPress={() => onPlay(item, 'auto')}
+                                    style={[styles.playBtn, styles.defaultPlayBtn, { flex: 1 }]}
+                                    activeOpacity={0.8}
+                                >
+                                    <Icon name="play-circle" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                                    <Text style={styles.playBtnText}>Play Recording</Text>
+                                </TouchableOpacity>
+                            ) : (
+                                <View style={[styles.playBtn, styles.disabledPlayBtn, { flex: 1 }]}>
+                                    <Icon name="video-off" size={18} color="#9CA3AF" style={{ marginRight: 6 }} />
+                                    <Text style={[styles.playBtnText, { color: '#9CA3AF' }]}>Unavailable</Text>
+                                </View>
+                            )
                         )}
-
                     </View>
                 </View>
             </View>
@@ -600,21 +469,26 @@ const SectionedContentList = ({ tabKey, type, data, contentGroups, onPlay, onSho
 };
 
 const CourseContentScreen = ({ route, navigation }) => {
-    const { width } = useWindowDimensions();
+    const { width, height } = useWindowDimensions();
+    const isLandscape = width > height;
     const { courseId, courseTitle, hasAccess } = route.params;
     const [content, setContent] = useState(null);
     const [loading, setLoading] = useState(true);
 
     const [playingItem, setPlayingItem] = useState(null);
     const [ytPlaying, setYtPlaying] = useState(true);
+    const [isYtFullscreen, setIsYtFullscreen] = useState(false);
     const webViewRef = useRef(null);
+
+    const closePlayer = () => {
+        setPlayingItem(null);
+        setYtPlaying(false);
+        setIsYtFullscreen(false);
+    };
 
     const [alertVisible, setAlertVisible] = useState(false);
     const [alertConfig, setAlertConfig] = useState({ title: '', msg: '', type: 'success' });
-    const initialTab = (route.params?.activeTab === 'papers' || route.params?.activeTab === 'sPapers')
-        ? 'testRanking'
-        : (route.params?.activeTab || 'recordings');
-    const [activeTab, setActiveTab] = useState(initialTab);
+    const [activeTab, setActiveTab] = useState(route.params?.activeTab || 'recordings');
 
     const insets = useSafeAreaInsets();
     const { userInfo } = useContext(AuthContext);
@@ -641,43 +515,80 @@ const CourseContentScreen = ({ route, navigation }) => {
         } catch (error) { }
     };
 
-    const getYouTubeID = (url) => {
-        if (!url) return null;
-        const regex = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|live\/|shorts\/))([\w-]{11})/;
-        const match = url.match(regex);
-        return match ? match[1] : null;
-    };
+    // 🔥 PLAYBACK LOGIC (YOUTUBE / ZOOM / OFFLINE) 🔥
+    const handlePlayVideo = async (item, forcedType = 'auto') => {
+        const ytCandidate = item.youtubeLink || item.youtube_link || item.youtubeUrl || item.youtube_url;
+        const ytSource = extractYouTubeFromItem(item) || (ytCandidate ? extractYouTubeFromItem({ link: ytCandidate }) : null);
 
-    // 🔥 OFFLINE PLAYBACK LOGIC ADDED HERE 🔥
-    const handlePlayVideo = async (item) => {
-        const videoLink = item.link || item.url || item.file;
+        const zoomCandidate = item.zoomLink || item.zoom_link || item.meetingUrl || 
+            (item.link && !item.link.includes('youtube') && !item.link.includes('youtu.be') ? item.link : null) || 
+            (item.url && !item.url.includes('youtube') && !item.url.includes('youtu.be') ? item.url : null) || 
+            (item.videoUrl && !item.videoUrl.includes('youtube') && !item.videoUrl.includes('youtu.be') ? item.videoUrl : null) || 
+            item.file;
+
+        console.log("[handlePlayVideo]", { forcedType, ytSource, zoomCandidate, itemTitle: item?.title });
+
+        if (forcedType === 'yt') {
+            if (ytSource) {
+                saveToRecent(item);
+                setPlayingItem({ ...item, isYouTube: true, ytId: ytSource.ytId, link: ytSource.link, youtubeLink: ytSource.link });
+                setYtPlaying(true);
+                return;
+            }
+        }
+
+        if (forcedType === 'zoom') {
+            if (zoomCandidate) {
+                saveToRecent(item);
+                const securePath = `${secureStoragePath}/f_${item.id}.mp4`;
+                try {
+                    const fileExists = await RNFS.exists(securePath);
+                    if (fileExists) {
+                        const stat = await RNFS.stat(securePath);
+                        if (stat.size > 2 * 1024 * 1024) {
+                            setPlayingItem({ ...item, link: `file://${securePath}`, isYouTube: false, isOffline: true });
+                            return;
+                        }
+                    }
+                } catch (err) {}
+                setPlayingItem({ ...item, link: zoomCandidate, isYouTube: false, isOffline: false });
+                return;
+            }
+        }
+
+        // Auto fallback
+        if (ytSource && !zoomCandidate) {
+            saveToRecent(item);
+            setPlayingItem({ ...item, isYouTube: true, ytId: ytSource.ytId, link: ytSource.link, youtubeLink: ytSource.link });
+            setYtPlaying(true);
+            return;
+        }
+
+        let videoLink = zoomCandidate || (ytSource ? ytSource.link : null);
         if (!videoLink) return Alert.alert("Error", "Video link is unavailable.");
+
+        if (ytSource && (!zoomCandidate || videoLink.includes('youtube') || videoLink.includes('youtu.be'))) {
+            saveToRecent(item);
+            setPlayingItem({ ...item, isYouTube: true, ytId: ytSource.ytId, link: ytSource.link, youtubeLink: ytSource.link });
+            setYtPlaying(true);
+            return;
+        }
 
         saveToRecent(item);
 
-        // Check if file is downloaded securely in App Internal Storage
         const securePath = `${secureStoragePath}/f_${item.id}.mp4`;
         try {
             const fileExists = await RNFS.exists(securePath);
             if (fileExists) {
                 const stat = await RNFS.stat(securePath);
-                if (stat.size > 2 * 1024 * 1024) { // Valid video file check
+                if (stat.size > 2 * 1024 * 1024) {
                     setPlayingItem({ ...item, link: `file://${securePath}`, isYouTube: false, isOffline: true });
-                    return; // Play offline and exit function
+                    return;
                 }
             }
-        } catch (err) {
-            console.log("Offline playback check error: ", err);
-        }
+        } catch (err) {}
 
-        // If not downloaded, proceed with normal Online Playback
-        const ytId = getYouTubeID(videoLink);
-        if (ytId) {
-            setPlayingItem({ ...item, isYouTube: true, ytId: ytId });
-            setYtPlaying(true);
-        } else {
-            setPlayingItem({ ...item, link: videoLink, isYouTube: false, isOffline: false });
-        }
+        setPlayingItem({ ...item, link: videoLink, isYouTube: false, isOffline: false });
     };
 
     if (loading) return <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator size="large" color={COLORS.primary} /></View>;
@@ -689,8 +600,8 @@ const CourseContentScreen = ({ route, navigation }) => {
         return (
             <View style={styles.container}>
                 <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
-                <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
-                    <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
+                <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.redHeader, { paddingTop: Math.max(insets.top, 20) + 8 }]}>
+                    <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{ position: 'absolute', right: -30, top: -20, transform: [{ rotate: '-15deg' }] }} />
                     <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
                     <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
                 </LinearGradient>
@@ -711,8 +622,8 @@ const CourseContentScreen = ({ route, navigation }) => {
             <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
             <CustomAlert isVisible={alertVisible} title={alertConfig.title} message={alertConfig.msg} type={alertConfig.type} onClose={() => setAlertVisible(false)} />
 
-            <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
-                <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
+            <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.redHeader, { paddingTop: Math.max(insets.top, 20) + 8 }]}>
+                <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{ position: 'absolute', right: -30, top: -20, transform: [{ rotate: '-15deg' }] }} />
                 <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}><Icon name="arrow-left" size={24} color="white" /></TouchableOpacity>
                 <Text style={styles.headerTitle} numberOfLines={1}>{courseTitle}</Text>
             </LinearGradient>
@@ -733,7 +644,7 @@ const CourseContentScreen = ({ route, navigation }) => {
                     const currentTabConfig = KNOWN_TABS.find(t => t.key === activeTab) || KNOWN_TABS[0];
                     const tabData = activeTab === 'testRanking'
                         ? (content?.rankingTests || [...(content?.sPapers || []), ...(content?.papers || [])])
-                        : (content ? content[activeTab] || [] : []);
+                        : (content?.[activeTab] || []);
                     return <SectionedContentList
                         tabKey={activeTab}
                         type={currentTabConfig.type}
@@ -753,158 +664,76 @@ const CourseContentScreen = ({ route, navigation }) => {
             </View>
 
             {/* 🔴 SECURE VIDEO PLAYER MODAL 🔴 */}
-            <Modal visible={!!playingItem} animationType="slide" onRequestClose={() => { setPlayingItem(null); setYtPlaying(false); }}>
-                <View style={{ flex: 1, backgroundColor: 'black' }}>
+            <Modal
+                visible={!!playingItem}
+                animationType="slide"
+                supportedOrientations={['portrait', 'landscape']}
+                onRequestClose={closePlayer}
+            >
+                <View style={{ flex: 1, backgroundColor: '#000' }}>
 
-                    <View style={[styles.playerHeader, { paddingTop: insets.top + 15 }]}>
-                        <TouchableOpacity onPress={() => { setPlayingItem(null); setYtPlaying(false); }} style={styles.backBtn}>
-                            <Icon name="close" size={24} color="white" />
-                        </TouchableOpacity>
-                        <Text style={{ color: 'white', fontWeight: 'bold', flex: 1, fontSize: 16 }} numberOfLines={1}>
-                            {playingItem?.isOffline ? `(Offline) ${playingItem?.title}` : playingItem?.title}
-                        </Text>
-                    </View>
+                    {!isLandscape && !isYtFullscreen && (
+                        <View style={[styles.playerHeader, { paddingTop: Math.max(insets.top, 20) + 8 }]}>
+                            <TouchableOpacity onPress={closePlayer} style={styles.backBtn}>
+                                <Icon name="close" size={24} color="white" />
+                            </TouchableOpacity>
+                            <Text style={{ color: 'white', fontWeight: 'bold', flex: 1, fontSize: 16 }} numberOfLines={1}>
+                                {playingItem?.isOffline ? `(Offline) ${playingItem?.title}` : playingItem?.title}
+                            </Text>
+                        </View>
+                    )}
 
-                    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0f172a' }}>
-                        {playingItem?.isYouTube ? (
-                            <View style={{ width: width, paddingBottom: 20 }}>
-                                <View style={{ width: width, aspectRatio: 16 / 9, backgroundColor: 'black' }}>
-                                    <WebView
-                                        ref={webViewRef}
-                                        source={{
-                                            html: `
-                                <!DOCTYPE html>
-                                <html>
-                                <head>
-                                    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                                    <style>
-                                        body { margin: 0; padding: 0; background-color: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; height: 100vh; }
-                                        .video-container { position: relative; width: 100vw; height: 56.25vw; pointer-events: none; }
-                                        iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
-                                    </style>
-                                </head>
-                                <body>
-                                    <div class="video-container">
-                                        <div id="player"></div>
-                                    </div>
-                                    <script>
-                                        var tag = document.createElement('script');
-                                        tag.src = "https://www.youtube.com/iframe_api";
-                                        var firstScriptTag = document.getElementsByTagName('script')[0];
-                                        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-
-                                        var player;
-                                        function onYouTubeIframeAPIReady() {
-                                            player = new YT.Player('player', {
-                                                videoId: '${playingItem.ytId}',
-                                                playerVars: {
-                                                    'autoplay': 1, 'controls': 0, 'rel': 0, 'modestbranding': 1, 'playsinline': 1, 'fs': 0
-                                                },
-                                                events: {
-                                                    'onReady': function(event) { event.target.playVideo(); },
-                                                    'onStateChange': function(event) {
-                                                        if(event.data === YT.PlayerState.PLAYING) {
-                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'playing' }));
-                                                        } else if(event.data === YT.PlayerState.PAUSED) {
-                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'paused' }));
-                                                        } else if(event.data === YT.PlayerState.ENDED) {
-                                                            window.ReactNativeWebView.postMessage(JSON.stringify({ event: 'ended' }));
-                                                        }
-                                                    }
-                                                }
-                                            });
-                                        }
-
-                                        window.addEventListener('message', function(event) {
-                                            if (event.data === 'play') player.playVideo();
-                                            if (event.data === 'pause') player.pauseVideo();
-                                        });
-                                    </script>
-                                </body>
-                                </html>
-                            ` }}
-                                        style={{ flex: 1, backgroundColor: 'black' }}
-                                        originWhitelist={['*']} javaScriptEnabled={true} domStorageEnabled={true}
-                                        allowsInlineMediaPlayback={true} mediaPlaybackRequiresUserAction={false}
-                                        scrollEnabled={false} bounces={false}
-                                        onMessage={(event) => {
-                                            try {
-                                                const data = JSON.parse(event.nativeEvent.data);
-                                                if (data.event === 'playing') setYtPlaying(true);
-                                                if (data.event === 'paused') setYtPlaying(false);
-                                                if (data.event === 'ended') setYtPlaying(false);
-                                            } catch (e) { }
-                                        }}
-                                        onShouldStartLoadWithRequest={(request) => {
-                                            if (request.url.startsWith('intent://') || request.url.startsWith('vnd.youtube')) return false;
-                                            return true;
-                                        }}
-                                    />
-                                </View>
-
-                                <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 30 }}>
-                                    <TouchableOpacity
-                                        onPress={() => {
-                                            const nextState = !ytPlaying;
-                                            setYtPlaying(nextState);
-                                            webViewRef.current?.injectJavaScript(`
-                                    window.postMessage('${nextState ? 'play' : 'pause'}', '*');
-                                    true;
-                                `);
-                                        }}
-                                        style={{ backgroundColor: COLORS.primary, width: 60, height: 60, borderRadius: 30, justifyContent: 'center', alignItems: 'center', elevation: 5 }}
-                                    >
-                                        <Icon name={ytPlaying ? "pause" : "play"} size={35} color="white" style={!ytPlaying ? { marginLeft: 5 } : {}} />
-                                    </TouchableOpacity>
-                                </View>
-
+                    {playingItem?.isYouTube ? (
+                        <View style={isLandscape ? StyleSheet.absoluteFillObject : { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+                            <View style={isLandscape ? { width: '100%', height: '100%' } : { width: width, height: Math.round((width * 9) / 16), backgroundColor: '#000' }}>
+                                <YouTubePlayer
+                                    key={String(playingItem.id || playingItem.ytId || playingItem.link)}
+                                    url={playingItem.link || playingItem.youtubeLink}
+                                    videoId={playingItem.ytId}
+                                    autoPlay={true}
+                                    onFullscreenChange={setIsYtFullscreen}
+                                    onStatusChange={(d) => console.log('[YT status]', d?.status, d?.message)}
+                                    style={{ width: '100%', height: '100%' }}
+                                />
                             </View>
-                        ) : (
-                            // 🔥 FIX: Supports Both Online & Offline Video Playback through WebView 
+                        </View>
+                    ) : (
+                        // Zoom / offline video (kalin thibba widihatama)
+                        <View style={{ flex: 1 }}>
                             <WebView
                                 source={
                                     playingItem?.isOffline
                                         ? {
-                                            html: `
-                            <!DOCTYPE html>
-                            <html>
-                            <head>
-                                <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-                                <style>
-                                    body { margin: 0; background-color: #000; display: flex; align-items: center; justify-content: center; height: 100vh; }
-                                    video { width: 100%; height: auto; max-height: 100vh; outline: none; }
-                                </style>
-                            </head>
-                            <body>
-                                <video controls autoplay controlsList="nodownload">
-                                    <source src="${playingItem?.link}" type="video/mp4">
-                                </video>
-                            </body>
-                            </html>
-                        ` }
+                                            html: `<!DOCTYPE html><html><head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<style>body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh}video{width:100%;height:auto;max-height:100vh;outline:none}</style>
+</head><body>
+<video controls autoplay playsinline controlsList="nodownload"><source src="${playingItem?.link}" type="video/mp4"></video>
+</body></html>`
+                                        }
                                         : { uri: playingItem?.link }
                                 }
-                                style={{ width: width, flex: 1, backgroundColor: 'black' }}
-                                allowsInlineMediaPlayback={true}
+                                style={{ flex: 1, backgroundColor: 'black' }}
+                                containerStyle={{ flex: 1, backgroundColor: '#000' }}
+                                allowsInlineMediaPlayback
                                 originWhitelist={['*']}
-                                allowFileAccess={true}
-                                allowFileAccessFromFileURLs={true}
-                                allowUniversalAccessFromFileURLs={true}
-                                javaScriptEnabled={true}
-                                domStorageEnabled={true}
+                                allowFileAccess
+                                allowFileAccessFromFileURLs
+                                allowUniversalAccessFromFileURLs
+                                javaScriptEnabled
+                                domStorageEnabled
                             />
-                        )}
-                    </View>
+                        </View>
+                    )}
                 </View>
             </Modal>
-            <GlobalDownloadWidget />
         </View>
     );
 };
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: '#F5F7FA' },
-    redHeader: { paddingHorizontal: 20, paddingBottom: 25, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 8, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 , overflow: 'hidden'}, shadowOpacity: 0.3, shadowRadius: 10, zIndex: 10, flexDirection: 'row', alignItems: 'center' },
+    redHeader: { paddingHorizontal: 20, paddingBottom: 22, minHeight: 115, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 8, shadowColor: COLORS.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, zIndex: 10, flexDirection: 'row', alignItems: 'center' },
     backBtn: { marginRight: 15, padding: 8, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 12 },
     headerTitle: { fontSize: 20, fontWeight: '900', color: 'white', letterSpacing: 0.5, flex: 1 },
     customTabBarContainer: { marginTop: 15, marginBottom: 5 },
@@ -929,6 +758,12 @@ const styles = StyleSheet.create({
     watchBtnText: { color: 'white', fontWeight: '800', fontSize: 12, textTransform: 'uppercase' },
     docDownloadBtn: { backgroundColor: '#FEF2F2', borderRadius: 12, paddingHorizontal: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', borderWidth: 1, borderColor: '#FECACA' },
     docDownloadText: { color: COLORS.primary, fontWeight: '800', fontSize: 12, marginLeft: 6, textTransform: 'uppercase' },
+    playBtn: { paddingVertical: 12, paddingHorizontal: 15, borderRadius: 12, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', elevation: 2, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4 },
+    playBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
+    ytBtn: { backgroundColor: '#DC2626' },
+    zoomBtn: { backgroundColor: '#2563EB' },
+    defaultPlayBtn: { backgroundColor: '#1A1A1A' },
+    disabledPlayBtn: { backgroundColor: '#E5E7EB', elevation: 0 },
     emptyContainer: { alignItems: 'center', marginTop: 60 },
     emptyIconBox: { width: 100, height: 100, borderRadius: 50, backgroundColor: 'white', justifyContent: 'center', alignItems: 'center', marginBottom: 20, elevation: 2 },
     emptyTitle: { fontSize: 20, fontWeight: '900', color: '#1A1A1A', marginBottom: 10 },
@@ -939,8 +774,6 @@ const styles = StyleSheet.create({
     messageBody: { fontSize: 14, color: '#6B7280', textAlign: 'center', lineHeight: 22, marginBottom: 30, fontWeight: '600' },
     goBackBtn: { backgroundColor: COLORS.primary, paddingHorizontal: 30, paddingVertical: 14, borderRadius: 15, elevation: 4 },
     goBackText: { color: 'white', fontWeight: '900', fontSize: 15 },
-    badge: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, borderWidth: 1 },
-    badgeText: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
 });
 
 export default CourseContentScreen;

@@ -72,7 +72,7 @@ export default function DeliveryDashboard({ loggedInUser }) {
                 {activeTab === 'history' && <DeliveryHistory isReadOnly={isReadOnly} />}
                 {activeTab === 'delivered' && <DispatchDelivered searchQuery={searchQuery} isReadOnly={isReadOnly} />} 
                 {activeTab === 'stock' && <TuteStock searchQuery={searchQuery} isReadOnly={isReadOnly} />}
-                {activeTab === 'reports' && <StockReports />}
+                {activeTab === 'reports' && <StockReports loggedInUser={loggedInUser} />}
                 {activeTab === 'payment_details' && <PaymentDetails isReadOnly={isReadOnly} />}
             </div>
 

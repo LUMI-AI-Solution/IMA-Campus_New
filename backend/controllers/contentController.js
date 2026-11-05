@@ -330,9 +330,31 @@ exports.createSubject = async (req, res) => {
 
         const courseType = parseInt(req.body.courseType || 1);
 
-        const coursePromises = parsedPrices.map(gp => {
+        const coursePromises = parsedPrices.map(async (gp) => {
             if (lecturerImage) gp.lecturerImage = lecturerImage;
             gp.deliverTute = gp.deliverTute === true || gp.deliverTute === 'true';
+
+            const existingInGroup = await prisma.course.findFirst({
+                where: {
+                    name: name,
+                    groupId: parseInt(gp.groupId),
+                    courseType: courseType
+                }
+            });
+
+            if (existingInGroup) {
+                return prisma.course.update({
+                    where: { id: existingInGroup.id },
+                    data: {
+                        name, code, stream, streams: streamsStr, description, lecturerName,
+                        itemOrder: parseInt(itemOrder || 1), price: parseFloat(gp.price || 0),
+                        groupPrices: JSON.stringify(parsedPrices),
+                        isDiscountExcluded: excludeDiscount,
+                        activeMonths, startMonth, endMonth,
+                        courseType: courseType
+                    }
+                });
+            }
 
             return prisma.course.create({
                 data: { 
@@ -684,8 +706,13 @@ exports.addContentGroup = async (req, res) => {
 
         const trimmedTitle = (title || '').trim();
         
-        // If applyToAllSubjects is true, courseCode is null so it applies across all subjects in the batch!
-        const isAllSubjects = applyToAllSubjects === true || applyToAllSubjects === 'true';
+        const monthNamesList = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+        const sinhalaMonthsList = ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"];
+        const normT = trimmedTitle.toLowerCase().replace(/octomber/g, 'october').replace(/septeber|septemeber|septembar/g, 'september').replace(/[\s_-]+/g, ' ').replace(/\b(month|batch|මාසය|මාස|පාඩම|පාඩම්)\b/gi, '').trim();
+        const isMonthlyRoot = !safeParentId && (monthNamesList.includes(normT) || sinhalaMonthsList.includes(normT) || monthNamesList.some(m => normT.includes(m)));
+
+        // If applyToAllSubjects is true or it's a batch-wide monthly folder, courseCode is null so it applies across all subjects in the batch!
+        const isAllSubjects = applyToAllSubjects === true || applyToAllSubjects === 'true' || isMonthlyRoot;
         const rawCode = course_code !== undefined ? course_code : courseCode;
         const resolvedCourseCode = isAllSubjects 
             ? null 
@@ -958,11 +985,15 @@ exports.addContentMassAssign = async (req, res) => {
                 }
 
                 const resolvedPaperType = paperType || (type === 'sPaper' ? 'STRUCTURED' : 'MCQ');
-                const parsedMcqDur = mcqDurationMinutes ? parseInt(mcqDurationMinutes) : 30;
-                const parsedStructDur = structuredDurationMinutes ? parseInt(structuredDurationMinutes) : 60;
+                const rawTotalDur = (paperTime !== undefined && paperTime !== '') 
+                    ? parseInt(paperTime) 
+                    : (req.body.durationMinutes !== undefined && req.body.durationMinutes !== '' ? parseInt(req.body.durationMinutes) : 60);
+
+                const parsedMcqDur = mcqDurationMinutes ? parseInt(mcqDurationMinutes) : (resolvedPaperType === 'MCQ' ? rawTotalDur : 30);
+                const parsedStructDur = structuredDurationMinutes ? parseInt(structuredDurationMinutes) : (resolvedPaperType === 'STRUCTURED' ? rawTotalDur : 60);
                 const parsedTotalDur = resolvedPaperType === 'BOTH' 
                     ? (parsedMcqDur + parsedStructDur) 
-                    : (paperTime ? parseInt(paperTime) : 60);
+                    : (resolvedPaperType === 'STRUCTURED' ? parsedStructDur : (resolvedPaperType === 'MCQ' ? parsedMcqDur : rawTotalDur));
 
                 const parsedPassMarks = passMarks ? parseFloat(passMarks) : 40;
                 const parsedTotalMarks = totalMarks ? parseFloat(totalMarks) : 100;
@@ -1058,30 +1089,13 @@ exports.addContentMassAssign = async (req, res) => {
 
             if (selectedCourses) {
                 const coursesArray = JSON.parse(selectedCourses);
-                const assignedCourseIds = new Set(coursesArray.map(Number));
-                try {
-                    const selectedCourseDetails = await prisma.course.findMany({
-                        where: { id: { in: Array.from(assignedCourseIds) } },
-                        select: { id: true, groupId: true, name: true, courseType: true }
-                    });
-                    for (const sc of selectedCourseDetails) {
-                        if (sc.groupId && sc.name) {
-                            const siblings = await prisma.course.findMany({
-                                where: { 
-                                    groupId: sc.groupId, 
-                                    name: sc.name,
-                                    courseType: sc.courseType
-                                },
-                                select: { id: true }
-                            });
-                            siblings.forEach(s => assignedCourseIds.add(s.id));
-                        }
-                    }
-                } catch(err) {
-                    console.error("Error expanding sibling courses:", err);
-                }
+                const assignedCourseIds = [...new Set(coursesArray.map(Number))].filter(Boolean);
 
-                const contentCourseData = Array.from(assignedCourseIds).map(cId => ({ content_id: newContent.id, course_id: BigInt(cId), type: getTypeInt(type) }));
+                const contentCourseData = assignedCourseIds.map(cId => ({ 
+                    content_id: newContent.id, 
+                    course_id: BigInt(cId), 
+                    type: getTypeInt(type) 
+                }));
                 if (contentCourseData.length > 0) await prisma.contentCourse.createMany({ data: contentCourseData });
             }
 
@@ -1147,9 +1161,9 @@ exports.updateContentMassAssign = async (req, res) => {
             updateData.reminderSent = false;
         }
 
-        if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined' && contentGroupId !== '' && contentGroupId !== '0') {
+        if (contentGroupId && contentGroupId !== 'null' && contentGroupId !== 'undefined' && contentGroupId !== '' && contentGroupId !== '0' && contentGroupId !== 'uncategorized') {
             updateData.contentGroupId = parseInt(contentGroupId);
-        } else {
+        } else if (contentGroupId === 'uncategorized') {
             updateData.contentGroupId = null;
         }
 
@@ -1187,12 +1201,24 @@ exports.updateContentMassAssign = async (req, res) => {
             }
 
             const resolvedPaperType = paperType || (type === 'sPaper' ? 'STRUCTURED' : (type === 'paper' ? 'MCQ' : undefined));
-            const parsedMcqDur = mcqDurationMinutes !== undefined && mcqDurationMinutes !== '' ? parseInt(mcqDurationMinutes) : undefined;
-            const parsedStructDur = structuredDurationMinutes !== undefined && structuredDurationMinutes !== '' ? parseInt(structuredDurationMinutes) : undefined;
+            let rawTotalDur = (paperTime !== undefined && paperTime !== '') 
+                ? parseInt(paperTime) 
+                : (req.body.durationMinutes !== undefined && req.body.durationMinutes !== '' ? parseInt(req.body.durationMinutes) : undefined);
+
+            let parsedMcqDur = (mcqDurationMinutes !== undefined && mcqDurationMinutes !== '') 
+                ? parseInt(mcqDurationMinutes) 
+                : (resolvedPaperType === 'MCQ' && rawTotalDur !== undefined ? rawTotalDur : undefined);
+            let parsedStructDur = (structuredDurationMinutes !== undefined && structuredDurationMinutes !== '') 
+                ? parseInt(structuredDurationMinutes) 
+                : (resolvedPaperType === 'STRUCTURED' && rawTotalDur !== undefined ? rawTotalDur : undefined);
             
-            let parsedTotalDur = paperTime !== undefined && paperTime !== '' ? parseInt(paperTime) : undefined;
+            let parsedTotalDur = rawTotalDur;
             if (resolvedPaperType === 'BOTH' && parsedMcqDur !== undefined && parsedStructDur !== undefined) {
                 parsedTotalDur = parsedMcqDur + parsedStructDur;
+            } else if (resolvedPaperType === 'STRUCTURED' && parsedStructDur !== undefined) {
+                parsedTotalDur = parsedStructDur;
+            } else if (resolvedPaperType === 'MCQ' && parsedMcqDur !== undefined) {
+                parsedTotalDur = parsedMcqDur;
             }
 
             const parsedPassMarks = passMarks !== undefined && passMarks !== '' ? parseFloat(passMarks) : undefined;
@@ -1230,8 +1256,8 @@ exports.updateContentMassAssign = async (req, res) => {
                     hasLeaderboard: parsedHasLeaderboard !== undefined ? parsedHasLeaderboard : true,
                     manualParticipantCount: parsedParticipantCount,
                     durationMinutes: parsedTotalDur || 60,
-                    mcqDurationMinutes: parsedMcqDur !== undefined ? parsedMcqDur : 30,
-                    structuredDurationMinutes: parsedStructDur !== undefined ? parsedStructDur : 60,
+                    mcqDurationMinutes: parsedMcqDur !== undefined ? parsedMcqDur : (resolvedPaperType === 'MCQ' ? (parsedTotalDur || 60) : 30),
+                    structuredDurationMinutes: parsedStructDur !== undefined ? parsedStructDur : (resolvedPaperType === 'STRUCTURED' ? (parsedTotalDur || 60) : 60),
                     totalMarks: parsedTotalMarks !== undefined ? parsedTotalMarks : 100,
                     totalMcqMarks: parsedTotalMcqMarks !== undefined ? parsedTotalMcqMarks : 50,
                     totalStructuredMarks: parsedTotalStructMarks !== undefined ? parsedTotalStructMarks : 50,
@@ -1281,31 +1307,10 @@ exports.updateContentMassAssign = async (req, res) => {
             const coursesArray = JSON.parse(selectedCourses);
             await prisma.contentCourse.deleteMany({ where: { content_id: parseInt(content_id) } });
             
-            const assignedCourseIds = new Set(coursesArray.map(Number));
-            try {
-                const selectedCourseDetails = await prisma.course.findMany({
-                    where: { id: { in: Array.from(assignedCourseIds) } },
-                    select: { id: true, groupId: true, name: true, courseType: true }
-                });
-                for (const sc of selectedCourseDetails) {
-                    if (sc.groupId && sc.name) {
-                        const siblings = await prisma.course.findMany({
-                            where: { 
-                                groupId: sc.groupId, 
-                                name: sc.name,
-                                courseType: sc.courseType // Strict courseType match: never cross Theory & Paper!
-                            },
-                            select: { id: true }
-                        });
-                        siblings.forEach(s => assignedCourseIds.add(s.id));
-                    }
-                }
-            } catch(err) {
-                console.error("Error expanding sibling courses:", err);
-            }
+            const assignedCourseIds = [...new Set(coursesArray.map(Number))].filter(Boolean);
 
-            if (assignedCourseIds.size > 0) {
-                const contentCourseData = Array.from(assignedCourseIds).map(cId => ({ 
+            if (assignedCourseIds.length > 0) {
+                const contentCourseData = assignedCourseIds.map(cId => ({ 
                     content_id: parseInt(content_id), 
                     course_id: BigInt(cId), 
                     type: getTypeInt(type) 
@@ -1315,7 +1320,7 @@ exports.updateContentMassAssign = async (req, res) => {
                 // If selectedBatches was not explicitly passed, sync batchId and additionalBatchIds from remaining assigned courses:
                 if (updatedBatchId === undefined) {
                     const remainingCourses = await prisma.course.findMany({
-                        where: { id: { in: Array.from(assignedCourseIds) } },
+                        where: { id: { in: assignedCourseIds } },
                         select: { group: { select: { batchId: true } } }
                     });
                     const bIds = [...new Set(remainingCourses.map(c => c.group?.batchId).filter(Boolean))];
@@ -1471,50 +1476,6 @@ exports.getContents = async (req, res) => {
         }
         allSubjectCourseCodes = [...new Set(allSubjectCourseCodes.filter(Boolean))];
 
-        const groupWhere = {
-            classType: targetClassType,
-            OR: [
-                { batchId: parseInt(batchId) },
-                { additionalBatchIds: { contains: `,${batchId},` } }
-            ]
-        };
-        if (allSubjectCourseCodes.length > 0) {
-            groupWhere.AND = [
-                { classType: targetClassType },
-                {
-                    OR: [
-                        {
-                            batchId: parseInt(batchId),
-                            OR: [
-                                { courseCode: { in: allSubjectCourseCodes } },
-                                { courseCode: null },
-                                { courseCode: '' }
-                            ]
-                        },
-                        {
-                            additionalBatchIds: { contains: `,${batchId},` },
-                            OR: [
-                                { courseCode: { in: allSubjectCourseCodes } },
-                                { courseCode: null },
-                                { courseCode: '' }
-                            ]
-                        }
-                    ]
-                }
-            ];
-            delete groupWhere.OR;
-        }
-
-        const lessonGroups = await prisma.contentGroup.findMany({
-            where: groupWhere,
-            orderBy: { itemOrder: 'asc' },
-            include: {
-                subFolders: {
-                    orderBy: { itemOrder: 'asc' }
-                }
-            }
-        });
-
         const linkedCourses = await prisma.contentCourse.findMany({ where: { course_id: { in: courseIdArray } } });
         const contentIds = linkedCourses.map(lc => lc.content_id);
 
@@ -1536,10 +1497,60 @@ exports.getContents = async (req, res) => {
             where: { content_id: { in: contentIds } }
         });
 
+        const contentGroupIds = [...new Set(contents.map(c => c.contentGroupId).filter(Boolean))];
+        const contentGroupTitles = [...new Set(contents.map(c => c.group?.title).filter(Boolean))];
+
+        const parsedBatchId = parseInt(batchId);
+        const initialGroups = await prisma.contentGroup.findMany({
+            where: {
+                classType: targetClassType, // Strictly isolate Theory (1) vs Paper (2)
+                OR: [
+                    parsedBatchId ? { batchId: parsedBatchId, courseCode: { in: allSubjectCourseCodes } } : undefined,
+                    parsedBatchId ? { batchId: parsedBatchId, courseCode: null } : undefined,
+                    parsedBatchId ? { batchId: parsedBatchId, courseCode: '' } : undefined,
+                    parsedBatchId ? { additionalBatchIds: { contains: `,${parsedBatchId},` } } : undefined,
+                    parsedBatchId && contentGroupTitles.length > 0 ? { batchId: parsedBatchId, title: { in: contentGroupTitles } } : undefined,
+                    contentGroupIds.length > 0 ? { id: { in: contentGroupIds } } : undefined
+                ].filter(Boolean)
+            },
+            orderBy: { itemOrder: 'asc' },
+            include: {
+                subFolders: {
+                    orderBy: { itemOrder: 'asc' }
+                }
+            }
+        });
+
+        // Fetch any missing parent folders for subfolders
+        const parentIdsToFetch = initialGroups.map(g => g.parentId).filter(Boolean);
+        const allGroupsMap = new Map();
+        initialGroups.forEach(g => allGroupsMap.set(g.id, g));
+
+        if (parentIdsToFetch.length > 0) {
+            const parentGroups = await prisma.contentGroup.findMany({
+                where: { id: { in: parentIdsToFetch }, classType: targetClassType },
+                include: { subFolders: true }
+            });
+            parentGroups.forEach(pg => allGroupsMap.set(pg.id, pg));
+        }
+
+        // Fetch any subfolders of root folders
+        const rootIds = Array.from(allGroupsMap.values()).filter(g => !g.parentId).map(g => g.id);
+        if (rootIds.length > 0) {
+            const subGroups = await prisma.contentGroup.findMany({
+                where: { parentId: { in: rootIds }, classType: targetClassType }
+            });
+            subGroups.forEach(sg => allGroupsMap.set(sg.id, sg));
+        }
+
+        const lessonGroups = Array.from(allGroupsMap.values());
+
         const normalizeFolderTitle = (title) => {
             if (!title) return '';
             return title
                 .toLowerCase()
+                .replace(/octomber/g, 'october')
+                .replace(/septeber|septemeber|septembar/g, 'september')
                 .replace(/[\s_-]+/g, ' ')
                 .replace(/\b(month|batch|මාසය|මාස|පාඩම|පාඩම්)\b/gi, '')
                 .trim();
@@ -1618,45 +1629,55 @@ exports.getContents = async (req, res) => {
             let parentGroupId = c.group?.parentId || null;
             delete cleanContent.group;
 
-            // If finalGroupId matches any id in allIds of a merged group, point finalGroupId to merged group id!
-            if (finalGroupId) {
-                const matchingMergedGroup = allBatchGroups.find(bg => bg.allIds && bg.allIds.includes(finalGroupId));
-                if (matchingMergedGroup) {
-                    finalGroupId = matchingMergedGroup.id;
-                    groupTitle = matchingMergedGroup.title;
-                }
-            }
-
             const typeInt = (c.contentType === 'live' || c.contentType === '1') ? 1
                 : (c.contentType === 'recording' || c.contentType === '2') ? 2
                 : (c.contentType === 'document' || c.contentType === '3') ? 3
                 : (c.contentType === 'testRanking' || c.contentType === 'rankingTest' || c.contentType === 'ranking_test' || c.contentType === 'test' || c.contentType === 'sPaper' || c.contentType === '4' || c.contentType === 'paper' || c.contentType === '5') ? 4 : null;
 
-            // 1. If finalGroupId doesn't belong to current batch's groups,
-            // resolve the corresponding folder in current batch by title & type
-            if (finalGroupId && !allBatchGroups.some(g => g.id === finalGroupId)) {
-                if (groupTitle) {
-                    const normItem = normalizeFolderTitle(groupTitle);
-                    const rawItem = groupTitle.trim().toLowerCase();
-
-                    const matchedGroup = allBatchGroups.find(bg => {
-                        if (typeInt && bg.type !== typeInt) return false;
-                        const bgRaw = (bg.title || '').trim().toLowerCase();
-                        const bgNorm = normalizeFolderTitle(bg.title);
-                        return bgRaw === rawItem || (normItem && bgNorm && normItem === bgNorm);
-                    });
-
-                    if (matchedGroup) {
-                        finalGroupId = matchedGroup.id;
-                        groupTitle = matchedGroup.title;
+            // 1. Direct ID or allIds match in merged groups (roots or subfolders)
+            if (finalGroupId) {
+                const matchingMergedGroup = allBatchGroups.find(bg => 
+                    (typeInt ? bg.type === typeInt : true) && 
+                    ((bg.allIds && bg.allIds.includes(finalGroupId)) || bg.id === finalGroupId)
+                );
+                if (matchingMergedGroup) {
+                    finalGroupId = matchingMergedGroup.id;
+                    groupTitle = matchingMergedGroup.title;
+                    if (matchingMergedGroup.parentId) {
+                        parentGroupId = matchingMergedGroup.parentId;
+                        const parentG = allBatchGroups.find(p => p.id === matchingMergedGroup.parentId || (p.allIds && p.allIds.includes(matchingMergedGroup.parentId)));
+                        parentGroupTitle = parentG?.title || parentGroupTitle;
                     }
                 }
             }
 
-            // 2. Cross-batch month matching fallback: ONLY if the item already belongs to another batch's folder
-            // (finalGroupId is NOT null), resolve a matching folder in current batch.
-            // If finalGroupId is null, the item is UNCATEGORIZED and must stay uncategorized!
-            if (finalGroupId && !allBatchGroups.some(g => g.id === finalGroupId)) {
+            // 2. Title matching fallback if group title is known and folder doesn't match ID
+            const isAssignedValid = finalGroupId && allBatchGroups.some(g => g.id === finalGroupId || (g.allIds && g.allIds.includes(finalGroupId)));
+            if (!isAssignedValid && groupTitle) {
+                const normItem = normalizeFolderTitle(groupTitle);
+                const rawItem = groupTitle.trim().toLowerCase();
+
+                const matchedGroup = allBatchGroups.find(bg => {
+                    if (typeInt && bg.type !== typeInt) return false;
+                    const bgRaw = (bg.title || '').trim().toLowerCase();
+                    const bgNorm = normalizeFolderTitle(bg.title);
+                    return bgRaw === rawItem || (normItem && bgNorm && normItem === bgNorm);
+                });
+
+                if (matchedGroup) {
+                    finalGroupId = matchedGroup.id;
+                    groupTitle = matchedGroup.title;
+                    if (matchedGroup.parentId) {
+                        parentGroupId = matchedGroup.parentId;
+                        const parentG = allBatchGroups.find(p => p.id === matchedGroup.parentId || (p.allIds && p.allIds.includes(matchedGroup.parentId)));
+                        parentGroupTitle = parentG?.title || parentGroupTitle;
+                    }
+                }
+            }
+
+            // 3. Smart Month matching fallback (Handles null contentGroupId or cross-batch month folders)
+            const isNowAssigned = finalGroupId && allBatchGroups.some(g => g.id === finalGroupId || (g.allIds && g.allIds.includes(finalGroupId)));
+            if (!isNowAssigned) {
                 let targetMonthIdx = -1;
                 if (c.date) {
                     try {
@@ -1689,8 +1710,21 @@ exports.getContents = async (req, res) => {
                     if (matchedGroup) {
                         finalGroupId = matchedGroup.id;
                         groupTitle = matchedGroup.title;
+                        if (matchedGroup.parentId) {
+                            parentGroupId = matchedGroup.parentId;
+                            const parentG = allBatchGroups.find(p => p.id === matchedGroup.parentId || (p.allIds && p.allIds.includes(matchedGroup.parentId)));
+                            parentGroupTitle = parentG?.title || parentGroupTitle;
+                        }
                     }
                 }
+            }
+
+            // 4. Auto-healing: If content was unlinked (null), persist finalGroupId in DB
+            if (!c.contentGroupId && finalGroupId) {
+                prisma.content.update({
+                    where: { id: c.id },
+                    data: { contentGroupId: finalGroupId }
+                }).catch(() => {});
             }
 
             return {

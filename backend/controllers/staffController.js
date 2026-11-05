@@ -6,8 +6,8 @@ const prisma = new PrismaClient();
 // 🔥 Role Format Fixer Helper 🔥
 const checkIsTopLevel = (role) => {
     if (!role) return false;
-    const normalized = role.toUpperCase().replace(' ', '_');
-    return normalized === 'SYSTEM_ADMIN' || normalized === 'DIRECTOR';
+    const normalized = role.toUpperCase().replace(/[\s_-]+/g, '_');
+    return normalized === 'SYSTEM_ADMIN' || normalized === 'DIRECTOR' || normalized === 'ADMIN_MANAGER';
 };
 
 // 1. Get All Businesses
@@ -19,7 +19,7 @@ exports.getBusinesses = async (req, res) => {
         
         const userDepartment = req.user.department ? req.user.department.toUpperCase() : '';
         const roleUpper = userRole ? userRole.toUpperCase().replace(/[\s_-]+/g, '_') : '';
-        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'FINANCE', 'SUPER_ADMIN'].includes(roleUpper) || 
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'FINANCE', 'SUPER_ADMIN', 'ADMIN_MANAGER'].includes(roleUpper) || 
                         userDepartment === 'DELIVERY' || 
                         userDepartment === 'CALL_CENTER' || 
                         userDepartment === 'CALL CENTER' || 
@@ -53,8 +53,8 @@ exports.getStaff = async (req, res) => {
         const userRole = req.user.role;
         const managerBusinessType = req.user.businessType;
         
-        const roleUpper = userRole ? userRole.toUpperCase().replace(/ /g, '_') : '';
-        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper);
+        const roleUpper = userRole ? userRole.toUpperCase().replace(/[\s_-]+/g, '_') : '';
+        const isAdmin = ['SYSTEM_ADMIN', 'DIRECTOR', 'ADMIN_MANAGER'].includes(roleUpper);
         
         const { startDate, endDate } = req.query;
 console.log("[DEBUG] /admin/staff query:", req.query);
@@ -77,6 +77,11 @@ console.log("[DEBUG] /admin/staff query:", req.query);
             whereClause.OR = [
                 { department: 'Social Media' },
                 { role: { in: ['Social Media Staff', 'Social Media Manager', 'SOCIAL_MEDIA_STAFF', 'SOCIAL_MEDIA_MANAGER', 'Editor', 'Graphic Designer', 'Video Editor'] } }
+            ];
+        } else if (queryDept === 'Administration') {
+            whereClause.OR = [
+                { department: 'Administration' },
+                { role: { in: ['System Admin', 'Director', 'Admin Manager', 'SYSTEM_ADMIN', 'DIRECTOR', 'ADMIN_MANAGER'] } }
             ];
         } else if (queryDept) {
             whereClause.department = queryDept;
@@ -262,6 +267,12 @@ const normalizePhone = (p) => {
 exports.createStaff = async (req, res) => {
     try {
         let { firstName, lastName, phone, nic, password, role, department, businessType } = req.body;
+        if (!firstName || !lastName || !phone) {
+            return res.status(400).json({ error: "First name, last name, and phone are required." });
+        }
+        if (!password || password.trim() === '') {
+            return res.status(400).json({ error: "Password is required." });
+        }
         phone = normalizePhone(phone);
         
         const existingUser = await prisma.user.findUnique({ where: { phone } });
@@ -271,7 +282,7 @@ exports.createStaff = async (req, res) => {
         
         const isTopLevel = checkIsTopLevel(role);
 
-        let finalDepartment = isTopLevel ? null : ((role === 'Coordinator' || role === 'Paper Marker' ? 'Class Coordination' : (role === 'Caller' ? 'Call Center' : department)));
+        let finalDepartment = isTopLevel ? (department || 'Administration') : ((role === 'Coordinator' || role === 'Paper Marker' ? 'Class Coordination' : (role === 'Caller' ? 'Call Center' : department)));
         let finalBusiness = (!isTopLevel) ? businessType : null;
         if (!isTopLevel && (!finalBusiness || String(finalBusiness).trim() === '') && req.user?.businessType) {
             finalBusiness = req.user.businessType;
@@ -287,7 +298,10 @@ exports.createStaff = async (req, res) => {
         });
 
         res.status(201).json({ message: "Staff created successfully", staff: newStaff });
-    } catch (error) { res.status(500).json({ error: "Failed to create staff" }); }
+    } catch (error) { 
+        console.error("Error creating staff:", error);
+        res.status(500).json({ error: error.message || "Failed to create staff" }); 
+    }
 };
 
 // 4. Update staff
@@ -299,7 +313,7 @@ exports.updateStaff = async (req, res) => {
         
         const isTopLevel = checkIsTopLevel(role);
 
-        let finalDepartment = isTopLevel ? null : ((role === 'Coordinator' || role === 'Paper Marker' ? 'Class Coordination' : (role === 'Caller' ? 'Call Center' : department)));
+        let finalDepartment = isTopLevel ? (department || 'Administration') : ((role === 'Coordinator' || role === 'Paper Marker' ? 'Class Coordination' : (role === 'Caller' ? 'Call Center' : department)));
         
         if (role === 'Social Media Manager' || role === 'Social Media Staff') {
             finalDepartment = 'Social Media';

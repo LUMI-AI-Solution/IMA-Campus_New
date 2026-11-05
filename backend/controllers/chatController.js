@@ -164,13 +164,14 @@ const initSocket = (server) => {
     });
 
     io.on("connection", async (socket) => {
-        const userId = socket.user.id || socket.user.userId;
+        const rawUserId = socket.user.id || socket.user.userId;
+        const userId = parseInt(rawUserId, 10);
         console.log(`Socket connected: ${socket.id} (User: ${userId})`);
         
         // Always join personal room for global notifications
         socket.join(`user_${userId}`);
         
-        // Auto-join WA idle pool ONLY for Class Coordination department
+        // Auto-join WA idle pool ONLY for Class Coordination department if strictly ACTIVE in DB
         try {
             const user = await prisma.user.findUnique({ where: { id: userId } });
             if (user && user.agentStatus === 'ACTIVE') {
@@ -209,6 +210,8 @@ const initSocket = (server) => {
                 } else {
                     console.log(`[WA Pool] User ${userId} (${user.firstName}, Dept: ${user.department}, Role: ${user.role}) is NOT an eligible Coordinator. Excluded from call pools.`);
                 }
+            } else {
+                console.log(`[WA Pool] User ${userId} (${user?.firstName}) is '${user?.agentStatus || 'OFFLINE'}'. NOT joining call pools on connect.`);
             }
         } catch (err) {
             console.error("Error auto-joining agent to WA pool:", err);
@@ -534,8 +537,9 @@ const initSocket = (server) => {
             }
         });
         socket.on("join_wa_agent_pool", async (data) => {
-            const status = data?.status || "ACTIVE"; // ACTIVE, LUNCH, AWAY
-            const userId = socket.user.id || socket.user.userId;
+            const status = (data?.status || "ACTIVE").toUpperCase().trim(); // ACTIVE, LUNCH, AWAY, OFFLINE
+            const rawUserId = socket.user.id || socket.user.userId;
+            const userId = parseInt(rawUserId, 10);
             
             // Fetch user's businessType & department to join correct pool
             try {
@@ -569,38 +573,44 @@ const initSocket = (server) => {
                 if (status === "ACTIVE" && isClassCoordination) {
                     console.log(`[WA Pool] Class Coordinator ${userId} (${user?.firstName}) marked ACTIVE in business pools: [${types.join(', ')}] (isAll: ${isAll})`);
                 } else {
-                    console.log(`[WA Pool] User ${userId} (${user?.firstName}) leaving pools (status: ${status}, isEligibleCoordinator: ${isClassCoordination})`);
+                    console.log(`[WA Pool] User ${userId} (${user?.firstName}) leaving all call pools (status: ${status}, isEligibleCoordinator: ${isClassCoordination})`);
                 }
 
                 // Force ALL sockets for this user to join/leave the pool (handles multiple tabs)
                 const userSocketsRoom = io.sockets.adapter.rooms.get(`user_${userId}`);
+                const socketsToUpdate = new Set();
                 if (userSocketsRoom) {
-                    let allBizNames = [];
-                    if (isAll) {
-                        try {
-                            const allBiz = await prisma.business.findMany({ select: { name: true } });
-                            allBizNames = allBiz.map(b => b.name?.trim()).filter(Boolean);
-                        } catch (err) {}
-                    }
+                    userSocketsRoom.forEach(sid => socketsToUpdate.add(sid));
+                }
+                socketsToUpdate.add(socket.id);
 
-                    for (const socketId of userSocketsRoom) {
-                        const s = io.sockets.sockets.get(socketId);
-                        if (s) {
-                            if (status === "ACTIVE" && isClassCoordination) {
-                                if (isAll) {
-                                    s.join('wa_call_agent_idle_ALL');
-                                    allBizNames.forEach(bn => s.join(`wa_call_agent_idle_${bn}`));
-                                } else {
-                                    for (const t of types) {
-                                        s.join(`wa_call_agent_idle_${t}`);
-                                    }
-                                }
+                let allBizNames = [];
+                if (status === "ACTIVE" && isClassCoordination && isAll) {
+                    try {
+                        const allBiz = await prisma.business.findMany({ select: { name: true } });
+                        allBizNames = allBiz.map(b => b.name?.trim()).filter(Boolean);
+                    } catch (err) {}
+                }
+
+                for (const socketId of socketsToUpdate) {
+                    const s = io.sockets.sockets.get(socketId);
+                    if (s) {
+                        // First leave ANY existing wa_call_agent_idle_ rooms
+                        for (const r of Array.from(s.rooms)) {
+                            if (r.startsWith('wa_call_agent_idle_')) {
+                                s.leave(r);
+                            }
+                        }
+
+                        // Only join if status is strictly ACTIVE and user is an eligible coordinator
+                        if (status === "ACTIVE" && isClassCoordination) {
+                            if (isAll) {
+                                s.join('wa_call_agent_idle_ALL');
+                                allBizNames.forEach(bn => s.join(`wa_call_agent_idle_${bn}`));
                             } else {
                                 for (const t of types) {
-                                    s.leave(`wa_call_agent_idle_${t}`);
+                                    s.join(`wa_call_agent_idle_${t}`);
                                 }
-                                s.leave(`wa_call_agent_idle_ALL`);
-                                allBizNames.forEach(bn => s.leave(`wa_call_agent_idle_${bn}`));
                             }
                         }
                     }
@@ -626,7 +636,8 @@ const initSocket = (server) => {
         });
 
         socket.on("leave_wa_agent_pool", async () => {
-            const userId = socket.user.id || socket.user.userId;
+            const rawUserId = socket.user.id || socket.user.userId;
+            const userId = parseInt(rawUserId, 10);
             try {
                 const user = await prisma.user.findUnique({ where: { id: userId }, select: { businessType: true } });
                 const businessType = user?.businessType ? String(user.businessType).trim() : "";
@@ -636,33 +647,34 @@ const initSocket = (server) => {
                     data: { agentStatus: "OFFLINE" }
                 });
 
-                console.log(`[WA Pool] Agent ${userId} marked as OFFLINE`);
+                console.log(`[WA Pool] Agent ${userId} marked as OFFLINE and leaving all pools`);
 
-                const types = businessType.split(',').map(t => t.trim()).filter(Boolean);
-                const isAll = types.length === 0 || types.some(t => t.toUpperCase() === 'ALL');
-                
                 const userSocketsRoom = io.sockets.adapter.rooms.get(`user_${userId}`);
+                const socketsToUpdate = new Set();
                 if (userSocketsRoom) {
-                    let allBizNames = [];
-                    if (isAll) {
-                        try {
-                            const allBiz = await prisma.business.findMany({ select: { name: true } });
-                            allBizNames = allBiz.map(b => b.name?.trim()).filter(Boolean);
-                        } catch (err) {}
-                    }
+                    userSocketsRoom.forEach(sid => socketsToUpdate.add(sid));
+                }
+                socketsToUpdate.add(socket.id);
 
-                    for (const socketId of userSocketsRoom) {
-                        const s = io.sockets.sockets.get(socketId);
-                        if (s) {
-                            for (const t of types) {
-                                s.leave(`wa_call_agent_idle_${t}`);
+                for (const socketId of socketsToUpdate) {
+                    const s = io.sockets.sockets.get(socketId);
+                    if (s) {
+                        for (const r of Array.from(s.rooms)) {
+                            if (r.startsWith('wa_call_agent_idle_')) {
+                                s.leave(r);
                             }
-                            s.leave(`wa_call_agent_idle_ALL`);
-                            allBizNames.forEach(bn => s.leave(`wa_call_agent_idle_${bn}`));
                         }
                     }
                 }
                 
+                // Sync fresh profile back
+                socket.emit("user_profile_sync", {
+                    user: {
+                        id: userId,
+                        agentStatus: "OFFLINE"
+                    }
+                });
+
                 // Notify admin/manager dashboards
                 io.emit("agent_status_changed", { userId, status: "OFFLINE", businessType });
 

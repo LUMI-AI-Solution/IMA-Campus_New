@@ -362,6 +362,10 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
 
     const handleRemarkChange = (leadId, value) => {
         setDrafts(prev => ({ ...prev, [leadId]: value }));
+        const lead = leads.find(l => l.id === leadId);
+        if (lead?.batchId) {
+            localStorage.setItem(`draft_remark_as_${leadId}_${lead.batchId}`, value);
+        }
         localStorage.setItem(`draft_remark_as_${leadId}`, value);
     };
 
@@ -410,6 +414,9 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
             delete newDrafts[leadId];
             setDrafts(newDrafts);
             localStorage.removeItem(`draft_remark_as_${leadId}`);
+            if (lead?.batchId) {
+                localStorage.removeItem(`draft_remark_as_${leadId}_${lead.batchId}`);
+            }
 
             handleUpdateLocalLead(leadId, 'feedback', feedback);
             handleUpdateLocalLead(leadId, 'callStatus', finalStatus);
@@ -912,7 +919,10 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                                 {paginatedLeads.map((lead, index) => {
                                     const realIndex = (currentPage - 1) * ITEMS_PER_PAGE + index + 1;
-                                    const currentRemark = drafts[lead.id] !== undefined ? drafts[lead.id] : (lead.feedback || '');
+                                    const isLeadPending = lead.callStatus === 'pending' || !lead.callStatus;
+                                    const currentRemark = isLeadPending
+                                        ? (drafts[lead.id] || '')
+                                        : (drafts[lead.id] !== undefined ? drafts[lead.id] : (lead.feedback || ''));
                                     const isDraft = drafts[lead.id] !== undefined && drafts[lead.id] !== lead.feedback;
 
                                     const callOutcome = lead.callStatus || 'pending';
@@ -1265,7 +1275,10 @@ export default function AfterSeminarOpenSem({ leads, allBatches, filters, drafts
                                         <tbody className="divide-y divide-indigo-500/10">
                                             {paginatedLeads.map((lead, index) => {
                                                 const realIndex = (currentPage - 1) * ITEMS_PER_PAGE + index + 1;
-                                                const currentRemark = drafts[lead.id] !== undefined ? drafts[lead.id] : (lead.feedback || '');
+                                                const isLeadPending = lead.callStatus === 'pending' || !lead.callStatus;
+                                    const currentRemark = isLeadPending
+                                        ? (drafts[lead.id] || '')
+                                        : (drafts[lead.id] !== undefined ? drafts[lead.id] : (lead.feedback || ''));
                                                 const isDraft = drafts[lead.id] !== undefined && drafts[lead.id] !== lead.feedback;
                                                 
                                                 let enrollmentValue = 'NON_ENROLLED';

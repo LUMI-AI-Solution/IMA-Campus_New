@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useLayoutEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, ActivityIndicator, TextInput, StatusBar, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import COLORS from '../constants/colors';
 import api, { IMAGE_URL } from '../services/api';
 
 const CoursesScreen = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
   const [businesses, setBusinesses] = useState([]);
   const [filteredBusinesses, setFilteredBusinesses] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -41,29 +42,44 @@ const CoursesScreen = ({ navigation }) => {
     }
   };
 
+  const isValidImage = (filename) => {
+    if (!filename || typeof filename !== 'string') return false;
+    const clean = filename.trim().toLowerCase();
+    if (clean === '' || clean === 'null' || clean === 'undefined' || clean === 'default.png' || clean === 'none') return false;
+    if (clean.endsWith('.enc') || clean.endsWith('.htm') || clean.endsWith('.html') || clean.endsWith('.php')) return false;
+    return true;
+  };
+
   // 🔥 FIX: පේළියට දෙකක් වැටෙන්න Card එක පොඩි කළා
-  const renderItem = ({ item }) => (
-    <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => navigation.navigate('CourseDetails', { businessData: item })}>
-      <View style={styles.cardImageContainer}>
-        <Image source={{ uri: `${IMAGE_URL}icons/${item.logo || 'default.png'}` }} style={styles.image} resizeMode="contain" />
-      </View>
-      <View style={styles.cardContent}>
-        {/* Category Badge එක මෙතනින් අයින් කරලා තියෙන්නේ */}
-        <Text style={styles.title} numberOfLines={2}>{item.name}</Text>
-        <View style={styles.footer}>
-          <Text style={styles.enrollText}>Enroll</Text>
-          <Icon name="arrow-right-circle" size={20} color={COLORS.primary} />
+  const renderItem = ({ item }) => {
+    const hasValidLogo = isValidImage(item.logo);
+    const logoUri = hasValidLogo
+      ? `${IMAGE_URL}icons/${item.logo.trim()}`
+      : `https://ui-avatars.com/api/?name=${encodeURIComponent(item.name || 'IMA')}&background=DC2626&color=fff&size=200`;
+
+    return (
+      <TouchableOpacity style={styles.card} activeOpacity={0.8} onPress={() => navigation.navigate('CourseDetails', { businessData: item })}>
+        <View style={styles.cardImageContainer}>
+          <Image source={{ uri: logoUri }} style={styles.image} resizeMode="contain" />
         </View>
-      </View>
-    </TouchableOpacity>
-  );
+        <View style={styles.cardContent}>
+          {/* Category Badge එක මෙතනින් අයින් කරලා තියෙන්නේ */}
+          <Text style={styles.title} numberOfLines={2}>{item.name}</Text>
+          <View style={styles.footer}>
+            <Text style={styles.enrollText}>Enroll</Text>
+            <Icon name="arrow-right-circle" size={20} color={COLORS.primary} />
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.safeArea}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} translucent={true}/>
       
       {/* 🔥 Premium Red Header 🔥 */}
-      <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={styles.redHeader}>
+      <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={[styles.redHeader, { paddingTop: Math.max(insets.top, 20) + 8 }]}>
         <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{position: 'absolute', right: -30, top: -20, transform: [{rotate: '-15deg'}]}} />
         <Text style={styles.headerTitle}>Available Courses</Text>
         <View style={styles.searchContainer}>
@@ -99,16 +115,13 @@ const CoursesScreen = ({ navigation }) => {
   );
 };
 
-const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 50 : StatusBar.currentHeight || 24;
-
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#F5F7FA' },
   mainBackground: { flex: 1, backgroundColor: '#F5F7FA' },
   
   redHeader: { 
     paddingHorizontal: 20, 
-    paddingBottom: 25, 
-    paddingTop: STATUSBAR_HEIGHT + 10, 
+    paddingBottom: 22, 
     borderBottomLeftRadius: 35, 
     borderBottomRightRadius: 35, 
     elevation: 8, 

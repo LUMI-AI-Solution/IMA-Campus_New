@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../../api/axios';
+import AiPdfMcqExtractorModal from './AiPdfMcqExtractorModal';
 
 export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated, readOnly = false }) {
   const [activeTab, setActiveTab] = useState('questions'); // 'questions' | 'pdf' | 'settings' | 'submissions' | 'leaderboard'
@@ -93,6 +94,7 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
 
   // MCQ Questions list
   const [questions, setQuestions] = useState([]);
+  const [showAiPdfModal, setShowAiPdfModal] = useState(false);
 
   // Submissions list
   const [submissions, setSubmissions] = useState([]);
@@ -107,6 +109,21 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
   // Question Images upload & preview state
   const [uploadingQuestionIdx, setUploadingQuestionIdx] = useState(null);
   const [previewImageUrl, setPreviewImageUrl] = useState(null);
+
+  const toLocalDatetimeInputValue = (dateInput) => {
+    if (!dateInput) return '';
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return '';
+    const tzOffset = d.getTimezoneOffset() * 60000;
+    return (new Date(d.getTime() - tzOffset)).toISOString().slice(0, 16);
+  };
+
+  const toUTCISOString = (localDatetimeStr) => {
+    if (!localDatetimeStr) return null;
+    const d = new Date(localDatetimeStr);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString();
+  };
 
   // Upload Master Essay PDF handler
   const handleUploadMasterSheetFile = async (e) => {
@@ -159,11 +176,11 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
           setActiveTab('questions');
         }
         setTimerMode(p.timerMode || 'FLEXIBLE');
-        setScheduledStartTime(p.scheduledStartTime ? p.scheduledStartTime.substring(0, 16) : '');
+        setScheduledStartTime(toLocalDatetimeInputValue(p.scheduledStartTime));
         setMcqTimerMode(p.mcqTimerMode || p.timerMode || 'FLEXIBLE');
-        setMcqScheduledStartTime(p.mcqScheduledStartTime ? p.mcqScheduledStartTime.substring(0, 16) : (p.scheduledStartTime ? p.scheduledStartTime.substring(0, 16) : ''));
+        setMcqScheduledStartTime(toLocalDatetimeInputValue(p.mcqScheduledStartTime || p.scheduledStartTime));
         setStructuredTimerMode(p.structuredTimerMode || p.timerMode || 'FLEXIBLE');
-        setStructuredScheduledStartTime(p.structuredScheduledStartTime ? p.structuredScheduledStartTime.substring(0, 16) : (p.scheduledStartTime ? p.scheduledStartTime.substring(0, 16) : ''));
+        setStructuredScheduledStartTime(toLocalDatetimeInputValue(p.structuredScheduledStartTime || p.scheduledStartTime));
         setBreakIntervalMinutes(p.breakIntervalMinutes !== null && p.breakIntervalMinutes !== undefined ? p.breakIntervalMinutes : 15);
         setStructuredUploadMinutes(p.structuredUploadMinutes !== null && p.structuredUploadMinutes !== undefined ? p.structuredUploadMinutes : 15);
         setCategory(p.category || 'WEEKLY');
@@ -175,17 +192,21 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
         }
         setManualParticipantCount(p.manualParticipantCount !== null && p.manualParticipantCount !== undefined ? String(p.manualParticipantCount) : '');
         
-        const totalMins = p.durationMinutes || content.paperTime || 60;
-        setDurationHours(Math.floor(totalMins / 60));
-        setDurationMinutes(totalMins % 60);
-
-        const mcqMins = p.mcqDurationMinutes ?? 60;
+        const mcqMins = resolvedType === 'MCQ'
+          ? (p.durationMinutes || p.mcqDurationMinutes || content.paperTime || 60)
+          : (p.mcqDurationMinutes ?? (p.durationMinutes || content.paperTime || 60));
         setMcqDurationHours(Math.floor(mcqMins / 60));
         setMcqDurationMinutes(mcqMins % 60);
 
-        const structMins = p.structuredDurationMinutes ?? 120;
+        const structMins = resolvedType === 'STRUCTURED'
+          ? (p.durationMinutes || p.structuredDurationMinutes || content.paperTime || 60)
+          : (p.structuredDurationMinutes ?? (p.durationMinutes || content.paperTime || 60));
         setStructuredDurationHours(Math.floor(structMins / 60));
         setStructuredDurationMinutes(structMins % 60);
+
+        const totalMins = resolvedType === 'MCQ' ? mcqMins : (resolvedType === 'STRUCTURED' ? structMins : (p.durationMinutes || (mcqMins + structMins)));
+        setDurationHours(Math.floor(totalMins / 60));
+        setDurationMinutes(totalMins % 60);
 
         setTotalMcqMarks(p.totalMcqMarks ?? 50);
         setTotalStructuredMarks(p.totalStructuredMarks ?? 50);
@@ -320,10 +341,14 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
     setSaving(true);
     try {
       let calculatedMins = Math.max(1, (parseInt(durationHours || 0) * 60) + parseInt(durationMinutes || 0));
-      const calculatedMcqMins = (parseInt(mcqDurationHours || 0) * 60) + parseInt(mcqDurationMinutes || 0);
-      const calculatedStructMins = (parseInt(structuredDurationHours || 0) * 60) + parseInt(structuredDurationMinutes || 0);
+      let calculatedMcqMins = (parseInt(mcqDurationHours || 0) * 60) + parseInt(mcqDurationMinutes || 0);
+      let calculatedStructMins = (parseInt(structuredDurationHours || 0) * 60) + parseInt(structuredDurationMinutes || 0);
 
-      if (paperType === 'BOTH') {
+      if (paperType === 'MCQ') {
+        calculatedMcqMins = calculatedMins;
+      } else if (paperType === 'STRUCTURED') {
+        calculatedStructMins = calculatedMins;
+      } else if (paperType === 'BOTH') {
         calculatedMins = calculatedMcqMins + calculatedStructMins;
       }
 
@@ -331,11 +356,11 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
         contentId: content.id,
         paperType,
         timerMode: paperType === 'BOTH' ? (mcqTimerMode === 'SCHEDULED' || structuredTimerMode === 'SCHEDULED' ? 'SCHEDULED' : 'FLEXIBLE') : (paperType === 'STRUCTURED' ? structuredTimerMode : mcqTimerMode),
-        scheduledStartTime: (paperType === 'STRUCTURED' ? (structuredTimerMode === 'SCHEDULED' ? structuredScheduledStartTime : null) : (mcqTimerMode === 'SCHEDULED' ? mcqScheduledStartTime : null)),
+        scheduledStartTime: toUTCISOString(paperType === 'STRUCTURED' ? (structuredTimerMode === 'SCHEDULED' ? structuredScheduledStartTime : null) : (mcqTimerMode === 'SCHEDULED' ? mcqScheduledStartTime : null)),
         mcqTimerMode,
-        mcqScheduledStartTime: mcqTimerMode === 'SCHEDULED' && mcqScheduledStartTime ? mcqScheduledStartTime : null,
+        mcqScheduledStartTime: mcqTimerMode === 'SCHEDULED' ? toUTCISOString(mcqScheduledStartTime) : null,
         structuredTimerMode,
-        structuredScheduledStartTime: structuredTimerMode === 'SCHEDULED' && structuredScheduledStartTime ? structuredScheduledStartTime : null,
+        structuredScheduledStartTime: structuredTimerMode === 'SCHEDULED' ? toUTCISOString(structuredScheduledStartTime) : null,
         breakIntervalMinutes: parseInt(breakIntervalMinutes || 15),
         structuredUploadMinutes: parseInt(structuredUploadMinutes || 15),
         durationMinutes: calculatedMins,
@@ -427,6 +452,30 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
         ]
       }
     ]);
+  };
+
+  // Handle import from AI PDF Extractor
+  const handleImportExtractedQuestions = (newExtractedQuestions, mode = 'append') => {
+    if (mode === 'replace') {
+      const formatted = newExtractedQuestions.map((q, idx) => ({
+        ...q,
+        questionNo: idx + 1,
+        marks: q.marks || 1,
+        image: '',
+        images: []
+      }));
+      setQuestions(formatted);
+    } else {
+      const startNo = questions.length;
+      const formatted = newExtractedQuestions.map((q, idx) => ({
+        ...q,
+        questionNo: startNo + idx + 1,
+        marks: q.marks || 1,
+        image: '',
+        images: []
+      }));
+      setQuestions(prev => [...prev, ...formatted]);
+    }
   };
 
   const removeQuestion = (idx) => {
@@ -686,17 +735,27 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                       </p>
                     </div>
                     {!readOnly ? (
-                      <div className="flex gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <button
+                          type="button"
+                          onClick={() => setShowAiPdfModal(true)}
+                          className="bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-black px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-purple-600/30 transition-all active:scale-95 cursor-pointer"
+                        >
+                          <Sparkles size={15} className="text-yellow-300 animate-pulse" />
+                          <span>AI Extract from PDF</span>
+                        </button>
+                        <button
+                          type="button"
                           onClick={addQuestion}
-                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 transition-all active:scale-95"
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold px-4 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-emerald-600/30 transition-all active:scale-95 cursor-pointer"
                         >
                           <Plus size={16} /> Add Question
                         </button>
                         <button
+                          type="button"
                           onClick={handleSaveQuestions}
                           disabled={saving}
-                          className="bg-brand-accent hover:bg-brand-accent/90 text-white font-extrabold px-5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50"
+                          className="bg-brand-accent hover:bg-brand-accent/90 text-white font-extrabold px-5 py-2 rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-rose-600/30 transition-all disabled:opacity-50 cursor-pointer"
                         >
                           {saving ? <RefreshCw className="animate-spin" size={16} /> : <Save size={16} />} Save All Questions
                         </button>
@@ -752,7 +811,7 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                             <div className="flex items-center gap-2">
                               <ImageIcon size={16} className="text-emerald-400 shrink-0" />
                               <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-                                Question Figures / Diagrams (රූප සටහන් / ප්‍රස්තාර)
+                                Question Figures / Diagrams
                               </span>
                               {q.images && q.images.length > 0 && (
                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
@@ -1707,7 +1766,7 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                           {/* Number of Essay Questions in the paper */}
                           <div className="bg-black/40 border border-amber-500/30 rounded-2xl p-4 space-y-2">
                             <label className="text-xs sm:text-sm font-bold text-amber-300 block uppercase tracking-wider">
-                              Total Questions (ප්‍රශ්න ගණන) *
+                              Total Questions *
                             </label>
                             <div className="relative">
                               <input 
@@ -1786,7 +1845,7 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                           {/* Part 2: Essay Question Count */}
                           <div className="bg-black/40 border border-amber-500/30 rounded-2xl p-4 space-y-2">
                             <label className="text-xs sm:text-sm font-bold text-amber-300 block uppercase tracking-wider">
-                              Part 2 Questions (ප්‍රශ්න ගණන) *
+                              Part 2 Questions *
                             </label>
                             <div className="relative">
                               <input 
@@ -2456,6 +2515,14 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
             </div>
           </div>
         )}
+
+        {/* AI PDF MCQ Extractor Modal */}
+        <AiPdfMcqExtractorModal
+          isOpen={showAiPdfModal}
+          onClose={() => setShowAiPdfModal(false)}
+          onImportQuestions={handleImportExtractedQuestions}
+          existingQuestionsCount={questions.length}
+        />
 
       </div>
     </div>

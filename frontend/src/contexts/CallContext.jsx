@@ -655,11 +655,9 @@ export const CallProvider = ({ children }) => {
                 const isClassCoordination = !isRestrictedRole && !isRestrictedDept && Boolean(isCoordinationRole || isCoordinationManager) && !roleUpper.includes('PAPER_MARKER');
 
                 if (isClassCoordination) {
-                    const savedStatus = localStorage.getItem('agentStatus') || storedUser?.agentStatus || 'ACTIVE';
-                    if (savedStatus !== 'OFFLINE') {
-                        newSocket.emit('join_wa_agent_pool', { status: savedStatus });
-                        console.log(`[Socket CallContext] Emitted join_wa_agent_pool for Class Coordination with status: ${savedStatus}`);
-                    }
+                    const savedStatus = (localStorage.getItem('agentStatus') || storedUser?.agentStatus || 'ACTIVE').toUpperCase().trim();
+                    newSocket.emit('join_wa_agent_pool', { status: savedStatus });
+                    console.log(`[Socket CallContext] Emitted join_wa_agent_pool for Class Coordination with status: ${savedStatus}`);
                 } else {
                     console.log(`[Socket CallContext] User ${storedUser?.id} (${storedUser?.firstName}) is NOT in Class Coordination (Dept: ${storedUser?.department}). Skipping WA agent pool join.`);
                 }
@@ -740,8 +738,18 @@ export const CallProvider = ({ children }) => {
         const handleIncomingCall = (data) => {
             console.log("Incoming WhatsApp Call:", data);
             
-            // 1. Coordinator & Class Coordination Manager Check
+            // 0. Active Status Check: Calls must ONLY ring if coordinator is ACTIVE!
+            // If status is AWAY, LUNCH, OFFLINE, strictly do NOT ring!
             const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+            const savedAgentStatus = localStorage.getItem('agentStatus');
+            const currentAgentStatus = String(savedAgentStatus || storedUser?.agentStatus || 'OFFLINE').trim().toUpperCase();
+
+            if (currentAgentStatus !== 'ACTIVE') {
+                console.log(`[CallContext] Suppressing WhatsApp call for user ${storedUser?.id} (${storedUser?.firstName}) - Agent status is '${currentAgentStatus}' (NOT ACTIVE).`);
+                return;
+            }
+
+            // 1. Coordinator & Class Coordination Manager Check
             const deptLower = (storedUser?.department || '').trim().toLowerCase();
             const roleUpper = (storedUser?.role || '').trim().toUpperCase();
 
@@ -1211,6 +1219,7 @@ export const CallProvider = ({ children }) => {
             incomingCall,
             activeCall,
             isRinging,
+            stopRinging,
             answerCall,
             rejectCall,
             endCall,

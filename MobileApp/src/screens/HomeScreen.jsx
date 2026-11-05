@@ -2,12 +2,13 @@ import React, { useState, useEffect, useContext, useRef, useCallback } from 'rea
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, StatusBar,
   Image, Modal, FlatList, Dimensions, RefreshControl,
-  AppState, Linking, Animated
+  AppState, Linking, Animated, Platform
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 import COLORS from '../constants/colors';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import LottieView from 'lottie-react-native';
 
@@ -15,7 +16,6 @@ import api, { IMAGE_URL } from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 import moment from 'moment';
 import CustomAlert from '../components/CustomAlert';
-import GlobalDownloadWidget from '../components/GlobalDownloadWidget';
 import messaging from '@react-native-firebase/messaging';
 import UpgradeOfferWidget from '../components/UpgradeOfferWidget';
 
@@ -27,6 +27,7 @@ const SNAP_INTERVAL = CARD_WIDTH + CARD_MARGIN;
 
 const HomeScreen = ({ navigation }) => {
   const { userInfo, userToken, logout } = useContext(AuthContext);
+  const insets = useSafeAreaInsets();
   const [greeting, setGreeting] = useState('');
 
   const [posts, setPosts] = useState([]);
@@ -165,9 +166,17 @@ const HomeScreen = ({ navigation }) => {
           });
           courseIds = [...new Set(courseIds.filter(Boolean))];
 
-          businessIds.forEach(id => messaging().subscribeToTopic(`business_${id}`));
-          batchIds.forEach(id => messaging().subscribeToTopic(`batch_${id}`));
-          courseIds.forEach(id => messaging().subscribeToTopic(`course_${id}`));
+          if (Platform.OS === 'ios') {
+            const apnsToken = await messaging().getAPNSToken().catch(() => null);
+            if (!apnsToken) {
+              console.log('Skipping FCM Topic Subscription on iOS Simulator');
+              return;
+            }
+          }
+
+          businessIds.forEach(id => messaging().subscribeToTopic(`business_${id}`).catch(() => {}));
+          batchIds.forEach(id => messaging().subscribeToTopic(`batch_${id}`).catch(() => {}));
+          courseIds.forEach(id => messaging().subscribeToTopic(`course_${id}`).catch(() => {}));
 
           console.log('✅ Successfully Subscribed to FCM Topics -> Businesses:', businessIds, '| Batches:', batchIds, '| Courses:', courseIds);
         }
@@ -208,11 +217,11 @@ const HomeScreen = ({ navigation }) => {
 
   const quickActions = [
     { id: 1, name: 'My Courses', icon: 'book-education', color: '#FEF2F2', iconColor: COLORS.primary, targetTab: 'My Courses', desc: 'View learning materials' },
-    { id: 2, name: 'Downloads', icon: 'download-circle-outline', color: '#FEF2F2', iconColor: COLORS.primary, targetTab: 'Downloads', desc: 'Offline content' },
     { id: 3, name: 'Payments', icon: 'credit-card-outline', color: '#FEF2F2', iconColor: COLORS.primary, targetTab: 'Payments', desc: 'Manage your fees' },
     { id: 4, name: 'Lumi Chat', icon: 'headphones', color: '#F0F9FF', iconColor: '#0EA5E9', targetTab: 'SupportChat', desc: 'LUMI Chat Support' },
     { id: 5, name: 'Delivery', icon: 'truck-delivery-outline', color: '#FEF2F2', iconColor: COLORS.primary, targetTab: 'Delivery', desc: 'Track materials' },
-    { id: 6, name: 'AI Agent', icon: 'robot-outline', color: '#FFF1F2', iconColor: '#F43F5E', nav: 'coming_soon', desc: 'Lumi AI Assistant' }
+    { id: 6, name: 'Leaderboard', icon: 'trophy-variant-outline', color: '#FFFBEB', iconColor: '#D97706', targetTab: 'Leaderboard', desc: 'Rankings & Analytics' },
+    { id: 7, name: 'Exams & Papers', icon: 'file-document-edit-outline', color: '#EEF2FF', iconColor: '#4F46E5', targetTab: 'MCQPaper', desc: 'Online Exam Hall' }
   ];
 
   const renderTextWithLinks = (text) => {
@@ -348,7 +357,7 @@ const HomeScreen = ({ navigation }) => {
       <StatusBar barStyle="light-content" backgroundColor={COLORS.primary} />
       <CustomAlert isVisible={alertVisible} title={alertConfig.title} message={alertConfig.msg} type={alertConfig.type} onClose={() => setAlertVisible(false)} />
 
-      <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.header}>
+      <LinearGradient colors={[COLORS.primary, '#9A0007']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 8 }]}>
         <Icon name="school" size={150} color="rgba(255,255,255,0.06)" style={{ position: 'absolute', right: -30, top: -20, transform: [{ rotate: '-15deg' }] }} />
         <View style={styles.topRow}>
           <TouchableOpacity onPress={() => navigation.navigate('Profile')}>
@@ -418,12 +427,20 @@ const HomeScreen = ({ navigation }) => {
                   setShowChatSelection(true);
                 } else if (item.nav === 'coming_soon') {
                   showAlert('Coming Soon!', 'This feature will be available in the next update.', 'warning');
-                } else if (item.targetTab === 'Downloads') {
-                  navigation.navigate('Downloads');
                 } else if (item.targetTab === 'SupportChat') {
                   navigation.navigate('SupportChat');
                 } else if (item.targetTab === 'Delivery') {
                   navigation.navigate('Delivery');
+                } else if (item.targetTab === 'Leaderboard') {
+                  navigation.navigate('Leaderboard');
+                } else if (item.targetTab === 'MCQPaper') {
+                  navigation.navigate('MCQPaper');
+                } else if (item.targetTab === 'YTPlayerTest') {
+                  const nav = navigation.getParent ? (navigation.getParent() || navigation) : navigation;
+                  nav.navigate('YTPlayerTest');
+                } else if (item.targetTab === 'YTDebug') {
+                  const nav = navigation.getParent ? (navigation.getParent() || navigation) : navigation;
+                  nav.navigate('YTDebug');
                 } else if (item.targetTab) {
                   navigation.navigate('MainTabs', { screen: item.targetTab });
                 }
@@ -431,6 +448,43 @@ const HomeScreen = ({ navigation }) => {
             />
           ))}
         </View>
+
+        {/* 🔥 Online Exam Hall & Model Papers Banner Widget */}
+        <TouchableOpacity
+          activeOpacity={0.92}
+          onPress={() => navigation.navigate('MCQPaper')}
+          style={styles.examBannerCard}
+        >
+          <LinearGradient
+            colors={['#1E1B4B', '#312E81', '#4338CA']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.examBannerGradient}
+          >
+            <View style={{ flex: 1, paddingRight: 10 }}>
+              <View style={styles.examTagRow}>
+                <View style={styles.examLiveDot} />
+                <Text style={styles.examTagText}>ONLINE EXAM HALL</Text>
+                <View style={styles.examPillBadge}>
+                  <Text style={styles.examPillBadgeText}>MCQ & STRUCTURED</Text>
+                </View>
+              </View>
+              <Text style={styles.examBannerTitle}>Past Papers & Model Exams</Text>
+              <Text style={styles.examBannerDesc}>
+                Practice real timed papers, instant evaluation and compete on the island Leaderboard!
+              </Text>
+              <View style={styles.examBannerBtn}>
+                <Text style={styles.examBannerBtnText}>Enter Exam Hall</Text>
+                <Icon name="arrow-right" size={16} color="#FFFFFF" style={{ marginLeft: 6 }} />
+              </View>
+            </View>
+            <View style={styles.examBannerIconContainer}>
+              <View style={styles.examBannerCircle}>
+                <Icon name="file-document-edit" size={38} color="#A5B4FC" />
+              </View>
+            </View>
+          </LinearGradient>
+        </TouchableOpacity>
 
         {enrolledCount > 0 && <UpgradeOfferWidget navigation={navigation} />}
 
@@ -624,30 +678,28 @@ const HomeScreen = ({ navigation }) => {
           </View>
         </View>
       </Modal>
-
-      <GlobalDownloadWidget />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FB' },
-  header: { paddingTop: 50, paddingBottom: 20, paddingHorizontal: 25, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 10, overflow: 'hidden' },
+  container: { flex: 1, backgroundColor: '#F8F9FB', width: '100%' },
+  header: { width: '100%', paddingBottom: 22, paddingHorizontal: 25, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, borderTopLeftRadius: 0, borderTopRightRadius: 0, elevation: 10, overflow: 'hidden' },
   topRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   bellButton: { width: 45, height: 45, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 15, justifyContent: 'center', alignItems: 'center' },
   badge: { position: 'absolute', top: 12, right: 12, width: 8, height: 8, backgroundColor: '#FFD700', borderRadius: 4, borderWidth: 2, borderColor: COLORS.primary },
   logoContainer: { alignItems: 'center', marginTop: 10, marginBottom: 10, width: width - 50, alignSelf: 'center' },
-  mainLogo: { width: '100%', height: 80 },
+  mainLogo: { width: '100%', height: 76 },
 
   /* NEW STYLES FOR HEADER BOTTOM ROW */
-  headerBottomRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 5 },
+  headerBottomRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', marginTop: 8 },
   welcomeContainer: { flex: 1, alignItems: 'flex-start' },
   greetingText: { color: '#E0E0E0', fontSize: 14, fontWeight: '500' },
   usernameText: { color: 'white', fontSize: 24, fontWeight: 'bold', letterSpacing: 0.5 },
   animationContainer: { width: 90, height: 90, justifyContent: 'flex-end', alignItems: 'flex-end' },
   /* -------------------------------- */
 
-  contentContainer: { flex: 1, paddingHorizontal: 0, marginTop: 25 },
+  contentContainer: { flex: 1, paddingHorizontal: 0, marginTop: 18 },
   sectionTitle: { fontSize: 19, fontWeight: '800', color: '#1A1A1A', marginBottom: 15, paddingHorizontal: 20 },
   gridContainer: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginBottom: 25, paddingHorizontal: 20 },
   actionBanner: { width: '31%', backgroundColor: 'white', borderRadius: 16, padding: 12, flexDirection: 'column', alignItems: 'center', marginBottom: 12, elevation: 3, shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, borderWidth: 1, borderColor: '#FEE2E2' },
@@ -688,7 +740,96 @@ const styles = StyleSheet.create({
   detailTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 8 },
   detailTime: { fontSize: 12, color: '#888', marginBottom: 15 },
   detailBody: { fontSize: 15, color: '#444', lineHeight: 22 },
-  backBtn: { marginTop: 30, backgroundColor: COLORS.primary, padding: 12, borderRadius: 10, alignItems: 'center' }
+  backBtn: { marginTop: 30, backgroundColor: COLORS.primary, padding: 12, borderRadius: 10, alignItems: 'center' },
+
+  // 🔥 Exam Banner Widget Styles
+  examBannerCard: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 20,
+    overflow: 'hidden',
+    elevation: 4,
+    shadowColor: '#4338CA',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+  },
+  examBannerGradient: {
+    padding: 18,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 20,
+  },
+  examTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  examLiveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#10B981',
+  },
+  examTagText: {
+    color: '#A5B4FC',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  examPillBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  examPillBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  examBannerTitle: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+    marginBottom: 4,
+  },
+  examBannerDesc: {
+    color: '#E0E7FF',
+    fontSize: 11,
+    lineHeight: 16,
+    marginBottom: 12,
+  },
+  examBannerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#4F46E5',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+  },
+  examBannerBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  examBannerIconContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  examBannerCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
 });
 
 export default HomeScreen;

@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 
 import DelegateSocialMediaTaskModal from '../../../components/common/DelegateSocialMediaTaskModal';
+import WhatsAppMetaMonitor from '../../../components/WhatsAppMetaMonitor/WhatsAppMetaMonitor';
 
 export default function ManagerDashboard() {
   const [user, setUser] = useState(null);
@@ -92,8 +93,12 @@ export default function ManagerDashboard() {
 
   const displayBatches = useMemo(() => {
     if (!selectedBusiness) return [];
+    if (selectedBusiness === 'ALL') {
+      const allowedBizIds = new Set(displayBusinesses.map(b => b.id));
+      return batches.filter(b => allowedBizIds.has(b.businessId));
+    }
     return batches.filter(b => b.businessId === parseInt(selectedBusiness));
-  }, [batches, selectedBusiness]);
+  }, [batches, selectedBusiness, displayBusinesses]);
 
   useEffect(() => {
     if (selectedBusiness) fetchManagerStats();
@@ -123,7 +128,9 @@ export default function ManagerDashboard() {
     );
   }
 
-  const activeBusinessName = businesses.find(b => String(b.id) === selectedBusiness)?.name || 'My Branch';
+  const activeBusinessName = selectedBusiness === 'ALL' 
+    ? 'All My Businesses' 
+    : (businesses.find(b => String(b.id) === selectedBusiness)?.name || 'My Branch');
   const formatCurrency = (amount) => new Intl.NumberFormat('en-LK', { style: 'currency', currency: 'LKR', maximumFractionDigits: 0 }).format(amount);
   const today = new Date().toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
 
@@ -157,6 +164,9 @@ export default function ManagerDashboard() {
                 onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch('ALL'); }}
                 className="bg-transparent text-gray-800 dark:text-slate-300 text-xs font-bold rounded-xl px-2 outline-none cursor-pointer"
               >
+                {displayBusinesses.length > 1 && (
+                  <option value="ALL" className="bg-white dark:bg-[#1a2430]">All My Businesses</option>
+                )}
                 {displayBusinesses.map(biz => <option key={biz.id} value={biz.id} className="bg-white dark:bg-[#1a2430]">{biz.name}</option>)}
               </select>
             )}
@@ -400,6 +410,15 @@ export default function ManagerDashboard() {
               </div>
             </div>
 
+          </div>
+
+          {/* 🔹 Row 4: WhatsApp Status, Limits & Meta Billing for Manager's Business */}
+          <div className="w-full pt-2">
+            <WhatsAppMetaMonitor 
+              businessId={selectedBusiness}
+              businessIds={selectedBusiness === 'ALL' ? displayBusinesses.map(b => b.id).join(',') : undefined}
+              businessName={selectedBusiness === 'ALL' ? 'All My Businesses' : activeBusinessName}
+            />
           </div>
         </>
       )}

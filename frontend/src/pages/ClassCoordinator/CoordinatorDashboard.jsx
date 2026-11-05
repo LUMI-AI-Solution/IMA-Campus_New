@@ -261,7 +261,15 @@ export default function CoordinatorDashboard({ loggedInUser }) {
           {selectedLead ? (
             <>
               <ChatArea selectedLead={selectedLead} businessId={selectedBusiness} />
-              <RightSidePanel selectedLead={selectedLead} activeMode={activeMode} selectedBusiness={selectedBusiness} />
+              <RightSidePanel 
+                selectedLead={selectedLead} 
+                activeMode={activeMode} 
+                selectedBusiness={selectedBusiness} 
+                availableBatches={displayBatches}
+                onBatchAssigned={(leadId, batchId) => {
+                  setSelectedLead(prev => prev && prev.id === leadId ? { ...prev, batchId } : prev);
+                }}
+              />
             </>
           ) : (
             <div className="flex-1 bg-[#23303f] rounded-2xl flex flex-col items-center justify-center text-slate-500 shadow-xl border border-white/5">

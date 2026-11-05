@@ -1,60 +1,114 @@
+import 'react-native-url-polyfill/auto';
 import { AppRegistry, Platform } from 'react-native';
 import messaging from '@react-native-firebase/messaging';
-import notifee, { AndroidImportance, AndroidStyle, EventType } from '@notifee/react-native';
+import notifee, { AndroidImportance, AndroidCategory } from '@notifee/react-native';
+import VoipPushNotification from 'react-native-voip-push-notification';
+import RNCallKeep from 'react-native-callkeep';
 import App from './App';
+import { name as appName } from './app.json';
 
-// 🔥 1. Firebase Background Messages
-messaging().setBackgroundMessageHandler(async remoteMessage => {
-  console.log('Message handled in the background!', remoteMessage);
+// 🔥 iOS Background & Killed App VoIP PushKit Handler
+if (Platform.OS === 'ios') {
+  try {
+    if (VoipPushNotification && typeof VoipPushNotification.addEventListener === 'function') {
+      VoipPushNotification.addEventListener('notification', async (notification) => {
+        console.log('[VoIP Push] PushKit notification received while background/killed:', notification);
+        const uuid = notification?.callId || notification?.uuid || 'call_' + Date.now();
+        const callerName = notification?.leadName || notification?.callerName || 'Student';
+        const callerHandle = notification?.from || notification?.handle || 'WhatsApp Call';
 
-  const channelId = await notifee.createChannel({
-    id: 'default',
-    name: 'General Updates',
-    importance: AndroidImportance.HIGH,
-  });
+        try {
+          if (RNCallKeep && typeof RNCallKeep.displayIncomingCall === 'function') {
+            RNCallKeep.displayIncomingCall(
+              uuid,
+              callerHandle,
+              callerName,
+              'generic',
+              false
+            );
+          }
+        } catch (err) {
+          console.log('[VoIP Push] Error displaying native CallKit UI:', err);
+        }
 
-  const fullBody = remoteMessage.data?.body || remoteMessage.notification?.body || 'New Notification';
-  const notifImageAndroid = remoteMessage.notification?.android?.imageUrl;
-  const notifImageApple = remoteMessage.notification?.apple?.imageUrl;
-  const dataImage = remoteMessage.data?.image_url || remoteMessage.data?.image;
-  
-  const notifImage = notifImageAndroid || notifImageApple || dataImage;
-
-  let notificationConfig = {
-    title: remoteMessage.data?.title || remoteMessage.notification?.title || 'IMA Campus',
-    body: fullBody,
-    android: {
-      channelId: channelId,
-      smallIcon: 'ic_launcher', // 🔥 FIX: Mekath ic_launcher karanna
-      largeIcon: 'ic_launcher', 
-      color: '#9B1B1B',
-      pressAction: {
-        id: 'default',
-      },
-    },
-    // 🔥 FIX: iOS attachment
-    ios: {
-      attachments: notifImage ? [{ url: notifImage }] : [],
+        // Tell iOS completion
+        try {
+          VoipPushNotification.onVoipNotificationCompleted(uuid);
+        } catch (compErr) {
+          console.log('[VoIP Push] Completion error:', compErr);
+        }
+      });
     }
-  };
-
-  if (notifImage && Platform.OS === 'android') {
-    notificationConfig.android.largeIcon = notifImage;
-    notificationConfig.android.style = {
-      type: AndroidStyle.BIGPICTURE,
-      picture: notifImage,
-      summary: fullBody,
-    };
+  } catch (err) {
+    console.log('[VoIP Push] Registration error:', err);
   }
+}
 
-  await notifee.displayNotification(notificationConfig);
-});
+// 🔥 Android Background & Killed App FCM Message Handler
+if (Platform.OS === 'android') {
+  try {
+    messaging().setBackgroundMessageHandler(async remoteMessage => {
+      console.log('[Background FCM] Message Received:', remoteMessage);
 
-// 🔥 2. Local Trigger Notifications Background Handler (මේක අනිවාර්යයි Live Class Alarm එකට)
-notifee.onBackgroundEvent(async ({ type, detail }) => {
-  if (type === EventType.PRESS) {
-    console.log('User pressed a local notification in the background!', detail.notification);
+      if (remoteMessage.data?.type === 'INCOMING_CALL') {
+        const callerName = remoteMessage.data.leadName || remoteMessage.data.from || 'Student';
+        const callerPhone = remoteMessage.data.from || '';
+        const biz = remoteMessage.data.businessType || 'IMA Campus';
+
+        try {
+          await notifee.createChannel({
+            id: 'calls_channel',
+            name: 'Incoming WhatsApp Calls',
+            importance: AndroidImportance.HIGH,
+            sound: 'default',
+            vibration: true
+          });
+
+          await notifee.displayNotification({
+            title: `📞 WhatsApp Call: ${callerName}`,
+            body: `Incoming call from ${callerPhone} (${biz}). Tap to answer!`,
+            android: {
+              channelId: 'calls_channel',
+              sound: 'default',
+              importance: AndroidImportance.HIGH,
+              category: AndroidCategory.CALL,
+              color: '#25D366',
+              smallIcon: 'ic_launcher',
+              ongoing: true,
+              autoCancel: false,
+              fullScreenAction: {
+                id: 'default',
+                launchActivity: 'default'
+              },
+              pressAction: {
+                id: 'default',
+                launchActivity: 'default'
+              },
+              actions: [
+                {
+                  title: 'Decline',
+                  pressAction: {
+                    id: 'decline_call'
+                  }
+                },
+                {
+                  title: 'Answer',
+                  pressAction: {
+                    id: 'answer_call',
+                    launchActivity: 'default'
+                  }
+                }
+              ]
+            }
+          });
+        } catch (err) {
+          console.log('[Background FCM] Error displaying call notification:', err);
+        }
+      }
+    });
+  } catch (err) {
+    console.log('[Background FCM] Registration error:', err);
   }
-});
+}
 
 AppRegistry.registerComponent('main', () => App);

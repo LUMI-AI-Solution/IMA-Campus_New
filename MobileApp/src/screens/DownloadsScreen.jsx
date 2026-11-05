@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { 
-  View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Dimensions, ActivityIndicator, Platform, StatusBar
+  View, Text, StyleSheet, FlatList, TouchableOpacity, Modal, Dimensions, ActivityIndicator, Platform, StatusBar, DeviceEventEmitter
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
@@ -11,6 +11,7 @@ import Video from 'react-native-video';
 import LinearGradient from 'react-native-linear-gradient'; 
 import COLORS from '../constants/colors';
 import CustomAlert from '../components/CustomAlert';
+import GlobalDownloadWidget from '../components/GlobalDownloadWidget';
 
 const { width, height } = Dimensions.get('window');
 
@@ -50,8 +51,16 @@ const DownloadsScreen = ({ navigation }) => {
         if (await RNFS.exists(securePath)) {
           const stats = await RNFS.stat(securePath);
           const sizeMB = parseInt(stats.size) / (1024 * 1024);
-          totalSize += sizeMB;
-          validItems.push({ ...item, localPath: securePath, size: sizeMB.toFixed(1) });
+          // Only treat as valid downloaded video if size > 1MB
+          if (sizeMB > 1) {
+            totalSize += sizeMB;
+            validItems.push({
+              ...item,
+              localPath: securePath,
+              size: sizeMB.toFixed(1),
+              quality: item.quality || item.resolution || null
+            });
+          }
         }
       }
       
@@ -73,8 +82,11 @@ const DownloadsScreen = ({ navigation }) => {
       if (await RNFS.exists(itemToDelete.localPath)) await RNFS.unlink(itemToDelete.localPath);
       const res = await AsyncStorage.getItem('my_downloads');
       const items = res ? JSON.parse(res) : [];
-      await AsyncStorage.setItem('my_downloads', JSON.stringify(items.filter(i => i.id !== itemToDelete.id)));
+      await AsyncStorage.setItem('my_downloads', JSON.stringify(items.filter(i => String(i.id) !== String(itemToDelete.id))));
       
+      // 🔥 Signal other screens that this video has been deleted
+      DeviceEventEmitter.emit('DOWNLOAD_DELETED', { itemId: itemToDelete.id });
+
       setAlertVisible(false); setItemToDelete(null); loadDownloads();
     } catch (e) { 
         setAlertConfig({ title: 'Error', msg: 'Deletion failed.', type: 'error' }); 
@@ -87,7 +99,7 @@ const DownloadsScreen = ({ navigation }) => {
       <StatusBar barStyle="light-content" backgroundColor="transparent" translucent={true} />
       <CustomAlert isVisible={alertVisible} title={alertConfig.title} message={alertConfig.msg} type={alertConfig.type} onClose={itemToDelete ? handleDelete : () => setAlertVisible(false)} />
       
-      <LinearGradient colors={[COLORS.primary, '#9B1B1B']} style={[styles.redHeader, { paddingTop: insets.top + 15 }]}>
+      <LinearGradient colors={[COLORS.primary, '#9B1B1B']} style={[styles.redHeader, { paddingTop: Math.max(insets.top, 20) + 8 }]}>
         <View style={styles.headerRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Icon name="arrow-left" size={24} color="white" />
@@ -143,14 +155,39 @@ const DownloadsScreen = ({ navigation }) => {
               <View style={styles.itemDetails}>
                 <Text style={styles.itemTitle} numberOfLines={2}>{item.title}</Text>
                 <View style={styles.metaRow}>
+                    {item.quality && (
+                        <View style={[
+                            styles.metaBadge,
+                            {
+                                backgroundColor: item.quality === '1080p' ? '#EFF6FF' : item.quality === '720p' ? '#ECFDF5' : '#FEF3C7',
+                                borderWidth: 1,
+                                borderColor: item.quality === '1080p' ? '#BFDBFE' : item.quality === '720p' ? '#A7F3D0' : '#FDE68A'
+                            }
+                        ]}>
+                            <Icon
+                                name={item.quality === '1080p' ? 'star-circle-outline' : item.quality === '720p' ? 'high-definition' : 'video-outline'}
+                                size={12}
+                                color={item.quality === '1080p' ? '#2563EB' : item.quality === '720p' ? '#059669' : '#D97706'}
+                                style={{ marginRight: 3 }}
+                            />
+                            <Text style={[
+                                styles.metaBadgeText,
+                                { color: item.quality === '1080p' ? '#1D4ED8' : item.quality === '720p' ? '#047857' : '#B45309' }
+                            ]}>
+                                {item.quality}
+                            </Text>
+                        </View>
+                    )}
                     <View style={styles.metaBadge}>
                         <Icon name="folder-zip-outline" size={12} color="#4B5563" style={{marginRight: 4}} />
                         <Text style={styles.metaBadgeText}>{item.size} MB</Text>
                     </View>
-                    <View style={styles.metaDateBox}>
-                        <Icon name="calendar-month-outline" size={12} color="#9CA3AF" style={{marginRight: 4}}/>
-                        <Text style={styles.metaText}>{item.date}</Text>
-                    </View>
+                    {item.date && (
+                        <View style={styles.metaDateBox}>
+                            <Icon name="calendar-month-outline" size={12} color="#9CA3AF" style={{marginRight: 4}}/>
+                            <Text style={styles.metaText}>{item.date}</Text>
+                        </View>
+                    )}
                 </View>
               </View>
               
@@ -164,7 +201,7 @@ const DownloadsScreen = ({ navigation }) => {
 
       <Modal visible={!!selectedVideo} animationType="slide" onRequestClose={() => setSelectedVideo(null)}>
         <View style={styles.playerWrapper}>
-            <View style={[styles.playerHeader, { paddingTop: insets.top + 15 }]}>
+            <View style={[styles.playerHeader, { paddingTop: Math.max(insets.top, 20) + 8 }]}>
                 <TouchableOpacity style={styles.closePlayerBtn} onPress={() => setSelectedVideo(null)}>
                     <Icon name="chevron-down" size={30} color="white" />
                 </TouchableOpacity>
@@ -183,6 +220,7 @@ const DownloadsScreen = ({ navigation }) => {
             )}
         </View>
       </Modal>
+      <GlobalDownloadWidget />
     </View>
   );
 };

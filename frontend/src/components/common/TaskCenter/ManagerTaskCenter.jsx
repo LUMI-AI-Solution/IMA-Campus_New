@@ -429,6 +429,14 @@ export default function ManagerTaskCenter({ loggedInUser }) {
                                             </a>
                                         </div>
                                     )}
+                                    {selectedTask.content.youtubeLink && (
+                                        <div className="pt-2">
+                                            <p className="text-[10px] font-bold text-red-500 dark:text-red-400 uppercase tracking-widest mb-1 transition-colors">YouTube Link</p>
+                                            <a href={selectedTask.content.youtubeLink} target="_blank" rel="noreferrer" className="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 hover:underline flex items-center gap-1.5 w-max font-medium transition-colors">
+                                                {selectedTask.content.youtubeLink} <ExternalLink size={14}/>
+                                            </a>
+                                        </div>
+                                    )}
                                     {selectedTask.content.fileName && (
                                         <div className="pt-2">
                                             <p className="text-[10px] font-bold text-gray-500 dark:text-slate-500 uppercase tracking-widest mb-1 transition-colors">Attached File</p>

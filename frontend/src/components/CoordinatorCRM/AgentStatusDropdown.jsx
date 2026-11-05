@@ -18,7 +18,7 @@ export default function AgentStatusDropdown() {
     };
     const [status, setStatus] = useState(getInitialStatus);
     const statusRef = useRef(getInitialStatus());
-    const { socket } = useCall?.() || {};
+    const { socket, stopRinging } = useCall?.() || {};
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef(null);
 
@@ -36,10 +36,8 @@ export default function AgentStatusDropdown() {
         if (!socket) return;
 
         const handleConnect = () => {
-            console.log('Agent Status Socket Connected');
-            if (statusRef.current !== 'OFFLINE') {
-                socket.emit('join_wa_agent_pool', { status: statusRef.current });
-            }
+            console.log('Agent Status Socket Connected with status:', statusRef.current);
+            socket.emit('join_wa_agent_pool', { status: statusRef.current });
         };
 
         socket.on('connect', handleConnect);
@@ -57,6 +55,19 @@ export default function AgentStatusDropdown() {
         setStatus(newStatus);
         statusRef.current = newStatus;
         localStorage.setItem('agentStatus', newStatus);
+
+        // Also update stored user profile in localStorage
+        try {
+            const user = JSON.parse(localStorage.getItem('user') || '{}');
+            user.agentStatus = newStatus;
+            localStorage.setItem('user', JSON.stringify(user));
+        } catch (e) {}
+
+        // If switching to AWAY, LUNCH or OFFLINE, immediately stop any currently ringing call
+        if (newStatus !== 'ACTIVE' && stopRinging) {
+            stopRinging();
+        }
+
         setIsOpen(false);
         if (socket) {
             if (newStatus === 'OFFLINE') {

@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom'; 
 import axios from '../../api/axios';
-import { FaPhoneAlt, FaCheckCircle, FaTimesCircle, FaUserSecret, FaKey, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaTimes, FaArrowsAlt, FaChevronRight, FaChevronLeft } from 'react-icons/fa';
+import { resolveAvatarUrl } from '../../utils/avatarUtils';
+import { FaPhoneAlt, FaCheckCircle, FaTimesCircle, FaUserSecret, FaKey, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaTimes, FaArrowsAlt, FaChevronRight, FaChevronLeft, FaLock } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import { useCall } from '../../contexts/CallContext';
 
-export default function RightSidePanel({ selectedLead, activeMode, selectedBusiness, onBatchAssigned }) {
+export default function RightSidePanel({ selectedLead, activeMode, selectedBusiness, onBatchAssigned, availableBatches }) {
   const { startOutboundCall } = useCall();
   const [studentDetails, setStudentDetails] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -24,6 +25,28 @@ export default function RightSidePanel({ selectedLead, activeMode, selectedBusin
   const [batches, setBatches] = useState([]);
   const [selectedBatchId, setSelectedBatchId] = useState('');
   const [allocating, setAllocating] = useState(false);
+  const [lockedBatchesMap, setLockedBatchesMap] = useState({});
+
+  useEffect(() => {
+    const fetchLockStatus = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get('/after-seminar-crm/campaign-lock-status', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.data?.lockedMap) {
+          setLockedBatchesMap(res.data.lockedMap);
+        }
+      } catch (err) {}
+    };
+    fetchLockStatus();
+  }, []);
+
+  // 🔥 CALL ACTIONS STATE (for Call Center Mode) 🔥
+  const [callMethod, setCallMethod] = useState('Direct Call');
+  const [callOutcome, setCallOutcome] = useState('PENDING');
+  const [feedbackRemarks, setFeedbackRemarks] = useState('');
+  const [updatingCallStatus, setUpdatingCallStatus] = useState(false);
 
   useEffect(() => {
     if (selectedLead?.phone) fetchStudentData();
@@ -32,27 +55,55 @@ export default function RightSidePanel({ selectedLead, activeMode, selectedBusin
     } else {
       setSelectedBatchId('');
     }
+    if (selectedLead) {
+      setCallMethod(selectedLead.callMethod || 'Direct Call');
+      const outcome = ['ANSWERED', 'REJECT', 'NO_ANSWER'].includes(selectedLead.callStatus?.toUpperCase())
+        ? selectedLead.callStatus.toUpperCase()
+        : 'PENDING';
+      setCallOutcome(outcome);
+      setFeedbackRemarks(selectedLead.feedback || '');
+    }
   }, [selectedLead]);
 
   useEffect(() => {
-    fetchBatches();
-  }, [selectedBusiness]);
+    if (availableBatches && Array.isArray(availableBatches) && availableBatches.length > 0) {
+      setBatches(availableBatches);
+    } else {
+      fetchBatches();
+    }
+  }, [selectedBusiness, availableBatches]);
 
   const fetchBatches = async () => {
     try {
-      const res = await axios.get('/public/landing-data');
-      if (res.data && res.data.businesses) {
-          let allBatches = [];
-          if (selectedBusiness) {
-              const biz = res.data.businesses.find(b => b.id === parseInt(selectedBusiness));
-              allBatches = biz ? (biz.batches || []) : [];
-          } else {
-              allBatches = res.data.businesses.flatMap(biz => biz.batches || []);
-          }
-          setBatches(allBatches);
+      if (selectedBusiness) {
+        const res = await axios.get(`/admin/batches/${selectedBusiness}`);
+        const list = Array.isArray(res.data) ? res.data : (res.data?.batches || []);
+        if (list && list.length > 0) {
+          setBatches(list);
+          return;
+        }
       }
+      const res = await axios.get('/admin/manager/batches-full');
+      const allBatches = Array.isArray(res.data) ? res.data : (res.data?.batches || []);
+      const filtered = selectedBusiness
+        ? allBatches.filter(b => b.businessId === parseInt(selectedBusiness))
+        : allBatches;
+      setBatches(filtered);
     } catch (error) {
       console.error("Error fetching batches", error);
+      try {
+        const resLanding = await axios.get('/public/landing-data');
+        if (resLanding.data && resLanding.data.businesses) {
+          let allBatches = [];
+          if (selectedBusiness) {
+            const biz = resLanding.data.businesses.find(b => b.id === parseInt(selectedBusiness));
+            allBatches = biz ? (biz.batches || []) : [];
+          } else {
+            allBatches = resLanding.data.businesses.flatMap(biz => biz.batches || []);
+          }
+          if (allBatches.length > 0) setBatches(allBatches);
+        }
+      } catch (e) {}
     }
   };
 
@@ -170,6 +221,12 @@ export default function RightSidePanel({ selectedLead, activeMode, selectedBusin
       }
   };
 
+  const currentAvatarUrl = resolveAvatarUrl(
+    studentDetails?.student?.image || selectedLead?.avatar || selectedLead?.image,
+    selectedLead?.phone,
+    axios.defaults.baseURL
+  );
+
   return (
     <div className={`${isMinimized ? 'w-[70px]' : 'w-[300px] xl:w-[320px]'} transition-all duration-300 ease-in-out bg-[#23303f] rounded-2xl flex flex-col shrink-0 overflow-hidden text-slate-400 border border-white/5 shadow-lg relative`}>
       
@@ -179,8 +236,22 @@ export default function RightSidePanel({ selectedLead, activeMode, selectedBusin
             <button className="p-2 bg-black/20 group-hover:bg-blue-600/20 rounded-full hover:text-white mb-6 text-slate-500 group-hover:text-blue-400 transition-colors">
                 <FaChevronLeft size={16} />
             </button>
-            <div className="w-12 h-12 bg-[#2a3942] rounded-full border border-slate-600 flex items-center justify-center text-xl font-bold shadow-md text-slate-300">
-               {selectedLead.name ? selectedLead.name.charAt(0).toUpperCase() : 'U'}
+            <div className="w-12 h-12 rounded-full border border-emerald-500/40 overflow-hidden shadow-md shrink-0 bg-[#2a3942] flex items-center justify-center">
+              {currentAvatarUrl ? (
+                <img 
+                  src={currentAvatarUrl} 
+                  alt={selectedLead.name || 'U'} 
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.src = resolveAvatarUrl(null, selectedLead.phone, axios.defaults.baseURL);
+                  }}
+                />
+              ) : (
+                <span className="text-xl font-bold text-slate-300">
+                  {selectedLead.name ? selectedLead.name.charAt(0).toUpperCase() : 'U'}
+                </span>
+              )}
             </div>
          </div>
       ) : (
@@ -191,8 +262,22 @@ export default function RightSidePanel({ selectedLead, activeMode, selectedBusin
                <FaChevronRight size={14}/>
             </button>
 
-            <div className="w-20 h-20 bg-[#2a3942] rounded-full border border-slate-600 flex items-center justify-center text-3xl font-bold mb-3 shadow-md text-slate-300">
-              {selectedLead.name ? selectedLead.name.charAt(0).toUpperCase() : 'U'}
+            <div className="w-20 h-20 rounded-full border-2 border-emerald-500/40 overflow-hidden mb-3 shadow-xl shrink-0 bg-[#2a3942] flex items-center justify-center">
+              {currentAvatarUrl ? (
+                <img 
+                  src={currentAvatarUrl} 
+                  alt={selectedLead.name || 'U'} 
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.src = resolveAvatarUrl(null, selectedLead.phone, axios.defaults.baseURL);
+                  }}
+                />
+              ) : (
+                <span className="text-3xl font-bold text-slate-300">
+                  {selectedLead.name ? selectedLead.name.charAt(0).toUpperCase() : 'U'}
+                </span>
+              )}
             </div>
             <h2 className="text-lg font-bold text-center text-slate-200">{selectedLead.name || 'Unknown Lead'}</h2>
             <div className="flex items-center gap-2 mt-2 text-xs bg-[#0b141a] px-3 py-1.5 rounded-full border border-slate-700 text-emerald-400">
@@ -231,8 +316,24 @@ export default function RightSidePanel({ selectedLead, activeMode, selectedBusin
                 </div>
               ) : studentDetails?.isEnrolled ? (
                 <div className="space-y-4">
-                    <div className="flex items-center gap-2 text-emerald-500 font-bold bg-emerald-900/20 p-2.5 rounded-lg border border-emerald-900/50 text-xs">
-                        <FaCheckCircle size={14}/> Registered Student
+                    <div className="flex items-center gap-3 bg-emerald-900/20 p-2.5 rounded-lg border border-emerald-900/50">
+                      <img 
+                        src={resolveAvatarUrl(studentDetails.student.image, selectedLead?.phone, axios.defaults.baseURL)} 
+                        alt="Profile" 
+                        className="w-10 h-10 rounded-full object-cover border border-emerald-500/40 shadow-sm shrink-0"
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = resolveAvatarUrl(null, selectedLead?.phone, axios.defaults.baseURL);
+                        }}
+                      />
+                      <div className="min-w-0">
+                        <span className="text-emerald-400 font-bold text-xs flex items-center gap-1.5">
+                          <FaCheckCircle size={13}/> Registered Student
+                        </span>
+                        <span className="text-[11px] text-slate-300 font-medium truncate block">
+                          {studentDetails.student.firstName} {studentDetails.student.lastName}
+                        </span>
+                      </div>
                     </div>
 
                     <div className="space-y-2.5">
@@ -308,44 +409,148 @@ export default function RightSidePanel({ selectedLead, activeMode, selectedBusin
             </div>
 
             {/* 🔥 BATCH ALLOCATION UI 🔥 */}
-            <div className="bg-[#1a2430] p-4 rounded-xl border border-white/5 shadow-sm mt-4">
-              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3">Batch Allocation</h3>
-              <p className="text-[10px] text-slate-400 mb-3 leading-relaxed">Allocate this lead to an active Free Seminar batch manually.</p>
-              <select 
-                value={selectedBatchId} 
-                onChange={(e) => setSelectedBatchId(e.target.value)}
-                className="w-full mb-3 p-2 text-xs bg-[#0f172a] border border-slate-700 text-slate-300 rounded-lg outline-none focus:border-emerald-700"
-              >
-                <option value="">Select Batch...</option>
-                {batches.map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-              <button 
-                onClick={handleAllocateBatch} 
-                disabled={allocating || !selectedBatchId}
-                className="w-full bg-emerald-700/80 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold py-2 rounded-lg transition-colors shadow-md text-xs uppercase tracking-wider"
-              >
-                {allocating ? 'Allocating...' : 'Allocate to Batch'}
-              </button>
-            </div>
+            {(() => {
+              const isLeadInOpenSem = selectedLead?.inquiryType === 'OPEN_SEMINAR';
+              const isSelectedBatchLocked = Boolean(selectedBatchId && lockedBatchesMap[selectedBatchId]);
+              const shouldDisableAllocation = isLeadInOpenSem && isSelectedBatchLocked;
+
+              return (
+                <div className={`p-4 rounded-xl border border-white/5 shadow-sm mt-4 transition-all ${
+                  shouldDisableAllocation ? 'bg-red-950/20 border-red-500/30' : 'bg-[#1a2430]'
+                }`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Batch Allocation</h3>
+                    {shouldDisableAllocation && (
+                      <span className="text-[9px] font-black uppercase text-rose-400 bg-rose-500/20 px-1.5 py-0.5 rounded border border-rose-500/30 flex items-center gap-1">
+                        <FaLock size={8} /> Open Sem Locked
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-slate-400 mb-3 leading-relaxed">Allocate this lead to an active Free Seminar batch manually.</p>
+                  <select 
+                    value={selectedBatchId} 
+                    onChange={(e) => setSelectedBatchId(e.target.value)}
+                    className={`w-full mb-3 p-2 text-xs bg-[#0f172a] border rounded-lg outline-none transition-colors ${
+                      shouldDisableAllocation 
+                        ? 'border-red-500/50 text-red-300' 
+                        : 'border-slate-700 text-slate-300 focus:border-emerald-700'
+                    }`}
+                  >
+                    <option value="">Select Batch...</option>
+                    {batches.map(b => {
+                      const isLocked = isLeadInOpenSem && Boolean(lockedBatchesMap[b.id]);
+                      return (
+                        <option 
+                          key={b.id} 
+                          value={b.id}
+                          className={isLocked ? 'text-rose-400 bg-slate-900' : ''}
+                        >
+                          {b.name} {isLocked ? '🔒 [Open Sem Locked]' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+
+                  {shouldDisableAllocation && (
+                    <p className="text-[10px] text-rose-400/90 mb-2.5 leading-snug">
+                      ⚠️ Opening Seminar campaign for this batch is locked. Open Seminar lead allocations are disabled.
+                    </p>
+                  )}
+
+                  <button 
+                    onClick={handleAllocateBatch} 
+                    disabled={allocating || !selectedBatchId || shouldDisableAllocation}
+                    className={`w-full font-bold py-2 rounded-lg transition-all shadow-md text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 ${
+                      shouldDisableAllocation
+                        ? 'bg-slate-800 text-slate-500 border border-slate-700 opacity-40 cursor-not-allowed pointer-events-none'
+                        : 'bg-emerald-700/80 hover:bg-emerald-600 disabled:opacity-50 text-white'
+                    }`}
+                  >
+                    {allocating ? 'Allocating...' : shouldDisableAllocation ? '🔒 Campaign Locked' : 'Allocate to Batch'}
+                  </button>
+                </div>
+              );
+            })()}
 
             {activeMode === 'CALL_CAMPAIGN' && (
               <div className="mt-4 bg-[#1e3a8a]/10 p-4 rounded-xl border border-blue-900/30 shadow-sm">
-                 <h3 className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-4">Call Actions</h3>
-                 <select className="w-full mb-3 p-2 text-sm bg-[#0f172a] border border-slate-700 text-slate-300 rounded-lg outline-none focus:border-blue-700">
-                   <option>Select Call Method...</option>
-                   <option value="direct">Direct Call</option>
-                   <option value="whatsapp">WhatsApp Audio</option>
-                   <option value="3cx">3CX</option>
-                 </select>
+                 <h3 className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-3">Call Actions</h3>
+                 
+                 <div className="grid grid-cols-2 gap-2 mb-3">
+                   <div>
+                     <label className="text-[10px] text-slate-400 font-bold block mb-1">Method</label>
+                     <select 
+                       value={callMethod}
+                       onChange={(e) => setCallMethod(e.target.value)}
+                       className="w-full p-2 text-xs bg-[#0f172a] border border-slate-700 text-slate-300 rounded-lg outline-none focus:border-blue-700"
+                     >
+                       <option value="Direct Call">Direct Call</option>
+                       <option value="WhatsApp">WhatsApp</option>
+                       <option value="3CX">3CX</option>
+                     </select>
+                   </div>
+                   <div>
+                     <label className="text-[10px] text-slate-400 font-bold block mb-1">Outcome</label>
+                     <select 
+                       value={callOutcome}
+                       onChange={(e) => setCallOutcome(e.target.value)}
+                       className={`w-full p-2 text-xs bg-[#0f172a] border rounded-lg outline-none font-bold ${
+                         callOutcome === 'ANSWERED' ? 'text-emerald-400 border-emerald-500/40' :
+                         callOutcome === 'NO_ANSWER' ? 'text-blue-400 border-blue-500/40' :
+                         callOutcome === 'REJECT' ? 'text-rose-400 border-rose-500/40' :
+                         'text-amber-400 border-amber-500/40'
+                       }`}
+                     >
+                       <option value="PENDING">⌛ PENDING</option>
+                       <option value="ANSWERED">✅ ANSWERED</option>
+                       <option value="NO_ANSWER">🔇 NO ANSWER</option>
+                       <option value="REJECT">❌ REJECT</option>
+                     </select>
+                   </div>
+                 </div>
+
+                 <label className="text-[10px] text-slate-400 font-bold block mb-1">Remarks</label>
                  <textarea 
-                    className="w-full p-2 text-sm bg-[#0f172a] border border-slate-700 text-slate-300 rounded-lg outline-none focus:border-blue-700 mb-3 placeholder-slate-600" 
+                    value={feedbackRemarks}
+                    onChange={(e) => setFeedbackRemarks(e.target.value)}
+                    className="w-full p-2 text-sm bg-[#0f172a] border border-slate-700 text-slate-300 rounded-lg outline-none focus:border-blue-700 mb-3 placeholder-slate-600 resize-none" 
                     rows="3" 
                     placeholder="Enter feedback/remarks here..."
                  ></textarea>
-                 <button className="w-full bg-blue-700 hover:bg-blue-600 text-slate-100 font-semibold py-2 rounded-lg transition-colors shadow-md text-sm">
-                   Update Status
+
+                 <button 
+                   onClick={async () => {
+                     if (!selectedLead?.id) return;
+                     setUpdatingCallStatus(true);
+                     try {
+                       const token = localStorage.getItem('token');
+                       await axios.post('/call-center/agent-v2/update-progress', {
+                         leadId: selectedLead.id,
+                         roundNum: selectedLead.coordinationRound || 1,
+                         callMethod,
+                         callOutcome: callOutcome !== 'PENDING' ? callOutcome : (selectedLead.callStatus || 'PENDING'),
+                         feedback: feedbackRemarks,
+                         attempts: selectedLead.callAttempt || 1
+                       }, {
+                         headers: { Authorization: `Bearer ${token}` }
+                       });
+                       if (selectedLead) {
+                         selectedLead.feedback = feedbackRemarks;
+                         if (callOutcome !== 'PENDING') selectedLead.callStatus = callOutcome;
+                         selectedLead.callMethod = callMethod;
+                       }
+                       toast.success("Call status & remarks updated!");
+                     } catch (err) {
+                       console.error("Update call status error:", err);
+                       toast.error("Failed to update call status & remarks.");
+                     } finally {
+                       setUpdatingCallStatus(false);
+                     }
+                   }}
+                   disabled={updatingCallStatus}
+                   className="w-full bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-slate-100 font-semibold py-2 rounded-lg transition-colors shadow-md text-sm flex items-center justify-center gap-2"
+                 >
+                   {updatingCallStatus ? 'Updating...' : 'Update Status & Remarks'}
                  </button>
               </div>
             )}

@@ -156,6 +156,10 @@ app.use('/api/storage/recordings', express.static(path.join(__dirname, '../stora
 app.use('/uploads/library', express.static(path.join(__dirname, 'uploads/library')));
 app.use('/api/uploads/library', express.static(path.join(__dirname, 'uploads/library')));
 
+// 🔥 Petty Cash Receipts Static Uploads
+app.use('/storage/petty_cash', express.static(path.join(__dirname, 'storage/petty_cash')));
+app.use('/api/storage/petty_cash', express.static(path.join(__dirname, 'storage/petty_cash')));
+
 // Public Audio Route for WhatsApp Call recordings (bypass auth)
 app.get('/api/public/whatsapp-recording/:filename', require('./controllers/whatsappCallController').getRecording);
 
@@ -181,6 +185,7 @@ app.use('/api', require('./routes/businessRoutes'));
 app.use('/api', require('./routes/tuteStockRoutes'));
 app.use('/api/public', require('./routes/publicRoutes'));
 app.use('/api/admin/payments', require('./routes/paymentRoutes'));
+app.use('/api/admin/teacher-salary', require('./routes/teacherSalaryRoutes'));
 app.use('/api/admin/delivery', require('./routes/deliveryRoutes'));
 app.use('/api/delivery', require('./routes/deliveryRoutes'));
 app.use('/api/admin/staff', require('./routes/staffRoutes'));
@@ -236,6 +241,9 @@ const callCenterRoutes = require('./routes/callCenterRoutes');
 app.use('/api/call-center', callCenterRoutes);
 const callCenterAgentRoutes = require('./routes/callCenterAgentRoutes');
 app.use('/api/call-center/agent-v2', callCenterAgentRoutes);
+
+// 🔥 PETTY CASH MANAGEMENT SYSTEM 🔥
+app.use('/api/petty-cash', require('./routes/pettyCashRoutes'));
 
 // ================= DELIVERY MODULE ROUTES (NEW) =================
 

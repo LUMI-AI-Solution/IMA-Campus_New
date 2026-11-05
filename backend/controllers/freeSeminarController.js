@@ -1,4 +1,5 @@
 const { getScopedBusinessId } = require("../utils/scopeUtils");
+const { getAvatarForPhone } = require("../utils/avatarUtils");
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 const crypto = require('crypto');
@@ -12,6 +13,16 @@ const ffmpeg = require('fluent-ffmpeg');
 // In-memory cache to prevent race conditions on duplicate Meta webhooks
 const processingMessages = new Set();
 const auditLogService = require('../services/auditLogService');
+
+// Short-term in-memory cache for Free Seminar CRM counts (15s TTL)
+const freeSemCountsCache = new Map();
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, val] of freeSemCountsCache.entries()) {
+        if (now - val.timestamp > 30000) freeSemCountsCache.delete(key);
+    }
+}, 30000);
+
 // ==========================================
 // 1. SETTINGS: CrmSettings
 // ==========================================
@@ -237,72 +248,156 @@ exports.getLeads = async (req, res) => {
             ];
         }
 
-        console.log('WHERE:', JSON.stringify(whereClause, null, 2));
-        const leads = await prisma.lead.findMany({
-            where: whereClause,
-            orderBy: [{ unreadCount: 'desc' }, { lastMessageAt: 'desc' }, { updatedAt: 'desc' }],
-            take: limitNum,
-            include: {
-                assignedUser: { select: { firstName: true, lastName: true, businessType: true } },
-                batch: { select: { id: true, name: true, businessId: true } }
-            }
+        // 🔥 UNREAD FIRST (Ordered by latest message), THEN READ LEADS 🔥
+        const leadInclude = {
+            assignedUser: { select: { firstName: true, lastName: true, businessType: true } },
+            batch: { select: { id: true, name: true, businessId: true } }
+        };
+
+        const leadOrderBy = [ { lastMessageAt: 'desc' }, { updatedAt: 'desc' } ];
+
+        let leads = [];
+        const unreadLeads = await prisma.lead.findMany({
+            where: { ...whereClause, unreadCount: { gt: 0 } },
+            orderBy: leadOrderBy,
+            include: leadInclude,
+            take: limitNum
         });
+        leads.push(...unreadLeads);
 
-        console.log('API Leads length:', leads.length);
-        const cleanedLeads = leads.map(l => ({
-            ...l,
-            rawPhone: l.phone,
-            businessId: l.batch?.businessId || (l.phone && l.phone.includes('_BIZ_') ? parseInt(l.phone.split('_BIZ_')[1]?.split('_')[0]) : null),
-            phone: l.phone ? l.phone.split('_BIZ')[0] : ''
-        }));
-
-        let countWhere = { campaignType: campaignType || 'FREE_SEMINAR' };
-
-        if (batchId && batchId !== '') {
-            countWhere.batchId = parseInt(batchId);
-        } else if (businessId && businessId !== '') {
-            const bizBatches = await prisma.batch.findMany({ where: { businessId: parseInt(businessId) }, select: { id: true } });
-            countWhere.AND = [
-                {
-                    OR: [
-                        { batchId: { in: bizBatches.map(b => b.id) } },
-                        { phone: { endsWith: `_BIZ_${businessId}` } },
-                        { phone: { contains: `_BIZ_${businessId}_` } }
-                    ]
-                }
-            ];
+        const remainingLimit = limitNum - leads.length;
+        if (remainingLimit > 0) {
+            const readLeads = await prisma.lead.findMany({
+                where: { ...whereClause, unreadCount: 0 },
+                orderBy: leadOrderBy,
+                include: leadInclude,
+                take: remainingLimit
+            });
+            leads.push(...readLeads);
         }
 
-        const userAssignedFilter = (!isManager) 
-            ? { OR: [{ assignedTo: parseInt(userId) }, { callCenterRequestedBy: parseInt(userId) }] }
-            : (staffId && staffId !== '' ? { assignedTo: parseInt(staffId) } : {});
+        let phoneVariants = [];
+        leads.forEach(l => {
+            if (!l.phone) return;
+            const rawPhone = l.phone.split('_')[0].replace(/[^0-9]/g, '');
+            if (rawPhone.length >= 7) {
+                const suffix = rawPhone.slice(-9);
+                phoneVariants.push(`0${suffix}`, `94${suffix}`, `+94${suffix}`, `${suffix}`);
+            }
+        });
+        phoneVariants = [...new Set(phoneVariants)];
+        let registeredUsers = [];
+        if (phoneVariants.length > 0) {
+            registeredUsers = await prisma.user.findMany({
+                where: {
+                    OR: [
+                        { phone: { in: phoneVariants } },
+                        { whatsapp: { in: phoneVariants } }
+                    ]
+                },
+                select: { id: true, phone: true, whatsapp: true, image: true, appChatDp: true }
+            });
+        }
 
-        const [
-            totalAllCount,
-            assignedCount,
-            assignedUnread,
-            newCount,
-            newUnread,
-            importedCount,
-            importedUnread,
-            totalUnread,
-            ccPendingCount,
-            ccApprovedCount
-        ] = await Promise.all([
-            prisma.lead.count({ where: countWhere }),
-            prisma.lead.count({ where: { ...countWhere, assignedTo: { not: null }, ...userAssignedFilter } }),
-            prisma.lead.count({ where: { ...countWhere, assignedTo: { not: null }, unreadCount: { gt: 0 }, ...userAssignedFilter } }),
-            prisma.lead.count({ where: { ...countWhere, status: { in: ['NEW', 'OPEN'] }, assignedTo: null, OR: [{ callCenterRequestStatus: null }, { callCenterRequestStatus: 'REJECTED' }] } }),
-            prisma.lead.count({ where: { ...countWhere, status: { in: ['NEW', 'OPEN'] }, assignedTo: null, unreadCount: { gt: 0 }, OR: [{ callCenterRequestStatus: null }, { callCenterRequestStatus: 'REJECTED' }] } }),
-            prisma.lead.count({ where: { ...countWhere, source: { in: ['import', 'bulk_import'] }, ...userAssignedFilter } }),
-            prisma.lead.count({ where: { ...countWhere, source: { in: ['import', 'bulk_import'] }, unreadCount: { gt: 0 }, ...userAssignedFilter } }),
-            prisma.lead.count({ where: { ...countWhere, unreadCount: { gt: 0 }, ...userAssignedFilter } }),
-            prisma.lead.count({ where: { ...countWhere, callCenterRequestStatus: 'REQUESTED', ...userAssignedFilter } }),
-            prisma.lead.count({ where: { ...countWhere, callCenterRequestStatus: 'APPROVED', ...userAssignedFilter } })
-        ]);
+        const cleanedLeads = leads.map(l => {
+            const rawPhone = l.phone;
+            const cleanPhone = l.phone ? l.phone.split('_BIZ')[0] : '';
+            const rawP = cleanPhone.replace(/[^0-9]/g, '');
+            let matchedUser = null;
+            if (rawP.length >= 7) {
+                const suffix = rawP.slice(-9);
+                matchedUser = registeredUsers.find(u => {
+                    const uP = (u.phone || '').replace(/[^0-9]/g, '');
+                    const uW = (u.whatsapp || '').replace(/[^0-9]/g, '');
+                    return (uP && (uP.endsWith(suffix) || suffix.endsWith(uP.slice(-9)))) || 
+                           (uW && (uW.endsWith(suffix) || suffix.endsWith(uW.slice(-9))));
+                });
+            }
+            const userImg = matchedUser?.image;
+            const hasCustomImg = userImg && userImg !== 'default.png' && userImg !== 'null' && String(userImg).trim() !== '';
+            const avatar = hasCustomImg ? userImg : (matchedUser?.appChatDp ? `chat_dps/${matchedUser.appChatDp}` : getAvatarForPhone(rawPhone || cleanPhone).imagePath);
+            return {
+                ...l,
+                rawPhone,
+                businessId: l.batch?.businessId || (l.phone && l.phone.includes('_BIZ_') ? parseInt(l.phone.split('_BIZ_')[1]?.split('_')[0]) : null),
+                phone: cleanPhone,
+                avatar,
+                image: userImg || null
+            };
+        });
 
-        const counts = { NEW: newCount, IMPORTED: importedCount, ASSIGNED: assignedCount, ALL: totalAllCount };
-        const unreadCounts = { NEW: newUnread, IMPORTED: importedUnread, ASSIGNED: assignedUnread, ALL: totalUnread };
+        // Use cached tab counts (15s TTL) to prevent query storms during polling
+        const cacheKey = `${businessId || 'all'}_${batchId || 'all'}_${isManager ? 'mgr' : userId}_${staffId || 'none'}_${campaignType || 'FREE_SEMINAR'}`;
+        const cached = freeSemCountsCache.get(cacheKey);
+        let counts, unreadCounts, totalUnread, ccPendingCount, ccApprovedCount;
+
+        if (cached && (Date.now() - cached.timestamp < 15000)) {
+            counts = cached.counts;
+            unreadCounts = cached.unreadCounts;
+            totalUnread = cached.totalUnread;
+            ccPendingCount = cached.ccPendingCount;
+            ccApprovedCount = cached.ccApprovedCount;
+        } else {
+            let countWhere = { campaignType: campaignType || 'FREE_SEMINAR' };
+
+            if (batchId && batchId !== '') {
+                countWhere.batchId = parseInt(batchId);
+            } else if (businessId && businessId !== '') {
+                const bizBatches = await prisma.batch.findMany({ where: { businessId: parseInt(businessId) }, select: { id: true } });
+                countWhere.AND = [
+                    {
+                        OR: [
+                            { batchId: { in: bizBatches.map(b => b.id) } },
+                            { phone: { endsWith: `_BIZ_${businessId}` } },
+                            { phone: { contains: `_BIZ_${businessId}_` } }
+                        ]
+                    }
+                ];
+            }
+
+            const userAssignedFilter = (!isManager)
+                ? { OR: [{ assignedTo: parseInt(userId) }, { callCenterRequestedBy: parseInt(userId) }] }
+                : (staffId && staffId !== '' ? { assignedTo: parseInt(staffId) } : {});
+
+            const [
+                totalAllCount,
+                assignedCount,
+                assignedUnread,
+                newCount,
+                newUnread,
+                importedCount,
+                importedUnread,
+                totUnread,
+                pendingCount,
+                approvedCount
+            ] = await Promise.all([
+                prisma.lead.count({ where: countWhere }),
+                prisma.lead.count({ where: { ...countWhere, assignedTo: { not: null }, ...userAssignedFilter } }),
+                prisma.lead.count({ where: { ...countWhere, assignedTo: { not: null }, unreadCount: { gt: 0 }, ...userAssignedFilter } }),
+                prisma.lead.count({ where: { ...countWhere, status: { in: ['NEW', 'OPEN'] }, assignedTo: null, OR: [{ callCenterRequestStatus: null }, { callCenterRequestStatus: 'REJECTED' }] } }),
+                prisma.lead.count({ where: { ...countWhere, status: { in: ['NEW', 'OPEN'] }, assignedTo: null, unreadCount: { gt: 0 }, OR: [{ callCenterRequestStatus: null }, { callCenterRequestStatus: 'REJECTED' }] } }),
+                prisma.lead.count({ where: { ...countWhere, source: { in: ['import', 'bulk_import'] }, ...userAssignedFilter } }),
+                prisma.lead.count({ where: { ...countWhere, source: { in: ['import', 'bulk_import'] }, unreadCount: { gt: 0 }, ...userAssignedFilter } }),
+                prisma.lead.count({ where: { ...countWhere, unreadCount: { gt: 0 }, ...userAssignedFilter } }),
+                prisma.lead.count({ where: { ...countWhere, callCenterRequestStatus: 'REQUESTED', ...userAssignedFilter } }),
+                prisma.lead.count({ where: { ...countWhere, callCenterRequestStatus: 'APPROVED', ...userAssignedFilter } })
+            ]);
+
+            counts = { NEW: newCount, IMPORTED: importedCount, ASSIGNED: assignedCount, ALL: totalAllCount };
+            unreadCounts = { NEW: newUnread, IMPORTED: importedUnread, ASSIGNED: assignedUnread, ALL: totUnread };
+            totalUnread = totUnread;
+            ccPendingCount = pendingCount;
+            ccApprovedCount = approvedCount;
+
+            freeSemCountsCache.set(cacheKey, {
+                counts,
+                unreadCounts,
+                totalUnread,
+                ccPendingCount,
+                ccApprovedCount,
+                timestamp: Date.now()
+            });
+        }
 
         if (!res.headersSent) {
             return res.status(200).json({ leads: cleanedLeads, counts, unreadCounts, totalUnread, ccPendingCount, ccApprovedCount });
@@ -1004,6 +1099,14 @@ exports.receiveMessage = async (req, res) => {
                                     io.to(roomName).to(roomAll).emit('incoming_wa_call', callPayload);
                                 }
                             }
+
+                            // 📱 Also dispatch high-priority FCM notification to active mobile staff
+                            try {
+                                const { notifyIncomingCallToActiveStaff } = require('../services/fcmCallNotifier');
+                                notifyIncomingCallToActiveStaff(callPayload, assignedTargetAgentId);
+                            } catch (fcmErr) {
+                                console.warn('[FCM Call Trigger Error]:', fcmErr.message);
+                            }
                             
                             if (!hasOnlineAgents) {
                                 console.log(`No idle agents available in ${roomName} or ${roomAll} to take the WhatsApp call! Triggering Headless IVR Bot.`);
@@ -1435,7 +1538,15 @@ exports.receiveMessage = async (req, res) => {
                 });
 
                 const allMatchingLeads = candidateMatchingLeads.filter(l => exactBizRegex.test(l.phone));
-                let existingLeadCheck = allMatchingLeads.length > 0 ? allMatchingLeads[0] : null;
+
+                // 🔥 BATCH ISOLATION: Check if a lead already exists for THIS batch first
+                let existingLeadCheck = null;
+                if (parsedBatchId) {
+                    existingLeadCheck = allMatchingLeads.find(l => l.batchId === parsedBatchId) || null;
+                } else {
+                    existingLeadCheck = allMatchingLeads.length > 0 ? allMatchingLeads[0] : null;
+                }
+
                 const timeSinceLastMsg = existingLeadCheck && existingLeadCheck.updatedAt ? new Date() - new Date(existingLeadCheck.updatedAt) : 10000;
 
                 const isSpamming = timeSinceLastMsg < 10000;
@@ -1455,12 +1566,16 @@ exports.receiveMessage = async (req, res) => {
 
                 let targetPhone = existingLeadCheck ? existingLeadCheck.phone : dbPhone;
 
-                // 🔥 Prevent Unique Constraint Error if targetPhone already exists as AFTER_SEMINAR or something else
+                // 🔥 Prevent Unique Constraint Error if targetPhone already exists
                 if (!existingLeadCheck) {
                     const exactMatch = await prisma.lead.findUnique({ where: { phone: targetPhone } });
                     if (exactMatch) {
-                        targetPhone = `${targetPhone}_FS_${Date.now()}`;
-                        createDataFreeSeminar.phone = targetPhone;
+                        if (exactMatch.batchId === parsedBatchId && exactMatch.campaignType === 'FREE_SEMINAR') {
+                            existingLeadCheck = exactMatch;
+                        } else {
+                            targetPhone = `${targetPhone}_FS_${Date.now()}`;
+                            createDataFreeSeminar.phone = targetPhone;
+                        }
                     }
                 }
 
@@ -1474,14 +1589,22 @@ exports.receiveMessage = async (req, res) => {
                     ...resetData
                 };
 
-                // 🔥 Reallocate to active batch if they belong to an old batch
+                // 🔥 Fallback safety: If an unbatched lead is being reallocated to a specific batch
                 if (existingLeadCheck && parsedBatchId && existingLeadCheck.batchId !== parsedBatchId) {
                     updateDataFreeSeminar.batchId = parsedBatchId;
-                    updateDataFreeSeminar.phone = dbPhone; // Update phone string for new batch
-                    updateDataFreeSeminar.assignedTo = null; // Unassign from old coordinator
+                    updateDataFreeSeminar.phone = dbPhone;
+                    updateDataFreeSeminar.assignedTo = null;
                     updateDataFreeSeminar.status = 'NEW';
                     updateDataFreeSeminar.phase = 1;
                     updateDataFreeSeminar.callStatus = 'pending';
+                    updateDataFreeSeminar.isCallCenter = false;
+                    updateDataFreeSeminar.callCenterStatus = 'pending';
+                    updateDataFreeSeminar.callCenterRequestStatus = null;
+                    updateDataFreeSeminar.callCenterRequestedBy = null;
+                    updateDataFreeSeminar.isOptedOut = false;
+                    updateDataFreeSeminar.feedback = null;
+                    updateDataFreeSeminar.autoReplyStep = 0;
+                    updateDataFreeSeminar.sequenceCompleted = false;
                 }
 
                 let existingLead;
@@ -2033,14 +2156,54 @@ exports.sendMessage = async (req, res) => {
             res.status(201).json(newMsg);
         } catch (metaError) {
             console.error("META API ERROR:", metaError.response?.data || metaError.message);
+            const metaErrData = metaError.response?.data?.error;
+
+            // Handle Meta Code 138017: Student already approved permanent call permission
+            if (metaErrData?.code === 138017) {
+                const cleanPhone = lead.phone ? lead.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
+                if (cleanPhone) {
+                    await prisma.lead.updateMany({
+                        where: { phone: { contains: cleanPhone.slice(-9) } },
+                        data: {
+                            waCallPermissionStatus: 'ALLOWED',
+                            waCallPermissionExpiry: null,
+                            waCallPermissionNotified: true
+                        }
+                    }).catch(() => {});
+                }
+
+                await prisma.chatMessage.update({
+                    where: { id: newMsg.id },
+                    data: { message: "📞 ✅ Student has ALREADY granted permanent call permission (Confirmed by WhatsApp). You can call directly!" }
+                }).catch(() => {});
+
+                const io = req.app.get('socketio');
+                if (io) {
+                    io.emit('wa_call_permission_granted', {
+                        leadId: lead.id,
+                        phone: lead.phone,
+                        expiry: null
+                    });
+                }
+
+                return res.status(200).json({
+                    ...newMsg,
+                    message: "📞 ✅ Student has ALREADY granted permanent call permission (Confirmed by WhatsApp). You can call directly!",
+                    alreadyAllowed: true
+                });
+            }
+
+            // Handle Meta Code 138009: Permission request rate limit
+            if (metaErrData?.code === 138009) {
+                await prisma.chatMessage.delete({ where: { id: newMsg.id } }).catch(() => {});
+                const errMsg = "Meta Limit Reached: A call permission request has already been sent to this student recently. Waiting for student to accept on WhatsApp.";
+                return res.status(400).json({ error: errMsg, metaDetails: metaErrData, alreadySent: true });
+            }
+
             // Delete the message from DB since Meta API rejected it
             await prisma.chatMessage.delete({ where: { id: newMsg.id } }).catch(() => {});
             
-            const metaErrData = metaError.response?.data?.error;
             let errMsg = metaErrData?.message || metaErrData?.error_data?.details || "Failed to send message via Meta API";
-            if (metaErrData?.code === 138009) {
-                errMsg = "Meta Limit Reached: Meta only allows sending a limited number of call permission requests to the same customer within a short period. Please test with another phone number.";
-            }
             return res.status(400).json({ error: errMsg, metaDetails: metaErrData });
         }
     } catch (error) {
@@ -2829,6 +2992,12 @@ exports.getLeadDetails = async (req, res) => {
         });
         const uniqueEnrollments = Array.from(uniqueEnrollmentsMap.values());
 
+        if (bestStudent && (!bestStudent.image || bestStudent.image === 'default.png' || bestStudent.image === 'null')) {
+            const { dpCode, imagePath } = getAvatarForPhone(phone || bestStudent.phone || bestStudent.whatsapp);
+            bestStudent.image = imagePath;
+            if (!bestStudent.appChatDp) bestStudent.appChatDp = dpCode;
+        }
+
         res.status(200).json({ 
             isEnrolled: true, 
             hasApprovedPayment,
@@ -3498,7 +3667,56 @@ exports.sendCallPermissionRequest = async (req, res) => {
         res.status(200).json({ message: "Call request sent successfully", status: "PENDING" });
     } catch (error) {
         console.error("Error in sendCallPermissionRequest:", error.response?.data || error.message);
-        res.status(500).json({ error: "Failed to send call request.", details: error.response?.data });
+        const metaErrData = error.response?.data?.error;
+
+        if (metaErrData?.code === 138017) {
+            const cleanPhone = lead.phone ? lead.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
+            if (cleanPhone) {
+                await prisma.lead.updateMany({
+                    where: { phone: { contains: cleanPhone.slice(-9) } },
+                    data: {
+                        waCallPermissionStatus: 'ALLOWED',
+                        waCallPermissionExpiry: null,
+                        waCallPermissionNotified: true
+                    }
+                }).catch(() => {});
+            }
+
+            await prisma.chatMessage.create({
+                data: {
+                    leadId: lead.id,
+                    message: "📞 ✅ Student has ALREADY granted permanent call permission (Confirmed by WhatsApp). You can call directly!",
+                    direction: 'inbound',
+                    senderType: 'SYSTEM',
+                    senderName: 'AutoBot'
+                }
+            }).catch(() => {});
+
+            const io = req.app.get('socketio');
+            if (io) {
+                io.emit('wa_call_permission_granted', {
+                    leadId: lead.id,
+                    phone: lead.phone,
+                    expiry: null
+                });
+            }
+
+            return res.status(200).json({
+                message: "Student has already approved permanent call permission! You can place calls directly.",
+                status: "ALLOWED",
+                alreadyAllowed: true
+            });
+        }
+
+        if (metaErrData?.code === 138009) {
+            return res.status(200).json({
+                message: "A call permission request was already sent to this student recently. Waiting for student to accept on WhatsApp.",
+                status: "PENDING",
+                alreadySent: true
+            });
+        }
+
+        res.status(400).json({ error: metaErrData?.message || metaErrData?.error_data?.details || "Failed to send call request.", details: error.response?.data });
     }
 };
 
@@ -3536,7 +3754,9 @@ exports.resolveLeadByPhone = async (req, res) => {
             });
 
             if (candidateLeads && candidateLeads.length > 0) {
-                if (parsedBizId) {
+                if (parsedBatchId) {
+                    existingLead = candidateLeads.find(l => l.batchId === parsedBatchId) || null;
+                } else if (parsedBizId) {
                     existingLead = candidateLeads.find(l => l.batch?.businessId === parsedBizId || l.phone.includes(`_BIZ_${parsedBizId}`)) || candidateLeads[0];
                 } else {
                     existingLead = candidateLeads[0];

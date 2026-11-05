@@ -7,7 +7,6 @@ import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import messaging from '@react-native-firebase/messaging';
 import notifee, { AndroidImportance, AndroidStyle } from '@notifee/react-native'; 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import SpInAppUpdates, { IAUUpdateKind } from 'sp-react-native-in-app-updates';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CourseProvider } from './src/context/CourseContext'; 
@@ -31,10 +30,15 @@ import RegisterScreen from './src/screens/RegisterScreen';
 import LiveScreen from './src/screens/LiveScreen';
 import PaymentMethodScreen from './src/screens/PaymentMethodScreen'; 
 import StaffDashboardScreen from './src/screens/StaffDashboardScreen';
+import CrmContactsScreen from './src/screens/CrmContactsScreen';
+import WhatsAppChatScreen from './src/screens/WhatsAppChatScreen';
 import CommunityChatScreen from './src/screens/CommunityChatScreen'; 
 import SupportChatScreen from './src/screens/SupportChatScreen';
 import DeliveryScreen from './src/screens/DeliveryScreen';
 import MCQPaperScreen from './src/screens/MCQPaperScreen';
+import LeaderboardScreen from './src/screens/LeaderboardScreen';
+import YTPlayerTestScreen from './src/screens/YTPlayerTestScreen';
+import YTDebugScreen from './src/screens/YTDebugScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -100,21 +104,22 @@ const AppNavigation = () => {
     });
 
     let interval;
-    if (userToken) {
+    const isStudent = userInfo && (!userInfo.role || String(userInfo.role).toUpperCase() === 'STUDENT' || String(userInfo.role).toUpperCase() === 'USER');
+    if (userToken && isStudent) {
         interval = setInterval(async () => {
             try {
-                await api.get('mobile/dashboard'); 
+                await api.get('mobile/classroom'); 
             } catch (error) {
-                // Interceptor eken handle wei
+                // Handled by axios interceptor
             }
-        }, 5000); 
+        }, 10000); 
     }
 
     return () => {
         subscription.remove();
         if (interval) clearInterval(interval);
     };
-  }, [userToken]);
+  }, [userToken, userInfo?.role]);
 
   const handleForceLogout = async () => {
       setShowLogoutModal(false);
@@ -148,6 +153,8 @@ const AppNavigation = () => {
           <>
             <Stack.Screen name="Login" component={LoginScreen} />
             <Stack.Screen name="Register" component={RegisterScreen} />
+            <Stack.Screen name="YTPlayerTest" component={YTPlayerTestScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="YTDebug" component={YTDebugScreen} options={{ headerShown: false }} />
           </>
         ) : (
           <>
@@ -164,6 +171,8 @@ const AppNavigation = () => {
                     options={{ headerShown: false, animation: 'none' }} 
                 />
             )}
+            <Stack.Screen name="CrmContacts" component={CrmContactsScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="WhatsAppChat" component={WhatsAppChatScreen} options={{ headerShown: false }} />
             <Stack.Screen name="CommunityChat" component={CommunityChatScreen} options={{ headerShown: false }} />
             <Stack.Screen name="SupportChat" component={SupportChatScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Downloads" component={DownloadsScreen} options={{ headerShown: false }} />
@@ -174,6 +183,9 @@ const AppNavigation = () => {
             <Stack.Screen name="PaymentMethod" component={PaymentMethodScreen} options={{ title: 'Select Payment Method' }} />
             <Stack.Screen name="Delivery" component={DeliveryScreen} options={{ headerShown: false }} />
             <Stack.Screen name="MCQPaper" component={MCQPaperScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Leaderboard" component={LeaderboardScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="YTPlayerTest" component={YTPlayerTestScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="YTDebug" component={YTDebugScreen} options={{ headerShown: false }} />
           </>
         )}
       </Stack.Navigator>
@@ -211,23 +223,23 @@ const AppNavigation = () => {
 
 export default function App() {
   useEffect(() => {
-    // 🔥 IN-APP UPDATES CHECK 🔥
-    const inAppUpdates = new SpInAppUpdates(
-      false // isDebug
-    );
-
-    inAppUpdates.checkNeedsUpdate().then((result) => {
-      if (result.shouldUpdate) {
-        let updateOptions = {};
-        if (Platform.OS === 'android') {
-          // Force immediate update on Android
-          updateOptions = {
-            updateType: IAUUpdateKind.IMMEDIATE,
-          };
-        }
-        inAppUpdates.startUpdate(updateOptions);
+    // 🔥 IN-APP UPDATES CHECK (Android Only) 🔥
+    if (Platform.OS === 'android') {
+      try {
+        const SpInAppUpdates = require('sp-react-native-in-app-updates').default;
+        const { IAUUpdateKind } = require('sp-react-native-in-app-updates');
+        const inAppUpdates = new SpInAppUpdates(false);
+        inAppUpdates.checkNeedsUpdate().then((result) => {
+          if (result && result.shouldUpdate) {
+            inAppUpdates.startUpdate({
+              updateType: IAUUpdateKind.IMMEDIATE,
+            });
+          }
+        }).catch(err => console.log("In-App Update Check Failed:", err));
+      } catch (err) {
+        console.log("In-app updates module not loaded:", err);
       }
-    }).catch(err => console.log("In-App Update Check Failed:", err));
+    }
 
     const setupNotifications = async () => {
       try {
@@ -249,6 +261,14 @@ export default function App() {
           name: 'General Updates',
           importance: AndroidImportance.HIGH, 
           sound: 'default',
+        });
+
+        await notifee.createChannel({
+          id: 'calls_channel',
+          name: 'Incoming WhatsApp Calls',
+          importance: AndroidImportance.HIGH,
+          sound: 'default',
+          vibration: true
         });
 
         await messaging().subscribeToTopic('ima_updates');

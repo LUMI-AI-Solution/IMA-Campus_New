@@ -26,6 +26,10 @@ router.post('/update-details', paymentController.updatePaymentDetails);
 // Get staff verification stats report
 router.get('/staff-stats-report', paymentController.getStaffStatsReport);
 
+// Teacher Salary / Lecturer Payment Breakdown
+const teacherSalaryController = require('../controllers/teacherSalaryController');
+router.get('/teacher-salary-breakdown', teacherSalaryController.getTeacherSalaryBreakdown);
+
 module.exports = router;
 // Permanent delete payment
 // router.delete('/:id', paymentController.permanentDelete);

@@ -663,3 +663,34 @@ exports.getAnalyticsReport = async (req, res) => {
         res.status(500).json({ error: "Failed to load analytics report", details: error.message });
     }
 };
+
+// ==========================================
+// 6. LIGHTWEIGHT NAV COUNTS (0ms LATENCY)
+// ==========================================
+exports.getNavCounts = async (req, res) => {
+    try {
+        const userId = req.user?.id || req.user?.userId;
+        if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+        const role = (req.user?.role || '').toUpperCase().replace(/ /g, '_');
+        const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN'].includes(role);
+        const targetDate = getColomboDateString();
+
+        const [staffPending, managerPending] = await Promise.all([
+            prisma.missedCallTask.count({
+                where: { taskAssigneeId: parseInt(userId), status: { not: 'COMPLETED' } }
+            }),
+            isManager ? prisma.missedCallTask.count({
+                where: { taskDate: targetDate, status: 'PENDING_DISTRIBUTION' }
+            }) : Promise.resolve(0)
+        ]);
+
+        res.status(200).json({
+            staffPending,
+            dailyMissed: managerPending
+        });
+    } catch (e) {
+        res.status(200).json({ staffPending: 0, dailyMissed: 0 });
+    }
+};
+

@@ -5,10 +5,23 @@ const fs = require('fs');
 const path = require('path');
 const pdfParse = require('pdf-parse'); 
 const ffmpeg = require('fluent-ffmpeg');
+const { getAvatarForPhone } = require('../utils/avatarUtils');
 
 // In-memory cache to prevent race conditions on duplicate Meta webhooks
 const processingMessages = new Set();
 const auditLogService = require('../services/auditLogService');
+
+// Short-term in-memory cache for CRM tab counts (15s TTL to avoid constant heavy table scans)
+const leadCountsCache = new Map();
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, val] of leadCountsCache.entries()) {
+        if (now - val.timestamp > 30000) {
+            leadCountsCache.delete(key);
+        }
+    }
+}, 30000);
+
 
 // ==========================================
 // 1. SETTINGS & CRM SETUP 
@@ -116,9 +129,217 @@ exports.toggleOpenSemStatus = async (req, res) => {
 };
 
 // ==========================================
+// 🔒 CAMPAIGN LOCK / UNLOCK SYSTEM
+// ==========================================
+const getOpenSemLockKey = (batchId) => `OPEN_SEMINAR_LOCKED_BATCH_${batchId}`;
+
+const isOpenSeminarLocked = async (batchId) => {
+    if (!batchId) return false;
+    try {
+        const setting = await prisma.appSetting.findUnique({ where: { key: getOpenSemLockKey(batchId) } });
+        return setting?.value === 'true';
+    } catch (e) {
+        console.error("isOpenSeminarLocked check error:", e);
+        return false;
+    }
+};
+exports.isOpenSeminarLocked = isOpenSeminarLocked;
+
+exports.getCampaignLockStatus = async (req, res) => {
+    try {
+        const { batchId } = req.query;
+        if (batchId && batchId !== 'ALL' && batchId !== '') {
+            const isLocked = await isOpenSeminarLocked(parseInt(batchId));
+            return res.status(200).json({ isLocked, batchId: parseInt(batchId) });
+        }
+        
+        // Return all locked batch IDs and map
+        const lockedSettings = await prisma.appSetting.findMany({
+            where: {
+                key: { startsWith: 'OPEN_SEMINAR_LOCKED_BATCH_' },
+                value: 'true'
+            }
+        });
+        const lockedBatchIds = lockedSettings.map(s => {
+            const parts = s.key.split('_');
+            return parseInt(parts[parts.length - 1]);
+        }).filter(id => !isNaN(id));
+
+        const lockedMap = {};
+        lockedBatchIds.forEach(id => { lockedMap[id] = true; });
+
+        return res.status(200).json({ lockedBatchIds, lockedMap });
+    } catch (error) { 
+        console.error("getCampaignLockStatus error:", error);
+        res.status(500).json({ error: "Failed to get campaign lock status" }); 
+    }
+};
+
+exports.toggleCampaignLock = async (req, res) => {
+    try {
+        const { batchId, isLocked } = req.body;
+        if (!batchId || batchId === 'ALL') {
+            return res.status(400).json({ error: "Please specify a valid Batch ID to lock/unlock" });
+        }
+
+        const userRole = (req.user?.role || '').toUpperCase().replace(/[\s_-]+/g, '_');
+        const allowedRoles = ['SUPER_ADMIN', 'SYSTEM_ADMIN', 'DIRECTOR', 'ADMIN', 'HEAD_MANAGER', 'ASSISTANT_MANAGER', 'MANAGER'];
+        if (!allowedRoles.includes(userRole)) {
+            return res.status(403).json({ error: "Only Managers and Super Admins can lock or unlock campaigns." });
+        }
+
+        const bId = parseInt(batchId);
+        const key = getOpenSemLockKey(bId);
+        await prisma.appSetting.upsert({
+            where: { key },
+            update: { value: isLocked ? 'true' : 'false' },
+            create: { key, value: isLocked ? 'true' : 'false' }
+        });
+
+        const batch = await prisma.batch.findUnique({ where: { id: bId }, select: { name: true } });
+
+        return res.status(200).json({ 
+            success: true, 
+            batchId: bId, 
+            batchName: batch?.name || `Batch ${bId}`,
+            isLocked: Boolean(isLocked), 
+            message: `Opening Seminar Campaign for ${batch?.name || `Batch ${bId}`} is now ${isLocked ? 'LOCKED' : 'UNLOCKED'}.` 
+        });
+    } catch (error) { 
+        console.error("toggleCampaignLock error:", error);
+        res.status(500).json({ error: "Failed to toggle campaign lock" }); 
+    }
+};
+
+// Cached helper function to calculate tab counts (15s TTL)
+async function getAfterSemCounts(businessId, batchId, isManager, userId, excludeColdBridge) {
+    const countCacheKey = `${businessId || 'all'}_${batchId || 'all'}_${isManager ? 'mgr' : userId}_${excludeColdBridge || 'f'}`;
+    const cached = leadCountsCache.get(countCacheKey);
+    if (cached && (Date.now() - cached.timestamp < 15000)) {
+        return cached;
+    }
+
+    let countWhere = { campaignType: 'AFTER_SEMINAR', source: { not: 'system' }, AND: [] }; 
+
+    if (businessId && businessId !== '') {
+        countWhere.AND.push({
+            OR: [
+                { phone: { endsWith: `BIZ_${businessId}` } },
+                { phone: { endsWith: `BIZ_${businessId}_AS` } },
+                { phone: { contains: `BIZ_${businessId}_BATCH_` } },
+                { phone: { contains: `BIZ_${businessId}_ROUND_` } },
+                { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
+            ]
+        });
+    }
+
+    if (excludeColdBridge === 'true') {
+        countWhere.AND.push({
+            NOT: {
+                AND: [
+                    { source: 'bridge_transfer' },
+                    { lastMessage: null }
+                ]
+            }
+        });
+    }
+
+    if (countWhere.AND.length === 0) {
+        delete countWhere.AND;
+    }
+
+    if (batchId === 'UNASSIGNED') {
+        countWhere.batchId = null;
+    } else if (batchId && batchId !== '') {
+        countWhere.batchId = parseInt(batchId);
+    }
+
+    const trueAllLeadsCount = await prisma.lead.count({ where: countWhere });
+    const trueAllUnreadCount = await prisma.lead.count({ where: { ...countWhere, unreadCount: { gt: 0 } } });
+
+    let coordinatorCountWhere = { ...countWhere };
+    if (!isManager) {
+        if (!coordinatorCountWhere.AND) coordinatorCountWhere.AND = [];
+        coordinatorCountWhere.AND = [
+            ...(coordinatorCountWhere.AND || []),
+            {
+                OR: [
+                    { assignedTo: null },
+                    { assignedTo: parseInt(userId) }
+                ]
+            }
+        ];
+    }
+
+    const [
+        assignedCount,
+        assignedUnread,
+        importedCount,
+        importedUnread,
+        openSemCount,
+        openSemUnread,
+        newInqCount,
+        newInqUnread,
+        fullCount,
+        monthlyCount,
+        installmentCount,
+        notDecidedCount
+    ] = await Promise.all([
+        prisma.lead.count({ where: { ...coordinatorCountWhere, assignedTo: { not: null } } }),
+        prisma.lead.count({ where: { ...coordinatorCountWhere, assignedTo: { not: null }, unreadCount: { gt: 0 } } }),
+        prisma.lead.count({ where: { ...coordinatorCountWhere, assignedTo: isManager ? null : parseInt(userId), source: { in: ['import', 'bulk_import'] } } }),
+        prisma.lead.count({ where: { ...coordinatorCountWhere, assignedTo: isManager ? null : parseInt(userId), source: { in: ['import', 'bulk_import'] }, unreadCount: { gt: 0 } } }),
+        prisma.lead.count({ where: { ...coordinatorCountWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL'] } } }),
+        prisma.lead.count({ where: { ...coordinatorCountWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL'] }, unreadCount: { gt: 0 } } }),
+        prisma.lead.count({ where: { ...coordinatorCountWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: 'NEW_INQ' } }),
+        prisma.lead.count({ where: { ...coordinatorCountWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: 'NEW_INQ', unreadCount: { gt: 0 } } }),
+        prisma.lead.count({ where: { ...coordinatorCountWhere, paymentIntention: 'FULL' } }),
+        prisma.lead.count({ where: { ...coordinatorCountWhere, paymentIntention: 'MONTHLY' } }),
+        prisma.lead.count({ where: { ...coordinatorCountWhere, paymentIntention: 'INSTALLMENT' } }),
+        prisma.lead.count({ where: { ...coordinatorCountWhere, paymentIntention: 'NOT_DECIDED' } })
+    ]);
+
+    const counts = { 
+        ALL: trueAllLeadsCount,
+        ASSIGNED: assignedCount, 
+        IMPORTED: importedCount, 
+        NEW: openSemCount + newInqCount, 
+        NEW_INQ: newInqCount, 
+        OPEN_SEMINAR: openSemCount,
+        FULL: fullCount, 
+        MONTHLY: monthlyCount, 
+        INSTALLMENT: installmentCount, 
+        NOT_DECIDED: notDecidedCount 
+    };
+
+    const unreadCounts = { 
+        ALL: trueAllUnreadCount,
+        ASSIGNED: assignedUnread,
+        IMPORTED: importedUnread,
+        NEW: openSemUnread + newInqUnread, 
+        NEW_INQ: newInqUnread, 
+        OPEN_SEMINAR: openSemUnread
+    };
+    const totalUnread = trueAllUnreadCount;
+
+    const result = {
+        timestamp: Date.now(),
+        counts,
+        unreadCounts,
+        totalUnread,
+        trueAllLeadsCount,
+        trueAllUnreadCount
+    };
+
+    leadCountsCache.set(countCacheKey, result);
+    return result;
+}
+
+// ==========================================
 // 2. LEAD FETCHING (WITH AUTO-SYNC ENGINE)
 // ==========================================
 exports.getLeads = async (req, res) => {
+
     try {
         const userId = req.user?.id || req.query.loggedUserId || 1;
         const userRoleRaw = req.user?.role || req.query.loggedUserRole || 'STAFF'; 
@@ -257,9 +478,6 @@ exports.getLeads = async (req, res) => {
         const limitNum = limit ? parseInt(limit) : 50;
         const skipNum = (pageNum - 1) * limitNum;
 
-        console.log("DEBUG whereClause:", JSON.stringify(whereClause, null, 2));
-        console.log("DEBUG tab:", tab, "unassignedOnly:", unassignedOnly);
-
         if (req.query.fetchAllIds === 'true') {
             const allIds = await prisma.lead.findMany({
                 where: whereClause,
@@ -268,42 +486,100 @@ exports.getLeads = async (req, res) => {
             return res.status(200).json({ ids: allIds.map(a => a.id) });
         }
 
-        let leads = await prisma.lead.findMany({
-            where: whereClause, 
-            orderBy: [ { unreadCount: 'desc' }, { lastMessageAt: 'desc' }, { updatedAt: 'desc' } ], 
-            include: { 
-                assignedUser: { select: { firstName: true, lastName: true, businessType: true } }, 
-                batch: { select: { id: true, name: true, businessId: true } },
-                roundProgress: true
-            },
-            skip: skipNum,
-            take: limitNum
+        // 🔥 UNREAD FIRST (Ordered by latest message), THEN READ LEADS 🔥
+        const unreadTotal = await prisma.lead.count({
+            where: { ...whereClause, unreadCount: { gt: 0 } }
         });
 
-        const [totalMatching, totalUnreadMatching] = await Promise.all([
-            prisma.lead.count({ where: whereClause }),
-            prisma.lead.count({ where: { ...whereClause, unreadCount: { gt: 0 } } })
-        ]);
+        const leadInclude = { 
+            assignedUser: { select: { firstName: true, lastName: true, businessType: true } }, 
+            batch: { select: { id: true, name: true, businessId: true } },
+            roundProgress: true
+        };
 
+        const leadOrderBy = [ { lastMessageAt: 'desc' }, { updatedAt: 'desc' } ];
+
+        let leads = [];
+        if (skipNum < unreadTotal) {
+            const unreadTake = Math.min(limitNum, unreadTotal - skipNum);
+            const unreadLeads = await prisma.lead.findMany({
+                where: { ...whereClause, unreadCount: { gt: 0 } },
+                orderBy: leadOrderBy,
+                include: leadInclude,
+                skip: skipNum,
+                take: unreadTake
+            });
+            leads.push(...unreadLeads);
+
+            const remainingLimit = limitNum - leads.length;
+            if (remainingLimit > 0) {
+                const readLeads = await prisma.lead.findMany({
+                    where: { ...whereClause, unreadCount: 0 },
+                    orderBy: leadOrderBy,
+                    include: leadInclude,
+                    skip: 0,
+                    take: remainingLimit
+                });
+                leads.push(...readLeads);
+            }
+        } else {
+            const readSkip = skipNum - unreadTotal;
+            leads = await prisma.lead.findMany({
+                where: { ...whereClause, unreadCount: 0 },
+                orderBy: leadOrderBy,
+                include: leadInclude,
+                skip: readSkip,
+                take: limitNum
+            });
+        }
+
+        const countData = await getAfterSemCounts(businessId, batchId, isManager, userId, excludeColdBridge);
+        const counts = { ...countData.counts };
+        const unreadCounts = { ...countData.unreadCounts };
+        let totalUnread = countData.totalUnread;
+
+        const hasCustomFilter = Boolean((searchQuery && searchQuery.trim() !== '') || round || paymentGroup || staffId || (unassignedOnly && unassignedOnly !== 'false') || status);
+
+        let totalMatching = 0;
+        let totalUnreadMatching = 0;
         let newInqMatching = 0;
         let openSemMatching = 0;
         let newInqUnreadMatching = 0;
         let openSemUnreadMatching = 0;
-        if (tab === 'NEW' || tab === 'ALL') {
-            const baseSubTabWhere = { ...whereClause };
-            delete baseSubTabWhere.inquiryType;
 
-            const [newInq, openSem, newInqU, openSemU] = await Promise.all([
-                prisma.lead.count({ where: { ...baseSubTabWhere, inquiryType: 'NEW_INQ' } }),
-                prisma.lead.count({ where: { ...baseSubTabWhere, inquiryType: 'OPEN_SEMINAR' } }),
-                prisma.lead.count({ where: { ...baseSubTabWhere, inquiryType: 'NEW_INQ', unreadCount: { gt: 0 } } }),
-                prisma.lead.count({ where: { ...baseSubTabWhere, inquiryType: 'OPEN_SEMINAR', unreadCount: { gt: 0 } } })
+        if (hasCustomFilter) {
+            const [tMatch, tUnreadMatch] = await Promise.all([
+                prisma.lead.count({ where: whereClause }),
+                prisma.lead.count({ where: { ...whereClause, unreadCount: { gt: 0 } } })
             ]);
-            newInqMatching = newInq;
-            openSemMatching = openSem;
-            newInqUnreadMatching = newInqU;
-            openSemUnreadMatching = openSemU;
+            totalMatching = tMatch;
+            totalUnreadMatching = tUnreadMatch;
+
+            if (tab === 'NEW' || tab === 'ALL') {
+                const baseSubTabWhere = { ...whereClause };
+                delete baseSubTabWhere.inquiryType;
+
+                const [newInq, openSem, newInqU, openSemU] = await Promise.all([
+                    prisma.lead.count({ where: { ...baseSubTabWhere, inquiryType: 'NEW_INQ' } }),
+                    prisma.lead.count({ where: { ...baseSubTabWhere, inquiryType: 'OPEN_SEMINAR' } }),
+                    prisma.lead.count({ where: { ...baseSubTabWhere, inquiryType: 'NEW_INQ', unreadCount: { gt: 0 } } }),
+                    prisma.lead.count({ where: { ...baseSubTabWhere, inquiryType: 'OPEN_SEMINAR', unreadCount: { gt: 0 } } })
+                ]);
+                newInqMatching = newInq;
+                openSemMatching = openSem;
+                newInqUnreadMatching = newInqU;
+                openSemUnreadMatching = openSemU;
+            }
+        } else {
+            const tabKey = (tab === 'NEW_INQ' || tab === 'OPEN_SEMINAR') ? tab : (tab || 'ALL');
+            totalMatching = counts[tabKey] ?? counts.ALL;
+            totalUnreadMatching = unreadCounts[tabKey] ?? unreadCounts.ALL;
+            newInqMatching = counts.NEW_INQ;
+            openSemMatching = counts.OPEN_SEMINAR;
+            newInqUnreadMatching = unreadCounts.NEW_INQ;
+            openSemUnreadMatching = unreadCounts.OPEN_SEMINAR;
         }
+
 
         let phoneVariants = [];
         leads.forEach(l => {
@@ -316,41 +592,40 @@ exports.getLeads = async (req, res) => {
         });
         phoneVariants = [...new Set(phoneVariants)];
 
-        const [registeredUsers, approvedPayments] = await Promise.all([
-            prisma.user.findMany({
-                where: {
-                    OR: [
-                        { phone: { in: phoneVariants } },
-                        { whatsapp: { in: phoneVariants } }
-                    ]
-                },
-                select: { id: true, phone: true, whatsapp: true, firstName: true, lastName: true, optionalPhone: true }
-            }),
-            prisma.payment.findMany({
-                where: {
-                    status: { in: [1, 4] },
-                    batchId: { not: null },
-                    OR: [
-                        { student: { phone: { in: phoneVariants } } },
-                        { student: { whatsapp: { in: phoneVariants } } },
-                        { student: { optionalPhone: { in: phoneVariants } } }
-                    ]
-                },
-                select: {
-                    batchId: true,
-                    payment_type: true,
-                    student: {
-                        select: { phone: true, whatsapp: true, optionalPhone: true }
-                    }
-                }
-            })
-        ]);
+        const registeredUsers = await prisma.user.findMany({
+            where: {
+                OR: [
+                    { phone: { in: phoneVariants } },
+                    { whatsapp: { in: phoneVariants } }
+                ]
+            },
+            select: { id: true, phone: true, whatsapp: true, firstName: true, lastName: true, optionalPhone: true, image: true, appChatDp: true }
+        });
+
+        const regUserIds = registeredUsers.map(u => u.id);
+        const userPhoneMap = new Map();
+        registeredUsers.forEach(u => {
+            userPhoneMap.set(u.id, [u.phone, u.whatsapp, u.optionalPhone]);
+        });
+
+        const approvedPayments = regUserIds.length > 0 ? await prisma.payment.findMany({
+            where: {
+                status: { in: [1, 4] },
+                batchId: { not: null },
+                studentId: { in: regUserIds }
+            },
+            select: {
+                batchId: true,
+                payment_type: true,
+                studentId: true
+            }
+        }) : [];
 
         // Map: `${batchId}_${suffix7}` -> payment_type
         const approvedBatchPaymentMap = new Map();
         approvedPayments.forEach(p => {
-            if (!p.student || !p.batchId) return;
-            const pPhones = [p.student.phone, p.student.whatsapp, p.student.optionalPhone];
+            if (!p.studentId || !p.batchId) return;
+            const pPhones = userPhoneMap.get(p.studentId) || [];
             pPhones.forEach(raw => {
                 if (!raw) return;
                 const cleaned = raw.replace(/[^0-9]/g, '');
@@ -360,18 +635,21 @@ exports.getLeads = async (req, res) => {
             });
         });
 
+
         const leadsNeedingEnrollmentDbUpdate = [];
         const now = new Date();
 
         await Promise.all(leads.map(async (l, i) => {
             if (l.phone) {
                 const rawPhone = l.phone.split('_')[0].replace(/[^0-9]/g, '');
-                if (rawPhone.length >= 9) {
+                if (rawPhone.length >= 7) {
                     const suffix = rawPhone.slice(-9);
-                    const rUser = registeredUsers.find(u => 
-                        (u.phone && u.phone.endsWith(suffix)) || 
-                        (u.whatsapp && u.whatsapp.endsWith(suffix))
-                    );
+                    const rUser = registeredUsers.find(u => {
+                        const uP = (u.phone || '').replace(/[^0-9]/g, '');
+                        const uW = (u.whatsapp || '').replace(/[^0-9]/g, '');
+                        return (uP && (uP.endsWith(suffix) || suffix.endsWith(uP.slice(-9)))) || 
+                               (uW && (uW.endsWith(suffix) || suffix.endsWith(uW.slice(-9))));
+                    });
                     if (rUser) leads[i].registeredUser = rUser;
                 }
             }
@@ -489,6 +767,10 @@ exports.getLeads = async (req, res) => {
             leads[i].rawPhone = l.phone;
             leads[i].businessId = l.batch?.businessId || (l.phone && l.phone.includes('_BIZ_') ? parseInt(l.phone.split('_BIZ_')[1]?.split('_')[0]) : null);
             leads[i].phone = l.phone ? l.phone.split('_BIZ')[0] : '';
+            const userImg = leads[i].registeredUser?.image;
+            const hasCustomImg = userImg && userImg !== 'default.png' && userImg !== 'null' && String(userImg).trim() !== '';
+            leads[i].avatar = hasCustomImg ? userImg : (leads[i].registeredUser?.appChatDp ? `chat_dps/${leads[i].registeredUser.appChatDp}` : getAvatarForPhone(l.phone).imagePath);
+            leads[i].image = userImg || null;
         }));
 
         if (leadsNeedingEnrollmentDbUpdate.length > 0) {
@@ -532,8 +814,8 @@ exports.getLeads = async (req, res) => {
 
                 // Extract Round 1 feedback from history if available
                 let r1Feedback = '';
-                if (l.roundProgress && Array.isArray(l.roundProgress)) {
-                    const r1 = l.roundProgress.find(r => r.roundNum === 1 && r.campaignCategory === 'OPEN_SEMINAR');
+                if (round > 1 && l.roundProgress && Array.isArray(l.roundProgress)) {
+                    const r1 = l.roundProgress.find(r => r.roundNum === 1 && (r.campaignCategory === 'OPEN_SEMINAR' || r.campaignCategory === 'OPEN_SEM'));
                     if (r1) r1Feedback = r1.feedback || '';
                 }
 
@@ -542,7 +824,7 @@ exports.getLeads = async (req, res) => {
                     phase: finalPhase,
                     callStatus: finalCallStatus,
                     coordinationRound: round,
-                    feedback: l.openSemFeedback || '',
+                    feedback: finalCallStatus === 'pending' ? '' : (l.openSemFeedback || ''),
                     r1Feedback: r1Feedback,
                     locked: locked,
                     unlocksInDays: unlocksInDays,
@@ -556,129 +838,19 @@ exports.getLeads = async (req, res) => {
                     phase: l.newInqPhase || 1,
                     callStatus: l.newInqCallStatus || 'pending',
                     coordinationRound: l.newInqRound || 1,
-                    feedback: l.newInqFeedback || '',
+                    feedback: (l.newInqCallStatus === 'pending') ? '' : (l.newInqFeedback || ''),
                     callMethod: l.newInqCallMethod || null,
                     callAttempt: l.newInqCallAttempt || 1
                 };
             }
             return l;
         });
-
-        // --- Calculate Counts ---
-        let countWhere = { campaignType: 'AFTER_SEMINAR', source: { not: 'system' }, AND: [] }; 
-
-        if (businessId && businessId !== '') {
-            countWhere.AND.push({
-                OR: [
-                    { phone: { endsWith: `BIZ_${businessId}` } },
-                    { phone: { endsWith: `BIZ_${businessId}_AS` } },
-                    { phone: { contains: `BIZ_${businessId}_BATCH_` } },
-                    { phone: { contains: `BIZ_${businessId}_ROUND_` } },
-                    { phone: { contains: `BIZ_${businessId}_HISTORY_ROUND_` } }
-                ]
-            });
-        }
-
-        if (excludeColdBridge === 'true') {
-            countWhere.AND.push({
-                NOT: {
-                    AND: [
-                        { source: 'bridge_transfer' },
-                        { lastMessage: null }
-                    ]
-                }
-            });
-        }
-
-        if (countWhere.AND.length === 0) {
-            delete countWhere.AND;
-        }
-
-        if (batchId === 'UNASSIGNED') {
-            countWhere.batchId = null;
-        } else if (batchId && batchId !== '') {
-            countWhere.batchId = parseInt(batchId);
-        }
-
-        // 🔥 We need the true system-wide count for ALL, so we fetch it before applying manager restriction
-        const trueAllLeadsCount = await prisma.lead.count({ where: countWhere });
-        const trueAllUnreadCount = await prisma.lead.count({ where: { ...countWhere, unreadCount: { gt: 0 } } });
-
-        if (!isManager) {
-            if (!countWhere.AND) countWhere.AND = [];
-            countWhere.AND.push({
-                OR: [
-                    { assignedTo: null },
-                    { assignedTo: parseInt(userId) }
-                ]
-            });
-        }
-
-
-        const [
-            allLeadsForCounts,
-            allUnreadCount,
-            assignedCount,
-            assignedUnread,
-            importedCount,
-            importedUnread,
-            newCount,
-            newUnread,
-            newInqCount,
-            newInqUnread,
-            openSemCount,
-            openSemUnread,
-            fullCount,
-            monthlyCount,
-            installmentCount,
-            notDecidedCount
-        ] = await Promise.all([
-            prisma.lead.count({ where: countWhere }),
-            prisma.lead.count({ where: { ...countWhere, unreadCount: { gt: 0 } } }),
-            prisma.lead.count({ where: { ...countWhere, assignedTo: { not: null } } }),
-            prisma.lead.count({ where: { ...countWhere, assignedTo: { not: null }, unreadCount: { gt: 0 } } }),
-            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { in: ['import', 'bulk_import'] } } }),
-            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { in: ['import', 'bulk_import'] }, unreadCount: { gt: 0 } } }),
-            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL'] } } }),
-            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL'] }, unreadCount: { gt: 0 } } }),
-            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: 'NEW_INQ' } }),
-            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: 'NEW_INQ', unreadCount: { gt: 0 } } }),
-            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL'] } } }),
-            prisma.lead.count({ where: { ...countWhere, assignedTo: isManager ? null : parseInt(userId), source: { notIn: ['import', 'bulk_import'] }, inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL'] }, unreadCount: { gt: 0 } } }),
-            prisma.lead.count({ where: { ...countWhere, paymentIntention: 'FULL' } }),
-            prisma.lead.count({ where: { ...countWhere, paymentIntention: 'MONTHLY' } }),
-            prisma.lead.count({ where: { ...countWhere, paymentIntention: 'INSTALLMENT' } }),
-            prisma.lead.count({ where: { ...countWhere, paymentIntention: 'NOT_DECIDED' } })
-        ]);
-
-        const counts = { 
-            ALL: trueAllLeadsCount,
-            ASSIGNED: assignedCount, 
-            IMPORTED: importedCount, 
-            NEW: openSemCount + newInqCount, 
-            NEW_INQ: newInqCount, 
-            OPEN_SEMINAR: openSemCount,
-            FULL: fullCount, 
-            MONTHLY: monthlyCount, 
-            INSTALLMENT: installmentCount, 
-            NOT_DECIDED: notDecidedCount 
-        };
-
-        const unreadCounts = { 
-            ALL: trueAllUnreadCount,
-            ASSIGNED: assignedUnread,
-            IMPORTED: importedUnread,
-            NEW: openSemUnread + newInqUnread, 
-            NEW_INQ: newInqUnread, 
-            OPEN_SEMINAR: openSemUnread
-        };
-        let totalUnread = trueAllUnreadCount;
-
         if (String(unassignedOnly) === 'true') {
             counts.ALL = totalMatching;
         }
 
         res.status(200).json({ leads: mappedLeads, counts, unreadCounts, totalUnread, totalMatching, totalUnreadMatching, newInqMatching, openSemMatching, newInqUnreadMatching, openSemUnreadMatching });
+
     } catch (error) { 
         console.error("Auto Sync Engine Error:", error);
         res.status(500).json({ error: "Failed to fetch leads" }); 
@@ -707,6 +879,12 @@ exports.importLead = async (req, res) => {
         if (!parsedBusinessId) return res.status(400).json({ error: "Business ID is required." });
 
         const targetInquiryType = inquiryType || 'OPEN_SEMINAR';
+
+        if (targetInquiryType === 'OPEN_SEMINAR' || targetInquiryType === 'NORMAL') {
+            if (parsedBatchId && await isOpenSeminarLocked(parsedBatchId)) {
+                return res.status(403).json({ error: "Opening Seminar campaign for this batch is locked by Management. Cannot import leads to Open Seminar." });
+            }
+        }
 
         const baseData = {
             batchId: parsedBatchId, 
@@ -767,15 +945,44 @@ exports.bulkActions = async (req, res) => {
             if (!targetBatchId || isNaN(parseInt(targetBatchId))) {
                 return res.status(400).json({ error: "Invalid batch ID provided." });
             }
+            const parsedLeadIds = (leadIds || []).map(id => parseInt(id)).filter(id => !isNaN(id));
             await prisma.lead.updateMany({ 
-                where: { id: { in: leadIds } }, 
-                data: { batchId: parseInt(targetBatchId) } 
+                where: { id: { in: parsedLeadIds } }, 
+                data: { 
+                    batchId: parseInt(targetBatchId),
+                    callStatus: 'pending',
+                    openSemCallStatus: 'pending',
+                    newInqCallStatus: 'pending',
+                    phase: 1,
+                    openSemPhase: 1,
+                    newInqPhase: 1,
+                    callAttempt: 1,
+                    openSemCallAttempt: 1,
+                    newInqCallAttempt: 1,
+                    coordinationRound: 1,
+                    openSemRound: 1,
+                    newInqRound: 1,
+                    feedback: '',
+                    openSemFeedback: '',
+                    newInqFeedback: '',
+                    callMethod: null,
+                    openSemCallMethod: null,
+                    newInqCallMethod: null,
+                    nonEnrolledReason: null,
+                    r1DelayedDays: 0,
+                    r2DelayedDays: 0,
+                    lastAttemptAt: null
+                } 
+            });
+            await prisma.leadRoundProgress.deleteMany({
+                where: { leadId: { in: parsedLeadIds } }
             });
         }
         else if (action === 'ASSIGN') {
             if (!staffId || isNaN(parseInt(staffId))) {
                 return res.status(400).json({ error: "Invalid staff ID provided for assignment." });
             }
+            const parsedLeadIds = (leadIds || []).map(id => parseInt(id)).filter(id => !isNaN(id));
             const updateData = { 
                 assignedTo: parseInt(staffId), 
                 status: 'OPEN', 
@@ -792,7 +999,17 @@ exports.bulkActions = async (req, res) => {
                 openSemCallAttempt: 1,
                 newInqCallAttempt: 1,
                 isLocked: false,
-                assignedAt: new Date() 
+                assignedAt: new Date(),
+                feedback: '',
+                openSemFeedback: '',
+                newInqFeedback: '',
+                callMethod: null,
+                openSemCallMethod: null,
+                newInqCallMethod: null,
+                nonEnrolledReason: null,
+                r1DelayedDays: 0,
+                r2DelayedDays: 0,
+                lastAttemptAt: null
             };
             if (batchId && !isNaN(parseInt(batchId))) {
                 updateData.batchId = parseInt(batchId);
@@ -806,8 +1023,11 @@ exports.bulkActions = async (req, res) => {
                 updateData.inquiryType = 'NORMAL';
             }
             await prisma.lead.updateMany({ 
-                where: { id: { in: leadIds } }, 
+                where: { id: { in: parsedLeadIds } }, 
                 data: updateData 
+            });
+            await prisma.leadRoundProgress.deleteMany({
+                where: { leadId: { in: parsedLeadIds } }
             });
         } 
         else if (action === 'UNASSIGN') {
@@ -1012,7 +1232,17 @@ exports.assignLeads = async (req, res) => {
                 openSemCallAttempt: 1,
                 newInqCallAttempt: 1,
                 isLocked: false,
-                assignedAt: new Date() 
+                assignedAt: new Date(),
+                feedback: '',
+                openSemFeedback: '',
+                newInqFeedback: '',
+                callMethod: null,
+                openSemCallMethod: null,
+                newInqCallMethod: null,
+                nonEnrolledReason: null,
+                r1DelayedDays: 0,
+                r2DelayedDays: 0,
+                lastAttemptAt: null
             };
             if (batchId && batchId !== 'ALL' && batchId !== 'UNASSIGNED' && !isNaN(parseInt(batchId))) {
                 updateData.batchId = parseInt(batchId);
@@ -1020,18 +1250,27 @@ exports.assignLeads = async (req, res) => {
 
             // Target inquiry type conversion when assigned:
             const targetType = assignType || sourcePool;
-            if (targetType === 'OPEN_SEMINAR' || targetType === 'OPEN_SEM') {
-                updateData.inquiryType = 'OPEN_SEMINAR';
+            if (targetType === 'OPEN_SEMINAR' || targetType === 'OPEN_SEM' || targetType === 'NORMAL') {
+                const effectiveBatchId = batchId && batchId !== 'ALL' && batchId !== 'UNASSIGNED' ? parseInt(batchId) : null;
+                if (effectiveBatchId) {
+                    const isBatchLocked = await isOpenSeminarLocked(effectiveBatchId);
+                    if (isBatchLocked) {
+                        return res.status(403).json({ error: "The Opening Seminar campaign for this batch is locked by Management. Cannot assign new leads." });
+                    }
+                }
+                updateData.inquiryType = (targetType === 'NORMAL') ? 'NORMAL' : 'OPEN_SEMINAR';
             } else if (targetType === 'NEW_INQ') {
                 updateData.inquiryType = 'NEW_INQ';
                 updateData.newInqTimestamp = new Date();
-            } else if (targetType === 'NORMAL') {
-                updateData.inquiryType = 'NORMAL';
             }
 
             await prisma.lead.updateMany({ 
                 where: { id: { in: ids } }, 
                 data: updateData 
+            });
+
+            await prisma.leadRoundProgress.deleteMany({
+                where: { leadId: { in: ids } }
             });
 
             return res.status(200).json({ message: `${leadsToAssign.length} leads assigned successfully!` });
@@ -1721,6 +1960,8 @@ exports.receiveMessage = async (req, res) => {
                 console.log(`DEBUG WEBHOOK EXACT MSG: [${normalizedMsg}] (len: ${normalizedMsg.length}) chars: ${normalizedMsg.split('').map(c=>c.charCodeAt(0)).join(',')}`);
                 
                 let shouldUnassign = false;
+                const isNewBatchForLead = parsedBatchId && existingLeadCheck && existingLeadCheck.batchId !== parsedBatchId;
+
                 if (!existingLeadCheck) {
                     if ((normalizedMsg === 'open seminar' || normalizedMsg === 'opening seminar') && settings.openSemActive) { 
                         detInquiryType = 'OPEN_SEMINAR';
@@ -1739,6 +1980,9 @@ exports.receiveMessage = async (req, res) => {
                             detInquiryType = 'NEW_INQ';
                             shouldUnassign = true;
                         }
+                    } else if (isNewBatchForLead && settings.openSemActive) {
+                        detInquiryType = 'OPEN_SEMINAR';
+                        shouldUnassign = true;
                     }
                 }
 
@@ -1809,11 +2053,35 @@ exports.receiveMessage = async (req, res) => {
                     updateData.assignedTo = fallbackAssignedTo;
                 }
 
+                if (parsedBatchId && (shouldUnassign || isNewBatchForLead)) {
+                    updateData.batchId = parsedBatchId;
+                }
+
                 if (shouldUnassign) {
                     updateData.assignedTo = null;
                     updateData.status = 'NEW';
                     updateData.phase = 1;
                     updateData.callStatus = 'pending';
+                    updateData.openSemPhase = 1;
+                    updateData.openSemCallStatus = 'pending';
+                    updateData.newInqPhase = 1;
+                    updateData.newInqCallStatus = 'pending';
+                    updateData.openSemRound = 1;
+                    updateData.newInqRound = 1;
+                    updateData.coordinationRound = 1;
+                    updateData.openSemCallAttempt = 1;
+                    updateData.newInqCallAttempt = 1;
+                    updateData.callAttempt = 1;
+                    updateData.openSemFeedback = '';
+                    updateData.newInqFeedback = '';
+                    updateData.feedback = '';
+                    updateData.openSemCallMethod = null;
+                    updateData.newInqCallMethod = null;
+                    updateData.callMethod = null;
+                    updateData.nonEnrolledReason = null;
+                    updateData.r1DelayedDays = 0;
+                    updateData.r2DelayedDays = 0;
+                    updateData.lastAttemptAt = null;
                 }
 
                 try {
@@ -1830,6 +2098,12 @@ exports.receiveMessage = async (req, res) => {
                             data: updateData
                         });
                     } else throw upsertError;
+                }
+
+                if (existingLead && (shouldUnassign || isNewBatchForLead)) {
+                    await prisma.leadRoundProgress.deleteMany({
+                        where: { leadId: existingLead.id }
+                    }).catch(() => {});
                 }
 
                 await prisma.chatMessage.create({ 
@@ -2479,14 +2753,54 @@ exports.sendMessage = async (req, res) => {
             res.status(201).json(newMsg);
         } catch (metaError) { 
             console.error("Meta API Error:", metaError.response?.data || metaError.message);
+            const metaErrData = metaError.response?.data?.error;
+
+            // Handle Meta Code 138017: Student already approved permanent call permission
+            if (metaErrData?.code === 138017) {
+                const cleanPhone = lead.phone ? lead.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
+                if (cleanPhone) {
+                    await prisma.lead.updateMany({
+                        where: { phone: { contains: cleanPhone.slice(-9) } },
+                        data: {
+                            waCallPermissionStatus: 'ALLOWED',
+                            waCallPermissionExpiry: null,
+                            waCallPermissionNotified: true
+                        }
+                    }).catch(() => {});
+                }
+
+                await prisma.chatMessage.update({
+                    where: { id: newMsg.id },
+                    data: { message: "📞 ✅ Student has ALREADY granted permanent call permission (Confirmed by WhatsApp). You can call directly!" }
+                }).catch(() => {});
+
+                const io = req.app.get('socketio');
+                if (io) {
+                    io.emit('wa_call_permission_granted', {
+                        leadId: lead.id,
+                        phone: lead.phone,
+                        expiry: null
+                    });
+                }
+
+                return res.status(200).json({
+                    ...newMsg,
+                    message: "📞 ✅ Student has ALREADY granted permanent call permission (Confirmed by WhatsApp). You can call directly!",
+                    alreadyAllowed: true
+                });
+            }
+
+            // Handle Meta Code 138009: Permission request rate limit
+            if (metaErrData?.code === 138009) {
+                await prisma.chatMessage.delete({ where: { id: newMsg.id } }).catch(() => {});
+                const errMsg = "Meta Limit Reached: A call permission request has already been sent to this student recently. Waiting for student to accept on WhatsApp.";
+                return res.status(400).json({ error: errMsg, metaDetails: metaErrData, alreadySent: true });
+            }
+
             // Delete the message from DB since Meta API rejected it
             await prisma.chatMessage.delete({ where: { id: newMsg.id } }).catch(() => {});
             
-            const metaErrData = metaError.response?.data?.error;
             let errMsg = metaErrData?.message || metaErrData?.error_data?.details || "Failed to send message via Meta API";
-            if (metaErrData?.code === 138009) {
-                errMsg = "Meta Limit Reached: Meta only allows sending a limited number of call permission requests to the same customer within a short period. Please test with another phone number.";
-            }
             return res.status(400).json({ error: errMsg, metaDetails: metaErrData });
         }
     } catch (error) { 
@@ -2626,10 +2940,47 @@ exports.sendBroadcast = async (req, res) => {
 exports.updateLeadBatch = async (req, res) => {
     try {
         const { leadId, batchId } = req.body;
+        if (batchId && !isNaN(parseInt(batchId))) {
+            const lead = await prisma.lead.findUnique({ where: { id: parseInt(leadId) } });
+            if (lead && (lead.inquiryType === 'OPEN_SEMINAR' || lead.inquiryType === 'NORMAL')) {
+                const isLocked = await isOpenSeminarLocked(parseInt(batchId));
+                if (isLocked) {
+                    return res.status(403).json({ error: "Opening Seminar campaign for this batch is locked by Management. Cannot allocate lead to this batch." });
+                }
+            }
+        }
+        const parsedLeadId = parseInt(leadId);
         await prisma.lead.update({
-            where: { id: parseInt(leadId) },
-            data: { batchId: batchId ? parseInt(batchId) : null }
+            where: { id: parsedLeadId },
+            data: { 
+                batchId: batchId ? parseInt(batchId) : null,
+                callStatus: 'pending',
+                openSemCallStatus: 'pending',
+                newInqCallStatus: 'pending',
+                phase: 1,
+                openSemPhase: 1,
+                newInqPhase: 1,
+                callAttempt: 1,
+                openSemCallAttempt: 1,
+                newInqCallAttempt: 1,
+                coordinationRound: 1,
+                openSemRound: 1,
+                newInqRound: 1,
+                feedback: '',
+                openSemFeedback: '',
+                newInqFeedback: '',
+                callMethod: null,
+                openSemCallMethod: null,
+                newInqCallMethod: null,
+                nonEnrolledReason: null,
+                r1DelayedDays: 0,
+                r2DelayedDays: 0,
+                lastAttemptAt: null
+            }
         });
+        await prisma.leadRoundProgress.deleteMany({
+            where: { leadId: parsedLeadId }
+        }).catch(() => {});
         res.status(200).json({ success: true, message: "Batch Updated!" });
     } catch (error) { 
         res.status(500).json({ error: "Failed to update batch" }); 
@@ -2938,7 +3289,56 @@ exports.sendCallPermissionRequest = async (req, res) => {
         console.error("\n=== DEBUG: META API CALL ERROR ===");
         console.error("Error Response Data:", JSON.stringify(error.response?.data, null, 2) || error.message);
         console.error("===================================\n");
-        res.status(500).json({ error: "Failed to send call request.", details: error.response?.data });
+        const metaErrData = error.response?.data?.error;
+
+        if (metaErrData?.code === 138017) {
+            const cleanPhone = lead.phone ? lead.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
+            if (cleanPhone) {
+                await prisma.lead.updateMany({
+                    where: { phone: { contains: cleanPhone.slice(-9) } },
+                    data: {
+                        waCallPermissionStatus: 'ALLOWED',
+                        waCallPermissionExpiry: null,
+                        waCallPermissionNotified: true
+                    }
+                }).catch(() => {});
+            }
+
+            await prisma.chatMessage.create({
+                data: {
+                    leadId: lead.id,
+                    message: "📞 ✅ Student has ALREADY granted permanent call permission (Confirmed by WhatsApp). You can call directly!",
+                    direction: 'inbound',
+                    senderType: 'SYSTEM',
+                    senderName: 'AutoBot'
+                }
+            }).catch(() => {});
+
+            const io = req.app.get('socketio');
+            if (io) {
+                io.emit('wa_call_permission_granted', {
+                    leadId: lead.id,
+                    phone: lead.phone,
+                    expiry: null
+                });
+            }
+
+            return res.status(200).json({
+                message: "Student has already approved permanent call permission! You can place calls directly.",
+                status: "ALLOWED",
+                alreadyAllowed: true
+            });
+        }
+
+        if (metaErrData?.code === 138009) {
+            return res.status(200).json({
+                message: "A call permission request was already sent to this student recently. Waiting for student to accept on WhatsApp.",
+                status: "PENDING",
+                alreadySent: true
+            });
+        }
+
+        res.status(400).json({ error: metaErrData?.message || metaErrData?.error_data?.details || "Failed to send call request.", details: error.response?.data });
     }
 };
 

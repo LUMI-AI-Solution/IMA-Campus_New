@@ -82,6 +82,8 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
       const sub = data.userSubmission;
       const serverNow = new Date(data.serverTime || Date.now());
 
+      const pType = p.paperType || (content.contentType === 'sPaper' ? 'STRUCTURED' : 'MCQ');
+
       if (sub) {
         setSubmission(sub);
         if (Array.isArray(sub.answers)) {
@@ -91,21 +93,29 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
           });
           setSelectedAnswers(ansMap);
         }
-        if (sub.status === 'SUBMITTED' || sub.status === 'GRADED') {
+
+        const isFullySubmitted = (
+          sub.status === 'SUBMITTED' || 
+          sub.status === 'GRADED' || 
+          sub.status === 'PENDING_EVALUATION' ||
+          (pType === 'STRUCTURED' && Boolean(sub.structuredSubmittedAt || sub.submittedAt || sub.answerFile)) ||
+          (pType === 'BOTH' && Boolean(sub.structuredSubmittedAt || (sub.mcqSubmittedAt && sub.answerFile)))
+        );
+
+        if (isFullySubmitted) {
           setExamStatus('SUBMITTED');
           setLoading(false);
           return;
         }
       }
 
-      const pType = p.paperType || (content.contentType === 'sPaper' ? 'STRUCTURED' : 'MCQ');
       const mcqMode = p.mcqTimerMode || p.timerMode || 'FLEXIBLE';
       const mcqStart = p.mcqScheduledStartTime || p.scheduledStartTime;
-      const mcqDurMins = parseInt(p.mcqDurationMinutes || p.durationMinutes || 60, 10);
+      const mcqDurMins = parseInt((pType === 'MCQ' ? (p.durationMinutes || p.mcqDurationMinutes) : p.mcqDurationMinutes) || p.durationMinutes || 60, 10);
 
-      const strMode = p.structuredTimerMode || 'FLEXIBLE';
-      const strStart = p.structuredScheduledStartTime;
-      const strDurMins = parseInt(p.structuredDurationMinutes || p.durationMinutes || 60, 10);
+      const strMode = p.structuredTimerMode || p.timerMode || 'FLEXIBLE';
+      const strStart = p.structuredScheduledStartTime || p.scheduledStartTime;
+      const strDurMins = parseInt((pType === 'STRUCTURED' ? (p.durationMinutes || p.structuredDurationMinutes) : p.structuredDurationMinutes) || p.durationMinutes || 60, 10);
       const strUploadMins = parseInt(p.structuredUploadMinutes || 15, 10);
       const breakMins = parseInt(p.breakIntervalMinutes || 15, 10);
 
@@ -277,8 +287,8 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
   const setupIntermissionTimer = (currentSub) => {
     const p = paperData?.paper;
     if (!p) return;
-    const strMode = p.structuredTimerMode || 'FLEXIBLE';
-    const strStart = p.structuredScheduledStartTime;
+    const strMode = p.structuredTimerMode || p.timerMode || 'FLEXIBLE';
+    const strStart = p.structuredScheduledStartTime || p.scheduledStartTime;
     const breakMins = parseInt(p.breakIntervalMinutes || 15, 10);
     const now = Date.now();
 
@@ -306,12 +316,12 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
             clearInterval(timerIntervalRef.current);
             const pType = paperData?.paper?.paperType || (content.contentType === 'sPaper' ? 'STRUCTURED' : 'MCQ');
             if (pType === 'STRUCTURED') {
-              const durationSecs = (paperData?.paper?.structuredDurationMinutes || paperData?.paper?.durationMinutes || 60) * 60;
+              const durationSecs = ((paperData?.paper?.durationMinutes || paperData?.paper?.structuredDurationMinutes) || 60) * 60;
               setTimeRemainingSeconds(durationSecs);
               setExamStatus('STRUCTURED_WRITING');
               toast.success("Structured Exam has officially started. Writing phase is active.");
             } else {
-              const durationSecs = (paperData?.paper?.mcqDurationMinutes || paperData?.paper?.durationMinutes || 60) * 60;
+              const durationSecs = ((paperData?.paper?.durationMinutes || paperData?.paper?.mcqDurationMinutes) || 60) * 60;
               setTimeRemainingSeconds(durationSecs);
               setExamStatus('IN_PROGRESS');
               toast.success("Exam has officially started.");
@@ -356,13 +366,12 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
           if (prev <= 1) {
             clearInterval(timerIntervalRef.current);
             const uploadSecs = (paperData?.paper?.structuredUploadMinutes || 15) * 60;
-            setTimeRemainingSeconds(uploadSecs);
             setExamStatus('STRUCTURED_UPLOADING');
             toast("Writing duration completed! Dedicated upload window is now active.", {
               icon: '⏰',
               duration: 6000
             });
-            return 0;
+            return uploadSecs;
           }
           return prev - 1;
         });
@@ -399,17 +408,19 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
     if (!paperData?.paper?.id) return;
     try {
       setLoading(true);
-      const res = await api.post(`/papers/${paperData.paper.id}/start`);
-      setSubmission(res.data.submission);
       const pType = paperData.paper.paperType || (content.contentType === 'sPaper' ? 'STRUCTURED' : 'MCQ');
+      const res = await api.post(`/papers/${paperData.paper.id}/start`, {
+        section: pType === 'STRUCTURED' ? 'STRUCTURED' : 'MCQ'
+      });
+      setSubmission(res.data.submission);
 
       if (pType === 'STRUCTURED') {
-        const strDurSecs = (paperData.paper.structuredDurationMinutes || paperData.paper.durationMinutes || 60) * 60;
+        const strDurSecs = ((paperData.paper.durationMinutes || paperData.paper.structuredDurationMinutes) || 60) * 60;
         setTimeRemainingSeconds(strDurSecs);
         setExamStatus('STRUCTURED_WRITING');
         toast.success("Structured Exam started. Writing phase is active.");
       } else {
-        const mcqDurSecs = (paperData.paper.mcqDurationMinutes || paperData.paper.durationMinutes || 60) * 60;
+        const mcqDurSecs = ((paperData.paper.durationMinutes || paperData.paper.mcqDurationMinutes) || 60) * 60;
         setTimeRemainingSeconds(mcqDurSecs);
         setExamStatus('IN_PROGRESS');
         toast.success("Exam started. Time is counting down.");
@@ -1603,6 +1614,34 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
                     <p className="text-slate-300 text-xs sm:text-sm max-w-md mx-auto">
                       Your answer sheet has been securely submitted for lecturer evaluation.
                     </p>
+
+                    {/* Submitted Answer File Card */}
+                    {submission?.answerFile && (
+                      <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 max-w-sm mx-auto flex items-center justify-between gap-3 text-left">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <FileText size={20} className="text-purple-400 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-white truncate">Uploaded Answer Sheet</p>
+                            <p className="text-[10px] text-slate-400 truncate">{submission.answerFile}</p>
+                            {(submission.submittedAt || submission.structuredSubmittedAt) && (
+                              <p className="text-[9px] text-emerald-400 mt-0.5">
+                                ✓ Uploaded on {new Date(submission.structuredSubmittedAt || submission.submittedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <a
+                          href={`${getBaseUrl()}/storage/documents/${submission.answerFile}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          download
+                          className="shrink-0 bg-purple-600 hover:bg-purple-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 transition-all"
+                        >
+                          <Download size={13} /> View
+                        </a>
+                      </div>
+                    )}
+
                     {submission?.score !== null && submission?.score !== undefined ? (
                       <div className="bg-purple-500/10 border border-purple-500/30 p-4 rounded-2xl max-w-sm mx-auto mt-2">
                         <p className="text-xs uppercase font-black text-purple-300 tracking-wider">Awarded Marks</p>
@@ -1664,6 +1703,33 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
                         <span className="text-xs text-slate-400 block mt-0.5">Lecturer grading</span>
                       </div>
                     </div>
+
+                    {/* Submitted Answer File Card for BOTH mode */}
+                    {submission?.answerFile && (
+                      <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 max-w-sm mx-auto flex items-center justify-between gap-3 text-left">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <FileText size={20} className="text-purple-400 shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-white truncate">Uploaded Essay Sheet</p>
+                            <p className="text-[10px] text-slate-400 truncate">{submission.answerFile}</p>
+                            {(submission.submittedAt || submission.structuredSubmittedAt) && (
+                              <p className="text-[9px] text-emerald-400 mt-0.5">
+                                ✓ Uploaded on {new Date(submission.structuredSubmittedAt || submission.submittedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <a
+                          href={`${getBaseUrl()}/storage/documents/${submission.answerFile}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          download
+                          className="shrink-0 bg-purple-600 hover:bg-purple-500 text-white font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1 transition-all"
+                        >
+                          <Download size={13} /> View
+                        </a>
+                      </div>
+                    )}
 
                     {submission?.teacherFeedback && (
                       <div className="bg-white/5 border border-white/10 p-3.5 rounded-2xl text-left max-w-md mx-auto">

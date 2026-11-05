@@ -2,6 +2,7 @@ import { useSearchParams, useNavigate, useLocation } from 'react-router-dom';
 import React, { useState, useEffect, useRef } from 'react';
 import axios from '../../api/axios';
 import { Menu, LogOut, AlertTriangle, Info, Lock, Bell, Sparkles, Check, Palette } from 'lucide-react';
+import { resolveAvatarUrl } from '../../utils/avatarUtils';
 import SidebarV2 from './components/SidebarV2';
 import EnrollmentTab from './components/EnrollmentTab';
 import PaymentHistory from './components/PaymentHistory';
@@ -79,9 +80,11 @@ const StudentDashboardV2 = () => {
   }, []);
 
   const backendBaseUrl = axios.defaults.baseURL ? axios.defaults.baseURL.replace('/api', '') : 'https://imacampus.online';
-  const headerProfilePic = currentUser.image && currentUser.image !== 'default.png' && currentUser.image !== 'null'
-      ? `${backendBaseUrl}/storage/images/${currentUser.image}`
-      : null;
+  const headerProfilePic = resolveAvatarUrl(
+      currentUser.image,
+      currentUser.phone || currentUser.whatsapp,
+      axios.defaults.baseURL
+  );
 
   useEffect(() => {
       if (location.state?.activeTab) {
@@ -130,21 +133,11 @@ const StudentDashboardV2 = () => {
     };
   }, [showWallpaperMenu]);
 
-  const [uiTheme, setUiTheme] = useState(() => {
-    const saved = localStorage.getItem('uiTheme');
-    return (saved === 'chatline' ? 'aurora' : saved) || 'glass';
-  });
-
   useEffect(() => {
     // Ensure dark mode is active to prevent any flat white washout
     document.documentElement.classList.add('dark');
-    if (uiTheme !== 'glass') {
-      document.documentElement.dataset.theme = uiTheme === 'chatline' ? 'aurora' : uiTheme;
-    } else {
-      delete document.documentElement.dataset.theme;
-    }
-    localStorage.setItem('uiTheme', uiTheme === 'chatline' ? 'aurora' : uiTheme);
-  }, [uiTheme]);
+    delete document.documentElement.dataset.theme;
+  }, []);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -193,15 +186,6 @@ const StudentDashboardV2 = () => {
       {/* Deep elegant dark frosted overlay to soften background noise & eliminate banding lines */}
       <div className="fixed inset-0 z-0 bg-black/50 pointer-events-none" />
 
-      {/* Aurora Teal Ambient Orbs when Aurora / Teal Glass theme is active */}
-      {(uiTheme === 'aurora' || uiTheme === 'chatline') && (
-        <div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
-          <div className="orb orb-1" />
-          <div className="orb orb-2" />
-          <div className="orb orb-3" />
-        </div>
-      )}
-
       <div className="flex h-[100dvh] w-full relative z-10 overflow-hidden">
           
           <SidebarV2 
@@ -212,8 +196,6 @@ const StudentDashboardV2 = () => {
             handleLogout={handleLogout} 
             bgImage={getSecureImageUrl(bgImage)}
             setBgImage={handleBgChange}
-            uiTheme={uiTheme}
-            setUiTheme={setUiTheme}
           />
 
           <main className="flex-1 flex flex-col h-full overflow-hidden relative z-10 w-full lg:py-[20px] lg:pr-[20px] lg:pl-[20px]">
@@ -326,7 +308,15 @@ const StudentDashboardV2 = () => {
                       <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-full bg-gradient-to-tr from-pink-500 via-rose-500 to-amber-500 p-[2px] shadow-lg shrink-0">
                           <div className="w-full h-full rounded-full bg-[#0a0f1d] flex items-center justify-center overflow-hidden">
                               {headerProfilePic ? (
-                                  <img src={headerProfilePic} alt="Profile" className="w-full h-full object-cover" />
+                                  <img 
+                                      src={headerProfilePic} 
+                                      alt="Profile" 
+                                      className="w-full h-full object-cover" 
+                                      onError={(e) => {
+                                          e.target.onerror = null;
+                                          e.target.src = resolveAvatarUrl(null, currentUser.phone || currentUser.whatsapp, axios.defaults.baseURL);
+                                      }}
+                                  />
                               ) : (
                                   <span className="text-white font-black text-xs sm:text-sm">
                                       {currentUser.fName ? currentUser.fName.substring(0, 2).toUpperCase() : 'ST'}

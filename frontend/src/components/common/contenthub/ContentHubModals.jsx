@@ -273,7 +273,7 @@ export default function ContentHubModals({ state, actions }) {
         selectedGroupPrices, discountRules, contentType, prefilledFolder, selectedBatchesForContent, massAssignSubjects, postBizId, postBatches, showInstallmentModal,
         existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, activeBusiness, activeBatch, activeSubject, loading, showLecturerModal, masterTutes,
         hubBatchConfigs = {}, hubActiveBatchTab = null, parentFolderForSub = null, selectedFolderParentId = '',
-        selectedClassType, isSubmittingFolder, isSubmittingContent, contentTab
+        selectedClassType, isSubmittingFolder, isSubmittingContent, isSubmittingCourse, contentTab
     } = state || {};
 
     useEffect(() => {
@@ -322,11 +322,15 @@ export default function ContentHubModals({ state, actions }) {
             setModalDurationHours(String(Math.floor(totalMins / 60)));
             setModalDurationMinutes(String(totalMins % 60));
 
-            const mcqMins = editData?.paper?.mcqDurationMinutes ?? 60;
+            const mcqMins = editData?.paper?.paperType === 'MCQ' 
+                ? (editData?.paper?.durationMinutes || editData?.paper?.mcqDurationMinutes || editData?.paperTime || 60)
+                : (editData?.paper?.mcqDurationMinutes ?? 60);
             setModalMcqDurationHours(String(Math.floor(mcqMins / 60)));
             setModalMcqDurationMinutes(String(mcqMins % 60));
 
-            const structMins = editData?.paper?.structuredDurationMinutes ?? 120;
+            const structMins = editData?.paper?.paperType === 'STRUCTURED'
+                ? (editData?.paper?.durationMinutes || editData?.paper?.structuredDurationMinutes || editData?.paperTime || 120)
+                : (editData?.paper?.structuredDurationMinutes ?? 120);
             setModalStructuredDurationHours(String(Math.floor(structMins / 60)));
             setModalStructuredDurationMinutes(String(structMins % 60));
 
@@ -401,19 +405,28 @@ export default function ContentHubModals({ state, actions }) {
         if (!title) return '';
         return title
             .toLowerCase()
+            .replace(/octomber/gi, 'october')
+            .replace(/septeber/gi, 'september')
             .replace(/[\s_-]+/g, ' ')
             .replace(/\b(month|batch|මාසය|මාස|පාඩම|පාඩම්)\b/gi, '')
             .trim();
     };
 
+    const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+    const sinhalaMonths = ["ජනවාරි", "පෙබරවාරි", "මාර්තු", "අප්‍රේල්", "මැයි", "ජූනි", "ජූලි", "අගෝස්තු", "සැප්තැම්බර්", "ඔක්තෝබර්", "නොවැම්බර්", "දෙසැම්බර්"];
+
     const getSelectedFolderValue = () => {
         if (!editMode) return prefilledFolder ? String(prefilledFolder) : '';
 
-        const currentTypeGroups = (lessonGroups || []).filter(g => parseInt(g.type) === getTypeInt(contentType));
+        const currentTypeGroups = (lessonGroups || []).filter(g => parseInt(g.type) === getTypeInt(contentType) || (contentType === 'document' && parseInt(g.type) === 2));
         const targetId = editData?.contentGroupId ?? editData?.content_group_id;
 
-        if (targetId && currentTypeGroups.some(g => String(g.id) === String(targetId))) {
-            return String(targetId);
+        if (targetId) {
+            const matchedById = currentTypeGroups.find(g => 
+                String(g.id) === String(targetId) || 
+                (g.allIds && g.allIds.some(id => String(id) === String(targetId)))
+            );
+            if (matchedById) return String(matchedById.id);
         }
 
         const targetTitle = editData?.groupTitle || editData?.group?.title;
@@ -428,10 +441,36 @@ export default function ContentHubModals({ state, actions }) {
             if (matched) return String(matched.id);
         }
 
+        // Smart Month fallback
+        let targetMonthIdx = -1;
+        if (editData?.date) {
+            try {
+                const d = new Date(editData.date);
+                if (!isNaN(d.getTime())) targetMonthIdx = d.getMonth();
+            } catch (err) {}
+        }
+        if (targetMonthIdx === -1 && editData?.title) {
+            const titleLower = editData.title.toLowerCase();
+            targetMonthIdx = monthNames.findIndex(m => titleLower.includes(m));
+            if (targetMonthIdx === -1) targetMonthIdx = sinhalaMonths.findIndex(m => titleLower.includes(m));
+        }
+        if (targetMonthIdx !== -1) {
+            const engMonth = monthNames[targetMonthIdx];
+            const sinMonth = sinhalaMonths[targetMonthIdx];
+            const matchedMonth = currentTypeGroups.find(g => {
+                if (g.parentId) return false;
+                const gTitle = (g.title || g.name || '').toLowerCase();
+                const gNorm = normalizeFolderTitle(g.title || g.name);
+                return gTitle.includes(engMonth) || gTitle.includes(sinMonth) ||
+                       gNorm.includes(engMonth) || gNorm.includes(sinMonth);
+            });
+            if (matchedMonth) return String(matchedMonth.id);
+        }
+
         return targetId ? String(targetId) : '';
     };
 
-    const activeHubBatch = hubActiveBatchTab || (batches.length > 0 ? batches[0].id : null);
+    const activeHubBatch = hubActiveBatchTab || activeBatch?.id || (batches.length > 0 ? batches[0].id : null);
     
     const handleHubSubjectToggle = (batchId, subjectId, courseCode) => {
         setHubBatchConfigs(prev => {
@@ -526,7 +565,7 @@ export default function ContentHubModals({ state, actions }) {
                                             >
                                                 <option value="" className="bg-slate-800 text-white">No Folder (Uncategorized)</option>
                                                 {(() => {
-                                                    const rawRoots = (lessonGroups || []).filter(g => parseInt(g.type) === getTypeInt(contentType) && !g.parentId);
+                                                    const rawRoots = (lessonGroups || []).filter(g => (parseInt(g.type) === getTypeInt(contentType) || (contentType === 'document' && parseInt(g.type) === 2)) && !g.parentId);
                                                     const seenTitles = new Set();
                                                     const uniqueRoots = [];
                                                     rawRoots.forEach(rf => {
@@ -537,9 +576,15 @@ export default function ContentHubModals({ state, actions }) {
                                                         }
                                                     });
 
-                                                    return uniqueRoots.map(rootFolder => {
+                                                    const selectedVal = getSelectedFolderValue();
+                                                    const allRenderedOptionIds = new Set();
+
+                                                    const renderedOptions = uniqueRoots.map(rootFolder => {
+                                                        allRenderedOptionIds.add(String(rootFolder.id));
                                                         const allIds = rootFolder.allIds || [rootFolder.id];
-                                                        const subs = (lessonGroups || []).filter(g => parseInt(g.type) === getTypeInt(contentType) && g.parentId && (allIds.includes(g.parentId) || String(g.parentId) === String(rootFolder.id)));
+                                                        allIds.forEach(id => allRenderedOptionIds.add(String(id)));
+
+                                                        const subs = (lessonGroups || []).filter(g => (parseInt(g.type) === getTypeInt(contentType) || (contentType === 'document' && parseInt(g.type) === 2)) && g.parentId && (allIds.includes(g.parentId) || String(g.parentId) === String(rootFolder.id)));
                                                         const seenSubTitles = new Set();
                                                         const uniqueSubs = [];
                                                         subs.forEach(sf => {
@@ -548,6 +593,11 @@ export default function ContentHubModals({ state, actions }) {
                                                                 seenSubTitles.add(stKey);
                                                                 uniqueSubs.push(sf);
                                                             }
+                                                        });
+
+                                                        uniqueSubs.forEach(sf => {
+                                                            allRenderedOptionIds.add(String(sf.id));
+                                                            if (sf.allIds) sf.allIds.forEach(id => allRenderedOptionIds.add(String(id)));
                                                         });
 
                                                         return (
@@ -563,6 +613,19 @@ export default function ContentHubModals({ state, actions }) {
                                                             </React.Fragment>
                                                         );
                                                     });
+
+                                                    const hasSelectedInOptions = !selectedVal || allRenderedOptionIds.has(String(selectedVal));
+
+                                                    return (
+                                                        <>
+                                                            {!hasSelectedInOptions && selectedVal && (
+                                                                <option value={selectedVal} className="bg-slate-800 text-amber-300 font-bold">
+                                                                    📁 {editData?.groupTitle || editData?.group?.title || `Current Folder (${selectedVal})`}
+                                                                </option>
+                                                            )}
+                                                            {renderedOptions}
+                                                        </>
+                                                    );
                                                 })()}
                                             </select>
                                         </div>
@@ -1338,6 +1401,21 @@ export default function ContentHubModals({ state, actions }) {
                                                             <input 
                                                                 type="hidden" 
                                                                 name="paperTime" 
+                                                                value={Math.max(1, (parseInt(modalDurationHours || 0) * 60) + parseInt(modalDurationMinutes || 0))} 
+                                                            />
+                                                            <input 
+                                                                type="hidden" 
+                                                                name="durationMinutes" 
+                                                                value={Math.max(1, (parseInt(modalDurationHours || 0) * 60) + parseInt(modalDurationMinutes || 0))} 
+                                                            />
+                                                            <input 
+                                                                type="hidden" 
+                                                                name="structuredDurationMinutes" 
+                                                                value={Math.max(1, (parseInt(modalDurationHours || 0) * 60) + parseInt(modalDurationMinutes || 0))} 
+                                                            />
+                                                            <input 
+                                                                type="hidden" 
+                                                                name="mcqDurationMinutes" 
                                                                 value={Math.max(1, (parseInt(modalDurationHours || 0) * 60) + parseInt(modalDurationMinutes || 0))} 
                                                             />
                                                         </div>
@@ -2483,8 +2561,8 @@ export default function ContentHubModals({ state, actions }) {
                                 </div>
                             </div>
                             <div className="pt-6 border-t border-white/10 mt-6 shrink-0">
-                                <button type="submit" className="w-full bg-brand-accent/90 hover:bg-brand-accent text-white font-extrabold py-3.5 text-base sm:text-lg rounded-2xl shadow-[0_4px_15px_rgba(225,29,72,0.4)] transition-transform hover:scale-[1.01] uppercase tracking-wide outline-none border border-transparent">
-                                    {editMode ? 'Update Subject' : 'Save Subject'}
+                                <button type="submit" disabled={isSubmittingCourse} className={`w-full bg-brand-accent/90 hover:bg-brand-accent text-white font-extrabold py-3.5 text-base sm:text-lg rounded-2xl shadow-[0_4px_15px_rgba(225,29,72,0.4)] transition-transform hover:scale-[1.01] uppercase tracking-wide outline-none border border-transparent ${isSubmittingCourse ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                                    {isSubmittingCourse ? 'Saving Subject...' : (editMode ? 'Update Subject' : 'Save Subject')}
                                 </button>
                             </div>
                         </form>

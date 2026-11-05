@@ -330,6 +330,14 @@ exports.handleWebhookEvent = async (req, res) => {
                                         }
                                     }
 
+                                    // 📱 Also dispatch high-priority FCM notification to active mobile staff
+                                    try {
+                                        const { notifyIncomingCallToActiveStaff } = require('../services/fcmCallNotifier');
+                                        notifyIncomingCallToActiveStaff(payload, targetAgentId);
+                                    } catch (fcmErr) {
+                                        console.warn('[FCM Call Trigger Error]:', fcmErr.message);
+                                    }
+
                                     // If still no online agents, trigger Headless IVR Bot
                                     if (!hasOnlineAgents) {
                                         console.log(`[WhatsApp Incoming Call] NO agents online for ${businessType} or ALL. Triggering Headless IVR Bot.`);
@@ -439,35 +447,206 @@ exports.getAlerts = async (req, res) => {
     }
 };
 
-// Get Live WhatsApp Number Status from Meta
+// Get Live WhatsApp Number Status from Meta, Billing & Messaging Limits
 exports.getStatus = async (req, res) => {
     try {
+        const { businessId, businessIds } = req.query;
+
+        // Build where clause for crmSettings and WhatsAppBillingRecord
+        let settingsWhere = { metaApiKey: { not: null }, waId: { not: null } };
+        let billingWhere = {};
+
+        if (businessId && businessId !== 'ALL') {
+            const bId = parseInt(businessId);
+            if (!isNaN(bId)) {
+                settingsWhere.businessId = bId;
+                billingWhere.businessId = bId;
+            }
+        } else if (businessIds) {
+            const idList = String(businessIds)
+                .split(',')
+                .map(id => parseInt(id.trim()))
+                .filter(id => !isNaN(id));
+            if (idList.length > 0) {
+                settingsWhere.businessId = { in: idList };
+                billingWhere.businessId = { in: idList };
+            }
+        }
+
         const settings = await prisma.crmSettings.findMany({
-            where: { metaApiKey: { not: null }, waId: { not: null } },
-            select: { waId: true, metaApiKey: true }
+            where: settingsWhere,
+            select: { waId: true, metaApiKey: true, businessId: true }
         });
         
         // Deduplicate by waId
         const uniqueWABAs = Array.from(new Map(settings.map(s => [s.waId.trim(), s])).values());
         
+        // Fetch Meta WABA and Phone Numbers concurrently
+        const metaResults = await Promise.allSettled(
+            uniqueWABAs.map(async (s) => {
+                const waId = s.waId.trim();
+                const token = s.metaApiKey.trim();
+                const [wabaRes, numRes] = await Promise.all([
+                    axios.get(`https://graph.facebook.com/v20.0/${waId}?fields=id,name,account_review_status,currency&access_token=${token}`).catch(() => null),
+                    axios.get(`https://graph.facebook.com/v20.0/${waId}/phone_numbers?fields=quality_rating,status,verified_name,display_phone_number,messaging_limit_tier,code_verification_status,name_status,throughput&access_token=${token}`).catch(() => null)
+                ]);
+                return {
+                    waba: wabaRes?.data || { id: waId, name: 'Unknown WABA', account_review_status: 'UNKNOWN', currency: 'USD' },
+                    numbers: numRes?.data?.data || []
+                };
+            })
+        );
+        
+        const wabaAccounts = [];
         let allNumbers = [];
         
-        for (const s of uniqueWABAs) {
-            try {
-                const url = `https://graph.facebook.com/v20.0/${s.waId.trim()}/phone_numbers?fields=quality_rating,status,verified_name,display_phone_number&access_token=${s.metaApiKey.trim()}`;
-                const response = await axios.get(url);
-                if (response.data && response.data.data) {
-                    allNumbers = allNumbers.concat(response.data.data);
+        metaResults.forEach(result => {
+            if (result.status === 'fulfilled' && result.value) {
+                const { waba, numbers } = result.value;
+                if (waba) wabaAccounts.push(waba);
+                if (Array.isArray(numbers)) {
+                    numbers.forEach(n => {
+                        allNumbers.push({
+                            ...n,
+                            waba_id: waba?.id,
+                            waba_name: waba?.name,
+                            waba_status: waba?.account_review_status
+                        });
+                    });
                 }
-            } catch (err) {
-                console.warn(`[WA Status] Error fetching for WABA ${s.waId}:`, err.message);
+            }
+        });
+        
+        // Calculate Month Start
+        const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+        const billingQueryWhere = {
+            createdAt: { gte: startOfMonth },
+            ...billingWhere
+        };
+        
+        // Parallel queries to database for billing and alerts
+        const [billingSum, categoryStats, phoneSpendStats, recentAlerts] = await Promise.all([
+            prisma.whatsAppBillingRecord.aggregate({
+                _sum: { costUsd: true },
+                _count: { id: true },
+                where: billingQueryWhere
+            }).catch(() => ({ _sum: { costUsd: 0 }, _count: { id: 0 } })),
+
+            prisma.whatsAppBillingRecord.groupBy({
+                by: ['category'],
+                _sum: { costUsd: true },
+                _count: { id: true },
+                where: billingQueryWhere
+            }).catch(() => []),
+
+            prisma.whatsAppBillingRecord.groupBy({
+                by: ['phoneNumberId'],
+                _sum: { costUsd: true },
+                _count: { id: true },
+                where: billingQueryWhere
+            }).catch(() => []),
+
+            prisma.whatsAppAlert.findMany({
+                where: {
+                    createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+                },
+                orderBy: { createdAt: 'desc' },
+                take: 30
+            }).catch(() => [])
+        ]);
+
+        const phoneSpendMap = new Map();
+        phoneSpendStats.forEach(stat => {
+            if (stat.phoneNumberId) {
+                phoneSpendMap.set(String(stat.phoneNumberId), {
+                    costUsd: stat._sum?.costUsd || 0,
+                    messages: stat._count?.id || 0
+                });
+            }
+        });
+
+        // Helper to format messaging limit tier
+        const formatMessagingTier = (rawTier, nameStatus) => {
+            if (rawTier) {
+                const upper = String(rawTier).toUpperCase();
+                if (upper.includes('250')) return { tier: 'TIER_250', label: 'Tier 250', limit: '250 / Day' };
+                if (upper.includes('1K') || upper.includes('1000') || upper.includes('1_K')) return { tier: 'TIER_1K', label: 'Tier 1K', limit: '1,000 / Day' };
+                if (upper.includes('10K') || upper.includes('10000') || upper.includes('10_K')) return { tier: 'TIER_10K', label: 'Tier 10K', limit: '10,000 / Day' };
+                if (upper.includes('100K') || upper.includes('100000') || upper.includes('100_K')) return { tier: 'TIER_100K', label: 'Tier 100K', limit: '100,000 / Day' };
+                if (upper.includes('UNLIMITED')) return { tier: 'TIER_UNLIMITED', label: 'Unlimited', limit: 'Unlimited / Day' };
+                return { tier: upper, label: upper, limit: upper };
+            }
+            if (nameStatus === 'APPROVED') {
+                return { tier: 'TIER_1K', label: 'Tier 1K', limit: '1,000 / Day' };
+            }
+            return { tier: 'TIER_250', label: 'Tier 250', limit: '250 / Day' };
+        };
+
+        // Deduplicate numbers and enrich with spend & limits
+        const uniqueNumbersMap = new Map();
+        for (const num of allNumbers) {
+            if (!uniqueNumbersMap.has(num.id)) {
+                const spendInfo = phoneSpendMap.get(String(num.id)) || { costUsd: 0, messages: 0 };
+                const tierInfo = formatMessagingTier(num.messaging_limit_tier, num.name_status);
+                
+                uniqueNumbersMap.set(num.id, {
+                    ...num,
+                    quality_rating: num.quality_rating || 'GREEN',
+                    status: num.status || 'CONNECTED',
+                    name_status: num.name_status || 'APPROVED',
+                    tier: tierInfo.tier,
+                    tier_label: tierInfo.label,
+                    tier_limit: tierInfo.limit,
+                    month_spend_usd: Number((spendInfo.costUsd || 0).toFixed(2)),
+                    month_spend_lkr: Math.round((spendInfo.costUsd || 0) * 305),
+                    month_messages: spendInfo.messages || 0
+                });
             }
         }
-        
-        // Deduplicate by phone number id just in case
-        const uniqueNumbers = Array.from(new Map(allNumbers.map(n => [n.id, n])).values());
-        
-        res.status(200).json({ success: true, data: uniqueNumbers });
+        const uniqueNumbers = Array.from(uniqueNumbersMap.values());
+
+        // Check for payment failures in alerts
+        const paymentAlerts = recentAlerts.filter(a => {
+            const lowerMsg = (a.message || '').toLowerCase();
+            const lowerType = (a.alertType || '').toLowerCase();
+            return lowerMsg.includes('payment') || lowerMsg.includes('card') || lowerMsg.includes('decline') || 
+                   lowerMsg.includes('failed') || lowerMsg.includes('limit') || lowerType.includes('payment');
+        });
+
+        const totalCostUsd = Number((billingSum._sum?.costUsd || 0).toFixed(2));
+        const totalCostLkr = Math.round(totalCostUsd * 305);
+        const totalMessages = billingSum._count?.id || 0;
+
+        // Payment status check
+        const hasPaymentIssue = paymentAlerts.length > 0;
+
+        // Restriction check
+        const restrictedAccounts = wabaAccounts.filter(w => w.account_review_status && w.account_review_status !== 'APPROVED');
+        const restrictedNumbers = uniqueNumbers.filter(n => (n.status && n.status !== 'CONNECTED') || (n.name_status && n.name_status === 'DECLINED'));
+
+        res.status(200).json({
+            success: true,
+            data: uniqueNumbers,
+            billing: {
+                totalMonthCostUsd: totalCostUsd,
+                totalMonthCostLkr: totalCostLkr,
+                totalMessagesThisMonth: totalMessages,
+                outstandingDueUsd: totalCostUsd,
+                outstandingDueLkr: totalCostLkr,
+                paymentMethodStatus: hasPaymentIssue ? 'FAILED' : 'ACTIVE',
+                paymentMethodLabel: hasPaymentIssue ? 'Payment Failed / Action Required' : 'Active & Healthy (Card Linked)',
+                categories: categoryStats.map(c => ({
+                    category: c.category || 'OTHER',
+                    costUsd: Number((c._sum?.costUsd || 0).toFixed(2)),
+                    costLkr: Math.round((c._sum?.costUsd || 0) * 305),
+                    count: c._count?.id || 0
+                })),
+                wabaAccounts,
+                restrictedAccounts,
+                restrictedNumbersCount: restrictedNumbers.length,
+                paymentAlerts
+            }
+        });
     } catch (error) {
         console.error('Error fetching WA status', error.message);
         res.status(500).json({ error: error.message });

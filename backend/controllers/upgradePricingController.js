@@ -99,7 +99,8 @@ exports.calculateUpgrade = async (req, res) => {
                     group: {
                         batchId: batchId
                     }
-                }
+                },
+                include: { group: true }
             });
 
             // Extract the monthly subjects the student is currently enrolled in
@@ -122,7 +123,13 @@ exports.calculateUpgrade = async (req, res) => {
             enrolledMonthlySubjectIds.forEach(id => {
                 const paidCourse = allBatchCourses.find(c => c.id === id);
                 if (paidCourse) {
-                    const fullCourse = allBatchCourses.find(c => (c.name || '').trim().toLowerCase() === (paidCourse.name || '').trim().toLowerCase() && c.price > 5000);
+                    const paidClassType = parseInt(paidCourse.courseType || paidCourse.group?.classType || 1, 10);
+                    const fullCourse = allBatchCourses.find(c => {
+                        const cClassType = parseInt(c.courseType || c.group?.classType || 1, 10);
+                        return (c.name || '').trim().toLowerCase() === (paidCourse.name || '').trim().toLowerCase() && 
+                               c.price > 5000 &&
+                               cClassType === paidClassType; // Strictly isolate Theory (1) vs Paper (2)
+                    });
                     if (fullCourse && !upgradedSubjectIds.has(fullCourse.id)) {
                         eligibleUpgradeSubjectIdsSet.add(fullCourse.id);
                     } else if (!fullCourse && !upgradedSubjectIds.has(paidCourse.id)) {
@@ -137,21 +144,22 @@ exports.calculateUpgrade = async (req, res) => {
                 continue; // Skip if all upgraded
             }
 
-            // 1. Enforce 2-Month (60 days) limit from their oldest approved monthly payment in this batch
-            const oldestApprovedMonthly = [...batchMonthlyPayments]
-                .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))[0];
+            // 1. Enforce 3-Month maximum monthly enrollment limit for Full Upgrade
+            // Option 1: 1 month paid -> Upgrading to Full starting from 2nd month
+            // Option 2: 2 months paid -> Upgrading to Full starting from 3rd month
+            // Option 3: 3 months paid -> Upgrading to Full starting from 4th month (Final Chance)
+            // Students who paid 4 or more months monthly are strictly ineligible for full upgrade.
+            const paidMonthsCount = Math.max(
+                batchMonthlyPayments.length,
+                ...batchMonthlyPayments.map(p => p.installment_no || 1)
+            );
 
-            if (!oldestApprovedMonthly) {
+            if (paidMonthsCount > 3) {
+                // Ineligible for upgrade: only up to 3 months of monthly enrollment can upgrade to full
                 continue;
             }
 
-            const sixtyDaysInMs = 60 * 24 * 60 * 60 * 1000;
-            const oldestPaymentTime = new Date(oldestApprovedMonthly.created_at).getTime();
-            const currentTime = Date.now();
-
-            if (currentTime - oldestPaymentTime > sixtyDaysInMs) {
-                continue; // Skip expired
-            }
+            const activeOption = Math.min(3, Math.max(1, paidMonthsCount));
 
             // 2. Check if there's already an upgrade slip pending approval (double-upload prevention)
             const pendingUpgradePayment = await prisma.payment.findFirst({
@@ -170,7 +178,8 @@ exports.calculateUpgrade = async (req, res) => {
             const subjects = await prisma.course.findMany({
                 where: {
                     id: { in: eligibleUpgradeSubjectIds }
-                }
+                },
+                include: { group: true }
             });
 
             // Fetch all upgrade pricing records for this batch
@@ -203,19 +212,60 @@ exports.calculateUpgrade = async (req, res) => {
             });
 
             subjects.forEach(sub => {
-                const customFull = upgradeConfigs.find(c => {
-                    if (c.planType !== 'FULL') return false;
-                    if (c.courseId === sub.id) return true;
-                    if (c.courseId) {
-                        const confCourse = batchCoursesMap[c.courseId];
-                        if (confCourse) {
-                            return confCourse.name === sub.name || (confCourse.code && confCourse.code === sub.code);
+                let subFullTarget = null;
+
+                // Priority 1: Check richConfig.optionPrices for activeOption
+                if (richConfig?.optionPrices) {
+                    const courseOptPrices = richConfig.optionPrices[sub.id] || richConfig.optionPrices[String(sub.id)];
+                    if (courseOptPrices && courseOptPrices[activeOption] !== undefined && courseOptPrices[activeOption] !== null && courseOptPrices[activeOption] !== '') {
+                        const parsed = parseFloat(courseOptPrices[activeOption]);
+                        if (!isNaN(parsed) && parsed > 0) {
+                            subFullTarget = parsed;
                         }
                     }
-                    return false;
-                });
-                
-                const subFullTarget = customFull ? customFull.amount : (sub.price || 34500);
+                }
+
+                // Priority 2: Check UpgradePricing table for planType: 'FULL' and installmentNum === activeOption
+                if (subFullTarget === null) {
+                    const customFullOpt = upgradeConfigs.find(c => {
+                        if (c.planType !== 'FULL') return false;
+                        if (c.installmentNum !== activeOption) return false;
+                        if (c.courseId === sub.id) return true;
+                        if (c.courseId) {
+                            const confCourse = batchCoursesMap[c.courseId];
+                            if (confCourse) {
+                                return confCourse.name === sub.name || (confCourse.code && confCourse.code === sub.code);
+                            }
+                        }
+                        return false;
+                    });
+                    if (customFullOpt) {
+                        subFullTarget = customFullOpt.amount;
+                    }
+                }
+
+                // Priority 3: Fallback to general/legacy FULL config (installmentNum === null or 1)
+                if (subFullTarget === null) {
+                    const legacyFull = upgradeConfigs.find(c => {
+                        if (c.planType !== 'FULL') return false;
+                        if (c.courseId === sub.id) return true;
+                        if (c.courseId) {
+                            const confCourse = batchCoursesMap[c.courseId];
+                            if (confCourse) {
+                                return confCourse.name === sub.name || (confCourse.code && confCourse.code === sub.code);
+                            }
+                        }
+                        return false;
+                    });
+                    if (legacyFull) {
+                        subFullTarget = legacyFull.amount;
+                    }
+                }
+
+                // Priority 4: Fallback to course base price
+                if (subFullTarget === null) {
+                    subFullTarget = sub.price || 34500;
+                }
 
                 const customInsts = upgradeConfigs.filter(c => {
                     if (c.planType !== 'INSTALLMENT') return false;
@@ -306,11 +356,12 @@ exports.calculateUpgrade = async (req, res) => {
                                     const matchingEligibleCourse = subjects.find(c => (c.name || '').trim().toLowerCase() === (paidCourse.name || '').trim().toLowerCase());
                                     if (matchingEligibleCourse) {
                                         // Skip monthly deduction if custom FULL upgrade price is set for this subject in the batch
-                                        const hasCustomFull = upgradeConfigs.some(c => 
-                                            c.planType === 'FULL' && 
-                                            (c.courseId === matchingEligibleCourse.id || 
-                                             (c.courseId && batchCoursesMap[c.courseId] && (batchCoursesMap[c.courseId].name === matchingEligibleCourse.name || batchCoursesMap[c.courseId].code === matchingEligibleCourse.code)))
-                                        );
+                                        const hasCustomFull = (richConfig?.optionPrices && (richConfig.optionPrices[matchingEligibleCourse.id] || richConfig.optionPrices[String(matchingEligibleCourse.id)])) ||
+                                            upgradeConfigs.some(c => 
+                                                c.planType === 'FULL' && 
+                                                (c.courseId === matchingEligibleCourse.id || 
+                                                 (c.courseId && batchCoursesMap[c.courseId] && (batchCoursesMap[c.courseId].name === matchingEligibleCourse.name || batchCoursesMap[c.courseId].code === matchingEligibleCourse.code)))
+                                            );
                                         if (!hasCustomFull) {
                                             paidMonthlyPerSubject[matchingEligibleCourse.id] = (paidMonthlyPerSubject[matchingEligibleCourse.id] || 0) + splitAmount;
                                         }
@@ -349,13 +400,47 @@ exports.calculateUpgrade = async (req, res) => {
 
 
 
+            // Determine target Full Payment group (type: 2) for the upgraded subjects
+            const targetClassType = subjects.some(s => parseInt(s.courseType || s.group?.classType || 1, 10) === 2) ? 2 : 1;
+
+            // 1. Check if eligible full courses have a groupId pointing to a Type 2 group matching classType
+            const fullCourseGroup = subjects.find(s => s.group?.type === 2 && parseInt(s.group?.classType || 1, 10) === targetClassType);
+            let targetGroupId = fullCourseGroup?.groupId || null;
+
+            // 2. Lookup the Type 2 (Full Payment) group for this batch matching targetClassType
+            if (!targetGroupId) {
+                const fullPaymentGroup = await prisma.group.findFirst({
+                    where: {
+                        batchId: batchId,
+                        type: 2,
+                        classType: targetClassType
+                    }
+                });
+                if (fullPaymentGroup) {
+                    targetGroupId = fullPaymentGroup.id;
+                }
+            }
+
+            // 3. Fallback to course groupId, or active monthly only if nothing else matches
+            if (!targetGroupId) {
+                targetGroupId = subjects[0]?.groupId || activeMonthly?.groupId || null;
+            }
+
             batchesData.push({
                 batchId,
                 businessId,
                 batchName: selectedBatchInfo.batchName,
                 businessName: selectedBatchInfo.businessName,
-                groupId: activeMonthly?.groupId,
+                groupId: targetGroupId,
+                classType: targetClassType,
                 pendingUpgrade: !!pendingUpgradePayment,
+                upgradeOption: activeOption,
+                upgradeOptionLabel: activeOption === 1 
+                    ? 'Option 1 (Upgrading from Month 2)' 
+                    : activeOption === 2 
+                        ? 'Option 2 (Upgrading from Month 3)' 
+                        : 'Option 3 (Upgrading from Month 4 - Final Opportunity)',
+                paidMonthsCount: paidMonthsCount,
                 subjectCount: eligibleUpgradeSubjectIds.length,
                 totalPaidMonthly,
                 paidMonthlyPerSubject,

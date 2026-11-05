@@ -303,7 +303,9 @@ exports.updateLeadCallingStatus = async (req, res) => {
         });
 
         if (!lead) return res.status(404).json({ error: "Lead not found" });
-        if (lead.assignedTo !== parseInt(agentId)) {
+        const userRole = String(req.user?.role || '').toUpperCase();
+        const isManagerOrAdmin = ['ADMIN', 'SUPER', 'SUPER_ADMIN', 'SYSTEM_ADMIN', 'MANAGER', 'ASS_MANAGER', 'HEAD_MANAGER', 'CALL_CENTER_MANAGER'].some(r => userRole.includes(r));
+        if (!isManagerOrAdmin && lead.assignedTo && lead.assignedTo !== parseInt(agentId)) {
             return res.status(403).json({ error: "Access denied. Lead not assigned to you." });
         }
 
@@ -317,7 +319,7 @@ exports.updateLeadCallingStatus = async (req, res) => {
             }
         }
         if (callMethod) updateData.callMethod = callMethod;
-        if (feedback) updateData.feedback = feedback;
+        if (feedback !== undefined) updateData.feedback = feedback;
         if (phase) updateData.phase = parseInt(phase);
 
         if (callAttemptIncrement) {
@@ -429,13 +431,22 @@ exports.startRound = async (req, res) => {
         });
 
         // Instead of modifying the base Lead (which is Round 1), we create LeadRoundProgress for Round 2
-        const updatePromises = leads.map(lead => {
-            return prisma.leadRoundProgress.upsert({
+        for (const lead of leads) {
+            let category = 'DEFAULT';
+            if (lead.campaignType === 'BRIDGE' || lead.source === 'bridge_transfer') category = 'BRIDGE';
+            else if (lead.campaignType === 'OPEN_SEMINAR') category = 'OPEN_SEM';
+            else if (lead.campaignType === 'NEW_INQ') category = 'NEW_INQ';
+            else if (lead.campaignType === 'PAID') category = 'PAID';
+
+            await prisma.leadRoundProgress.upsert({
                 where: {
-                    leadId_roundNum: { leadId: lead.id, roundNum: 2 }
+                    leadId_roundNum_campaignCategory: {
+                        leadId: lead.id,
+                        roundNum: 2,
+                        campaignCategory: category
+                    }
                 },
                 update: {
-                    // Reset to pending if it was already created but we are "re-starting"
                     phase: 1,
                     callStatus: 'pending',
                     callAttempt: 0,
@@ -444,15 +455,14 @@ exports.startRound = async (req, res) => {
                 create: {
                     leadId: lead.id,
                     roundNum: 2,
+                    campaignCategory: category,
                     phase: 1,
                     callStatus: 'pending',
                     callAttempt: 0,
                     feedback: lead.feedback // Inherit remark from Round 1
                 }
             });
-        });
-
-        await Promise.all(updatePromises);
+        }
 
         res.status(200).json({ message: "Round 2 started successfully. Leads copied to Round 2." });
     } catch (error) {

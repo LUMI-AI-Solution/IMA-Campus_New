@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom';
 import { Search, Edit3, KeyRound, LogIn, MessageSquare, Loader2, X, CheckCircle, Database, ChevronLeft, ChevronRight, ChevronDown, MonitorPlay, Palette, Trash2, BarChart3, FileText, Download, Sparkles } from 'lucide-react';
 import axios from '../../api/axios';
 import toast from 'react-hot-toast';
+import { resolveAvatarUrl } from '../../utils/avatarUtils';
 
 export default function StudentDataCenter({ loggedInUser }) {
     const navigate = useNavigate();
@@ -529,10 +530,13 @@ const handleDeleteStudent = async (studentId, studentName) => {
                             
                             <div className="flex items-start gap-5 flex-1 min-w-0 w-full">
                                 <img 
-                                    src={student.image && student.image !== 'default.png' ? `${axios.defaults.baseURL.replace('/api', '')}/images/${student.image}` : '/logo.png'} 
+                                    src={resolveAvatarUrl(student.image, student.phone || student.whatsapp || student.optionalPhone, axios.defaults.baseURL)} 
                                     alt="Profile" 
                                     className="w-14 h-14 rounded-xl object-cover bg-black/50 border border-white/10 shrink-0 mt-1 transition-all group-hover:scale-105"
-                                    onError={(e) => e.target.src = '/logo.png'}
+                                    onError={(e) => {
+                                        e.target.onerror = (err) => { err.target.onerror = null; err.target.src = '/logo.png'; };
+                                        e.target.src = resolveAvatarUrl(null, student.phone || student.whatsapp || student.optionalPhone, axios.defaults.baseURL);
+                                    }}
                                 />
                                 <div className="min-w-0 flex-1">
                                     <h4 className="font-bold text-lg text-white flex items-center gap-3 truncate">
@@ -609,7 +613,21 @@ const handleDeleteStudent = async (studentId, studentName) => {
                 <div className="fixed inset-0 z-[100] bg-black/60 flex items-center justify-center p-4 backdrop-blur-md animate-in fade-in duration-200">
                     <div className="bg-[#1e1e1e]/90 border border-white/10 rounded-3xl p-6 md:p-8 w-full max-w-2xl shadow-2xl relative max-h-[90vh] flex flex-col">
                         <div className="flex justify-between items-center mb-6 border-b border-white/10 pb-4 shrink-0">
-                            <h3 className="text-xl font-black text-white uppercase tracking-tight">Edit Student Details</h3>
+                            <div className="flex items-center gap-3">
+                                <img 
+                                    src={resolveAvatarUrl(editModal.image, editModal.phone || editModal.whatsapp || editModal.optionalPhone, axios.defaults.baseURL)}
+                                    alt="Profile" 
+                                    className="w-11 h-11 rounded-xl object-cover bg-black/50 border border-white/10 shrink-0"
+                                    onError={(e) => {
+                                        e.target.onerror = (err) => { err.target.onerror = null; err.target.src = '/logo.png'; };
+                                        e.target.src = resolveAvatarUrl(null, editModal.phone || editModal.whatsapp || editModal.optionalPhone, axios.defaults.baseURL);
+                                    }}
+                                />
+                                <div>
+                                    <h3 className="text-xl font-black text-white uppercase tracking-tight">Edit Student Details</h3>
+                                    <p className="text-xs text-gray-400 font-medium">STU-{editModal.id} • {editModal.firstName} {editModal.lastName}</p>
+                                </div>
+                            </div>
                             <button onClick={() => setEditModal(null)} className="text-gray-400 hover:text-white bg-white/5 p-2 rounded-xl transition-all border border-white/10 outline-none"><X size={18} /></button>
                         </div>
                         <form onSubmit={handleEditSubmit} className="space-y-4 overflow-y-auto custom-scrollbar pr-2 flex-1">

@@ -64,13 +64,18 @@ export default function DataExportDashboard() {
                 const fetchedBatches = res.data.batches || res.data || [];
                 setBatches(fetchedBatches);
                 
-                // If current selectedBatch is invalid or empty, pick saved or latest batch
+                // If current selectedBatch is invalid or empty, pick saved or active batch with data
                 const savedBatch = localStorage.getItem('callCamp_selectedBatch') || localStorage.getItem('afterSem_selectedBatch');
-                if (savedBatch && fetchedBatches.some(b => b.id.toString() === savedBatch.toString())) {
+                const validCurrent = selectedBatch && fetchedBatches.some(b => b.id.toString() === selectedBatch.toString());
+                if (validCurrent) {
+                    // Keep current valid selection
+                } else if (savedBatch && fetchedBatches.some(b => b.id.toString() === savedBatch.toString())) {
                     setSelectedBatch(savedBatch.toString());
-                } else if (!selectedBatch && fetchedBatches.length > 0) {
-                    // Pick the latest batch
-                    setSelectedBatch(fetchedBatches[fetchedBatches.length - 1].id.toString());
+                } else if (fetchedBatches.length > 0) {
+                    const activeBatchWithData = [...fetchedBatches].reverse().find(b => b.groups && b.groups.length > 0) || fetchedBatches[0];
+                    setSelectedBatch(activeBatchWithData.id.toString());
+                } else {
+                    setSelectedBatch('');
                 }
             } catch (err) {
                 console.error(err);

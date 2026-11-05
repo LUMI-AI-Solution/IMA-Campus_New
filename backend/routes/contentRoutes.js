@@ -67,8 +67,10 @@ router.get('/admin/manager/batches-full', verifyToken, requireStaff, controller.
 // Get Batches by Business ID
 router.get('/admin/batches/:bizId', verifyToken, requireStaff, async (req, res) => {
     try {
+        const parsedBizId = parseInt(req.params.bizId);
+        if (isNaN(parsedBizId)) return res.status(400).json({ error: "Invalid business ID" });
         const batches = await prisma.batch.findMany({
-            where: { businessId: parseInt(req.params.bizId) },
+            where: { businessId: parsedBizId },
             include: { 
                 groups: { include: { courses: true } },
                 business: true

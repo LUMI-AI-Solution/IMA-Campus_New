@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { resolveInstallmentStepRange } = require('../utils/installmentHelper');
 
 const safeJson = (data) => JSON.parse(JSON.stringify(data, (key, value) => typeof value === 'bigint' ? value.toString() : value));
 
@@ -42,12 +43,15 @@ exports.getModuleOneAnalytics = async (req, res) => {
         const { businessId, batchId, classType } = req.query;
         console.log("Query params:", { businessId, batchId, classType });
 
-        if (!batchId || batchId === 'null') {
+        if (!batchId || batchId === 'null' || batchId === 'undefined' || isNaN(parseInt(batchId))) {
             return res.status(400).json({ error: "Batch ID is required for Analytics" });
         }
 
         const parsedBatchId = parseInt(batchId);
         const parsedBizId = parseInt(businessId);
+        if (!parsedBizId || isNaN(parsedBizId)) {
+            return res.status(400).json({ error: "Valid Business ID is required for Analytics" });
+        }
         const parsedClassType = (classType && classType !== 'ALL') ? parseInt(classType) : (classType === 'ALL' ? null : 1);
         
         const hasAccess = await checkAccess(req, parsedBizId);
@@ -107,7 +111,7 @@ exports.getModuleOneAnalytics = async (req, res) => {
             where: { batchId: parsedBatchId }
         });
 
-        let paymentWhere = { batchId: parsedBatchId, status: { in: [1, 4] } };
+        let paymentWhere = { batchId: parsedBatchId, status: 1 };
         if (parsedClassType) {
             paymentWhere.OR = [
                 { group: { classType: parsedClassType } },
@@ -120,6 +124,7 @@ exports.getModuleOneAnalytics = async (req, res) => {
                 studentId: true, 
                 groupId: true, 
                 payment_type: true, 
+                installment_no: true,
                 subjects: true, 
                 created_at: true, 
                 amount: true, 
@@ -243,49 +248,59 @@ exports.getModuleOneAnalytics = async (req, res) => {
 
             if (pMonth) {
                 let monthsToCover = [];
+                const isUpgrade = Boolean(p.remark && (p.remark.includes('[UPGRADE]') || p.remark.toUpperCase().includes('UPGRADE')));
+                const numActive = batchMonths.length || 1;
+
+                // Count approved monthly payments this student has in the current batch (for upgrade offset)
+                const studentMonthlyPayments = payments.filter(pm => pm.studentId === p.studentId && parseInt(pm.payment_type) === 1);
+                const alreadyPaidMonthlyCount = studentMonthlyPayments.length;
+
                 if (typeCat === 'FULL') {
-                    const startIndex = batchMonths.indexOf(pMonth);
-                    if (startIndex !== -1) {
-                        for (let i = startIndex; i < batchMonths.length; i++) {
+                    // Full payment allocation matching Finance Matrix
+                    let lastPaidMonthlyIndex = -1;
+                    studentMonthlyPayments.forEach(pm => {
+                        const mgMatch = monthlyGroups.find(m => m.id === pm.groupId);
+                        if (mgMatch) {
+                            const idx = batchMonths.findIndex(bm => mgMatch.name.toUpperCase().includes(bm));
+                            if (idx > lastPaidMonthlyIndex) lastPaidMonthlyIndex = idx;
+                        }
+                    });
+
+                    const startIdx = (isUpgrade && lastPaidMonthlyIndex >= 0)
+                        ? Math.min(lastPaidMonthlyIndex + 1, Math.max(0, numActive - 1))
+                        : (batchMonths.indexOf(pMonth) !== -1 ? batchMonths.indexOf(pMonth) : 0);
+
+                    for (let i = startIdx; i < numActive; i++) {
+                        if (batchMonths[i]) monthsToCover.push(batchMonths[i]);
+                    }
+                } else if (typeCat === 'INSTALLMENT') {
+                    // Installment allocation matching Finance Matrix Dynamic Mathematical Engine
+                    const subCount = enrolledSubjects.length;
+                    const applicablePlans = batchInstallmentPlans.filter(pl => pl.subjectCount <= (subCount || 1)).sort((a, b) => b.subjectCount - a.subjectCount);
+                    const plan = applicablePlans.length > 0 ? applicablePlans[0] : (batchInstallmentPlans[0] || null);
+
+                    let stepDetails = [];
+                    if (plan && plan.details) {
+                        try { stepDetails = JSON.parse(plan.details); } catch(e) {}
+                    }
+                    const instNo = p.installment_no || 1;
+                    const instIdx = Math.max(0, instNo - 1);
+
+                    const stepRange = resolveInstallmentStepRange(stepDetails, instIdx, isUpgrade, alreadyPaidMonthlyCount, numActive);
+                    const start = stepRange.start;
+                    const end = stepRange.end;
+                    const monthsSpan = end - start;
+                    const actualStart = monthsSpan > 0 ? start : 0;
+                    const actualEnd = monthsSpan > 0 ? end : numActive;
+
+                    monthsToCover = [];
+                    for (let i = actualStart; i < actualEnd; i++) {
+                        if (batchMonths[i]) {
                             monthsToCover.push(batchMonths[i]);
                         }
                     }
-                } else if (typeCat === 'INSTALLMENT') {
-                    monthsToCover.push(pMonth); // Default fallback
-
-                    const subCount = enrolledSubjects.length;
-                    const plan = batchInstallmentPlans.find(i => i.subjectCount === subCount) ||
-                                 [...batchInstallmentPlans].sort((a,b) => b.subjectCount - a.subjectCount).find(i => i.subjectCount <= subCount);
-
-                    if (plan && plan.details) {
-                        try {
-                            const details = JSON.parse(plan.details);
-                            const stepInfo = details.find(d => parseInt(d.step) === (p.installment_no || 1));
-                            
-                            if (stepInfo) {
-                                let rangeStr = stepInfo.rangeNormal;
-                                if (p.remark && p.remark.includes('[UPGRADE]')) {
-                                    rangeStr = stepInfo.rangeUp1 || stepInfo.rangeNormal;
-                                }
-
-                                if (rangeStr) {
-                                    const parts = rangeStr.split('-');
-                                    if (parts.length === 2) {
-                                        const sIdx = parseInt(parts[0]) - 1;
-                                        const eIdx = parseInt(parts[1]) - 1;
-                                        if (!isNaN(sIdx) && !isNaN(eIdx)) {
-                                            monthsToCover = []; // clear fallback
-                                            const pMonthIdx = batchMonths.indexOf(pMonth);
-                                            for (let i = sIdx; i <= eIdx; i++) {
-                                                if (batchMonths[i] && i >= pMonthIdx) {
-                                                    monthsToCover.push(batchMonths[i]);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        } catch(e) { }
+                    if (monthsToCover.length === 0 && pMonth) {
+                        monthsToCover.push(pMonth);
                     }
                 } else {
                     monthsToCover.push(pMonth);

@@ -1,47 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
-import { Music, X } from 'lucide-react';
 import GlobalToolsMenu from '../GlobalToolsMenu';
+import { useTheme } from '../../contexts/ThemeContext';
 
 export default function MainLayout({ loggedInUser, handleLogout }) {
   const location = useLocation();
   const isSocialMedia = location.pathname.includes('/social-media') || location.pathname.includes('/workspace/social-media-delegation');
 
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    const saved = localStorage.getItem('themeMode');
-    return saved ? saved === 'dark' : true;
-  });
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [isDarkMode]);
-
-  const [uiTheme, setUiTheme] = useState(() => {
-    const saved = localStorage.getItem('uiTheme');
-    return (saved === 'chatline' ? 'aurora' : saved) || 'glass';
-  });
-
-  useEffect(() => {
-    if (uiTheme !== 'glass') {
-      document.documentElement.dataset.theme = uiTheme === 'chatline' ? 'aurora' : uiTheme;
-    } else {
-      delete document.documentElement.dataset.theme;
-    }
-    localStorage.setItem('uiTheme', uiTheme === 'chatline' ? 'aurora' : uiTheme);
-  }, [uiTheme]);
-
-  const toggleThemeMode = () => {
-    setIsDarkMode(prev => {
-      const next = !prev;
-      localStorage.setItem('themeMode', next ? 'dark' : 'light');
-      return next;
-    });
-  };
+  const { appTheme, setAppTheme, isDarkMode, toggleThemeMode, bgImage, setBgImage } = useTheme();
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(window.innerWidth >= 1024);
 
@@ -62,11 +29,6 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
   
-  const [bgImage, setBgImage] = useState(() => {
-    return localStorage.getItem('adminTheme') || 'color1';
-  });
-  
-  const [isSpotifyOpen, setIsSpotifyOpen] = useState(false);
   const [currentHour, setCurrentHour] = useState(new Date().getHours());
 
   useEffect(() => {
@@ -75,15 +37,6 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
     }, 60000);
     return () => clearInterval(interval);
   }, []);
-
-  useEffect(() => {
-    localStorage.setItem('adminTheme', bgImage);
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [bgImage, isDarkMode]);
 
   const getBackgroundStyle = () => {
     let liveSkyStyle = {};
@@ -118,7 +71,7 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
       wall4: { backgroundImage: "url('/bg4.jpg')", backgroundSize: 'cover', backgroundPosition: 'center' },
       wall5: { backgroundImage: "url('/bg5.jpg')", backgroundSize: 'cover', backgroundPosition: 'center' },
     };
-    return themes[bgImage] || themes['color1'];
+    return themes[bgImage] || themes['wall1'];
   };
 
   const getBackgroundClass = () => {
@@ -126,23 +79,20 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
     return '';
   };
 
+  const isModernTheme = appTheme === 'modern';
+
   return (
     <div 
-      className={`font-sans flex items-center justify-center w-full overflow-hidden antialiased transition-all duration-300 fixed inset-0 m-0 p-0 ${uiTheme === 'glass' ? getBackgroundClass() : 'bg-[#090D10]'}`} 
-      style={{ ...(uiTheme === 'glass' ? getBackgroundStyle() : { backgroundColor: '#090D10' }), zoom: zoomLevel }}
+      className={`font-sans flex items-center justify-center w-full overflow-hidden antialiased transition-colors duration-150 fixed inset-0 m-0 p-0 ${
+        isModernTheme 
+          ? (isDarkMode ? 'bg-[#090D16] text-slate-100' : 'bg-slate-50 text-slate-900')
+          : getBackgroundClass()
+      }`} 
+      style={{ ...(isModernTheme ? {} : getBackgroundStyle()), zoom: zoomLevel }}
     >
       
-      {/* 🌌 AURORA ERP GLOWING AMBIENT ORBS (Aurora theme) */}
-      {(uiTheme === 'aurora' || uiTheme === 'chatline') && (
-        <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
-          <div className="orb orb-1" />
-          <div className="orb orb-2" />
-          <div className="orb orb-3" />
-        </div>
-      )}
-
-      {/* ⛅ LIVE SKY ANIMATION (Glass theme only) */}
-      {uiTheme === 'glass' && bgImage === 'anim1' && (
+      {/* ⛅ LIVE SKY ANIMATION (Classic theme only) */}
+      {!isModernTheme && bgImage === 'anim1' && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
           {currentHour >= 6 && currentHour <= 18 ? (
             <div className="absolute rounded-full bg-gradient-to-br from-yellow-100 to-orange-400 w-32 h-32 blur-[2px]"
@@ -159,8 +109,8 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
         </div>
       )}
 
-      {/* 🎾 FLOATING BALLS ANIMATION (Glass theme only) */}
-      {uiTheme === 'glass' && bgImage === 'anim3' && (
+      {/* 🎾 FLOATING BALLS ANIMATION (Classic theme only) */}
+      {!isModernTheme && bgImage === 'anim3' && (
         <div className="absolute inset-0 overflow-hidden pointer-events-none z-0">
             <div className="absolute w-[400px] h-[400px] rounded-full bg-blue-500/20 blur-[80px] animate-float-ball-1"></div>
             <div className="absolute w-[350px] h-[350px] rounded-full bg-purple-500/20 blur-[80px] animate-float-ball-2"></div>
@@ -168,13 +118,12 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
         </div>
       )}
 
-      <div className={
-        uiTheme === 'glass'
-          ? "flex w-full h-full sm:w-[98%] sm:h-[96vh] bg-[#0B101E]/90 sm:bg-black/40 border border-white/10 text-gray-100 sm:rounded-[20px] overflow-hidden relative z-10 transition-all duration-300"
-          : (uiTheme === 'aurora' || uiTheme === 'chatline')
-          ? "flex w-full h-full sm:w-[98%] sm:h-[96vh] bg-[rgba(255,255,255,0.06)] backdrop-blur-2xl border border-[rgba(255,255,255,0.14)] shadow-[0_10px_40px_rgba(0,0,0,0.30)] text-gray-100 sm:rounded-[22px] overflow-hidden relative z-10 transition-all duration-300"
-          : "flex w-full h-full text-gray-100 border-0 rounded-none overflow-hidden relative z-10 transition-all duration-300"
-      }>
+      {/* MAIN CONTAINER */}
+      <div className={`overflow-hidden relative z-10 flex ${
+        isModernTheme
+          ? `w-full h-full ${isDarkMode ? 'bg-[#090D16] text-slate-100' : 'bg-slate-50 text-slate-900'}`
+          : 'w-full h-full sm:w-[98%] sm:h-[96vh] bg-[#0B101E]/90 sm:bg-black/40 border border-white/10 text-gray-100 sm:rounded-[20px]'
+      }`}>
         <Sidebar 
           isSidebarOpen={isSidebarOpen} 
           setIsSidebarOpen={setIsSidebarOpen}
@@ -183,32 +132,19 @@ export default function MainLayout({ loggedInUser, handleLogout }) {
           handleLogout={handleLogout}
           currentBg={bgImage}
           setBgImage={setBgImage}
-          isSpotifyOpen={isSpotifyOpen}
-          setIsSpotifyOpen={setIsSpotifyOpen}
           isSocialMedia={isSocialMedia}
           isDarkMode={isDarkMode}
           toggleThemeMode={toggleThemeMode}
-          uiTheme={uiTheme}
-          setUiTheme={setUiTheme}
+          appTheme={appTheme}
+          setAppTheme={setAppTheme}
         />
         <main className="flex-1 flex flex-col overflow-hidden bg-transparent">
-          <div className="flex-1 overflow-auto p-4 lg:p-6 relative custom-scrollbar" style={{ WebkitOverflowScrolling: 'touch' }}>
+          <div className={`flex-1 overflow-auto p-4 lg:p-6 relative custom-scrollbar ${
+            isModernTheme ? (isDarkMode ? 'bg-[#0B0F19]' : 'bg-[#F8FAFC]') : ''
+          }`} style={{ WebkitOverflowScrolling: 'touch' }}>
             <Outlet />
           </div>
         </main>
-      </div>
-
-      {/* SPOTIFY PLAYER */}
-      <div className={`fixed bottom-6 ${isSidebarOpen ? 'left-[17rem]' : 'left-24'} z-50 flex flex-col gap-3 transition-all duration-300`}>
-        <div className={`${isSpotifyOpen ? 'opacity-100 scale-100 block' : 'opacity-0 scale-95 hidden'} transition-all duration-300 transform origin-bottom-left shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-2xl overflow-hidden border border-white/10 bg-[#090E17]/80 backdrop-blur-2xl w-80`}>
-            <div className="bg-white/5 p-3 flex justify-between items-center border-b border-white/10">
-                <span className="text-xs font-bold text-gray-200 flex items-center gap-2">
-                    <Music className="w-4 h-4 text-brand-accent" /> Work Vibes
-                </span>
-                <button onClick={() => setIsSpotifyOpen(false)} className="text-gray-400 hover:text-brand-accent transition-colors outline-none"><X className="w-4 h-4" /></button>
-            </div>
-            <iframe style={{ borderRadius: '0px' }} src="https://open.spotify.com/embed/playlist/37i9dQZF1DWZeKCadgRdKQ?utm_source=generator&theme=0" width="100%" height="152" frameBorder="0" allowFullScreen="" allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" loading="lazy"></iframe>
-        </div>
       </div>
 
       {/* Global Tools Menu (Chat & Settings Widgets) */}

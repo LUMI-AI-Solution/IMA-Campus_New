@@ -44,6 +44,10 @@ router.post('/toggle-followup', afterSeminarInquiryController.toggleFollowUpStat
 router.get('/opensem-status', afterSeminarInquiryController.getOpenSemStatus);
 router.post('/toggle-opensem', afterSeminarInquiryController.toggleOpenSemStatus);
 
+// Campaign Lock / Unlock System (Manager / Super Admin)
+router.get('/campaign-lock-status', afterSeminarInquiryController.getCampaignLockStatus);
+router.post('/campaign-toggle-lock', afterSeminarInquiryController.toggleCampaignLock);
+
 // Leads & Bulk Actions
 router.get('/leads', afterSeminarInquiryController.getLeads);
 router.post('/leads/import', afterSeminarInquiryController.importLead);

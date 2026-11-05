@@ -41,6 +41,16 @@ export default function PaymentManagement({ loggedInUser }) {
     const [actionRemark, setActionRemark] = useState('');
     const [showStaffModal, setShowStaffModal] = useState(false);
     const [showExportModal, setShowExportModal] = useState(false);
+    const [exportClassTypeOverride, setExportClassTypeOverride] = useState(null);
+
+    const handleOpenExport = (overrides = {}) => {
+        if (overrides?.classType) {
+            setExportClassTypeOverride(overrides.classType);
+        } else {
+            setExportClassTypeOverride(null);
+        }
+        setShowExportModal(true);
+    };
 
     const [approveModal, setApproveModal] = useState(null);
     const [actualAmount, setActualAmount] = useState('');
@@ -1083,9 +1093,10 @@ export default function PaymentManagement({ loggedInUser }) {
                 batches={batches}
                 groups={groups}
                 subjects={subjects}
+                payments={payments}
                 stats={stats}
                 onOpenStaffStats={() => setShowStaffModal(true)}
-                onOpenExport={() => setShowExportModal(true)}
+                onOpenExport={handleOpenExport}
             />
 
             {/* Tabs Row */}
@@ -2007,9 +2018,12 @@ export default function PaymentManagement({ loggedInUser }) {
 
             {showExportModal && (
                 <ExportReportModal 
-                    onClose={() => setShowExportModal(false)}
+                    onClose={() => {
+                        setShowExportModal(false);
+                        setExportClassTypeOverride(null);
+                    }}
                     payments={payments}
-                    filters={filters}
+                    filters={exportClassTypeOverride ? { ...filters, classType: exportClassTypeOverride } : filters}
                     businesses={businesses}
                     batches={batches}
                 />

@@ -102,14 +102,15 @@ exports.getPaperByContentId = async (req, res) => {
         // If no paper object exists yet, create default one
         if (!paper) {
             const defaultPaperType = (content.contentType === 'sPaper' || content.contentType === '4') ? 'STRUCTURED' : 'MCQ';
+            const totalDur = content.paperTime || 60;
             paper = await prisma.paper.create({
                 data: {
                     contentId: content.id,
                     paperType: defaultPaperType,
                     timerMode: 'FLEXIBLE',
-                    durationMinutes: content.paperTime || 60,
-                    mcqDurationMinutes: 30,
-                    structuredDurationMinutes: 60,
+                    durationMinutes: totalDur,
+                    mcqDurationMinutes: defaultPaperType === 'MCQ' ? totalDur : 30,
+                    structuredDurationMinutes: defaultPaperType === 'STRUCTURED' ? totalDur : 60,
                     totalMarks: 100,
                     totalMcqMarks: 50,
                     totalStructuredMarks: 50,
@@ -202,9 +203,13 @@ exports.getPaperByContentId = async (req, res) => {
                 structuredScheduledStartTime: paper.structuredScheduledStartTime || paper.scheduledStartTime,
                 breakIntervalMinutes: paper.breakIntervalMinutes !== null && paper.breakIntervalMinutes !== undefined ? paper.breakIntervalMinutes : 15,
                 structuredUploadMinutes: paper.structuredUploadMinutes !== null && paper.structuredUploadMinutes !== undefined ? paper.structuredUploadMinutes : 15,
-                durationMinutes: paper.durationMinutes,
-                mcqDurationMinutes: paper.mcqDurationMinutes || 30,
-                structuredDurationMinutes: paper.structuredDurationMinutes || 60,
+                durationMinutes: paper.durationMinutes || content.paperTime || 60,
+                mcqDurationMinutes: paper.paperType === 'MCQ' 
+                    ? (paper.mcqDurationMinutes || paper.durationMinutes || content.paperTime || 60)
+                    : (paper.mcqDurationMinutes || 30),
+                structuredDurationMinutes: paper.paperType === 'STRUCTURED' 
+                    ? (paper.structuredDurationMinutes || paper.durationMinutes || content.paperTime || 60)
+                    : (paper.structuredDurationMinutes || 60),
                 totalMarks: paper.totalMarks || 100,
                 totalMcqMarks: paper.totalMcqMarks || 50,
                 totalStructuredMarks: paper.totalStructuredMarks || 50,
@@ -289,12 +294,23 @@ exports.savePaperConfig = async (req, res) => {
         const parsedContentId = parseInt(contentId);
         const parsedDuration = parseInt(durationMinutes || 60);
         const parsedStartTime = scheduledStartTime ? new Date(scheduledStartTime) : null;
-        const parsedMcqStartTime = mcqScheduledStartTime ? new Date(mcqScheduledStartTime) : (timerMode === 'SCHEDULED' ? parsedStartTime : null);
-        const parsedStructStartTime = structuredScheduledStartTime ? new Date(structuredScheduledStartTime) : (timerMode === 'SCHEDULED' ? parsedStartTime : null);
-        const validPaperType = ['MCQ', 'STRUCTURED', 'BOTH'].includes(paperType) ? paperType : 'MCQ';
-
         const resolvedMcqTimer = mcqTimerMode || timerMode || 'FLEXIBLE';
         const resolvedStructTimer = structuredTimerMode || timerMode || 'FLEXIBLE';
+        const parsedMcqStartTime = mcqScheduledStartTime ? new Date(mcqScheduledStartTime) : (resolvedMcqTimer === 'SCHEDULED' ? parsedStartTime : null);
+        const parsedStructStartTime = structuredScheduledStartTime ? new Date(structuredScheduledStartTime) : (resolvedStructTimer === 'SCHEDULED' ? parsedStartTime : null);
+        const validPaperType = ['MCQ', 'STRUCTURED', 'BOTH'].includes(paperType) ? paperType : 'MCQ';
+
+        let finalDuration = parsedDuration;
+        let finalMcqDuration = mcqDurationMinutes !== undefined ? parseInt(mcqDurationMinutes) : (validPaperType === 'MCQ' ? parsedDuration : 30);
+        let finalStructDuration = structuredDurationMinutes !== undefined ? parseInt(structuredDurationMinutes) : (validPaperType === 'STRUCTURED' ? parsedDuration : 60);
+
+        if (validPaperType === 'MCQ') {
+            finalDuration = finalMcqDuration;
+        } else if (validPaperType === 'STRUCTURED') {
+            finalDuration = finalStructDuration;
+        } else if (validPaperType === 'BOTH') {
+            finalDuration = finalMcqDuration + finalStructDuration;
+        }
 
         const parsedCategory = category && ['WEEKLY', 'MONTHLY'].includes(String(category).toUpperCase()) ? String(category).toUpperCase() : 'WEEKLY';
         const parsedHasLeaderboard = hasLeaderboard !== undefined ? (hasLeaderboard === true || hasLeaderboard === 'true' || hasLeaderboard === 1 || hasLeaderboard === '1') : true;
@@ -318,9 +334,9 @@ exports.savePaperConfig = async (req, res) => {
             structuredScheduledStartTime: parsedStructStartTime,
             breakIntervalMinutes: breakIntervalMinutes !== undefined && breakIntervalMinutes !== '' ? parseInt(breakIntervalMinutes) : 15,
             structuredUploadMinutes: structuredUploadMinutes !== undefined && structuredUploadMinutes !== '' ? parseInt(structuredUploadMinutes) : 15,
-            durationMinutes: parsedDuration,
-            mcqDurationMinutes: mcqDurationMinutes !== undefined ? parseInt(mcqDurationMinutes) : 30,
-            structuredDurationMinutes: structuredDurationMinutes !== undefined ? parseInt(structuredDurationMinutes) : 60,
+            durationMinutes: finalDuration,
+            mcqDurationMinutes: finalMcqDuration,
+            structuredDurationMinutes: finalStructDuration,
             totalMarks: totalMarks ? parseFloat(totalMarks) : 100,
             totalMcqMarks: totalMcqMarks ? parseFloat(totalMcqMarks) : 50,
             totalStructuredMarks: totalStructuredMarks ? parseFloat(totalStructuredMarks) : 50,
@@ -501,19 +517,21 @@ exports.startPaper = async (req, res) => {
 
         const now = new Date();
 
+        const isStructuredPaper = paper.paperType === 'STRUCTURED' || section === 'STRUCTURED';
+
         if (!submission) {
             submission = await prisma.paperSubmission.create({
                 data: {
                     paperId,
                     studentId,
                     startedAt: now,
-                    ...(section === 'STRUCTURED' ? { structuredStartedAt: now } : {}),
+                    ...(isStructuredPaper ? { structuredStartedAt: now } : {}),
                     status: "IN_PROGRESS"
                 }
             });
         } else {
             // If starting structured section and timestamp not recorded yet
-            if (section === 'STRUCTURED' && !submission.structuredStartedAt) {
+            if (isStructuredPaper && !submission.structuredStartedAt) {
                 submission = await prisma.paperSubmission.update({
                     where: { id: submission.id },
                     data: {
@@ -659,15 +677,19 @@ exports.submitPaper = async (req, res) => {
             return { score, totalCorrect, totalQuestions, answersToCreate };
         };
 
-        // Helper to validate structured upload deadline
         const validateStructuredUploadWindow = () => {
-            const writingMins = paper.structuredDurationMinutes || 60;
+            const writingMins = paper.paperType === 'STRUCTURED'
+                ? (paper.structuredDurationMinutes || paper.durationMinutes || 60)
+                : (paper.structuredDurationMinutes || 60);
             const uploadMins = paper.structuredUploadMinutes || 15;
             const totalAllowedMins = writingMins + uploadMins;
 
             let startRefMs = null;
-            if (paper.structuredTimerMode === 'SCHEDULED' && paper.structuredScheduledStartTime) {
-                startRefMs = new Date(paper.structuredScheduledStartTime).getTime();
+            const isScheduled = paper.structuredTimerMode === 'SCHEDULED' || paper.timerMode === 'SCHEDULED';
+            const scheduledStart = paper.structuredScheduledStartTime || paper.scheduledStartTime;
+
+            if (isScheduled && scheduledStart) {
+                startRefMs = new Date(scheduledStart).getTime();
             } else if (submission.structuredStartedAt) {
                 startRefMs = new Date(submission.structuredStartedAt).getTime();
             } else if (submission.startedAt) {
@@ -1637,4 +1659,506 @@ exports.uploadQuestionImages = async (req, res) => {
         res.status(500).json({ error: "Failed to upload question images" });
     }
 };
+
+// ================= AI MCQ EXTRACTION FROM PDF (STREAMING SSE) =================
+
+// In-memory cache for pre-parsed PDF sessions (TTL: 20 minutes)
+const mcqPdfSessionCache = new Map();
+
+// Periodic cleanup of expired sessions
+setInterval(() => {
+    const now = Date.now();
+    for (const [key, session] of mcqPdfSessionCache.entries()) {
+        if (now - session.createdAt > 20 * 60 * 1000) {
+            mcqPdfSessionCache.delete(key);
+        }
+    }
+}, 5 * 60 * 1000);
+
+// Helper: Render single PDF page to JPEG buffer using pdftoppm
+function renderPdfPageToImage(pdfPath, pageNum) {
+    if (!pdfPath || !fs.existsSync(pdfPath)) return null;
+    const { execSync } = require('child_process');
+    const tmpPrefix = path.join('/tmp', `mcq_page_${Date.now()}_${pageNum}_${Math.random().toString(36).substring(2, 6)}`);
+    try {
+        execSync(`pdftoppm -jpeg -r 140 -f ${pageNum} -l ${pageNum} "${pdfPath}" "${tmpPrefix}"`, { timeout: 15000 });
+        const dir = '/tmp';
+        const basename = path.basename(tmpPrefix);
+        const matches = fs.readdirSync(dir).filter(f => f.startsWith(basename) && f.endsWith('.jpg'));
+        if (matches.length > 0) {
+            const foundPath = path.join(dir, matches[0]);
+            const buffer = fs.readFileSync(foundPath);
+            try { fs.unlinkSync(foundPath); } catch (e) {}
+            return buffer;
+        }
+    } catch (e) {
+        console.error(`[pdftoppm] Error rendering page ${pageNum}:`, e.message);
+    }
+    return null;
+}
+
+// Helper: Call Gemini models with key fallback and retry (Supports text and scanned page images)
+async function callGeminiForQuestions(promptText, customKey, imageBuffer = null) {
+    const candidateKeys = [];
+    if (customKey && typeof customKey === 'string' && customKey.trim()) {
+        candidateKeys.push(customKey.trim());
+    }
+
+    try {
+        const s1 = await prisma.appSetting.findUnique({ where: { key: 'GEMINI_API_KEY' } });
+        const s2 = await prisma.appSetting.findUnique({ where: { key: 'GEMINI_API_KEY_2' } });
+        if (s1?.value && !candidateKeys.includes(s1.value)) candidateKeys.push(s1.value);
+        if (s2?.value && !candidateKeys.includes(s2.value)) candidateKeys.push(s2.value);
+    } catch (e) {
+        console.error("[AI MCQ] Error reading Gemini keys from AppSetting:", e.message);
+    }
+
+    if (process.env.GEMINI_API_KEY && !candidateKeys.includes(process.env.GEMINI_API_KEY)) {
+        candidateKeys.push(process.env.GEMINI_API_KEY);
+    }
+
+    if (candidateKeys.length === 0) {
+        throw new Error("No Gemini API key configured. Please enter a valid Gemini API key in the settings box.");
+    }
+
+    const { GoogleGenerativeAI } = require('@google/generative-ai');
+    const modelsToTry = ['gemini-2.5-flash', 'gemini-2.5-pro'];
+
+    let lastError = null;
+    let quotaDepletedCount = 0;
+
+    for (const key of candidateKeys) {
+        for (const modelName of modelsToTry) {
+            try {
+                const genAI = new GoogleGenerativeAI(key);
+                const model = genAI.getGenerativeModel({
+                    model: modelName,
+                    generationConfig: {
+                        temperature: 0.15,
+                        responseMimeType: "application/json"
+                    }
+                });
+
+                let contentPayload;
+                if (imageBuffer && Buffer.isBuffer(imageBuffer)) {
+                    contentPayload = [
+                        { text: promptText },
+                        {
+                            inlineData: {
+                                mimeType: 'image/jpeg',
+                                data: imageBuffer.toString('base64')
+                            }
+                        }
+                    ];
+                } else {
+                    contentPayload = promptText;
+                }
+
+                const result = await model.generateContent(contentPayload);
+                const text = result?.response?.text ? result.response.text() : '';
+                if (text && text.trim()) {
+                    return text;
+                }
+            } catch (err) {
+                lastError = err;
+                const msg = String(err.message || '');
+                if (msg.includes('402') || msg.includes('depleted') || msg.includes('RESOURCE_EXHAUSTED')) {
+                    quotaDepletedCount++;
+                }
+                // Try next model or next candidate key
+                continue;
+            }
+        }
+    }
+
+    if (quotaDepletedCount > 0) {
+        throw new Error("Gemini API key credits are depleted (402). Please enter an active Google AI Studio key in the API Key settings.");
+    }
+
+    const errMsg = lastError?.message || "Failed to communicate with Gemini AI. Please check your API key.";
+    if (errMsg.includes('leaked') || errMsg.includes('PERMISSION_DENIED')) {
+        throw new Error("Gemini API key is blocked or invalid (403). Please enter a fresh Google AI Studio key.");
+    }
+
+    throw new Error(errMsg);
+}
+
+// Helper: Parse AI raw response safely into MCQ questions array
+function parseQuestionsJson(rawText) {
+    if (!rawText) return [];
+    let clean = String(rawText).trim();
+    if (clean.startsWith('```json')) {
+        clean = clean.replace(/^```json/, '').replace(/```$/, '').trim();
+    } else if (clean.startsWith('```')) {
+        clean = clean.replace(/^```/, '').replace(/```$/, '').trim();
+    }
+
+    try {
+        const parsed = JSON.parse(clean);
+        const arr = Array.isArray(parsed) ? parsed : (parsed.questions || parsed.data || Object.values(parsed)[0] || []);
+        if (!Array.isArray(arr)) return [];
+
+        return arr.map((item, idx) => {
+            const rawOptions = Array.isArray(item.options) ? item.options : [];
+            const options = rawOptions.map((opt, oIdx) => {
+                if (typeof opt === 'string') {
+                    return { optionNo: oIdx + 1, optionText: opt.trim(), isCorrect: oIdx === 0 };
+                }
+                return {
+                    optionNo: opt.optionNo || (oIdx + 1),
+                    optionText: String(opt.optionText || opt.text || opt.title || '').trim(),
+                    isCorrect: Boolean(opt.isCorrect || opt.correct || opt.is_correct)
+                };
+            }).filter(o => o.optionText.length > 0);
+
+            // Default fallback options if none parsed
+            const finalOptions = options.length >= 2 ? options : [
+                { optionNo: 1, optionText: 'Option 1', isCorrect: true },
+                { optionNo: 2, optionText: 'Option 2', isCorrect: false },
+                { optionNo: 3, optionText: 'Option 3', isCorrect: false },
+                { optionNo: 4, optionText: 'Option 4', isCorrect: false }
+            ];
+
+            // Ensure at least one option is marked correct
+            const hasCorrect = finalOptions.some(o => o.isCorrect);
+            if (!hasCorrect && finalOptions.length > 0) {
+                finalOptions[0].isCorrect = true;
+            }
+
+            return {
+                questionNo: parseInt(item.questionNo) || (idx + 1),
+                questionText: String(item.questionText || item.question || item.title || '').trim(),
+                image: '',
+                images: [],
+                marks: parseInt(item.marks) || 1,
+                options: finalOptions
+            };
+        }).filter(q => q.questionText.length > 0);
+    } catch (e) {
+        console.error("[AI MCQ] Error parsing JSON questions from Gemini:", e.message);
+        return [];
+    }
+}
+
+// 13.1 Pre-upload & Parse PDF for MCQ Extraction (Rock-solid step 1)
+exports.aiUploadMcqPdf = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: "No PDF file uploaded. Please select a valid PDF." });
+        }
+
+        const filePath = req.file.path;
+        const { PDFParse } = require('pdf-parse');
+        const buffer = fs.readFileSync(filePath);
+        const parser = new PDFParse(new Uint8Array(buffer));
+        await parser.load();
+
+        const textResult = await parser.getText();
+        const rawPages = textResult.pages || [];
+        const totalPages = rawPages.length > 0 ? rawPages.length : 1;
+
+        const pages = [];
+        let hasAnyDigitalText = false;
+        for (let i = 0; i < totalPages; i++) {
+            const rawText = rawPages[i]?.text ? rawPages[i].text.trim() : "";
+            if (rawText.length >= 40) hasAnyDigitalText = true;
+            pages.push({
+                pageNumber: i + 1,
+                text: rawText,
+                isScanned: rawText.length < 40
+            });
+        }
+
+        const fileId = 'mcq_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+        mcqPdfSessionCache.set(fileId, {
+            fileId,
+            filePath, // Retain on disk for pdftoppm image extraction
+            fileName: req.file.originalname,
+            totalPages,
+            pages,
+            hasAnyDigitalText,
+            createdAt: Date.now()
+        });
+
+        res.json({
+            success: true,
+            fileId,
+            fileName: req.file.originalname,
+            totalPages,
+            hasScannedPages: !hasAnyDigitalText,
+            message: `PDF loaded successfully with ${totalPages} page(s). ${!hasAnyDigitalText ? '(Scanned document detected - Gemini Vision will read images)' : ''}`
+        });
+    } catch (err) {
+        console.error("aiUploadMcqPdf Error:", err);
+        res.status(500).json({ error: err.message || "Failed to parse PDF" });
+    }
+};
+
+// 13.2 AI MCQ Extraction Stream (SSE - Step 2)
+exports.aiExtractMcqStream = async (req, res) => {
+    // SSE Headers for real-time streaming
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache, no-transform',
+        'Connection': 'keep-alive',
+        'X-Accel-Buffering': 'no'
+    });
+    if (res.flushHeaders) res.flushHeaders();
+
+    let isAborted = false;
+    req.on('close', () => {
+        isAborted = true;
+    });
+
+    // Heartbeat ping every 3 seconds to keep proxy/Cloudflare alive
+    const heartbeat = setInterval(() => {
+        if (isAborted) return;
+        try {
+            res.write(': keep-alive\n\n');
+            if (res.flush) res.flush();
+        } catch (e) {}
+    }, 3000);
+
+    const sendEvent = (event, data) => {
+        if (isAborted) return;
+        try {
+            res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+            if (res.flush) res.flush();
+        } catch (e) {}
+    };
+
+    let sessionPdfPath = null;
+    let tempDirectFilePath = null;
+    try {
+        const fileId = req.body?.fileId || req.query?.fileId;
+        const customApiKey = req.body?.customApiKey || req.query?.customApiKey || null;
+
+        let totalPages = 0;
+        let fileName = "Exam Paper";
+        let pagesToProcess = [];
+
+        if (fileId && mcqPdfSessionCache.has(fileId)) {
+            const session = mcqPdfSessionCache.get(fileId);
+            totalPages = session.totalPages;
+            fileName = session.fileName;
+            pagesToProcess = session.pages;
+            sessionPdfPath = session.filePath;
+        } else if (req.file) {
+            tempDirectFilePath = req.file.path;
+            const { PDFParse } = require('pdf-parse');
+            const buffer = fs.readFileSync(tempDirectFilePath);
+            const parser = new PDFParse(new Uint8Array(buffer));
+            await parser.load();
+            const textResult = await parser.getText();
+            const rawPages = textResult.pages || [];
+            totalPages = rawPages.length > 0 ? rawPages.length : 1;
+            fileName = req.file.originalname;
+            for (let i = 0; i < totalPages; i++) {
+                const txt = rawPages[i]?.text ? rawPages[i].text.trim() : "";
+                pagesToProcess.push({
+                    pageNumber: i + 1,
+                    text: txt,
+                    isScanned: txt.length < 40
+                });
+            }
+            sessionPdfPath = tempDirectFilePath;
+        } else {
+            sendEvent('fatal_error', { message: "No active PDF session or file found. Please upload the PDF again." });
+            clearInterval(heartbeat);
+            return res.end();
+        }
+
+        sendEvent('init', {
+            totalPages,
+            fileName,
+            message: `Starting real-time extraction across ${totalPages} page(s)...`
+        });
+
+        let runningQuestionIndex = 0;
+        let allQuestions = [];
+
+        for (let i = 0; i < pagesToProcess.length; i++) {
+            if (isAborted) break;
+
+            const pageItem = pagesToProcess[i];
+            const pageNum = pageItem.pageNumber;
+            const pageText = pageItem.text || "";
+            const isScanned = pageItem.isScanned || pageText.length < 40;
+
+            let imageBuffer = null;
+            if (isScanned && sessionPdfPath) {
+                sendEvent('page_start', {
+                    pageNumber: pageNum,
+                    totalPages,
+                    message: `Page ${pageNum} is a scanned page. Rendering & analyzing image with Gemini Vision...`
+                });
+                imageBuffer = renderPdfPageToImage(sessionPdfPath, pageNum);
+            } else {
+                sendEvent('page_start', {
+                    pageNumber: pageNum,
+                    totalPages,
+                    message: `Reading & extracting Page ${pageNum} of ${totalPages}...`
+                });
+            }
+
+            if (!imageBuffer && (!pageText || pageText.length < 15)) {
+                sendEvent('page_skip', {
+                    pageNumber: pageNum,
+                    totalPages,
+                    message: `Page ${pageNum} has no readable text or image content. Skipped.`
+                });
+                continue;
+            }
+
+            const prompt = `
+You are an expert exam paper reader and teacher assistant in Sri Lanka.
+Analyze this exam paper page (Page ${pageNum} of ${totalPages}) carefully.
+${imageBuffer ? 'This is an image of a scanned exam paper.' : `Page text:\n"""\n${pageText}\n"""`}
+
+The language of the paper can be Sinhala, English, or Tamil.
+Instructions:
+1. Extract ALL Multiple Choice Questions (MCQ) visible on this page.
+2. For each question, extract:
+   - "questionNo": number (e.g. 1, 2, 3...)
+   - "questionText": question statement in the original language. Preserve accurate scientific terms, formulas, and math symbols.
+   - "options": list of choices:
+     [
+       { "optionNo": 1, "optionText": "Choice 1 text", "isCorrect": true },
+       { "optionNo": 2, "optionText": "Choice 2 text", "isCorrect": false },
+       { "optionNo": 3, "optionText": "Choice 3 text", "isCorrect": false },
+       { "optionNo": 4, "optionText": "Choice 4 text", "isCorrect": false }
+     ]
+3. Mark "isCorrect": true if an answer choice has an underline, mark, circle, or standard key. Otherwise default "isCorrect": true to option 1 for teacher review.
+4. Output STRICT JSON array format:
+[
+  {
+    "questionNo": 1,
+    "questionText": "Question statement...",
+    "options": [...]
+  }
+]
+If this page does NOT contain MCQ questions (e.g. structured essay questions, instructions cover, or advertisements), return an empty array [].
+`;
+
+            try {
+                const aiRawResponse = await callGeminiForQuestions(prompt, customApiKey, imageBuffer);
+                const pageQuestions = parseQuestionsJson(aiRawResponse);
+
+                if (pageQuestions.length > 0) {
+                    const indexedQuestions = pageQuestions.map(q => {
+                        runningQuestionIndex++;
+                        return {
+                            ...q,
+                            questionNo: runningQuestionIndex,
+                            extractedFromPage: pageNum
+                        };
+                    });
+
+                    allQuestions = allQuestions.concat(indexedQuestions);
+
+                    sendEvent('questions_chunk', {
+                        pageNumber: pageNum,
+                        totalPages,
+                        questions: indexedQuestions,
+                        totalSoFar: allQuestions.length,
+                        message: `Page ${pageNum}: Extracted ${indexedQuestions.length} question(s)!`
+                    });
+                } else {
+                    sendEvent('page_no_questions', {
+                        pageNumber: pageNum,
+                        totalPages,
+                        message: `Page ${pageNum} contained no MCQ questions.`
+                    });
+                }
+            } catch (pageErr) {
+                console.error(`[AI MCQ] Page ${pageNum} error:`, pageErr.message);
+                const msg = pageErr.message || "Failed to process page with AI";
+                sendEvent('page_error', {
+                    pageNumber: pageNum,
+                    totalPages,
+                    error: msg
+                });
+
+                // If fatal quota error, notify and stop immediately
+                if (msg.includes('402') || msg.includes('depleted') || msg.includes('blocked') || msg.includes('leaked')) {
+                    sendEvent('key_error', {
+                        message: msg
+                    });
+                    break;
+                }
+            }
+        }
+
+        if (!isAborted) {
+            sendEvent('complete', {
+                totalPages,
+                totalExtractedQuestions: allQuestions.length,
+                message: `Extraction complete! Total ${allQuestions.length} MCQ question(s) extracted.`
+            });
+        }
+    } catch (err) {
+        console.error("aiExtractMcqStream Error:", err);
+        sendEvent('fatal_error', {
+            message: err.message || "Failed to extract questions from PDF"
+        });
+    } finally {
+        clearInterval(heartbeat);
+        if (tempDirectFilePath && fs.existsSync(tempDirectFilePath)) {
+            try { fs.unlinkSync(tempDirectFilePath); } catch (e) {}
+        }
+        res.end();
+    }
+};
+
+// 13.3 Test Gemini API Key
+exports.testGeminiKey = async (req, res) => {
+    try {
+        const { apiKey } = req.body;
+        if (!apiKey || !apiKey.trim()) {
+            return res.status(400).json({ valid: false, error: "Please enter an API key to test." });
+        }
+
+        const { GoogleGenerativeAI } = require('@google/generative-ai');
+        const genAI = new GoogleGenerativeAI(apiKey.trim());
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+        const result = await model.generateContent("Hello, reply with 'OK'");
+        const text = result?.response?.text ? result.response.text().trim() : '';
+
+        res.json({
+            valid: true,
+            message: "Gemini API Key is valid and active!",
+            model: "gemini-2.5-flash",
+            reply: text
+        });
+    } catch (err) {
+        console.error("testGeminiKey Error:", err.message);
+        let userMsg = err.message;
+        if (userMsg.includes('402') || userMsg.includes('depleted')) {
+            userMsg = "This API key has 0 prepayment credits (402). Please add credits or generate a new key from Google AI Studio.";
+        } else if (userMsg.includes('leaked') || userMsg.includes('PERMISSION_DENIED')) {
+            userMsg = "This API key was reported leaked or has invalid permissions (403).";
+        }
+        res.status(400).json({ valid: false, error: userMsg });
+    }
+};
+
+// 14. Save Gemini API Key to System AppSetting
+exports.saveGeminiApiKey = async (req, res) => {
+    try {
+        const { apiKey } = req.body;
+        if (!apiKey || !apiKey.trim()) {
+            return res.status(400).json({ error: "API key is required" });
+        }
+        await prisma.appSetting.upsert({
+            where: { key: 'GEMINI_API_KEY' },
+            update: { value: apiKey.trim() },
+            create: { key: 'GEMINI_API_KEY', value: apiKey.trim() }
+        });
+        res.json({ message: "Gemini API key saved to system settings successfully!" });
+    } catch (err) {
+        console.error("saveGeminiApiKey Error:", err);
+        res.status(500).json({ error: "Failed to save API key" });
+    }
+};
+
 

@@ -95,8 +95,21 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
 
             const loadedDrafts = {};
             regularLeads.forEach(l => {
-                const savedDraft = localStorage.getItem(`draft_remark_as_${l.id}`);
-                if (savedDraft) loadedDrafts[l.id] = savedDraft;
+                const batchDraftKey = `draft_remark_as_${l.id}_${l.batchId || 'default'}`;
+                let savedDraft = localStorage.getItem(batchDraftKey);
+                const legacyDraft = localStorage.getItem(`draft_remark_as_${l.id}`);
+                
+                // If the lead is pending and has no feedback in DB, clear stale drafts from previous campaigns
+                if (legacyDraft) {
+                    if (l.callStatus === 'pending' || !l.feedback) {
+                        localStorage.removeItem(`draft_remark_as_${l.id}`);
+                    } else if (!savedDraft) {
+                        savedDraft = legacyDraft;
+                    }
+                }
+                if (savedDraft && (l.callStatus !== 'pending' || l.feedback)) {
+                    loadedDrafts[l.id] = savedDraft;
+                }
             });
             setDrafts(loadedDrafts);
         } catch (error) {
@@ -141,6 +154,9 @@ export default function AfterSeminarStaffExecution({ filters, allBatches, setSel
             delete newDrafts[leadId];
             setDrafts(newDrafts);
             localStorage.removeItem(`draft_remark_as_${leadId}`);
+            if (lead?.batchId) {
+                localStorage.removeItem(`draft_remark_as_${leadId}_${lead.batchId}`);
+            }
 
             // 🔥 අලුතෙන් මුළු ලිස්ට් එකම ගන්නෙ නැතුව Local Update කරනවා! (ගොඩක් වෙලා යන එක නවත්තන්න)
             if (res.data && res.data.lead) {

@@ -3,6 +3,7 @@ const prisma = new PrismaClient();
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken'); 
 const bcrypt = require('bcrypt'); // Puluwannam bcryptjs use karanna
+const { getAvatarForPhone } = require('../utils/avatarUtils');
 
 // NIC Validation Logic
 const isValidNIC = (nic) => {
@@ -54,12 +55,17 @@ exports.registerStudent = async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // 🎨 Assign the EXACT avatar allocated to this WhatsApp number automatically until student uploads a custom photo
+    const { dpCode, imagePath } = getAvatarForPhone(phone || whatsapp);
+
     const newUser = await prisma.user.create({
       data: {
         firstName, lastName, phone, whatsapp, optionalPhone,
         nic, addressHouseNo, addressStreet, city, district,
         password: hashedPassword,
-        role: "STUDENT" 
+        role: "STUDENT",
+        image: imagePath,
+        appChatDp: dpCode
       }
     });
 
@@ -129,7 +135,17 @@ exports.loginUser = async (req, res) => {
       { expiresIn: '30d' }
     );
 
-res.status(200).json({
+    let userImage = user.image;
+    if (isStudentAccount && (!userImage || userImage === 'default.png' || userImage === 'null')) {
+      const { dpCode, imagePath } = getAvatarForPhone(user.phone || user.whatsapp);
+      userImage = imagePath;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { image: userImage, appChatDp: dpCode }
+      }).catch(() => {});
+    }
+
+    res.status(200).json({
       message: "Login successful",
       token,
       user: {
@@ -142,7 +158,7 @@ res.status(200).json({
         addressStreet: user.addressStreet,
         city: user.city,
         district: user.district,
-        image: user.image,
+        image: userImage,
         role: user.role,
         department: user.department,
         businessType: user.businessType

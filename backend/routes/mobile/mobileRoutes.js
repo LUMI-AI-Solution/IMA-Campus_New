@@ -86,8 +86,10 @@ router.get('/download-rec/:contentId', verifyToken, mobileStudentController.down
 // 🔥 Proxy Download Route for Direct Extracted MP4 (Bypass DB & Meeting ID entirely)
 router.get('/proxy-stream', verifyToken, mobileStudentController.proxyStreamUrl);
 
-// 🔥 NEW: Staff Dashboard Overview
+// 🔥 NEW: Staff Dashboard Overview & Status
 router.get('/staff/overview', verifyToken, mobileStaffController.getStaffOverview);
+router.post('/staff/fcm-token', verifyToken, mobileStaffController.updateFcmToken);
+router.post('/staff/agent-status', verifyToken, mobileStaffController.updateAgentStatus);
 
 router.get('/yt-redirect', mobileStudentController.ytRedirect);
 router.get('/live-portal', mobileStudentController.getLivePortal);

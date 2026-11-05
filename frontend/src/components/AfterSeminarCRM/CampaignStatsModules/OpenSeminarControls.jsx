@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from '../../../api/axios';
-import { FaUsers, FaUserTie, FaPhoneVolume, FaCheckCircle, FaExclamationCircle, FaChartBar, FaExclamationTriangle, FaCalendarAlt, FaChevronDown, FaChevronUp, FaFileExport, FaTimes, FaCheckSquare, FaRegSquare, FaLayerGroup, FaUserCheck, FaBullseye, FaCrown, FaTrophy } from 'react-icons/fa';
+import { FaUsers, FaUserTie, FaPhoneVolume, FaCheckCircle, FaExclamationCircle, FaChartBar, FaExclamationTriangle, FaCalendarAlt, FaChevronDown, FaChevronUp, FaFileExport, FaTimes, FaCheckSquare, FaRegSquare, FaLayerGroup, FaUserCheck, FaBullseye, FaCrown, FaTrophy, FaLock, FaLockOpen } from 'react-icons/fa';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import toast from 'react-hot-toast';
 import BusinessBadge from '../../common/BusinessBadge';
@@ -74,6 +74,16 @@ export default function OpenSeminarControls({ filters }) {
     const [selectedSingleStaff, setSelectedSingleStaff] = useState('');
     const [selectedMultipleStaff, setSelectedMultipleStaff] = useState([]);
 
+    // 🔒 Campaign Lock State (Manager / Super Admin) 🔒
+    const [isCampaignLocked, setIsCampaignLocked] = useState(false);
+    const [locking, setLocking] = useState(false);
+
+    const currentUser = useMemo(() => {
+        try { return JSON.parse(localStorage.getItem('user')) || {}; } catch(e) { return {}; }
+    }, []);
+    const userRole = (currentUser.role || '').toUpperCase().replace(/[\s_-]+/g, '_');
+    const isManagerOrAdmin = ['SUPER_ADMIN', 'SYSTEM_ADMIN', 'DIRECTOR', 'ADMIN', 'HEAD_MANAGER', 'ASSISTANT_MANAGER', 'MANAGER'].includes(userRole);
+
     const [stats, setStats] = useState({
         totalOpenSem: 0, totalAssigned: 0, totalContacted: 0, totalPending: 0, totalDirectPaid: 0, totalDelayed: 0, totalEnrolled: 0,
         staffBreakdown: [],
@@ -83,6 +93,62 @@ export default function OpenSeminarControls({ filters }) {
     useEffect(() => {
         fetchOpenSemStats();
     }, [filters?.selectedBusiness, filters?.selectedBatch, startDate, endDate]);
+
+    useEffect(() => {
+        fetchCampaignLockStatus();
+    }, [filters?.selectedBatch]);
+
+    const fetchCampaignLockStatus = async () => {
+        if (!filters?.selectedBatch || filters.selectedBatch === 'ALL') {
+            setIsCampaignLocked(false);
+            return;
+        }
+        try {
+            const token = localStorage.getItem('token');
+            const res = await axios.get('/after-seminar-crm/campaign-lock-status', {
+                headers: { Authorization: `Bearer ${token}` },
+                params: { batchId: filters.selectedBatch }
+            });
+            setIsCampaignLocked(Boolean(res.data?.isLocked));
+        } catch (err) {
+            console.error("Failed to fetch lock status", err);
+        }
+    };
+
+    const handleToggleCampaignLock = async () => {
+        if (!filters?.selectedBatch || filters.selectedBatch === 'ALL') {
+            return toast.error("Please select a specific Batch from the top dropdown to Lock/Unlock Opening Seminar campaign.");
+        }
+        if (!isManagerOrAdmin) {
+            return toast.error("Only Managers and Super Admins have permission to lock or unlock campaigns.");
+        }
+
+        const actionText = isCampaignLocked ? "UNLOCK" : "LOCK";
+        const confirmMsg = isCampaignLocked
+            ? "Are you sure you want to UNLOCK the Opening Seminar campaign for this batch? Staff will be able to assign leads again."
+            : "Are you sure you want to LOCK the Opening Seminar campaign for this batch? When locked, no new leads can be assigned to this campaign from chat or CRM.";
+
+        if (!window.confirm(confirmMsg)) return;
+
+        setLocking(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await axios.post('/after-seminar-crm/campaign-toggle-lock', {
+                batchId: filters.selectedBatch,
+                isLocked: !isCampaignLocked
+            }, { headers: { Authorization: `Bearer ${token}` } });
+
+            setIsCampaignLocked(Boolean(res.data?.isLocked));
+            toast.success(res.data?.message || `Campaign ${actionText}ED successfully!`, {
+                icon: res.data?.isLocked ? '🔒' : '🔓',
+                duration: 4000
+            });
+        } catch (err) {
+            toast.error(err.response?.data?.error || "Failed to update campaign lock status");
+        } finally {
+            setLocking(false);
+        }
+    };
 
     const fetchOpenSemStats = async () => {
         if (!filters?.selectedBusiness) {
@@ -283,11 +349,77 @@ export default function OpenSeminarControls({ filters }) {
                     </button>
 
                     {/* MASTER EXPORT BUTTON */}
-                    <button onClick={() => setShowExportModal(true)} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-2">
+                    <button onClick={() => setShowExportModal(true)} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-2 cursor-pointer">
                         <FaFileExport size={12} /> Advanced Export
                     </button>
+
+                    {/* 🔒 CAMPAIGN LOCK / UNLOCK TOGGLE BUTTON (MANAGER / SUPER ADMIN) 🔒 */}
+                    {isManagerOrAdmin && (
+                        <button
+                            type="button"
+                            onClick={handleToggleCampaignLock}
+                            disabled={locking || !filters?.selectedBatch || filters?.selectedBatch === 'ALL'}
+                            className={`px-4 py-2 text-xs font-black uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-2 border cursor-pointer ${
+                                !filters?.selectedBatch || filters?.selectedBatch === 'ALL'
+                                    ? 'bg-slate-800/40 text-slate-500 border-slate-700/50 cursor-not-allowed opacity-60'
+                                    : isCampaignLocked
+                                    ? 'bg-gradient-to-r from-rose-600 to-red-700 hover:from-rose-500 hover:to-red-600 text-white border-red-400 shadow-rose-600/30'
+                                    : 'bg-slate-800/90 hover:bg-slate-700 text-slate-200 border-slate-600 hover:border-slate-400'
+                            }`}
+                            title={
+                                !filters?.selectedBatch || filters?.selectedBatch === 'ALL'
+                                    ? 'Select a specific batch from the top dropdown to Lock/Unlock Opening Seminar campaign'
+                                    : isCampaignLocked
+                                    ? 'Campaign is currently LOCKED for this batch. Click to Unlock.'
+                                    : 'Campaign is Active for this batch. Click to Lock.'
+                            }
+                        >
+                            {locking ? (
+                                <span className="animate-pulse">Updating...</span>
+                            ) : isCampaignLocked ? (
+                                <>
+                                    <FaLock size={12} className="text-white" />
+                                    <span>Campaign Locked</span>
+                                </>
+                            ) : (
+                                <>
+                                    <FaLockOpen size={12} className="text-emerald-400" />
+                                    <span>Lock Campaign</span>
+                                </>
+                            )}
+                        </button>
+                    )}
                 </div>
             </div>
+
+            {/* 🔒 LOCKED CAMPAIGN NOTICE BANNER 🔒 */}
+            {isCampaignLocked && (
+                <div className="bg-gradient-to-r from-red-950/70 via-rose-950/50 to-red-950/70 border border-red-500/40 p-4 rounded-2xl flex items-center justify-between gap-4 shadow-xl shadow-red-950/30 backdrop-blur-md">
+                    <div className="flex items-center gap-3">
+                        <div className="p-2.5 bg-red-500/20 text-red-400 rounded-xl border border-red-500/30 shrink-0">
+                            <FaLock size={18} />
+                        </div>
+                        <div>
+                            <span className="text-xs font-black text-red-200 uppercase tracking-wider block">
+                                🔒 Opening Seminar Campaign Locked for this Batch
+                            </span>
+                            <span className="text-[11px] text-red-300/70 leading-relaxed block mt-0.5">
+                                New lead assignments and batch allocations are disabled in Chat and CRM for this batch.
+                            </span>
+                        </div>
+                    </div>
+                    {isManagerOrAdmin && (
+                        <button
+                            type="button"
+                            onClick={handleToggleCampaignLock}
+                            disabled={locking}
+                            className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md cursor-pointer whitespace-nowrap"
+                        >
+                            {locking ? 'Unlocking...' : 'Unlock Now'}
+                        </button>
+                    )}
+                </div>
+            )}
 
             {/* TOP SUMMARY SECTION */}
             <div className="grid grid-cols-1 xl:grid-cols-5 gap-5">

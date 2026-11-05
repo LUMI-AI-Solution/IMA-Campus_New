@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Search, Users, Activity, CheckCircle, Clock, XCircle, Gift, Tag, Download, ChevronDown, Check } from 'lucide-react';
 
 export default function PaymentFilters({ 
-    isAdmin, isSystemAdmin, isFinance, filters, setFilters, businesses, batches, groups, subjects, stats, onOpenStaffStats, onOpenExport
+    isAdmin, isSystemAdmin, isFinance, filters, setFilters, businesses, batches, groups, subjects, payments, stats, onOpenStaffStats, onOpenExport
 }) {
     const [isSubjectDropdownOpen, setIsSubjectDropdownOpen] = useState(false);
     const dropdownRef = useRef(null);
@@ -19,15 +19,44 @@ export default function PaymentFilters({
 
     const handleChange = (field, value) => {
         if (field === 'businessId') {
-            setFilters(prev => ({ ...prev, [field]: value, batchId: 'All', groupId: 'All', subjectId: [] }));
+            setFilters(prev => ({ ...prev, [field]: value, batchId: 'All', groupId: 'All', subjectId: [], classType: 'All' }));
         } else if (field === 'batchId') {
-            setFilters(prev => ({ ...prev, [field]: value, groupId: 'All', subjectId: [] }));
+            setFilters(prev => ({ ...prev, [field]: value, groupId: 'All', subjectId: [], classType: 'All' }));
         } else {
             setFilters(prev => ({ ...prev, [field]: value }));
         }
     };
 
     const canViewReports = isSystemAdmin || isAdmin || isFinance;
+
+    // Check if selected batch has Theory, Paper, or BOTH
+    const selectedBatchInfo = React.useMemo(() => {
+        if (!filters.batchId || filters.batchId === 'All') {
+            return { isBatchSelected: false, hasTheory: true, hasPaper: true, hasBoth: true, theoryCount: 0, paperCount: 0 };
+        }
+
+        const bIdStr = filters.batchId.toString();
+        // Check groups passed in (they belong to this batch)
+        const groupHasTheory = groups.some(g => parseInt(g.classType || 1, 10) === 1);
+        const groupHasPaper = groups.some(g => parseInt(g.classType || 1, 10) === 2);
+
+        // Also inspect payments matching this batch
+        const batchPayments = payments ? payments.filter(p => (p.batchId || p.batch_id)?.toString() === bIdStr) : [];
+        const theoryPayments = batchPayments.filter(p => parseInt(p.classType || p.group?.classType || 1, 10) === 1);
+        const paperPayments = batchPayments.filter(p => parseInt(p.classType || p.group?.classType || 1, 10) === 2);
+
+        const hasTheory = groupHasTheory || theoryPayments.length > 0;
+        const hasPaper = groupHasPaper || paperPayments.length > 0;
+
+        return {
+            isBatchSelected: true,
+            hasTheory,
+            hasPaper,
+            hasBoth: hasTheory && hasPaper,
+            theoryCount: theoryPayments.length,
+            paperCount: paperPayments.length
+        };
+    }, [filters.batchId, groups, payments]);
 
     return (
         <div className="mb-8 font-sans transition-all duration-300 relative z-[60]">
@@ -56,7 +85,7 @@ export default function PaymentFilters({
                     </div>
                 )}
                 {canViewReports && onOpenExport && (
-                    <div className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 p-5 rounded-2xl flex flex-col justify-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] cursor-pointer hover:bg-emerald-500/20 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] hover:border-emerald-500/40 hover:-translate-y-1 transition-all duration-300 group" onClick={onOpenExport}>
+                    <div className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 p-5 rounded-2xl flex flex-col justify-center shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] cursor-pointer hover:bg-emerald-500/20 hover:shadow-[0_0_20px_rgba(16,185,129,0.18)] hover:border-emerald-500/40 hover:-translate-y-1 transition-all duration-300 group" onClick={() => onOpenExport()}>
                         <p className="text-emerald-400 text-xs font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-2 group-hover:text-emerald-300 transition-colors">
                             <Download size={14} className="text-emerald-400 group-hover:text-emerald-300 transition-colors"/> Payment Report
                         </p>
@@ -99,6 +128,113 @@ export default function PaymentFilters({
                         {batches.map(b => <option key={b.id} value={b.id} className="bg-slate-900 text-white">{b.name}</option>)}
                     </select>
                 </div>
+
+                {/* Batch Stream Toggle & Export Bar (Theory vs Paper) */}
+                {selectedBatchInfo.isBatchSelected && selectedBatchInfo.hasBoth && (
+                    <div className="bg-slate-900/90 border border-brand-accent/40 rounded-2xl p-3.5 flex flex-wrap items-center justify-between gap-3 shadow-lg animate-in fade-in duration-200">
+                        <div className="flex flex-wrap items-center gap-2.5">
+                            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                                Batch Stream:
+                            </span>
+                            
+                            <div className="flex items-center bg-slate-950 p-1 rounded-xl border border-white/10 shadow-inner">
+                                <button
+                                    type="button"
+                                    onClick={() => handleChange('classType', 'All')}
+                                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                        (!filters.classType || filters.classType === 'All')
+                                            ? 'bg-brand-accent text-white shadow-md'
+                                            : 'text-slate-400 hover:text-white'
+                                    }`}
+                                >
+                                    🌐 Both Streams
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleChange('classType', '1')}
+                                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                                        filters.classType === '1'
+                                            ? 'bg-sky-600 text-white shadow-md'
+                                            : 'text-sky-400 hover:text-sky-300'
+                                    }`}
+                                >
+                                    📘 Theory Class {selectedBatchInfo.theoryCount > 0 && <span className="text-[10px] bg-white/20 px-1.5 py-0.2 rounded-full text-white">{selectedBatchInfo.theoryCount}</span>}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => handleChange('classType', '2')}
+                                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer flex items-center gap-1.5 ${
+                                        filters.classType === '2'
+                                            ? 'bg-amber-600 text-white shadow-md'
+                                            : 'text-amber-400 hover:text-amber-300'
+                                    }`}
+                                >
+                                    📝 Paper Class {selectedBatchInfo.paperCount > 0 && <span className="text-[10px] bg-white/20 px-1.5 py-0.2 rounded-full text-white">{selectedBatchInfo.paperCount}</span>}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Dedicated Export Buttons for Theory & Paper Separately! */}
+                        {canViewReports && onOpenExport && (
+                            <div className="flex items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenExport({ classType: '1' })}
+                                    className="px-3 py-1.5 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer hover:-translate-y-0.5"
+                                    title="Export Theory Class Payments Report (Excel/Image)"
+                                >
+                                    <Download size={13} /> Export Theory
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => onOpenExport({ classType: '2' })}
+                                    className="px-3 py-1.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer hover:-translate-y-0.5"
+                                    title="Export Paper Class Payments Report (Excel/Image)"
+                                >
+                                    <Download size={13} /> Export Paper
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                )}
+
+                {/* Single Stream Indicators if not Both */}
+                {selectedBatchInfo.isBatchSelected && !selectedBatchInfo.hasBoth && (
+                    <div className="bg-slate-900/60 border border-white/10 rounded-2xl px-4 py-2.5 flex items-center justify-between text-xs animate-in fade-in">
+                        {selectedBatchInfo.hasTheory ? (
+                            <>
+                                <span className="font-bold text-sky-400 flex items-center gap-1.5">
+                                    📘 Single Stream Batch: Theory Only ({selectedBatchInfo.theoryCount} payments)
+                                </span>
+                                {canViewReports && onOpenExport && (
+                                    <button
+                                        type="button"
+                                        onClick={() => onOpenExport({ classType: '1' })}
+                                        className="px-3 py-1 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/30 text-sky-300 rounded-lg font-bold flex items-center gap-1 text-[11px] cursor-pointer"
+                                    >
+                                        <Download size={12} /> Export Theory Report
+                                    </button>
+                                )}
+                            </>
+                        ) : (
+                            <>
+                                <span className="font-bold text-amber-400 flex items-center gap-1.5">
+                                    📝 Single Stream Batch: Paper Only ({selectedBatchInfo.paperCount} payments)
+                                </span>
+                                {canViewReports && onOpenExport && (
+                                    <button
+                                        type="button"
+                                        onClick={() => onOpenExport({ classType: '2' })}
+                                        className="px-3 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 text-amber-300 rounded-lg font-bold flex items-center gap-1 text-[11px] cursor-pointer"
+                                    >
+                                        <Download size={12} /> Export Paper Report
+                                    </button>
+                                )}
+                            </>
+                        )}
+                    </div>
+                )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <select 

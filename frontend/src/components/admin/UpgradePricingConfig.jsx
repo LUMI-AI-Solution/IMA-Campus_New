@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from '../../api/axios';
-import { Loader2, TrendingUp, Save, CreditCard, Gift, Info, BookOpen, Percent, CheckSquare, Square, Calendar, Plus, Trash2, Image as ImageIcon, UploadCloud } from 'lucide-react';
+import { Loader2, TrendingUp, Save, CreditCard, Gift, Info, BookOpen, Percent, CheckSquare, Square, Calendar, Plus, Trash2, Image as ImageIcon, UploadCloud, ChevronLeft, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 const UpgradePricingConfig = ({ activeBatch, uniqueSubjects }) => {
@@ -31,6 +31,28 @@ const UpgradePricingConfig = ({ activeBatch, uniqueSubjects }) => {
     const [loadingPosts, setLoadingPosts] = useState(false);
     const [uploadingBanner, setUploadingBanner] = useState(false);
 
+    // Theory vs Paper Class Filter State
+    const [classTypeFilter, setClassTypeFilter] = useState('theory'); // 'theory', 'paper', 'all'
+    const [subjectPage, setSubjectPage] = useState(0);
+    const SUBJECTS_PER_PAGE = 6;
+
+    useEffect(() => {
+        if (uniqueSubjects && uniqueSubjects.length > 0) {
+            const hasTheory = uniqueSubjects.some(s => parseInt(s.courseType || s.group?.classType || 1, 10) !== 2);
+            const hasPaper = uniqueSubjects.some(s => parseInt(s.courseType || s.group?.classType || 1, 10) === 2);
+            if (!hasTheory && hasPaper) {
+                setClassTypeFilter('paper');
+            } else {
+                setClassTypeFilter('theory');
+            }
+        }
+        setSubjectPage(0);
+    }, [uniqueSubjects]);
+
+    useEffect(() => {
+        setSubjectPage(0);
+    }, [classTypeFilter]);
+
     const getAverageSubjectPrice = () => {
         if (!uniqueSubjects || uniqueSubjects.length === 0) return 34500;
         const keys = Object.keys(pricingValues.subjects);
@@ -38,7 +60,10 @@ const UpgradePricingConfig = ({ activeBatch, uniqueSubjects }) => {
             const sum = uniqueSubjects.reduce((s, sub) => s + (sub.price || 34500), 0);
             return sum / uniqueSubjects.length;
         }
-        const sum = keys.reduce((s, id) => s + (pricingValues.subjects[id]?.full || 0), 0);
+        const sum = keys.reduce((s, id) => {
+            const optVal = pricingValues.subjects[id]?.[1] ?? pricingValues.subjects[id]?.full;
+            return s + (parseFloat(optVal) || (uniqueSubjects.find(sub => sub.id === parseInt(id))?.price || 34500));
+        }, 0);
         return sum / keys.length;
     };
 
@@ -89,11 +114,15 @@ const UpgradePricingConfig = ({ activeBatch, uniqueSubjects }) => {
                 setFetching(true);
                 const token = localStorage.getItem('token');
                 
-                // Initialize default prices based on uniqueSubjects
+                // Initialize default prices based on uniqueSubjects for Option 1, Option 2, Option 3
                 const initialSubjects = {};
                 uniqueSubjects.forEach(sub => {
+                    const base = sub.price || 34500;
                     initialSubjects[sub.id] = {
-                        full: sub.price || 34500
+                        1: Math.round(base * 0.90),
+                        2: Math.round(base * 0.75),
+                        3: Math.round(base * 0.60),
+                        full: Math.round(base * 0.90)
                     };
                 });
 
@@ -110,10 +139,36 @@ const UpgradePricingConfig = ({ activeBatch, uniqueSubjects }) => {
                 if (res.data) {
                     const { prices, richConfig } = res.data;
 
+                    // 1. Load from richConfig.optionPrices if present
+                    if (richConfig && richConfig.optionPrices) {
+                        Object.keys(richConfig.optionPrices).forEach(cIdStr => {
+                            const cId = parseInt(cIdStr);
+                            if (loadedValues.subjects[cId]) {
+                                const courseOpts = richConfig.optionPrices[cIdStr];
+                                loadedValues.subjects[cId] = {
+                                    ...loadedValues.subjects[cId],
+                                    1: courseOpts[1] !== undefined ? courseOpts[1] : loadedValues.subjects[cId][1],
+                                    2: courseOpts[2] !== undefined ? courseOpts[2] : loadedValues.subjects[cId][2],
+                                    3: courseOpts[3] !== undefined ? courseOpts[3] : loadedValues.subjects[cId][3],
+                                    full: courseOpts[1] !== undefined ? courseOpts[1] : loadedValues.subjects[cId].full
+                                };
+                            }
+                        });
+                    }
+
+                    // 2. Load from UpgradePricing table entries
                     if (prices && Array.isArray(prices)) {
                         prices.forEach(p => {
-                            if (p.planType === 'FULL' && p.courseId) {
-                                loadedValues.subjects[p.courseId] = { full: p.amount };
+                            if (p.planType === 'FULL' && p.courseId && loadedValues.subjects[p.courseId]) {
+                                const optNum = p.installmentNum;
+                                if (optNum === 1 || optNum === 2 || optNum === 3) {
+                                    loadedValues.subjects[p.courseId][optNum] = p.amount;
+                                    if (optNum === 1) loadedValues.subjects[p.courseId].full = p.amount;
+                                } else if (optNum === null && (!richConfig || !richConfig.optionPrices)) {
+                                    // Legacy fallback (Option 1)
+                                    loadedValues.subjects[p.courseId][1] = p.amount;
+                                    loadedValues.subjects[p.courseId].full = p.amount;
+                                }
                             }
                         });
                     }
@@ -183,14 +238,16 @@ const UpgradePricingConfig = ({ activeBatch, uniqueSubjects }) => {
         fetchBatchPrices();
     }, [activeBatch, uniqueSubjects]);
 
-    const handleSubjectPriceChange = (courseId, val) => {
-        const parsedVal = parseFloat(val);
+    const handleOptionPriceChange = (courseId, optionNum, val) => {
+        const parsedVal = val === '' ? '' : parseFloat(val);
         setPricingValues(prev => ({
             ...prev,
             subjects: {
                 ...prev.subjects,
                 [courseId]: {
-                    full: isNaN(parsedVal) ? 0 : parsedVal
+                    ...(prev.subjects[courseId] || {}),
+                    [optionNum]: parsedVal === '' ? '' : (isNaN(parsedVal) ? 0 : parsedVal),
+                    ...(optionNum === 1 ? { full: parsedVal === '' ? '' : (isNaN(parsedVal) ? 0 : parsedVal) } : {})
                 }
             }
         }));
@@ -280,14 +337,29 @@ const UpgradePricingConfig = ({ activeBatch, uniqueSubjects }) => {
         const configs = [];
         const avg = getAverageSubjectPrice();
 
-        // 1. Build subject targets configurations
+        // 1. Build subject targets configurations (Options 1, 2, 3 + legacy fallback)
         Object.keys(pricingValues.subjects).forEach(courseIdStr => {
             const courseId = parseInt(courseIdStr);
-            const amt = parseFloat(pricingValues.subjects[courseId]?.full) || 0;
+            const subOpts = pricingValues.subjects[courseId] || {};
+
+            // Save Option 1, Option 2, Option 3 records
+            [1, 2, 3].forEach(optNum => {
+                const amt = parseFloat(subOpts[optNum]);
+                configs.push({
+                    courseId,
+                    planType: 'FULL',
+                    installmentNum: optNum,
+                    amount: isNaN(amt) ? 0 : amt
+                });
+            });
+
+            // Legacy fallback (installmentNum: null)
+            const fallbackAmt = parseFloat(subOpts[1] !== undefined ? subOpts[1] : subOpts.full) || 0;
             configs.push({
                 courseId,
                 planType: 'FULL',
-                amount: amt
+                installmentNum: null,
+                amount: fallbackAmt
             });
         });
 
@@ -306,6 +378,7 @@ const UpgradePricingConfig = ({ activeBatch, uniqueSubjects }) => {
         }
 
         const richConfig = {
+            optionPrices: pricingValues.subjects,
             enableBundle,
             bundleSubjects,
             bundle2Price,
@@ -366,6 +439,29 @@ const UpgradePricingConfig = ({ activeBatch, uniqueSubjects }) => {
     }
 
     const avgPrice = getAverageSubjectPrice();
+
+    const theorySubjects = (uniqueSubjects || []).filter(s => parseInt(s.courseType || s.group?.classType || 1, 10) !== 2);
+    const paperSubjects = (uniqueSubjects || []).filter(s => parseInt(s.courseType || s.group?.classType || 1, 10) === 2);
+
+    const displayedSubjects = (uniqueSubjects || []).filter(sub => {
+        const classType = parseInt(sub.courseType || sub.group?.classType || 1, 10);
+        if (classTypeFilter === 'theory') return classType !== 2;
+        if (classTypeFilter === 'paper') return classType === 2;
+        return true; // 'all'
+    });
+
+    const totalSubjectPages = Math.ceil(displayedSubjects.length / SUBJECTS_PER_PAGE) || 1;
+    const safePage = Math.min(subjectPage, Math.max(0, totalSubjectPages - 1));
+    const paginatedSubjects = displayedSubjects.slice(
+        safePage * SUBJECTS_PER_PAGE,
+        (safePage + 1) * SUBJECTS_PER_PAGE
+    );
+
+    // Always keep exactly 6 subject column slots to guarantee 100% fixed size without shifting
+    const filledSlots = [...paginatedSubjects];
+    while (filledSlots.length < SUBJECTS_PER_PAGE) {
+        filledSlots.push(null);
+    }
 
     return (
         <div className="space-y-8 relative z-10 w-full text-white">
@@ -508,55 +604,422 @@ const UpgradePricingConfig = ({ activeBatch, uniqueSubjects }) => {
                 </div>
             </div>
 
-            {/* 2. Subject-Specific Upgrade Targets (Fixed Price Setup) */}
-            <div className="space-y-6">
-                <h3 className="text-lg md:text-xl font-black text-white tracking-wide uppercase flex items-center gap-3">
-                    <span className="w-10 h-10 bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 rounded-xl flex items-center justify-center shadow-md">
-                        <BookOpen size={20} />
-                    </span>
-                    Subject Upgrade Prices (Fixed Targets)
-                </h3>
+            {/* 2. Subject-Specific Upgrade Targets (Table Layout for Options 1, 2 & 3) */}
+            <div className="bg-[#121124] border-2 border-white/10 p-6 md:p-8 rounded-[2rem] shadow-xl space-y-6">
+                {/* Section Header with Theory/Paper Filter Pills */}
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 border-b border-white/5 pb-4">
+                    <div className="flex items-center gap-3">
+                        <span className="p-3 bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 rounded-2xl flex items-center justify-center shadow-md shrink-0">
+                            <BookOpen size={22} />
+                        </span>
+                        <div>
+                            <h3 className="text-lg md:text-xl font-black text-white tracking-wide uppercase">
+                                Subject Upgrade Pricing Matrix
+                            </h3>
+                            <p className="text-xs text-gray-400 font-semibold leading-relaxed mt-0.5">
+                                Configure custom upgrade pricing for each subject across 3 monthly upgrade options.
+                            </p>
+                        </div>
+                    </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {uniqueSubjects.map(sub => {
-                        const values = pricingValues.subjects[sub.id] || { full: sub.price || 34500 };
-                        return (
-                            <div key={sub.id} className="bg-[#121124] border-2 border-white/10 p-6 rounded-[2rem] shadow-md flex flex-col justify-between gap-4">
-                                <div className="flex justify-between items-start gap-4">
-                                    <div>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                            <h4 className="text-lg font-black text-white tracking-wide">{sub.name}</h4>
-                                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${parseInt(sub.courseType || 1, 10) === 2 ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-blue-500/20 text-blue-300 border-blue-500/30'}`}>
-                                                {parseInt(sub.courseType || 1, 10) === 2 ? '📝 Paper Class' : '📘 Theory Class'}
-                                            </span>
-                                        </div>
-                                        <p className="text-[10px] text-gray-500 font-extrabold uppercase tracking-wider mt-1">
-                                            Code: {sub.code || 'N/A'} • Stream: {sub.stream || 'General'}
-                                        </p>
-                                    </div>
-                                    <span className="text-xs bg-black/40 border border-white/10 text-gray-300 font-bold px-3 py-1.5 rounded-lg shrink-0">
-                                        Base Price: <span className="text-emerald-400 font-black">{formatCurrency(sub.price || 0)}</span>
-                                    </span>
-                                </div>
+                    {/* Middle: Theory vs Paper Filter Pills (Eliminating Sideways Scroll) */}
+                    <div className="flex items-center bg-black/60 p-1.5 rounded-2xl border border-white/10 shadow-inner flex-wrap gap-1">
+                        <button
+                            type="button"
+                            onClick={() => setClassTypeFilter('theory')}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                classTypeFilter === 'theory'
+                                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/25 scale-[1.02]'
+                                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            <span>📘 Theory Classes</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                                classTypeFilter === 'theory' ? 'bg-black/40 text-blue-200' : 'bg-white/10 text-gray-400'
+                            }`}>
+                                {theorySubjects.length}
+                            </span>
+                        </button>
 
-                                <div className="space-y-2">
-                                    <label className="text-[10px] text-gray-400 font-extrabold uppercase tracking-wider block">
-                                        Full Upgrade Target Price
-                                    </label>
-                                    <div className="relative">
-                                        <span className="absolute left-5 top-1/2 -translate-y-1/2 text-sm font-black text-indigo-400">LKR</span>
-                                        <input 
-                                            type="number" 
-                                            value={values.full ?? ''} 
-                                            onChange={(e) => handleSubjectPriceChange(sub.id, e.target.value)} 
-                                            className="w-full bg-black/55 border border-white/15 focus:border-indigo-500 rounded-xl py-3 pl-14 pr-4 text-md text-white focus:outline-none transition-all font-black"
-                                            placeholder="0.00"
-                                        />
-                                    </div>
+                        <button
+                            type="button"
+                            onClick={() => setClassTypeFilter('paper')}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                classTypeFilter === 'paper'
+                                    ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/25 scale-[1.02]'
+                                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            <span>📝 Paper Classes</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                                classTypeFilter === 'paper' ? 'bg-black/40 text-amber-200' : 'bg-white/10 text-gray-400'
+                            }`}>
+                                {paperSubjects.length}
+                            </span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => setClassTypeFilter('all')}
+                            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer ${
+                                classTypeFilter === 'all'
+                                    ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-500/25 scale-[1.02]'
+                                    : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            }`}
+                        >
+                            <span>All</span>
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
+                                classTypeFilter === 'all' ? 'bg-black/40 text-indigo-200' : 'bg-white/10 text-gray-400'
+                            }`}>
+                                {uniqueSubjects.length}
+                            </span>
+                        </button>
+                    </div>
+
+                    {/* Right Side: Page Navigator & Count Badge */}
+                    <div className="flex items-center gap-2.5 flex-wrap shrink-0">
+                        {totalSubjectPages > 1 && (
+                            <div className="flex items-center gap-2 bg-black/60 px-3 py-1.5 rounded-xl border border-white/10 shadow-inner">
+                                <span className="text-xs font-bold text-gray-300">
+                                    Page <span className="text-indigo-400 font-black">{safePage + 1}</span> of <span className="text-white font-black">{totalSubjectPages}</span>
+                                </span>
+                                <div className="flex items-center gap-1 ml-1 border-l border-white/10 pl-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setSubjectPage(p => Math.max(0, p - 1))}
+                                        disabled={safePage === 0}
+                                        className="p-1 rounded-lg bg-white/5 hover:bg-white/15 text-white disabled:opacity-25 transition-all border border-white/10 active:scale-95 cursor-pointer disabled:cursor-not-allowed"
+                                        title="Previous subjects"
+                                    >
+                                        <ChevronLeft size={16} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSubjectPage(p => Math.min(totalSubjectPages - 1, p + 1))}
+                                        disabled={safePage >= totalSubjectPages - 1}
+                                        className="p-1 rounded-lg bg-white/5 hover:bg-white/15 text-white disabled:opacity-25 transition-all border border-white/10 active:scale-95 cursor-pointer disabled:cursor-not-allowed"
+                                        title="Next subjects"
+                                    >
+                                        <ChevronRight size={16} />
+                                    </button>
                                 </div>
                             </div>
-                        );
-                    })}
+                        )}
+
+                        <div className="flex items-center gap-2 px-3 py-1.5 bg-black/40 border border-white/10 rounded-xl text-xs text-gray-300 font-medium shrink-0">
+                            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                            <span>Showing {displayedSubjects.length > 0 ? safePage * SUBJECTS_PER_PAGE + 1 : 0}–{Math.min((safePage + 1) * SUBJECTS_PER_PAGE, displayedSubjects.length)} of {displayedSubjects.length}</span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Table Container - NO SIDEWAYS SCROLL */}
+                <div className="w-full border border-white/10 rounded-2xl bg-black/30 overflow-hidden shadow-lg">
+                    <table className="w-full text-left border-collapse table-fixed">
+                        {/* Fixed column widths: 1 Option Col + Exactly 6 Subject Cols */}
+                        <colgroup>
+                            <col className="w-[180px] min-w-[180px] max-w-[180px]" />
+                            <col className="w-[calc((100%-180px)/6)]" />
+                            <col className="w-[calc((100%-180px)/6)]" />
+                            <col className="w-[calc((100%-180px)/6)]" />
+                            <col className="w-[calc((100%-180px)/6)]" />
+                            <col className="w-[calc((100%-180px)/6)]" />
+                            <col className="w-[calc((100%-180px)/6)]" />
+                        </colgroup>
+
+                        <thead>
+                            <tr className="border-b border-white/10 bg-white/[0.02]">
+                                {/* 1st Column Header: Upgrade Option */}
+                                <th className="py-4 px-4 text-xs font-black uppercase tracking-wider text-gray-400 w-[180px] border-r border-white/10 bg-[#151426]">
+                                    <div className="flex items-center gap-1.5">
+                                        <span>Upgrade Option</span>
+                                        <span className="text-[10px] text-indigo-400 font-bold bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 rounded">
+                                            3 Tiers
+                                        </span>
+                                    </div>
+                                    <span className="text-[10px] text-gray-500 normal-case font-medium block mt-0.5">
+                                        Student Monthly Tenure
+                                    </span>
+                                </th>
+
+                                {/* 2nd Column Onwards: Always Exactly 6 Fixed Slots */}
+                                {filledSlots.map((sub, idx) => {
+                                    if (!sub) {
+                                        return (
+                                            <th key={`slot-header-${idx}`} className="py-3 px-2 border-r border-white/5 last:border-r-0 bg-white/[0.01]">
+                                                <div className="h-10 border border-dashed border-white/5 rounded-xl flex items-center justify-center text-[10px] text-gray-700 select-none">
+                                                    -
+                                                </div>
+                                            </th>
+                                        );
+                                    }
+                                    const classType = parseInt(sub.courseType || sub.group?.classType || 1, 10);
+                                    const isPaper = classType === 2;
+                                    return (
+                                        <th key={sub.id} className="py-3 px-2 text-left align-top border-r border-white/5 last:border-r-0">
+                                            <div className="space-y-1">
+                                                <div className="flex items-center justify-between gap-1">
+                                                    <span className="text-xs font-black text-white tracking-wide truncate max-w-[85px] lg:max-w-[110px]" title={sub.name}>
+                                                        {sub.name}
+                                                    </span>
+                                                    <span className={`text-[8px] font-black uppercase px-1 py-0.5 rounded border shrink-0 ${
+                                                        isPaper 
+                                                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' 
+                                                            : 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+                                                    }`}>
+                                                        {isPaper ? '📝 Paper' : '📘 Theory'}
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-1 flex-wrap">
+                                                    <span className="text-[9px] text-gray-500 font-bold uppercase tracking-wider truncate max-w-[45px]">
+                                                        {sub.code || `ID:${sub.id}`}
+                                                    </span>
+                                                    <span className="text-[9px] font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1 py-0.5 rounded shrink-0">
+                                                        {formatCurrency(sub.price || 0)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </th>
+                                    );
+                                })}
+                            </tr>
+                        </thead>
+
+                        <tbody className="divide-y divide-white/5">
+                            {/* ROW 1: OPTION 1 */}
+                            <tr className="hover:bg-white/[0.02] transition-colors group">
+                                <td className="py-4 px-4 border-r border-white/10 bg-[#151426]">
+                                    <div className="space-y-0.5">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="px-2 py-0.5 bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 rounded-md text-[11px] font-black uppercase tracking-wider">
+                                                Option 01
+                                            </span>
+                                            <span className="text-[10px] text-gray-400 font-bold">1 Mo Paid</span>
+                                        </div>
+                                        <h4 className="text-xs font-black text-white">Month 2 Upgrade</h4>
+                                        <p className="text-[10px] text-gray-400 font-medium leading-tight">
+                                            Upgrading from 2nd month.
+                                        </p>
+                                    </div>
+                                </td>
+
+                                {filledSlots.map((sub, idx) => {
+                                    if (!sub) {
+                                        return (
+                                            <td key={`empty-opt1-${idx}`} className="py-3 px-2 border-r border-white/5 last:border-r-0 bg-white/[0.01]">
+                                                <div className="h-9 border border-dashed border-white/5 rounded-xl"></div>
+                                            </td>
+                                        );
+                                    }
+                                    const optVal = pricingValues.subjects[sub.id]?.[1] ?? '';
+                                    const base = sub.price || 34500;
+                                    const diff = base - (parseFloat(optVal) || 0);
+                                    return (
+                                        <td key={sub.id} className="py-3 px-2 align-middle border-r border-white/5 last:border-r-0">
+                                            <div className="space-y-1">
+                                                <div className="relative">
+                                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-black text-emerald-400">
+                                                        LKR
+                                                    </span>
+                                                    <input
+                                                        type="number"
+                                                        value={optVal}
+                                                        onChange={(e) => handleOptionPriceChange(sub.id, 1, e.target.value)}
+                                                        placeholder="0.00"
+                                                        className="w-full bg-black/60 border border-white/15 focus:border-emerald-500 rounded-xl py-2 pl-9 pr-2 text-xs text-white font-black focus:outline-none transition-all shadow-inner"
+                                                    />
+                                                </div>
+                                                {optVal > 0 && diff > 0 ? (
+                                                    <span className="text-[9px] text-emerald-400/90 font-bold block truncate pl-0.5">
+                                                        Save LKR {Math.round(diff).toLocaleString()}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[9px] text-gray-600 block pl-0.5 truncate select-none">
+                                                        Base: {Math.round(base).toLocaleString()}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
+                                    );
+                                })}
+                            </tr>
+
+                            {/* ROW 2: OPTION 2 */}
+                            <tr className="hover:bg-white/[0.02] transition-colors group">
+                                <td className="py-4 px-4 border-r border-white/10 bg-[#151426]">
+                                    <div className="space-y-0.5">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="px-2 py-0.5 bg-blue-500/20 border border-blue-500/40 text-blue-300 rounded-md text-[11px] font-black uppercase tracking-wider">
+                                                Option 02
+                                            </span>
+                                            <span className="text-[10px] text-gray-400 font-bold">2 Mos Paid</span>
+                                        </div>
+                                        <h4 className="text-xs font-black text-white">Month 3 Upgrade</h4>
+                                        <p className="text-[10px] text-gray-400 font-medium leading-tight">
+                                            Upgrading from 3rd month.
+                                        </p>
+                                    </div>
+                                </td>
+
+                                {filledSlots.map((sub, idx) => {
+                                    if (!sub) {
+                                        return (
+                                            <td key={`empty-opt2-${idx}`} className="py-3 px-2 border-r border-white/5 last:border-r-0 bg-white/[0.01]">
+                                                <div className="h-9 border border-dashed border-white/5 rounded-xl"></div>
+                                            </td>
+                                        );
+                                    }
+                                    const optVal = pricingValues.subjects[sub.id]?.[2] ?? '';
+                                    const base = sub.price || 34500;
+                                    const diff = base - (parseFloat(optVal) || 0);
+                                    return (
+                                        <td key={sub.id} className="py-3 px-2 align-middle border-r border-white/5 last:border-r-0">
+                                            <div className="space-y-1">
+                                                <div className="relative">
+                                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-black text-blue-400">
+                                                        LKR
+                                                    </span>
+                                                    <input
+                                                        type="number"
+                                                        value={optVal}
+                                                        onChange={(e) => handleOptionPriceChange(sub.id, 2, e.target.value)}
+                                                        placeholder="0.00"
+                                                        className="w-full bg-black/60 border border-white/15 focus:border-blue-500 rounded-xl py-2 pl-9 pr-2 text-xs text-white font-black focus:outline-none transition-all shadow-inner"
+                                                    />
+                                                </div>
+                                                {optVal > 0 && diff > 0 ? (
+                                                    <span className="text-[9px] text-blue-400/90 font-bold block truncate pl-0.5">
+                                                        Save LKR {Math.round(diff).toLocaleString()}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[9px] text-gray-600 block pl-0.5 truncate select-none">
+                                                        Base: {Math.round(base).toLocaleString()}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
+                                    );
+                                })}
+                            </tr>
+
+                            {/* ROW 3: OPTION 3 */}
+                            <tr className="hover:bg-white/[0.02] transition-colors group">
+                                <td className="py-4 px-4 border-r border-white/10 bg-[#151426]">
+                                    <div className="space-y-0.5">
+                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                            <span className="px-2 py-0.5 bg-amber-500/20 border border-amber-500/40 text-amber-300 rounded-md text-[11px] font-black uppercase tracking-wider">
+                                                Option 03
+                                            </span>
+                                            <span className="text-[9px] font-black text-rose-400 bg-rose-500/10 border border-rose-500/20 px-1 py-0.5 rounded">
+                                                Final
+                                            </span>
+                                        </div>
+                                        <h4 className="text-xs font-black text-white">Month 4 Upgrade</h4>
+                                        <p className="text-[10px] text-gray-400 font-medium leading-tight">
+                                            Upgrading from 4th month.
+                                        </p>
+                                    </div>
+                                </td>
+
+                                {filledSlots.map((sub, idx) => {
+                                    if (!sub) {
+                                        return (
+                                            <td key={`empty-opt3-${idx}`} className="py-3 px-2 border-r border-white/5 last:border-r-0 bg-white/[0.01]">
+                                                <div className="h-9 border border-dashed border-white/5 rounded-xl"></div>
+                                            </td>
+                                        );
+                                    }
+                                    const optVal = pricingValues.subjects[sub.id]?.[3] ?? '';
+                                    const base = sub.price || 34500;
+                                    const diff = base - (parseFloat(optVal) || 0);
+                                    return (
+                                        <td key={sub.id} className="py-3 px-2 align-middle border-r border-white/5 last:border-r-0">
+                                            <div className="space-y-1">
+                                                <div className="relative">
+                                                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] font-black text-amber-400">
+                                                        LKR
+                                                    </span>
+                                                    <input
+                                                        type="number"
+                                                        value={optVal}
+                                                        onChange={(e) => handleOptionPriceChange(sub.id, 3, e.target.value)}
+                                                        placeholder="0.00"
+                                                        className="w-full bg-black/60 border border-white/15 focus:border-amber-500 rounded-xl py-2 pl-9 pr-2 text-xs text-white font-black focus:outline-none transition-all shadow-inner"
+                                                    />
+                                                </div>
+                                                {optVal > 0 && diff > 0 ? (
+                                                    <span className="text-[9px] text-amber-400/90 font-bold block truncate pl-0.5">
+                                                        Save LKR {Math.round(diff).toLocaleString()}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[9px] text-gray-600 block pl-0.5 truncate select-none">
+                                                        Base: {Math.round(base).toLocaleString()}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
+                                    );
+                                })}
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                {/* Bottom Pagination Bar when multiple pages exist */}
+                {totalSubjectPages > 1 && (
+                    <div className="flex flex-col sm:flex-row justify-between items-center gap-3 bg-black/40 border border-white/10 px-5 py-3 rounded-2xl">
+                        <span className="text-xs text-gray-400 font-medium">
+                            Viewing subjects <strong className="text-white">{safePage * SUBJECTS_PER_PAGE + 1} to {Math.min((safePage + 1) * SUBJECTS_PER_PAGE, displayedSubjects.length)}</strong> of <strong className="text-white">{displayedSubjects.length}</strong>
+                        </span>
+                        <div className="flex items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setSubjectPage(p => Math.max(0, p - 1))}
+                                disabled={safePage === 0}
+                                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/15 text-white disabled:opacity-30 border border-white/10 text-xs font-black uppercase tracking-wider transition-all cursor-pointer disabled:cursor-not-allowed active:scale-95"
+                            >
+                                <ChevronLeft size={14} /> Previous
+                            </button>
+                            <div className="flex items-center gap-1">
+                                {Array.from({ length: totalSubjectPages }).map((_, i) => (
+                                    <button
+                                        key={i}
+                                        type="button"
+                                        onClick={() => setSubjectPage(i)}
+                                        className={`w-7 h-7 rounded-lg text-xs font-black transition-all cursor-pointer ${
+                                            safePage === i 
+                                                ? 'bg-indigo-600 text-white shadow-md' 
+                                                : 'bg-white/5 hover:bg-white/10 text-gray-400'
+                                        }`}
+                                    >
+                                        {i + 1}
+                                    </button>
+                                ))}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setSubjectPage(p => Math.min(totalSubjectPages - 1, p + 1))}
+                                disabled={safePage >= totalSubjectPages - 1}
+                                className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-white/5 hover:bg-white/15 text-white disabled:opacity-30 border border-white/10 text-xs font-black uppercase tracking-wider transition-all cursor-pointer disabled:cursor-not-allowed active:scale-95"
+                            >
+                                Next <ChevronRight size={14} />
+                            </button>
+                        </div>
+                    </div>
+                )}
+
+                {/* Information & Business Rule Notice */}
+                <div className="bg-gradient-to-r from-amber-500/10 via-purple-500/10 to-indigo-500/10 border border-amber-500/25 p-4 rounded-2xl flex items-start gap-3">
+                    <Info className="text-amber-400 shrink-0 mt-0.5" size={18} />
+                    <div className="text-xs space-y-1">
+                        <p className="font-black text-amber-300 uppercase tracking-wide">
+                            Business Policy: Maximum 3 Months Eligibility Window
+                        </p>
+                        <p className="text-gray-300 font-medium leading-relaxed">
+                            Students are eligible to transition from Monthly to Full Card only within their first 3 paid monthly cycles (Options 1, 2, and 3). 
+                            Once a student has paid for <strong className="text-white">4 or more months</strong>, the Full Upgrade option is automatically discontinued and hidden for that student.
+                        </p>
+                    </div>
                 </div>
             </div>
 

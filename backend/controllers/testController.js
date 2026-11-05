@@ -146,6 +146,8 @@ const injectPayment = async (req, res) => {
         let student = await prisma.user.findUnique({ where: { phone } });
         if (!student) {
             const hashedPassword = await bcrypt.hash('123456', 10);
+            const randomAvatarNum = Math.floor(Math.random() * 20) + 1;
+            const dpCode = `${String(randomAvatarNum).padStart(2, '0')}.jpg`;
             student = await prisma.user.create({
                 data: {
                     firstName: "Mock",
@@ -153,6 +155,8 @@ const injectPayment = async (req, res) => {
                     phone: phone,
                     password: hashedPassword,
                     role: "Student",
+                    image: `chat_dps/${dpCode}`,
+                    appChatDp: dpCode,
                     createdAt: new Date(customDate),
                     updatedAt: new Date(customDate)
                 }

@@ -59,6 +59,7 @@ model User {
   agentStatus            String  @default("OFFLINE") // OFFLINE, ACTIVE, LUNCH, AWAY, IN_CALL
   extension              String?
   hasCallChannel         Boolean @default(false)
+  fcmToken               String? @db.Text
 
   systemAuditLogs        SystemAuditLog[]
   actionedCallLogs       CallCampaignAuditLog[] @relation("ActionedCallCampaignLogs")
@@ -66,6 +67,13 @@ model User {
   blockedNumbers         BlockedNumber[]        @relation("BlockedByUser")
   missedCallTasksAssigned MissedCallTask[]      @relation("MissedCallTaskAssignee")
   missedCallTasksManaged  MissedCallTask[]      @relation("MissedCallTaskAssignedBy")
+
+  pettyCashRequested       PettyCashTransaction[] @relation("PettyCashRequester")
+  pettyCashApproved        PettyCashTransaction[] @relation("PettyCashAdminManager")
+  pettyCashIssued          PettyCashTransaction[] @relation("PettyCashIssuedBy")
+  pettyCashVerified        PettyCashTransaction[] @relation("PettyCashVerifiedBy")
+  pettyCashAuditLogs       PettyCashAuditLog[]    @relation("PettyCashAuditUser")
+  pettyCashReloadsPerformed PettyCashReload[]     @relation("PettyCashReloadPerformedBy")
 }
 
 model Business {
@@ -102,6 +110,10 @@ model Business {
   whatsappCalls WhatsAppCallRecord[]
   missedCallTasks MissedCallTask[]
   whatsappBillingRecords WhatsAppBillingRecord[]
+
+  pettyCashAccount        PettyCashAccount?
+  pettyCashTransactions   PettyCashTransaction[]
+  pettyCashReloads        PettyCashReload[]
 }
 
 model Batch {
@@ -1623,4 +1635,137 @@ model WhatsappRotator {
   updatedAt   DateTime @updatedAt
 
   @@index([campaign, isActive, orderIndex])
+}
+
+// ==========================================
+// PETTY CASH MANAGEMENT SYSTEM MODELS
+// ==========================================
+
+model PettyCashAccount {
+  id                  Int      @id @default(autoincrement())
+  businessId          Int      @unique
+  business            Business @relation(fields: [businessId], references: [id])
+  fundLimit           Float    @default(50000.0) // Max allocated petty cash fund limit
+  currentBalance      Float    @default(0.0)     // Actual available petty cash balance
+  minBalanceThreshold Float    @default(10000.0) // Minimum threshold triggering reload warning
+  status              String   @default("ACTIVE") // ACTIVE, SUSPENDED
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  transactions        PettyCashTransaction[]
+  reloads             PettyCashReload[]
+
+  @@index([businessId, status])
+}
+
+model PettyCashTransaction {
+  id                    Int               @id @default(autoincrement())
+  transactionNo         String            @unique // Unique ID: e.g. PCT-2026-0001
+  
+  businessId            Int
+  business              Business          @relation(fields: [businessId], references: [id])
+  accountId             Int
+  account               PettyCashAccount  @relation(fields: [accountId], references: [id])
+  
+  requesterId           Int
+  requester             User              @relation("PettyCashRequester", fields: [requesterId], references: [id])
+
+  status                String            @default("PENDING_APPROVAL") 
+  // PENDING_APPROVAL, APPROVED, REJECTED, RETURNED_FOR_CHANGES, CASH_ISSUED, CASH_RECEIVED, RECEIPT_SUBMITTED, RETURNED_FOR_CORRECTION, VERIFIED, SETTLED
+
+  // 1. Request Details
+  category              String            // OFFICE_SUPPLIES, REFRESHMENTS, TRAVEL, REPAIRS, MARKETING, UTILITIES, OTHER
+  requestedAmount       Float
+  purpose               String            @db.Text
+  requiredDate          DateTime
+  additionalNotes       String?           @db.Text
+  requestSlipNo         String?           // e.g. REQ-ESLIP-0001
+  requestedAt           DateTime          @default(now())
+
+  // 2. Admin Manager Approval Details
+  adminManagerId        Int?
+  adminManager          User?             @relation("PettyCashAdminManager", fields: [adminManagerId], references: [id])
+  approvedAmount        Float?
+  approvalComments      String?           @db.Text
+  rejectionReason       String?           @db.Text
+  returnForChangesNote  String?           @db.Text
+  approvalSlipNo        String?           // e.g. APP-ESLIP-0001
+  approvedAt            DateTime?
+
+  // 3. Cash Issue Details
+  issuedByOfficerId     Int?
+  issuedByOfficer       User?             @relation("PettyCashIssuedBy", fields: [issuedByOfficerId], references: [id])
+  cashIssuedAmount      Float?
+  cashIssueSlipNo       String?           // e.g. ISS-ESLIP-0001
+  cashIssuedAt          DateTime?
+  
+  // Digital Confirmation of Cash Received by Manager
+  cashReceivedConfirmed Boolean           @default(false)
+  cashReceivedAt         DateTime?
+
+  // 4. Expense & Mandatory Receipt Details
+  actualSpentAmount     Float?
+  cashReturnedAmount    Float?            @default(0.0) // Difference: cashIssuedAmount - actualSpentAmount
+  receiptNo             String?
+  vendorName            String?
+  expenseDate           DateTime?
+  expenseDescription    String?           @db.Text
+  receiptAttachment     String?           // Path to uploaded receipt/invoice file
+  receiptSubmittedAt    DateTime?
+
+  // 5. Receipt Verification & Settlement Details
+  verifiedByOfficerId   Int?
+  verifiedByOfficer     User?             @relation("PettyCashVerifiedBy", fields: [verifiedByOfficerId], references: [id])
+  verificationComments  String?           @db.Text
+  returnCorrectionNote  String?           @db.Text
+  verifiedAt            DateTime?
+  finalSettlementSlipNo String?           // e.g. SET-ESLIP-0001
+  settledAt             DateTime?
+
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  auditLogs             PettyCashAuditLog[]
+
+  @@index([businessId, status])
+  @@index([requesterId, status])
+  @@index([status])
+}
+
+model PettyCashReload {
+  id               Int              @id @default(autoincrement())
+  reloadNo         String           @unique // e.g. PCR-2026-0001
+  businessId       Int
+  business         Business         @relation(fields: [businessId], references: [id])
+  accountId        Int
+  account          PettyCashAccount @relation(fields: [accountId], references: [id])
+  amount           Float
+  previousBalance  Float
+  newBalance       Float
+  performedById    Int
+  performedBy      User             @relation("PettyCashReloadPerformedBy", fields: [performedById], references: [id])
+  notes            String?          @db.Text
+  createdAt        DateTime         @default(now())
+
+  @@index([businessId])
+  @@index([accountId])
+}
+
+model PettyCashAuditLog {
+  id             Int                   @id @default(autoincrement())
+  transactionId  Int?
+  transaction    PettyCashTransaction? @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  userId         Int?
+  user           User?                 @relation("PettyCashAuditUser", fields: [userId], references: [id])
+  userName       String
+  userRole       String
+  action         String                // REQUEST_CREATED, REQUEST_APPROVED, REQUEST_REJECTED, REQUEST_RETURNED, CASH_ISSUED, CASH_CONFIRMED, RECEIPT_SUBMITTED, RECEIPT_RETURNED, RECEIPT_VERIFIED, TRANSACTION_SETTLED, FUND_RELOADED
+  previousStatus String?
+  newStatus      String?
+  comments       String?               @db.Text
+  createdAt      DateTime              @default(now())
+
+  @@index([transactionId])
+  @@index([userId])
+  @@index([action])
 }

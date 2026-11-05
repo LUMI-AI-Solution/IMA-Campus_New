@@ -158,6 +158,7 @@ exports.getBusinessLeads = async (req, res) => {
 exports.updateProgress = async (req, res) => {
     try {
         const agentId = req.user?.id || req.user?.userId;
+        const userRole = String(req.user?.role || '').toUpperCase();
         const { leadId, leadStatus, payPlan, callMethod, attempts, feedback, callOutcome } = req.body;
 
         const lead = await prisma.lead.findUnique({
@@ -165,8 +166,12 @@ exports.updateProgress = async (req, res) => {
         });
 
         if (!lead) return res.status(404).json({ error: "Lead not found" });
-        if (lead.assignedTo !== parseInt(agentId)) {
-            return res.status(403).json({ error: "Access denied." });
+
+        // Allow Admins, Super Admins, and Managers to update progress without restriction.
+        // For regular callers, verify assignment or allow claiming unassigned leads.
+        const isManagerOrAdmin = ['ADMIN', 'SUPER', 'SUPER_ADMIN', 'SYSTEM_ADMIN', 'MANAGER', 'ASS_MANAGER', 'HEAD_MANAGER', 'CALL_CENTER_MANAGER'].some(r => userRole.includes(r));
+        if (!isManagerOrAdmin && lead.assignedTo && lead.assignedTo !== parseInt(agentId)) {
+            return res.status(403).json({ error: "Access denied. Lead not assigned to you." });
         }
 
         const updateData = {};
@@ -174,7 +179,6 @@ exports.updateProgress = async (req, res) => {
         const isRoundTwo = parseInt(roundNum) === 2;
         
         // For Round 1 (base lead) or Round 2 (LeadRoundProgress)
-        // Note: we only update the active table.
         if (isRoundTwo) {
             if (callMethod) updateData.callMethod = callMethod;
             if (attempts !== undefined) updateData.callAttempt = parseInt(attempts);
@@ -183,29 +187,64 @@ exports.updateProgress = async (req, res) => {
             if (callOutcome) {
                 updateData.callStatus = callOutcome;
                 let currentPhase = 1;
-                const progressRecord = await prisma.leadRoundProgress.findUnique({
-                    where: { leadId_roundNum: { leadId: parseInt(leadId), roundNum: 2 } }
-                });
-                if (progressRecord) currentPhase = progressRecord.phase;
 
-                if (callOutcome === 'NO_ANSWER') {
+                // Find existing Round 2 record safely via findFirst
+                const progressRecord = await prisma.leadRoundProgress.findFirst({
+                    where: { leadId: parseInt(leadId), roundNum: 2 }
+                });
+                if (progressRecord) currentPhase = progressRecord.phase || 1;
+
+                if (callOutcome.toUpperCase() === 'NO_ANSWER') {
                     if (currentPhase < 3) {
                         updateData.phase = currentPhase + 1;
                     }
                 }
             }
 
-            const updatedProgress = await prisma.leadRoundProgress.upsert({
-                where: {
-                    leadId_roundNum: { leadId: parseInt(leadId), roundNum: 2 }
-                },
-                update: updateData,
-                create: {
-                    leadId: parseInt(leadId),
-                    roundNum: 2,
-                    ...updateData
-                }
+            // Find or create Round 2 record without crashing on compound key
+            const existingProgress = await prisma.leadRoundProgress.findFirst({
+                where: { leadId: parseInt(leadId), roundNum: 2 }
             });
+
+            let updatedProgress;
+            if (existingProgress) {
+                updatedProgress = await prisma.leadRoundProgress.update({
+                    where: { id: existingProgress.id },
+                    data: updateData
+                });
+            } else {
+                let category = 'DEFAULT';
+                if (lead.campaignType === 'BRIDGE' || lead.source === 'bridge_transfer') category = 'BRIDGE';
+                else if (lead.campaignType === 'OPEN_SEMINAR') category = 'OPEN_SEM';
+                else if (lead.campaignType === 'NEW_INQ') category = 'NEW_INQ';
+                else if (lead.campaignType === 'PAID') category = 'PAID';
+
+                updatedProgress = await prisma.leadRoundProgress.create({
+                    data: {
+                        leadId: parseInt(leadId),
+                        roundNum: 2,
+                        campaignCategory: category,
+                        phase: 1,
+                        ...updateData
+                    }
+                });
+            }
+
+            // Also keep base Lead timestamp, feedback, and callCenterStatus synced
+            const baseLeadUpdate = { updatedAt: new Date() };
+            if (feedback !== undefined) baseLeadUpdate.feedback = feedback;
+            if (['ANSWERED', 'REJECT'].includes((callOutcome || '').toUpperCase())) {
+                baseLeadUpdate.callCenterStatus = 'completed';
+            }
+            if (!lead.assignedTo && agentId) {
+                baseLeadUpdate.assignedTo = parseInt(agentId);
+                baseLeadUpdate.assignedAt = new Date();
+            }
+            await prisma.lead.update({
+                where: { id: parseInt(leadId) },
+                data: baseLeadUpdate
+            });
+
             return res.status(200).json(safeJson(updatedProgress));
 
         } else {
@@ -219,9 +258,10 @@ exports.updateProgress = async (req, res) => {
             if (callOutcome) {
                 updateData.callStatus = callOutcome;
                 
-                if (callOutcome === 'NO_ANSWER') {
-                    if (lead.phase < 3) {
-                        updateData.phase = lead.phase + 1;
+                if (callOutcome.toUpperCase() === 'NO_ANSWER') {
+                    const curPhase = lead.phase || 1;
+                    if (curPhase < 3) {
+                        updateData.phase = curPhase + 1;
                         updateData.callCenterStatus = 'pending';
                     } else {
                         updateData.callCenterStatus = 'completed';
@@ -231,10 +271,52 @@ exports.updateProgress = async (req, res) => {
                 }
             }
 
+            // Sync campaign-specific prefix fields if applicable
+            let prefix = '';
+            if (lead.campaignType === 'OPEN_SEMINAR') prefix = 'openSem';
+            else if (lead.campaignType === 'NEW_INQ') prefix = 'newInq';
+            else if (lead.campaignType === 'PAID') prefix = 'paid';
+
+            if (prefix) {
+                if (feedback !== undefined) updateData[`${prefix}Feedback`] = feedback;
+                if (callOutcome) updateData[`${prefix}CallStatus`] = callOutcome;
+                if (callMethod) updateData[`${prefix}CallMethod`] = callMethod;
+                if (updateData.phase) updateData[`${prefix}Phase`] = updateData.phase;
+                if (updateData.callAttempt) updateData[`${prefix}CallAttempt`] = updateData.callAttempt;
+            }
+
+            if (!lead.assignedTo && agentId) {
+                updateData.assignedTo = parseInt(agentId);
+                updateData.assignedAt = new Date();
+            }
+
+            updateData.updatedAt = new Date();
+
             const updatedLead = await prisma.lead.update({
                 where: { id: parseInt(leadId) },
                 data: updateData
             });
+
+            // If there's an existing Round 1 progress in leadRoundProgress, sync it too
+            try {
+                const r1Progress = await prisma.leadRoundProgress.findFirst({
+                    where: { leadId: parseInt(leadId), roundNum: 1 }
+                });
+                if (r1Progress) {
+                    const r1Data = {};
+                    if (callMethod) r1Data.callMethod = callMethod;
+                    if (attempts !== undefined) r1Data.callAttempt = parseInt(attempts);
+                    if (feedback !== undefined) r1Data.feedback = feedback;
+                    if (callOutcome) r1Data.callStatus = callOutcome;
+                    if (updateData.phase) r1Data.phase = updateData.phase;
+                    await prisma.leadRoundProgress.update({
+                        where: { id: r1Progress.id },
+                        data: r1Data
+                    });
+                }
+            } catch (err) {
+                console.error("Warning syncing R1 progress:", err);
+            }
 
             return res.status(200).json(safeJson(updatedLead));
         }
@@ -243,3 +325,4 @@ exports.updateProgress = async (req, res) => {
         res.status(500).json({ error: "Failed to update progress" });
     }
 };
+

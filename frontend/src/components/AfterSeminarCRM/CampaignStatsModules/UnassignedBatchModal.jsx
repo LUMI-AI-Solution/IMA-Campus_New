@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from '../../../api/axios';
-import { FaTimes, FaLayerGroup, FaCheckCircle, FaSearch, FaCommentDots, FaUser } from 'react-icons/fa';
+import { FaTimes, FaLayerGroup, FaCheckCircle, FaSearch, FaCommentDots, FaUser, FaLock } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 
 export default function UnassignedBatchModal({ isOpen, onClose, businessId, onBatchAssigned }) {
@@ -10,6 +10,7 @@ export default function UnassignedBatchModal({ isOpen, onClose, businessId, onBa
     const [selectedBatchId, setSelectedBatchId] = useState('');
     const [selectedLeadIds, setSelectedLeadIds] = useState([]);
     const [searchQuery, setSearchQuery] = useState('');
+    const [lockedBatchesMap, setLockedBatchesMap] = useState({});
 
     // Chat Modal State
     const [chatLead, setChatLead] = useState(null);
@@ -20,8 +21,23 @@ export default function UnassignedBatchModal({ isOpen, onClose, businessId, onBa
         if (isOpen && businessId) {
             fetchUnassignedLeads();
             fetchBusinessBatches();
+            fetchCampaignLocks();
         }
     }, [isOpen, businessId]);
+
+    const fetchCampaignLocks = async () => {
+        try {
+            const token = localStorage.getItem('token');
+            const res = await axios.get('/after-seminar-crm/campaign-lock-status', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.data?.lockedMap) {
+                setLockedBatchesMap(res.data.lockedMap);
+            }
+        } catch (e) {
+            console.error("fetchCampaignLocks error:", e);
+        }
+    };
 
     const fetchUnassignedLeads = async () => {
         setLoading(true);
@@ -86,6 +102,9 @@ export default function UnassignedBatchModal({ isOpen, onClose, businessId, onBa
         }
     };
 
+    const isTargetBatchLocked = Boolean(selectedBatchId && lockedBatchesMap[selectedBatchId]);
+    const hasOpenSemLead = leads.some(l => selectedLeadIds.includes(l.id) && (l.inquiryType === 'OPEN_SEMINAR' || l.inquiryType === 'NORMAL'));
+
     const handleAssignToBatch = async () => {
         if (!selectedBatchId) {
             toast.error("Please select a target Batch");
@@ -93,6 +112,10 @@ export default function UnassignedBatchModal({ isOpen, onClose, businessId, onBa
         }
         if (selectedLeadIds.length === 0) {
             toast.error("Please select at least one lead");
+            return;
+        }
+        if (isTargetBatchLocked && hasOpenSemLead) {
+            toast.error("Open Seminar campaign for this batch is locked! Cannot assign Open Seminar leads to it.");
             return;
         }
 
@@ -109,7 +132,8 @@ export default function UnassignedBatchModal({ isOpen, onClose, businessId, onBa
             onClose();
             if (onBatchAssigned) onBatchAssigned();
         } catch (error) {
-            toast.error("Failed to assign leads to batch");
+            const errMsg = error.response?.data?.error || "Failed to assign leads to batch";
+            toast.error(errMsg);
         }
     };
 
@@ -142,7 +166,7 @@ export default function UnassignedBatchModal({ isOpen, onClose, businessId, onBa
                 </div>
 
                 {/* Controls */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 relative z-10">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 relative z-10">
                     <div className="flex items-center bg-black/40 border border-white/10 rounded-xl px-3 py-2">
                         <FaSearch className="text-slate-400 mr-2" size={14} />
                         <input
@@ -161,17 +185,33 @@ export default function UnassignedBatchModal({ isOpen, onClose, businessId, onBa
                     >
                         <option value="" className="bg-slate-900">Select Target Batch...</option>
                         {batches.map(b => (
-                            <option key={b.id} value={b.id} className="bg-slate-900">{b.name}</option>
+                            <option key={b.id} value={b.id} className="bg-slate-900">
+                                {b.name} {lockedBatchesMap[b.id] ? '🔒 [Open Sem Locked]' : ''}
+                            </option>
                         ))}
                     </select>
 
                     <button
+                        disabled={isTargetBatchLocked && hasOpenSemLead}
                         onClick={handleAssignToBatch}
-                        className="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all flex items-center justify-center gap-2"
+                        className={`px-4 py-2 font-bold text-xs uppercase tracking-wider rounded-xl shadow-lg transition-all flex items-center justify-center gap-2 ${
+                            isTargetBatchLocked && hasOpenSemLead
+                                ? 'bg-slate-800 text-slate-500 border border-red-500/30 opacity-40 cursor-not-allowed pointer-events-none'
+                                : 'bg-amber-600 hover:bg-amber-500 text-white'
+                        }`}
+                        title={isTargetBatchLocked && hasOpenSemLead ? "Open Seminar is locked for this batch" : ""}
                     >
-                        <FaCheckCircle size={14} /> Assign {selectedLeadIds.length} Leads
+                        {isTargetBatchLocked && hasOpenSemLead ? <FaLock size={14} className="text-red-400" /> : <FaCheckCircle size={14} />} 
+                        {isTargetBatchLocked && hasOpenSemLead ? 'Campaign Locked' : `Assign ${selectedLeadIds.length} Leads`}
                     </button>
                 </div>
+
+                {isTargetBatchLocked && hasOpenSemLead && (
+                    <div className="mb-4 p-2.5 bg-red-950/40 border border-red-500/30 rounded-xl text-xs text-red-300 flex items-center gap-2 relative z-10">
+                        <FaLock className="text-red-400 shrink-0" />
+                        <span><strong>Campaign Locked:</strong> Target batch Open Seminar campaign is locked by Manager/Admin. Cannot allocate Open Seminar leads to this batch.</span>
+                    </div>
+                )}
 
                 {/* Table */}
                 <div className="flex-1 overflow-y-auto pr-2 custom-scrollbar relative z-10">

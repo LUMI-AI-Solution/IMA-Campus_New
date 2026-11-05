@@ -607,6 +607,18 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                 setSubmitting(false);
                 return;
             }
+
+            if (contentType === 'live' || contentType === 'recording') {
+                const rawLink = formElement.link?.value?.trim();
+                const rawYt = formElement.youtubeLink?.value?.trim();
+                const rawVimeo = formElement.vimeoLink?.value?.trim();
+
+                if (!rawLink && !rawYt && !rawVimeo) {
+                    toast.error("Please provide at least a URL Link or YouTube Link!");
+                    setSubmitting(false);
+                    return;
+                }
+            }
             
             for (const bId of allBatchList) {
                 const config = batchConfigs[bId];
@@ -639,7 +651,17 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                 for (const [fId, courses] of Object.entries(folderGroups)) {
                     const formData = new FormData(formElement);
                     ['file', 'thumbnail', 'proof'].forEach(field => formData.delete(field));
-                    ['zoomMeetingId', 'startTime', 'endTime'].forEach(field => { if (!formData.get(field)) formData.delete(field); });
+                    ['zoomMeetingId', 'startTime', 'endTime', 'youtubeLink', 'vimeoLink', 'link'].forEach(field => { 
+                        if (!formData.get(field) || String(formData.get(field)).trim() === '') {
+                            formData.delete(field); 
+                        }
+                    });
+
+                    // Auto-detect YouTube link if entered into standard URL Link box
+                    const linkVal = formData.get('link');
+                    if (!formData.get('youtubeLink') && linkVal && (linkVal.includes('youtube.com') || linkVal.includes('youtu.be'))) {
+                        formData.set('youtubeLink', linkVal);
+                    }
 
                     formData.set('type', contentType);
                     formData.set('batch_id', bId);
@@ -797,6 +819,11 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                                                                 <ExternalLink size={12}/> View Link
                                                             </a>
                                                         )}
+                                                        {c.youtubeLink && (
+                                                            <a href={c.youtubeLink} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[10px] flex items-center gap-1 font-bold uppercase tracking-widest bg-red-50 dark:bg-red-500/10 text-red-600 dark:text-red-400 px-2.5 py-1.5 rounded-lg border border-red-200 dark:border-red-500/20 hover:bg-red-100 dark:hover:bg-red-500/20 transition-colors">
+                                                                <ExternalLink size={12}/> YouTube
+                                                            </a>
+                                                        )}
                                                         {c.fileName && (
                                                             <a href={`${getBaseUrl()}/storage/documents/${c.fileName}`} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-[10px] flex items-center gap-1 font-bold uppercase tracking-widest bg-orange-50 dark:bg-orange-500/10 text-orange-600 dark:text-orange-400 px-2.5 py-1.5 rounded-lg border border-orange-200 dark:border-orange-500/20 hover:bg-orange-100 dark:hover:bg-orange-500/20 transition-colors">
                                                                 <FileText size={12}/> View File
@@ -829,16 +856,52 @@ const TaskExecutionModal = ({ task, onClose, onComplete }) => {
                                     </div>
 
                                     {(contentType === 'live' || contentType === 'recording') && (
-                                        <div>
-                                            <label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">URL Link *</label>
-                                            <input type="url" name="link" required className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-blue-600 dark:text-blue-400 font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm shadow-sm transition-colors" />
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">
+                                                    URL Link (Zoom / Direct) {contentType === 'live' ? '*' : '(Optional if YouTube provided)'}
+                                                </label>
+                                                <input 
+                                                    type="url" 
+                                                    name="link" 
+                                                    placeholder="https://us02web.zoom.us/rec/play/..."
+                                                    className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-blue-600 dark:text-blue-400 font-bold outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm shadow-sm transition-colors" 
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="text-[10px] font-bold text-red-500 dark:text-red-400 uppercase mb-1.5 block tracking-widest transition-colors flex items-center gap-1.5">
+                                                    <Video size={13} className="text-red-500" /> YouTube Link (Unlisted / Recording URL)
+                                                </label>
+                                                <input 
+                                                    type="url" 
+                                                    name="youtubeLink" 
+                                                    placeholder="https://www.youtube.com/watch?v=... or https://youtu.be/..."
+                                                    className="w-full bg-white dark:bg-slate-800 border border-red-300 dark:border-red-900/50 focus:border-red-500 dark:focus:border-red-500 rounded-xl p-3 text-red-600 dark:text-red-400 font-bold outline-none text-sm shadow-sm transition-colors" 
+                                                />
+                                                <p className="text-[11px] text-gray-400 dark:text-slate-500 mt-1">
+                                                    Paste YouTube unlisted or recording link here. Students can play this video directly in the LMS without external redirect.
+                                                </p>
+                                            </div>
+
+                                            <div>
+                                                <label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">
+                                                    Vimeo Link (Optional)
+                                                </label>
+                                                <input 
+                                                    type="url" 
+                                                    name="vimeoLink" 
+                                                    placeholder="https://vimeo.com/..."
+                                                    className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-blue-500 dark:text-blue-400 font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm shadow-sm transition-colors" 
+                                                />
+                                            </div>
                                         </div>
                                     )}
 
                                     {contentType === 'recording' && (
                                         <div>
-                                            <label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">Meeting ID</label>
-                                            <input type="text" name="zoomMeetingId" className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-gray-900 dark:text-white font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm shadow-sm transition-colors" />
+                                            <label className="text-[10px] font-bold text-gray-500 dark:text-slate-400 uppercase mb-1.5 block tracking-widest transition-colors">Zoom Meeting ID (Optional)</label>
+                                            <input type="text" name="zoomMeetingId" placeholder="e.g. 845 1234 5678" className="w-full bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 rounded-xl p-3 text-gray-900 dark:text-white font-medium outline-none focus:border-brand-accent dark:focus:border-brand-accent text-sm shadow-sm transition-colors" />
                                         </div>
                                     )}
 

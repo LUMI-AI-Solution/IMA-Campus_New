@@ -31,6 +31,7 @@ router.delete('/students/:id', physicalCrmController.deleteStudent);
 router.get('/student-reports', physicalStudentReportController.getStudentReports);
 router.get('/student-reports/:id', physicalStudentReportController.getStudentFullDetails);
 router.get('/attendance-sessions-report', physicalStudentReportController.getAttendanceSessionsReport);
+router.get('/class-followup-report', physicalStudentReportController.getClassFollowUpReport);
 
 // SMS Gateway & Broadcast
 router.get('/sms/settings', physicalStudentReportController.getSmsSettings);
@@ -60,6 +61,7 @@ router.delete('/teachers/:id', physicalCrmController.deleteTeacher);
 router.get('/classes/:classId/fee-matrix', physicalCrmController.getClassFeeMatrix);
 router.post('/classes/toggle-fee', physicalCrmController.toggleStudentFeePayment);
 router.post('/classes/reverse-fee', physicalCrmController.reverseStudentFeePayment);
+router.post('/classes/move-fee-month', physicalCrmController.moveStudentFeePaymentMonth);
 router.post('/classes/bulk-fee-payment', physicalCrmController.bulkStudentFeePayment);
 
 // Teacher Reports & Invoices

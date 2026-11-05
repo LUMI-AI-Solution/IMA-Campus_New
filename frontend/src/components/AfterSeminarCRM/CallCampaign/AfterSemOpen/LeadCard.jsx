@@ -13,7 +13,10 @@ export default function LeadCard({ lead, timer, drafts, activeTab, typingMode, h
 
     const { startOutboundCall } = useCall();
     const [isExpanded, setIsExpanded] = useState(lead?.callStatus === 'pending' || !lead?.callStatus);
-    const currentRemark = drafts?.[lead?.id] !== undefined ? drafts[lead.id] : (lead?.feedback || '');
+    const isLeadPending = lead?.callStatus === 'pending' || !lead?.callStatus;
+    const currentRemark = isLeadPending 
+        ? (drafts?.[lead?.id] || '') 
+        : (drafts?.[lead?.id] !== undefined ? drafts[lead.id] : (lead?.feedback || ''));
     const isLate = timer?.type === 'danger' && activeTab !== 'ENROLLED';
     const isLocked = lead?.locked || false; 
     const unlocksInDays = lead?.unlocksInDays || 0;

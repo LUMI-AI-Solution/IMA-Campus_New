@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { format, subMonths, addMonths, parseISO } from 'date-fns';
 import { printThermalReceipt } from '../../utils/thermalReceiptPrinter';
 import { 
@@ -21,6 +22,7 @@ import {
   Sparkles,
   CreditCard,
   Phone,
+  PhoneCall,
   MessageSquare,
   Filter,
   Check,
@@ -33,12 +35,14 @@ import {
   ClipboardCheck,
   ArrowDownRight,
   ArrowUpRight,
+  ExternalLink,
   Trash2
 } from 'lucide-react';
 import physicalCrmService from '../../api/physicalCrm';
 import { physicalFinanceService } from '../../api/physicalFinance';
 import LecturerInvoiceModal from '../../components/PhysicalCRM/LecturerInvoiceModal';
 import LecturerAttendanceSheetModal from '../../components/PhysicalCRM/LecturerAttendanceSheetModal';
+import ClassFollowUpReportView from '../../components/PhysicalCRM/ClassFollowUpReportView';
 import { toast } from 'react-hot-toast';
 
 // Robust Teacher Image URL Helper matching ClassTeacherManagement.jsx
@@ -68,14 +72,26 @@ const getTeacherImageUrl = (imagePath) => {
 };
 
 export default function LecturerReports() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [teachers, setTeachers] = useState([]);
   const [classes, setClasses] = useState([]);
+
+  // Redirect to student attendance portal with student profile loaded
+  const handleOpenStudentInPortal = (studentId) => {
+    if (!studentId) return;
+    navigate(`/physical/dashboard/attendance?studentId=${encodeURIComponent(studentId)}`);
+  };
   
   // Selected Teacher for Drilldown
   const [selectedTeacher, setSelectedTeacher] = useState(null);
   const [selectedClassId, setSelectedClassId] = useState('ALL');
   const [selectedMonth, setSelectedMonth] = useState('');
+
+  // Date Range Filter State
+  const [dateRangeMode, setDateRangeMode] = useState('FULL_MONTH'); // 'FULL_MONTH' | 'CUSTOM'
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   
   // Teacher Report Details State
   const [reportData, setReportData] = useState(null);
@@ -128,6 +144,38 @@ export default function LecturerReports() {
     });
   };
 
+  // Memoized roster student lists
+  const allRosterStudents = useMemo(() => {
+    if (!reportData?.classes) return [];
+    return reportData.classes.flatMap(cls => 
+      cls.students.map(st => ({ ...st, classId: cls.classId, className: cls.className, grade: cls.grade }))
+    );
+  }, [reportData]);
+
+  const filteredRosterStudents = useMemo(() => {
+    return allRosterStudents.filter(st => {
+      if (statusFilter === 'ACTIVE') {
+        if (!st.isActive) return false;
+      } else if (statusFilter === 'INACTIVE') {
+        if (st.isActive) return false;
+      } else if (statusFilter === 'LATE_FEES') {
+        if (!st.lateFees || st.lateFees.length === 0) return false;
+      } else if (statusFilter !== 'ALL' && st.feeStatus !== statusFilter) {
+        return false;
+      }
+      if (studentSearch) {
+        const q = studentSearch.toLowerCase().trim();
+        return (
+          st.studentId.toLowerCase().includes(q) ||
+          st.studentName.toLowerCase().includes(q) ||
+          (st.phone && st.phone.includes(q)) ||
+          (st.className && st.className.toLowerCase().includes(q))
+        );
+      }
+      return true;
+    });
+  }, [allRosterStudents, statusFilter, studentSearch]);
+
   useEffect(() => {
     fetchInitialData();
   }, []);
@@ -178,17 +226,55 @@ export default function LecturerReports() {
     }
   };
 
+  const getMonthDateBounds = (mStr) => {
+    let year, month;
+    if (mStr && mStr.includes('-')) {
+      const parts = mStr.split('-').map(Number);
+      year = parts[0];
+      month = parts[1];
+    } else {
+      const now = new Date();
+      year = now.getFullYear();
+      month = now.getMonth() + 1;
+    }
+    const lastDay = new Date(year, month, 0).getDate();
+    return {
+      start: `${year}-${String(month).padStart(2, '0')}-01`,
+      end: `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`
+    };
+  };
+
   // Fetch Report for selected Teacher
-  const loadTeacherReport = async (teacherId, month = selectedMonth, classId = selectedClassId) => {
+  const loadTeacherReport = async (
+    teacherId,
+    month = selectedMonth,
+    classId = selectedClassId,
+    mode = dateRangeMode,
+    sDate = startDate,
+    eDate = endDate
+  ) => {
     setLoadingReport(true);
     try {
-      const res = await physicalCrmService.getTeacherReports(teacherId, {
+      const params = {
         month: month || undefined,
         classId: classId !== 'ALL' ? classId : undefined
-      });
+      };
+
+      if (mode === 'CUSTOM' && sDate && eDate) {
+        params.startDate = sDate;
+        params.endDate = eDate;
+      }
+
+      const res = await physicalCrmService.getTeacherReports(teacherId, params);
       setReportData(res);
       if (!selectedMonth && res.selectedMonth) {
         setSelectedMonth(res.selectedMonth);
+      }
+      if (res.dateRange) {
+        if (mode === 'FULL_MONTH') {
+          setStartDate(res.dateRange.startDate);
+          setEndDate(res.dateRange.endDate);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -221,9 +307,15 @@ export default function LecturerReports() {
     setSelectedTeacher(teacher);
     setSelectedClassId('ALL');
     setSelectedMonth('');
+    setDateRangeMode('FULL_MONTH');
     setStudentSearch('');
     setViewMode('roster');
-    loadTeacherReport(teacher.id, '', 'ALL');
+    const now = new Date();
+    const curMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const bounds = getMonthDateBounds(curMonth);
+    setStartDate(bounds.start);
+    setEndDate(bounds.end);
+    loadTeacherReport(teacher.id, '', 'ALL', 'FULL_MONTH', bounds.start, bounds.end);
   };
 
   // Handle Class Dropdown Change
@@ -231,7 +323,7 @@ export default function LecturerReports() {
     setSelectedClassId(classId);
     setClassDropdownOpen(false);
     if (selectedTeacher) {
-      loadTeacherReport(selectedTeacher.id, selectedMonth, classId);
+      loadTeacherReport(selectedTeacher.id, selectedMonth, classId, dateRangeMode, startDate, endDate);
       if (classId !== 'ALL') {
         loadClassMatrix(classId);
       } else {
@@ -245,8 +337,84 @@ export default function LecturerReports() {
   const handleMonthChange = (month) => {
     setSelectedMonth(month);
     setMonthDropdownOpen(false);
+    const bounds = getMonthDateBounds(month);
+    let s = startDate;
+    let e = endDate;
+    if (dateRangeMode === 'FULL_MONTH') {
+      s = bounds.start;
+      e = bounds.end;
+      setStartDate(s);
+      setEndDate(e);
+    }
     if (selectedTeacher) {
-      loadTeacherReport(selectedTeacher.id, month, selectedClassId);
+      loadTeacherReport(selectedTeacher.id, month, selectedClassId, dateRangeMode, s, e);
+    }
+  };
+
+  // Handle Date Range Mode Toggle
+  const handleDateModeToggle = (mode) => {
+    setDateRangeMode(mode);
+    const bounds = getMonthDateBounds(selectedMonth);
+    let s = startDate || bounds.start;
+    let e = endDate || bounds.end;
+    if (mode === 'FULL_MONTH') {
+      s = bounds.start;
+      e = bounds.end;
+      setStartDate(s);
+      setEndDate(e);
+    }
+    if (selectedTeacher) {
+      loadTeacherReport(selectedTeacher.id, selectedMonth, selectedClassId, mode, s, e);
+    }
+  };
+
+  // Handle Apply Custom Date Range
+  const handleApplyCustomRange = (s, e) => {
+    if (!s || !e) {
+      toast.error('Please specify both Start Date and End Date');
+      return;
+    }
+    if (new Date(s) > new Date(e)) {
+      toast.error('Start Date cannot be after End Date');
+      return;
+    }
+    setDateRangeMode('CUSTOM');
+    setStartDate(s);
+    setEndDate(e);
+    if (selectedTeacher) {
+      loadTeacherReport(selectedTeacher.id, selectedMonth, selectedClassId, 'CUSTOM', s, e);
+    }
+  };
+
+  // Handle Quick Presets (1st-15th, 16th-End, Full Month)
+  const handleQuickPreset = (presetType) => {
+    const bounds = getMonthDateBounds(selectedMonth);
+    const [year, month] = selectedMonth.split('-').map(Number);
+    let s = bounds.start;
+    let e = bounds.end;
+    if (presetType === 'FIRST_HALF') {
+      s = `${year}-${String(month).padStart(2, '0')}-01`;
+      e = `${year}-${String(month).padStart(2, '0')}-15`;
+    } else if (presetType === 'SECOND_HALF') {
+      const lastDay = new Date(year, month, 0).getDate();
+      s = `${year}-${String(month).padStart(2, '0')}-16`;
+      e = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    } else if (presetType === 'FULL_MONTH') {
+      s = bounds.start;
+      e = bounds.end;
+      setDateRangeMode('FULL_MONTH');
+      setStartDate(s);
+      setEndDate(e);
+      if (selectedTeacher) {
+        loadTeacherReport(selectedTeacher.id, selectedMonth, selectedClassId, 'FULL_MONTH', s, e);
+      }
+      return;
+    }
+    setDateRangeMode('CUSTOM');
+    setStartDate(s);
+    setEndDate(e);
+    if (selectedTeacher) {
+      loadTeacherReport(selectedTeacher.id, selectedMonth, selectedClassId, 'CUSTOM', s, e);
     }
   };
 
@@ -590,7 +758,7 @@ export default function LecturerReports() {
 
               <button
                 onClick={() => setIsInvoiceOpen(true)}
-                className="w-full sm:w-auto px-5 py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-xs shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-5 py-3.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-xs shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <FileText size={16} />
                 <span>Month-End Payout Invoice</span>
@@ -599,143 +767,280 @@ export default function LecturerReports() {
           </div>
 
           {/* ========================================================================= */}
-          {/* CUSTOM HIGH-CONTRAST FILTER BAR (WITH CUSTOM CLICKABLE DROPDOWNS)        */}
+          {/* CUSTOM HIGH-CONTRAST FILTER BAR (WITH DEDICATED DATE RANGE PICKERS)      */}
           {/* ========================================================================= */}
-          <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-4 rounded-2xl grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-center relative z-20">
+          <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-4 rounded-2xl space-y-3.5 relative z-20 shadow-xl">
             
-            {/* 1. Class Dropdown Menu (Custom Headless Component with 100% visible white text) */}
-            <div className="lg:col-span-4 relative" ref={classDropdownRef}>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Filter by Class</label>
+            {/* Row 1: Core Scope Controls (Class, Billing Month, Date Range) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-3 items-start">
               
-              <button
-                type="button"
-                onClick={() => setClassDropdownOpen(!classDropdownOpen)}
-                className="w-full px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded-xl text-xs font-bold text-white flex items-center justify-between outline-none focus:border-blue-500 transition-all shadow-sm text-left"
-              >
-                <span className="truncate pr-2">{getSelectedClassName()}</span>
-                <ChevronDown size={15} className={`text-slate-400 transition-transform ${classDropdownOpen ? 'rotate-180 text-blue-400' : ''}`} />
-              </button>
+              {/* 1. Class Dropdown Menu */}
+              <div className="lg:col-span-3 relative" ref={classDropdownRef}>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Filter by Class</label>
+                
+                <button
+                  type="button"
+                  onClick={() => setClassDropdownOpen(!classDropdownOpen)}
+                  className="w-full px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded-xl text-xs font-bold text-white flex items-center justify-between outline-none focus:border-blue-500 transition-all shadow-sm text-left cursor-pointer"
+                >
+                  <span className="truncate pr-2">{getSelectedClassName()}</span>
+                  <ChevronDown size={15} className={`text-slate-400 transition-transform ${classDropdownOpen ? 'rotate-180 text-blue-400' : ''}`} />
+                </button>
 
-              {classDropdownOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 py-1.5 max-h-60 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
-                  <div
-                    onClick={() => handleClassChange('ALL')}
-                    className={`px-3.5 py-2.5 text-xs font-semibold cursor-pointer flex items-center justify-between transition-colors ${selectedClassId === 'ALL' ? 'bg-blue-600/20 text-blue-400 font-bold' : 'text-slate-200 hover:bg-slate-800 hover:text-white'}`}
-                  >
-                    <span>All Assigned Classes ({reportData.teacher.classes?.length || 0})</span>
-                    {selectedClassId === 'ALL' && <Check size={14} className="text-blue-400" />}
-                  </div>
-
-                  {reportData.teacher.classes && reportData.teacher.classes.map(c => (
+                {classDropdownOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 py-1.5 max-h-60 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
                     <div
-                      key={c.id}
-                      onClick={() => handleClassChange(c.id.toString())}
-                      className={`px-3.5 py-2.5 text-xs font-semibold cursor-pointer flex items-center justify-between transition-colors ${selectedClassId === c.id.toString() ? 'bg-blue-600/20 text-blue-400 font-bold' : 'text-slate-200 hover:bg-slate-800 hover:text-white'}`}
+                      onClick={() => handleClassChange('ALL')}
+                      className={`px-3.5 py-2.5 text-xs font-semibold cursor-pointer flex items-center justify-between transition-colors ${selectedClassId === 'ALL' ? 'bg-blue-600/20 text-blue-400 font-bold' : 'text-slate-200 hover:bg-slate-800 hover:text-white'}`}
                     >
-                      <span className="truncate">{c.name} <strong className="text-slate-400 font-normal">({c.grade})</strong></span>
-                      {selectedClassId === c.id.toString() && <Check size={14} className="text-blue-400" />}
+                      <span>All Assigned Classes ({reportData.teacher.classes?.length || 0})</span>
+                      {selectedClassId === 'ALL' && <Check size={14} className="text-blue-400" />}
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
 
-            {/* 2. Active Billing Month Dropdown */}
-            <div className="lg:col-span-3 relative" ref={monthDropdownRef}>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Billing Month</label>
-              
-              <button
-                type="button"
-                onClick={() => setMonthDropdownOpen(!monthDropdownOpen)}
-                className="w-full px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded-xl text-xs font-bold text-white flex items-center justify-between outline-none focus:border-blue-500 transition-all shadow-sm text-left"
-              >
-                <span className="truncate pr-2">{formatMonthYear(selectedMonth)} ({selectedMonth})</span>
-                <ChevronDown size={15} className={`text-slate-400 transition-transform ${monthDropdownOpen ? 'rotate-180 text-blue-400' : ''}`} />
-              </button>
-
-              {monthDropdownOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 py-1.5 max-h-64 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
-                  {reportData.availableMonths && reportData.availableMonths.length > 0 ? (
-                    reportData.availableMonths.map(m => (
+                    {reportData.teacher.classes && reportData.teacher.classes.map(c => (
                       <div
-                        key={m}
-                        onClick={() => handleMonthChange(m)}
-                        className={`px-3.5 py-2 text-xs font-semibold cursor-pointer flex items-center justify-between transition-colors ${selectedMonth === m ? 'bg-blue-600/20 text-blue-400 font-bold' : 'text-slate-200 hover:bg-slate-800 hover:text-white'}`}
+                        key={c.id}
+                        onClick={() => handleClassChange(c.id.toString())}
+                        className={`px-3.5 py-2.5 text-xs font-semibold cursor-pointer flex items-center justify-between transition-colors ${selectedClassId === c.id.toString() ? 'bg-blue-600/20 text-blue-400 font-bold' : 'text-slate-200 hover:bg-slate-800 hover:text-white'}`}
                       >
-                        <span>{formatMonthYear(m)} ({m})</span>
-                        {selectedMonth === m && <Check size={14} className="text-blue-400" />}
+                        <span className="truncate">{c.name} <strong className="text-slate-400 font-normal">({c.grade})</strong></span>
+                        {selectedClassId === c.id.toString() && <Check size={14} className="text-blue-400" />}
                       </div>
-                    ))
-                  ) : (
-                    <div className="px-3.5 py-2 text-xs text-slate-400 italic">No months available</div>
-                  )}
+                    ))}
+                  </div>
+                )}
+              </div>
 
-                  {/* Pick any custom month */}
-                  <div className="p-2 border-t border-slate-800 bg-slate-950/80">
-                    <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Pick Another Month</label>
-                    <input 
-                      type="month"
-                      value={selectedMonth}
-                      onChange={(e) => {
-                        if (e.target.value) handleMonthChange(e.target.value);
-                      }}
-                      className="w-full px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold text-white outline-none focus:border-blue-500 cursor-pointer"
-                    />
+              {/* 2. Active Billing Month Dropdown */}
+              <div className="lg:col-span-3 relative" ref={monthDropdownRef}>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Billing Month</label>
+                
+                <button
+                  type="button"
+                  onClick={() => setMonthDropdownOpen(!monthDropdownOpen)}
+                  className="w-full px-3.5 py-2.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded-xl text-xs font-bold text-white flex items-center justify-between outline-none focus:border-blue-500 transition-all shadow-sm text-left cursor-pointer"
+                >
+                  <span className="truncate pr-2">{formatMonthYear(selectedMonth)} ({selectedMonth})</span>
+                  <ChevronDown size={15} className={`text-slate-400 transition-transform ${monthDropdownOpen ? 'rotate-180 text-blue-400' : ''}`} />
+                </button>
+
+                {monthDropdownOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 py-1.5 max-h-64 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
+                    {reportData.availableMonths && reportData.availableMonths.length > 0 ? (
+                      reportData.availableMonths.map(m => (
+                        <div
+                          key={m}
+                          onClick={() => handleMonthChange(m)}
+                          className={`px-3.5 py-2 text-xs font-semibold cursor-pointer flex items-center justify-between transition-colors ${selectedMonth === m ? 'bg-blue-600/20 text-blue-400 font-bold' : 'text-slate-200 hover:bg-slate-800 hover:text-white'}`}
+                        >
+                          <span>{formatMonthYear(m)} ({m})</span>
+                          {selectedMonth === m && <Check size={14} className="text-blue-400" />}
+                        </div>
+                      ))
+                    ) : (
+                      <div className="px-3.5 py-2 text-xs text-slate-400 italic">No months available</div>
+                    )}
+
+                    {/* Pick any custom month */}
+                    <div className="p-2 border-t border-slate-800 bg-slate-950/80">
+                      <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">Pick Another Month</label>
+                      <input 
+                        type="month"
+                        value={selectedMonth}
+                        onChange={(e) => {
+                          if (e.target.value) handleMonthChange(e.target.value);
+                        }}
+                        className="w-full px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold text-white outline-none focus:border-blue-500 cursor-pointer"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Dedicated Date Range Filter (Full Month vs Custom Range) */}
+              <div className="lg:col-span-6 bg-slate-950/70 border border-slate-800 rounded-xl p-2.5 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5">
+                    <Calendar size={13} className="text-blue-400" />
+                    <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">
+                      Date Range Filter (දිනය අනුව)
+                    </span>
+                  </div>
+
+                  {/* Toggle Mode: Full Month vs Custom Range */}
+                  <div className="flex items-center bg-slate-900 p-0.5 rounded-lg border border-slate-700/80">
+                    <button
+                      type="button"
+                      onClick={() => handleDateModeToggle('FULL_MONTH')}
+                      className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                        dateRangeMode === 'FULL_MONTH'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Full Month
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDateModeToggle('CUSTOM')}
+                      className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                        dateRangeMode === 'CUSTOM'
+                          ? 'bg-blue-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Custom Range
+                    </button>
                   </div>
                 </div>
-              )}
-            </div>
 
-            {/* 3. Fee Status Filter */}
-            <div className="lg:col-span-2 relative" ref={statusDropdownRef}>
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
-              
-              <button
-                type="button"
-                onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
-                className="w-full px-3 py-2.5 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded-xl text-xs font-bold text-white flex items-center justify-between outline-none focus:border-blue-500 transition-all shadow-sm text-left"
-              >
-                <span className="truncate pr-1">
-                  {statusFilter === 'ALL' ? 'All Statuses' : (statusFilter === 'PAID' ? 'Paid Only' : (statusFilter === 'PENDING' ? 'Pending Only' : (statusFilter === 'LATE_FEES' ? 'Late Fees Only' : 'Free Card')))}
-                </span>
-                <ChevronDown size={14} className={`text-slate-400 transition-transform ${statusDropdownOpen ? 'rotate-180 text-blue-400' : ''}`} />
-              </button>
-
-              {statusDropdownOpen && (
-                <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 py-1 max-h-56 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
-                  {[
-                    { val: 'ALL', label: 'All Statuses' },
-                    { val: 'PAID', label: 'Paid Only' },
-                    { val: 'PENDING', label: 'Pending Only' },
-                    { val: 'FREE_CARD', label: 'Free Card' },
-                    { val: 'LATE_FEES', label: 'Late Fees Only (ප්‍රමාද ගාස්තු)' }
-                  ].map(opt => (
-                    <div
-                      key={opt.val}
-                      onClick={() => { setStatusFilter(opt.val); setStatusDropdownOpen(false); }}
-                      className={`px-3 py-2 text-xs font-semibold cursor-pointer flex items-center justify-between transition-colors ${statusFilter === opt.val ? 'bg-blue-600/20 text-blue-400 font-bold' : 'text-slate-200 hover:bg-slate-800 hover:text-white'}`}
-                    >
-                      <span>{opt.label}</span>
-                      {statusFilter === opt.val && <Check size={14} className="text-blue-400" />}
+                {dateRangeMode === 'FULL_MONTH' ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-900/90 px-3 py-1.5 rounded-lg border border-slate-800">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
+                      <span className="text-[11px] font-medium text-slate-300">
+                        Entire Month: <strong className="text-white font-bold">{startDate || `${selectedMonth}-01`}</strong> to <strong className="text-white font-bold">{endDate}</strong>
+                      </span>
                     </div>
-                  ))}
-                </div>
-              )}
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleQuickPreset('FIRST_HALF')}
+                        className="text-[10px] font-bold px-2.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 hover:text-blue-400 transition-colors cursor-pointer"
+                        title="Filter 1st to 15th"
+                      >
+                        1st - 15th
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleQuickPreset('SECOND_HALF')}
+                        className="text-[10px] font-bold px-2.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 hover:text-blue-400 transition-colors cursor-pointer"
+                        title="Filter 16th to End"
+                      >
+                        16th - End
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2 animate-in fade-in duration-150">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">Start Date</label>
+                        <input
+                          type="date"
+                          value={startDate}
+                          onChange={(e) => setStartDate(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs font-semibold text-white outline-none focus:border-blue-500 transition-all cursor-pointer"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-0.5">End Date</label>
+                        <input
+                          type="date"
+                          value={endDate}
+                          onChange={(e) => setEndDate(e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded-lg text-xs font-semibold text-white outline-none focus:border-blue-500 transition-all cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between gap-1.5 pt-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleQuickPreset('FIRST_HALF')}
+                          className="text-[9px] font-bold px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition-colors cursor-pointer"
+                        >
+                          1st - 15th
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleQuickPreset('SECOND_HALF')}
+                          className="text-[9px] font-bold px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition-colors cursor-pointer"
+                        >
+                          16th - End
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleQuickPreset('FULL_MONTH')}
+                          className="text-[9px] font-bold px-2 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded border border-slate-700 transition-colors cursor-pointer"
+                        >
+                          Reset
+                        </button>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => handleApplyCustomRange(startDate, endDate)}
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] rounded-lg shadow-sm transition-all flex items-center gap-1 active:scale-95 cursor-pointer ml-auto"
+                      >
+                        <Filter size={11} /> Apply Date Range
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
             </div>
 
-            {/* 4. Student Search Input */}
-            <div className="lg:col-span-3">
-              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Search Student</label>
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="ID, Name, Phone..."
-                  value={studentSearch}
-                  onChange={(e) => setStudentSearch(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder:text-slate-500 outline-none focus:border-blue-500 transition-all"
-                />
+            {/* Row 2: Secondary Status & Search Filters */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-center pt-2.5 border-t border-slate-800/80">
+              
+              {/* 4. Fee Status Filter */}
+              <div className="lg:col-span-4 relative" ref={statusDropdownRef}>
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Status</label>
+                
+                <button
+                  type="button"
+                  onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+                  className="w-full px-3.5 py-2 bg-slate-800 hover:bg-slate-750 border border-slate-700 rounded-xl text-xs font-bold text-white flex items-center justify-between outline-none focus:border-blue-500 transition-all shadow-sm text-left cursor-pointer"
+                >
+                  <span className="truncate pr-1">
+                    {statusFilter === 'ALL' ? 'All Statuses' : (statusFilter === 'ACTIVE' ? 'Active Students (2+ Mos)' : (statusFilter === 'INACTIVE' ? 'Inactive Students' : (statusFilter === 'PAID' ? 'Paid Only' : (statusFilter === 'PENDING' ? 'Pending Only' : (statusFilter === 'LATE_FEES' ? 'Late Fees Only' : 'Free Card')))))}
+                  </span>
+                  <ChevronDown size={14} className={`text-slate-400 transition-transform ${statusDropdownOpen ? 'rotate-180 text-blue-400' : ''}`} />
+                </button>
+
+                {statusDropdownOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1.5 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl overflow-hidden z-50 py-1 max-h-56 overflow-y-auto custom-scrollbar animate-in fade-in zoom-in-95 duration-150">
+                    {[
+                      { val: 'ALL', label: 'All Statuses' },
+                      { val: 'ACTIVE', label: 'Active Students (2+ Months Attended)' },
+                      { val: 'INACTIVE', label: 'Inactive Students (< 2 Months Attended)' },
+                      { val: 'PAID', label: 'Paid Only' },
+                      { val: 'PENDING', label: 'Pending Only' },
+                      { val: 'FREE_CARD', label: 'Free Card' },
+                      { val: 'LATE_FEES', label: 'Late Fees Only (ප්‍රමාද ගාස්තු)' }
+                    ].map(opt => (
+                      <div
+                        key={opt.val}
+                        onClick={() => { setStatusFilter(opt.val); setStatusDropdownOpen(false); }}
+                        className={`px-3 py-2 text-xs font-semibold cursor-pointer flex items-center justify-between transition-colors ${statusFilter === opt.val ? 'bg-blue-600/20 text-blue-400 font-bold' : 'text-slate-200 hover:bg-slate-800 hover:text-white'}`}
+                      >
+                        <span>{opt.label}</span>
+                        {statusFilter === opt.val && <Check size={14} className="text-blue-400" />}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
+
+              {/* 5. Student Search Input */}
+              <div className="lg:col-span-8">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Search Student</label>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Search by Student ID, Name, Phone..."
+                    value={studentSearch}
+                    onChange={(e) => setStudentSearch(e.target.value)}
+                    className="w-full pl-9 pr-3.5 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder:text-slate-500 outline-none focus:border-blue-500 transition-all font-medium"
+                  />
+                </div>
+              </div>
+
             </div>
 
           </div>
@@ -743,15 +1048,39 @@ export default function LecturerReports() {
           {/* Financial Summary Metric Cards (Responsive 6-Card Grid) */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
             
-            {/* 1. Total Enrolled */}
-            <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl shadow-sm">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                Total Enrolled
-              </span>
-              <h3 className="text-2xl font-extrabold text-white mt-1 tracking-tight">
-                {reportData.summary.totalEnrolledStudents}
-              </h3>
-              <p className="text-[10px] text-slate-500 mt-0.5">Registered students</p>
+            {/* 1. Total Enrolled & Active Count */}
+            <div className="bg-slate-900/80 border border-slate-800 p-4 rounded-2xl shadow-sm relative overflow-hidden group">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                  Total Enrolled
+                </span>
+                <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  Active
+                </span>
+              </div>
+
+              {/* Prominently Highlighted Active Student Count */}
+              <div className="flex items-baseline gap-1.5 mt-1">
+                <h3 className="text-2xl font-extrabold text-emerald-400 tracking-tight">
+                  {reportData.summary.totalActiveStudents !== undefined ? reportData.summary.totalActiveStudents : reportData.summary.totalEnrolledStudents}
+                </h3>
+                <span className="text-xs font-bold text-slate-400">
+                  / {reportData.summary.totalEnrolledStudents} Total
+                </span>
+              </div>
+
+              {/* Active percentage and criteria */}
+              <div className="mt-2 pt-1.5 border-t border-slate-800/80 flex items-center justify-between">
+                <span className="text-[10px] text-slate-400 font-medium">
+                  {reportData.summary.totalEnrolledStudents > 0 
+                    ? Math.round(((reportData.summary.totalActiveStudents || 0) / reportData.summary.totalEnrolledStudents) * 100) 
+                    : 0}% Active Rate
+                </span>
+                <span className="text-[9px] text-emerald-400 font-semibold">
+                  (2+ Mos Attended)
+                </span>
+              </div>
             </div>
 
             {/* 2. Paid Students */}
@@ -1033,11 +1362,11 @@ export default function LecturerReports() {
             </div>
           )}
 
-          {/* View Mode Switcher (If a specific class is selected, can toggle between Student Roster and Full Calendar Matrix) */}
-          {selectedClassId !== 'ALL' && feeMatrixData && (
-            <div className="flex items-center justify-between bg-slate-900/60 p-2 rounded-2xl border border-slate-800">
-              <span className="text-xs font-bold text-slate-400 ml-2">Class Display View:</span>
-              <div className="flex items-center gap-1">
+          {/* View Mode Switcher (If a specific class is selected, can toggle between Student Roster, Full Calendar Matrix, and Call Sheet) */}
+          {selectedClassId !== 'ALL' && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between bg-slate-900/60 p-2.5 rounded-2xl border border-slate-800 gap-2">
+              <span className="text-xs font-bold text-slate-400 sm:ml-2">Class Display View:</span>
+              <div className="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
                   onClick={() => setViewMode('roster')}
@@ -1050,10 +1379,32 @@ export default function LecturerReports() {
                   onClick={() => setViewMode('matrix')}
                   className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${viewMode === 'matrix' ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-white'}`}
                 >
-                  Full Calendar Fee Matrix Grid
+                  Full Calendar Fee Matrix
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode('call-sheet')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    viewMode === 'call-sheet'
+                      ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md'
+                      : 'text-emerald-400 hover:text-white hover:bg-emerald-500/20'
+                  }`}
+                >
+                  <PhoneCall size={13} />
+                  <span>Follow-up & Call Sheet</span>
                 </button>
               </div>
             </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* SECTION: CLASS FOLLOW-UP & CALL SHEET (SHOWN IN CALL-SHEET MODE)          */}
+          {/* ========================================================================= */}
+          {selectedClassId !== 'ALL' && viewMode === 'call-sheet' && (
+            <ClassFollowUpReportView 
+              initialClassId={String(selectedClassId)} 
+              onBack={() => setViewMode('roster')} 
+            />
           )}
 
           {/* ========================================================================= */}
@@ -1099,9 +1450,35 @@ export default function LecturerReports() {
                       .map((st, idx) => (
                         <tr key={`matrix_${feeMatrixData.class.id}_${st.id}_${idx}`} className="hover:bg-slate-800/40 transition-colors">
                           <td className="p-3 sticky left-0 bg-slate-900/95 z-10 border-r border-slate-800">
-                            <span className="font-semibold text-sky-400 block tracking-tight">{st.studentId}</span>
-                            <span className="text-white font-semibold block">{st.studentName}</span>
-                            {st.phone && <span className="text-[10px] text-slate-400 block">{st.phone}</span>}
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenStudentInPortal(st.studentId)}
+                                className="p-1 rounded-md bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/30 transition-all cursor-pointer shrink-0"
+                                title={`Open ${st.studentName} in Student Attendance Portal`}
+                              >
+                                <ExternalLink size={12} />
+                              </button>
+                              <div className="min-w-0">
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenStudentInPortal(st.studentId)}
+                                  className="font-bold text-sky-400 hover:text-sky-300 block tracking-tight text-left text-xs cursor-pointer hover:underline"
+                                  title={`Open ${st.studentId} in Student Portal`}
+                                >
+                                  {st.studentId}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenStudentInPortal(st.studentId)}
+                                  className="text-white hover:text-blue-400 font-semibold block text-left truncate text-xs cursor-pointer"
+                                  title={`Open ${st.studentName} in Student Portal`}
+                                >
+                                  {st.studentName}
+                                </button>
+                                {st.phone && <span className="text-[10px] text-slate-400 block">{st.phone}</span>}
+                              </div>
+                            </div>
                           </td>
 
                           <td className="p-3 text-center">
@@ -1114,34 +1491,44 @@ export default function LecturerReports() {
                             const mData = st.months?.[m];
                             const isPaid = mData?.status === 'PAID';
                             const isFree = mData?.status === 'FREE_CARD';
+                            const isNotEnrolled = mData?.status === 'NOT_ENROLLED' || mData?.isBeforeEnrollment;
 
                             return (
                               <td key={m} className={`p-2 text-center ${m === selectedMonth ? 'bg-blue-500/5' : ''}`}>
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleFeeStatus(st.id, feeMatrixData.class.id, m, mData?.status)}
-                                  className={`w-full py-1.5 px-2 rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1 ${
-                                    isPaid 
-                                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm' 
-                                      : (isFree 
-                                          ? 'bg-purple-600 text-white' 
-                                          : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700')
-                                  }`}
-                                >
-                                  {isPaid ? (
-                                    <>
-                                      <Check size={11} /> PAID
-                                    </>
-                                  ) : (
-                                    <span>PENDING</span>
-                                  )}
-                                </button>
+                                {isNotEnrolled ? (
+                                  <span 
+                                    className="w-full py-1.5 px-2 rounded-xl text-[10px] font-semibold text-slate-500 bg-slate-800/40 border border-slate-700/40 text-center block select-none" 
+                                    title={`Student joined after ${m} (No fee due)`}
+                                  >
+                                    -
+                                  </span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleFeeStatus(st.id, feeMatrixData.class.id, m, mData?.status)}
+                                    className={`w-full py-1.5 px-2 rounded-xl text-[10px] font-bold transition-all flex items-center justify-center gap-1 ${
+                                      isPaid 
+                                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm' 
+                                        : (isFree 
+                                            ? 'bg-purple-600 text-white' 
+                                            : 'bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 border border-slate-700')
+                                    }`}
+                                  >
+                                    {isPaid ? (
+                                      <>
+                                        <Check size={11} /> PAID
+                                      </>
+                                    ) : (
+                                      <span>PENDING</span>
+                                    )}
+                                  </button>
+                                )}
                               </td>
                             );
                           })}
 
                           <td className="p-3 text-center font-bold text-emerald-400">
-                            {st.totalPaidMonths} / {feeMatrixData.activeMonths?.length || 0}
+                            {st.totalPaidMonths} / {st.totalEligibleMonths !== undefined ? st.totalEligibleMonths : (feeMatrixData.activeMonths?.length || 0)}
                           </td>
                         </tr>
                     ))}
@@ -1158,7 +1545,7 @@ export default function LecturerReports() {
           {viewMode === 'roster' && (
             <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-800 p-5 rounded-3xl shadow-xl space-y-4">
               
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
                     <Users size={18} className="text-blue-400" />
@@ -1167,6 +1554,34 @@ export default function LecturerReports() {
                   <p className="text-xs text-slate-400">
                     Registration fee records & 1-click monthly class fee status updates
                   </p>
+                </div>
+
+                {/* Search Bar & Result Counter inside Roster Header */}
+                <div className="flex items-center gap-2.5 w-full sm:w-auto">
+                  <span className="text-[11px] font-semibold text-slate-400 hidden md:inline-block px-2.5 py-1.5 bg-slate-800/80 rounded-xl border border-slate-700/80">
+                    Showing <strong className="text-white">{filteredRosterStudents.length}</strong> of <strong className="text-slate-300">{allRosterStudents.length}</strong>
+                  </span>
+                  
+                  <div className="relative flex-1 sm:w-80">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Search student name, ID, phone, class..."
+                      value={studentSearch}
+                      onChange={(e) => setStudentSearch(e.target.value)}
+                      className="w-full pl-9 pr-8 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white placeholder:text-slate-500 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all font-medium"
+                    />
+                    {studentSearch && (
+                      <button
+                        type="button"
+                        onClick={() => setStudentSearch('')}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-0.5 rounded cursor-pointer"
+                        title="Clear search"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -1184,61 +1599,111 @@ export default function LecturerReports() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-200">
-                    {reportData.classes?.flatMap(cls => 
-                      cls.students.map(st => ({ ...st, classId: cls.classId, className: cls.className, grade: cls.grade }))
-                    )
-                    .filter(st => {
-                      if (statusFilter === 'LATE_FEES') {
-                        if (!st.lateFees || st.lateFees.length === 0) return false;
-                      } else if (statusFilter !== 'ALL' && st.feeStatus !== statusFilter) {
-                        return false;
-                      }
-                      if (studentSearch) {
-                        const q = studentSearch.toLowerCase();
-                        return (
-                          st.studentId.toLowerCase().includes(q) ||
-                          st.studentName.toLowerCase().includes(q) ||
-                          (st.phone && st.phone.includes(q))
-                        );
-                      }
-                      return true;
-                    })
-                    .map((st, idx) => (
-                      <tr key={`roster_${st.classId}_${st.id}_${idx}`} className="hover:bg-slate-800/40 transition-colors">
-                        <td className="p-3 text-slate-500 font-medium">{idx + 1}</td>
-                        <td className="p-3 font-semibold text-sky-400 tracking-tight">{st.studentId}</td>
-                        <td className="p-3">
-                          <span className="text-white font-semibold block">{st.studentName}</span>
-                          {st.phone && <span className="text-[10px] text-slate-400">{st.phone}</span>}
-                          {st.lateFees && st.lateFees.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1">
-                              {st.lateFees.map((lf, lfI) => (
-                                <span key={lfI} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[9px] font-bold">
-                                  <Clock size={9} /> Paid Late: Rs. {lf.amount.toLocaleString()} ({formatMonthYear(lf.feeMonth)})
-                                </span>
-                              ))}
-                            </div>
+                    {filteredRosterStudents.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center text-slate-400">
+                          <Users size={32} className="mx-auto mb-2 opacity-30 text-slate-400" />
+                          <p className="text-sm font-semibold text-slate-300">
+                            {studentSearch ? `No students found matching "${studentSearch}"` : 'No students found for this filter'}
+                          </p>
+                          {studentSearch && (
+                            <button
+                              type="button"
+                              onClick={() => setStudentSearch('')}
+                              className="mt-3 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-xl border border-slate-700 cursor-pointer inline-flex items-center gap-1.5"
+                            >
+                              <X size={12} /> Clear Search
+                            </button>
                           )}
                         </td>
-                        <td className="p-3 text-slate-300">
-                          {st.className} <span className="text-[10px] text-slate-500">({st.grade})</span>
-                        </td>
-                        <td className="p-3 text-center">
-                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${st.feeStatus === 'PAID' ? 'bg-emerald-600 text-white' : (st.feeStatus === 'FREE_CARD' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700')}`}>
-                            {st.feeStatus}
-                          </span>
-                        </td>
-                        <td className="p-3 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleFeeStatus(st.id, st.classId, selectedMonth, st.feeStatus)}
-                            className={`px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all ${st.feeStatus === 'PAID' ? 'bg-slate-800 hover:bg-red-500/20 text-slate-300 hover:text-red-300 border border-slate-700' : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'}`}
-                          >
-                            {st.feeStatus === 'PAID' ? 'Mark Pending' : 'Mark Paid'}
-                          </button>
-                        </td>
                       </tr>
-                    ))}
+                    ) : (
+                      filteredRosterStudents.map((st, idx) => (
+                        <tr key={`roster_${st.classId}_${st.id}_${idx}`} className="hover:bg-slate-800/40 transition-colors">
+                          <td className="p-3 text-slate-500 font-medium">{idx + 1}</td>
+                          <td className="p-3">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenStudentInPortal(st.studentId)}
+                              className="font-bold text-sky-400 hover:text-sky-300 tracking-tight hover:underline cursor-pointer inline-flex items-center gap-1 group text-left"
+                              title={`Open ${st.studentId} in Student Portal`}
+                            >
+                              <span>{st.studentId}</span>
+                              <ArrowUpRight size={11} className="opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
+                            </button>
+                          </td>
+                          <td className="p-3">
+                            <div className="flex items-center gap-2.5">
+                              {/* Dedicated Portal Quick-Launch Button in front of student name */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenStudentInPortal(st.studentId)}
+                                className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/30 hover:border-blue-500 transition-all shadow-xs cursor-pointer shrink-0 group"
+                                title={`Open ${st.studentName} in Student Attendance Portal`}
+                              >
+                                <ExternalLink size={13} className="group-hover:scale-115 transition-transform" />
+                              </button>
+
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenStudentInPortal(st.studentId)}
+                                    className="text-white hover:text-blue-400 font-semibold block text-left transition-colors cursor-pointer truncate"
+                                    title={`Open ${st.studentName} in Student Attendance Portal`}
+                                  >
+                                    {st.studentName}
+                                  </button>
+                                  {st.isActive ? (
+                                    <span 
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold shrink-0" 
+                                      title={`Active Student: Attended classes in ${st.activeMonthsCount || 2} distinct months`}
+                                    >
+                                      <span className="w-1 h-1 rounded-full bg-emerald-400"></span>
+                                      Active
+                                    </span>
+                                  ) : (
+                                    <span 
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-500 border border-slate-700 text-[9px] shrink-0" 
+                                      title="Inactive: Less than 2 months of physical attendance recorded"
+                                    >
+                                      Inactive
+                                    </span>
+                                  )}
+                                </div>
+                                {st.phone && <span className="text-[10px] text-slate-400 block">{st.phone}</span>}
+                              </div>
+                            </div>
+                            {st.lateFees && st.lateFees.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-1.5 pl-9.5">
+                                {st.lateFees.map((lf, lfI) => (
+                                  <span key={lfI} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[9px] font-bold">
+                                    <Clock size={9} /> Paid Late: Rs. {lf.amount.toLocaleString()} ({formatMonthYear(lf.feeMonth)})
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-3 text-slate-300">
+                            {st.className} <span className="text-[10px] text-slate-500">({st.grade})</span>
+                          </td>
+                          <td className="p-3 text-center">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${st.feeStatus === 'PAID' ? 'bg-emerald-600 text-white' : (st.feeStatus === 'FREE_CARD' ? 'bg-purple-600 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700')}`}>
+                              {st.feeStatus}
+                            </span>
+                          </td>
+                          <td className="p-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleFeeStatus(st.id, st.classId, selectedMonth, st.feeStatus)}
+                              className={`px-3 py-1.5 rounded-xl text-[10px] font-bold transition-all ${st.feeStatus === 'PAID' ? 'bg-slate-800 hover:bg-red-500/20 text-slate-300 hover:text-red-300 border border-slate-700' : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm'}`}
+                            >
+                              {st.feeStatus === 'PAID' ? 'Mark Pending' : 'Mark Paid'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>

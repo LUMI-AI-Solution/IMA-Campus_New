@@ -1,11 +1,107 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
+const { resolveInstallmentStepRange } = require('../utils/installmentHelper');
 
 // Helper function to handle BigInt serialization
 const safeJson = (data) => {
     return JSON.parse(JSON.stringify(data, (key, value) =>
         typeof value === 'bigint' ? value.toString() : value
     ));
+};
+
+const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+];
+
+const SINHALA_MONTH_MAP = {
+    'ජනවාරි': 'January', 'පෙබරවාරි': 'February', 'මාර්තු': 'March', 'අප්‍රේල්': 'April',
+    'මැයි': 'May', 'ජූනි': 'June', 'ජූලි': 'July', 'අගෝස්තු': 'August',
+    'සැප්තැම්බර්': 'September', 'ඔක්තෝම්බර්': 'October', 'නොවැම්බර්': 'November', 'දෙසැම්බර්': 'December'
+};
+
+const parseMonthName = (str) => {
+    if (!str) return null;
+    const s = String(str).trim();
+    for (const [sin, eng] of Object.entries(SINHALA_MONTH_MAP)) {
+        if (s.includes(sin)) return eng;
+    }
+    const lower = s.toLowerCase();
+    for (const m of MONTH_NAMES) {
+        if (lower.includes(m.toLowerCase())) return m;
+    }
+    const shortPrefixes = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    for (let i = 0; i < shortPrefixes.length; i++) {
+        if (lower.includes(shortPrefixes[i])) return MONTH_NAMES[i];
+    }
+    return null;
+};
+
+const getMonthSpan = (startStr, endStr) => {
+    const start = parseMonthName(startStr);
+    const end = parseMonthName(endStr);
+    if (!start || !end) return [];
+    const sIdx = MONTH_NAMES.indexOf(start);
+    const eIdx = MONTH_NAMES.indexOf(end);
+    if (sIdx === -1 || eIdx === -1) return [];
+    const span = [];
+    let curr = sIdx;
+    while (true) {
+        span.push(MONTH_NAMES[curr]);
+        if (curr === eIdx) break;
+        curr = (curr + 1) % 12;
+    }
+    return span;
+};
+
+const ensureBatchMonthlyGroups = async (batchId) => {
+    try {
+        const batch = await prisma.batch.findUnique({
+            where: { id: batchId }
+        });
+        if (!batch) return;
+
+        const courses = await prisma.course.findMany({
+            where: { group: { batchId: batchId } }
+        });
+        const groups = await prisma.group.findMany({
+            where: { batchId: batchId }
+        });
+
+        const theoryCourses = courses.filter(c => (c.courseType || 1) === 1);
+        const paperCourses = courses.filter(c => c.courseType === 2);
+
+        const checkAndCreateGroups = async (courseList, classType) => {
+            if (courseList.length === 0) return;
+            const existingGroups = groups.filter(g => (g.classType || 1) === classType && !g.name.toLowerCase().includes('full'));
+            const maxOrder = existingGroups.reduce((max, g) => Math.max(max, g.itemOrder || 0), 0);
+
+            let orderCounter = maxOrder + 1;
+            for (const c of courseList) {
+                if (!c.startMonth || !c.endMonth) continue;
+                const span = getMonthSpan(c.startMonth, c.endMonth);
+                for (const mName of span) {
+                    const exists = existingGroups.some(g => parseMonthName(g.name) === mName);
+                    if (!exists) {
+                        const newGrp = await prisma.group.create({
+                            data: {
+                                name: `Monthly Payment - ${mName}`,
+                                batchId: batchId,
+                                classType: classType,
+                                itemOrder: orderCounter++
+                            }
+                        });
+                        existingGroups.push(newGrp);
+                    }
+                }
+            }
+        };
+
+        await checkAndCreateGroups(theoryCourses, 1);
+        await checkAndCreateGroups(paperCourses, 2);
+    } catch (err) {
+        console.error("ensureBatchMonthlyGroups error:", err);
+    }
 };
 
 exports.getFinanceMatrix = async (req, res) => {
@@ -51,6 +147,9 @@ exports.getFinanceMatrix = async (req, res) => {
             }
         }
 
+        // Auto-create missing monthly groups for courses in this batch
+        await ensureBatchMonthlyGroups(parsedBatchId);
+
         // 1. Get Monthly Groups (Columns Headers)
         let groupWhere = { batchId: parsedBatchId };
         if (parsedClassType) {
@@ -60,7 +159,7 @@ exports.getFinanceMatrix = async (req, res) => {
         const rawGroups = await prisma.group.findMany({
             where: groupWhere,
             orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }],
-            select: { id: true, name: true, classType: true }
+            select: { id: true, name: true, classType: true, itemOrder: true }
         });
         const monthlyGroups = rawGroups
             .filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'))
@@ -85,6 +184,37 @@ exports.getFinanceMatrix = async (req, res) => {
             select: { id: true, name: true, price: true, code: true, activeMonths: true, startMonth: true, endMonth: true, courseType: true, groupId: true }
         });
 
+        // Sort monthly groups chronologically based on batch intake start month
+        let intakeStartMonth = null;
+        for (const c of courses) {
+            const parsed = parseMonthName(c.startMonth);
+            if (parsed) {
+                intakeStartMonth = parsed;
+                break;
+            }
+        }
+        if (!intakeStartMonth && monthlyGroups.length > 0) {
+            intakeStartMonth = parseMonthName(monthlyGroups[0].name) || 'January';
+        }
+        const intakeStartIdx = intakeStartMonth ? MONTH_NAMES.indexOf(intakeStartMonth) : 0;
+
+        const getMonthOffset = (name) => {
+            const m = parseMonthName(name);
+            if (!m) return 99;
+            const idx = MONTH_NAMES.indexOf(m);
+            return (idx - intakeStartIdx + 12) % 12;
+        };
+
+        monthlyGroups.sort((a, b) => {
+            const offA = getMonthOffset(a.name);
+            const offB = getMonthOffset(b.name);
+            if (offA !== offB) return offA - offB;
+            const ctA = parseInt(a.classType || 1);
+            const ctB = parseInt(b.classType || 1);
+            if (ctA !== ctB) return ctA - ctB;
+            return (a.itemOrder || 0) - (b.itemOrder || 0);
+        });
+
         const courseMap = {};
         const courseCodeMap = {};
         courses.forEach(c => {
@@ -97,29 +227,29 @@ exports.getFinanceMatrix = async (req, res) => {
         });
         const uniqueSubjectNames = [...new Set(Object.values(courseMap))];
 
-        // Helper function to extract exact monthly groups a course spans
+        // Helper function to extract exact monthly groups a course spans in chronological order
         const getActiveMonthsForCourse = (course) => {
             if (!course) return monthlyGroups;
             const cType = parseInt(course.courseType || 1);
             const relevantGroups = monthlyGroups.filter(g => parseInt(g.classType || 1) === cType);
             const candidateGroups = relevantGroups.length > 0 ? relevantGroups : monthlyGroups;
 
-            const startStr = (course.startMonth || '').trim().toLowerCase();
-            const endStr = (course.endMonth || '').trim().toLowerCase();
+            const startStr = course.startMonth;
+            const endStr = course.endMonth;
             if (!startStr || !endStr) return candidateGroups;
 
-            let startIndex = candidateGroups.findIndex(g => g.name.toLowerCase().includes(startStr));
-            let endIndex = candidateGroups.findIndex(g => g.name.toLowerCase().includes(endStr));
+            const span = getMonthSpan(startStr, endStr);
+            if (span.length === 0) return candidateGroups;
 
-            if (startIndex === -1) startIndex = 0;
-            if (endIndex === -1) endIndex = candidateGroups.length - 1;
+            const matched = [];
+            span.forEach(mName => {
+                const found = candidateGroups.find(g => parseMonthName(g.name) === mName);
+                if (found && !matched.some(m => m.id === found.id)) {
+                    matched.push(found);
+                }
+            });
 
-            if (startIndex <= endIndex) {
-                return candidateGroups.slice(startIndex, endIndex + 1);
-            } else {
-                // Wrap around (academic intakes wrapping across new year)
-                return [...candidateGroups.slice(startIndex), ...candidateGroups.slice(0, endIndex + 1)];
-            }
+            return matched.length > 0 ? matched : candidateGroups;
         };
 
         // 3. Dynamic Month Extraction
@@ -191,12 +321,71 @@ exports.getFinanceMatrix = async (req, res) => {
         let grandTotal = 0.0;
         const studentMap = {};
 
+        const isAdjustedPayment = (p) => {
+            const isExcess = p.excessAmount && parseFloat(p.excessAmount) > 0;
+            const isArrears = p.arrearsAmount && parseFloat(p.arrearsAmount) > 0;
+            const r = p.remark || '';
+            const rLower = r.toLowerCase();
+
+            const isInstitute = r.includes('[Institute Payment]') || rLower.includes('institute payment') || (p.method && p.method.toLowerCase().includes('institute'));
+
+            // Explicit half card / discount keywords
+            const isExplicitDiscount = Boolean(
+                rLower.includes('half payment') ||
+                rLower.includes('half paymnet') ||
+                rLower.includes('half card') ||
+                rLower.includes('halfcard') ||
+                rLower.includes('halfpaymant') ||
+                rLower.includes('discount') ||
+                rLower.includes('boss approved') ||
+                r.includes('Custom Breakdown')
+            );
+
+            // 🔥 INSTITUTE PAYMENT RULE:
+            // Institute Payments are normal payments collected directly at the campus/institute.
+            // They belong to Monthly (payment_type=1) or Full (payment_type=3) and must NOT be marked as Adjusted
+            // unless they are explicitly flagged with a genuine discount/half-card approved remark.
+            if (isInstitute && !isExplicitDiscount && !isExcess && !isArrears) {
+                return false;
+            }
+
+            const hasKeyword = Boolean(
+                isExcess ||
+                isArrears ||
+                isExplicitDiscount ||
+                rLower.includes('wallet adjusted') ||
+                rLower.includes('excess adjusted') ||
+                rLower.includes('arrears adjusted')
+            );
+            if (hasKeyword) return true;
+
+            // Check if custom prices are actually discounted below catalog course price
+            if (r.includes('[CUSTOM_PRICES:')) {
+                try {
+                    const match = r.match(/\[CUSTOM_PRICES:({.*?})\]/);
+                    if (match) {
+                        const customMap = JSON.parse(match[1]);
+                        for (const [cIdStr, cPrice] of Object.entries(customMap)) {
+                            const cId = parseInt(cIdStr);
+                            const course = courses.find(c => c.id === cId);
+                            if (course && course.price > 0 && parseFloat(cPrice) < parseFloat(course.price)) {
+                                return true;
+                            }
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            return false;
+        };
+
         payments.forEach(p => {
             if (!p.studentId || !p.student) return;
             const paidAmount = parseFloat(p.amount || 0);
             if (paidAmount <= 0) return;
 
             const isUpgrade = p.remark && (p.remark.includes('[UPGRADE]') || p.remark.includes('UPGRADE'));
+            const isAdj = isAdjustedPayment(p);
 
             // Subject parsing first to ensure payment belongs to active subjects in this view
             let enrolledSubjectData = [];
@@ -205,13 +394,48 @@ exports.getFinanceMatrix = async (req, res) => {
                 
                 // Parse custom overridden prices if they exist in payment remark
                 let customPricesMap = {};
-                if (p.remark && p.remark.includes('[CUSTOM_PRICES:')) {
-                    try {
-                        const match = p.remark.match(/\[CUSTOM_PRICES:({.*?})\]/);
-                        if (match) {
-                            customPricesMap = JSON.parse(match[1]);
-                        }
-                    } catch (e) { }
+                let customPricesBySubName = {};
+                if (p.remark) {
+                    if (p.remark.includes('[CUSTOM_PRICES:')) {
+                        try {
+                            const match = p.remark.match(/\[CUSTOM_PRICES:({.*?})\]/);
+                            if (match) {
+                                const parsed = JSON.parse(match[1]);
+                                Object.entries(parsed).forEach(([k, v]) => {
+                                    const num = parseFloat(v);
+                                    if (!isNaN(num)) {
+                                        customPricesMap[String(k)] = num;
+                                        const matchedCourse = courses.find(c => String(c.id) === String(k));
+                                        if (matchedCourse) {
+                                            customPricesBySubName[matchedCourse.name.trim().toUpperCase()] = num;
+                                        }
+                                    }
+                                });
+                            }
+                        } catch (e) { }
+                    }
+
+                    const adminBreakdownMatch = p.remark.match(/(?:\[ADMIN\]:\s*)?Custom Breakdown:\s*\[(.*?)\]/i);
+                    if (adminBreakdownMatch) {
+                        const parts = adminBreakdownMatch[1].split('|');
+                        parts.forEach(part => {
+                            const [codeOrIdStr, amtStr] = part.split(':').map(s => s.trim());
+                            if (codeOrIdStr && amtStr) {
+                                const numAmt = parseFloat(amtStr.replace(/[^0-9.]/g, ''));
+                                if (!isNaN(numAmt)) {
+                                    customPricesMap[codeOrIdStr] = numAmt;
+                                    const matchedCourses = courses.filter(c => 
+                                        String(c.id) === codeOrIdStr || 
+                                        (c.code && c.code.trim().toUpperCase() === codeOrIdStr.toUpperCase())
+                                    );
+                                    matchedCourses.forEach(mc => {
+                                        customPricesMap[String(mc.id)] = numAmt;
+                                        customPricesBySubName[mc.name.trim().toUpperCase()] = numAmt;
+                                    });
+                                }
+                            }
+                        });
+                    }
                 }
 
                 subs.forEach(item => {
@@ -225,6 +449,8 @@ exports.getFinanceMatrix = async (req, res) => {
                         const strId = String(cid);
                         if (customPricesMap[strId] !== undefined) {
                             price = parseFloat(customPricesMap[strId]);
+                        } else if (customPricesBySubName[subName] !== undefined) {
+                            price = parseFloat(customPricesBySubName[subName]);
                         }
 
                         enrolledSubjectData.push({
@@ -264,13 +490,14 @@ exports.getFinanceMatrix = async (req, res) => {
                     paymentTypes: new Set(),
                     matrixValues: {},
                     totalPaid: 0.0,
-                    isUpgradeStudent: false
+                    isUpgradeStudent: false,
+                    isAdjustedStudent: false
                 };
 
                 monthlyGroups.forEach(mg => {
                     studentMap[p.studentId].matrixValues[mg.id] = {};
                     uniqueSubjectNames.forEach(sub => {
-                        studentMap[p.studentId].matrixValues[mg.id][sub] = { total: 0, Full: 0, Monthly: 0, Installment: 0 };
+                        studentMap[p.studentId].matrixValues[mg.id][sub] = { total: 0, Full: 0, Monthly: 0, Installment: 0, Upgrade: 0, Adjusted: 0 };
                     });
                 });
             }
@@ -280,6 +507,7 @@ exports.getFinanceMatrix = async (req, res) => {
                 sData.address = p.delivery.labelAddress.trim();
             }
             if (isUpgrade) sData.isUpgradeStudent = true;
+            if (isAdj) sData.isAdjustedStudent = true;
             const payType = parseInt(p.payment_type);
             sData.paymentTypes.add(payType === 3 ? 'Full' : (payType === 2 ? 'Installment' : 'Monthly'));
             sData.totalPaid += paidAmount;
@@ -301,15 +529,25 @@ exports.getFinanceMatrix = async (req, res) => {
             let englishFund = 0;
             let othersTotalFund = paidAmount;
 
-            if (englishSub) {
-                // If it is a full payment, englishSub.price is ALREADY the full price. 
-                // Do not multiply it by active months.
-                let cap = englishSub.price;
-                
-                // For monthly payments, englishSub.price is the monthly price.
-                // cap is englishSub.price * 1 (which is just englishSub.price).
-                englishFund = Math.min(cap, paidAmount);
-                othersTotalFund = Math.max(0, paidAmount - englishFund);
+            if (payType === 2) {
+                // 🔥 English is TOTALLY EXCLUDED from Installment calculations!
+                // Entire installment amount belongs strictly to the core stream subjects.
+                if (otherSubs.length === 0) {
+                    englishFund = paidAmount;
+                    othersTotalFund = 0;
+                } else {
+                    englishFund = 0;
+                    othersTotalFund = paidAmount;
+                }
+            } else if (englishSub) {
+                if (otherSubs.length === 0) {
+                    englishFund = paidAmount;
+                    othersTotalFund = 0;
+                } else {
+                    let cap = englishSub.price;
+                    englishFund = Math.min(cap, paidAmount);
+                    othersTotalFund = Math.max(0, paidAmount - englishFund);
+                }
             }
 
             // Anith subjects wala combined base price
@@ -329,6 +567,10 @@ exports.getFinanceMatrix = async (req, res) => {
                 const isIsolatedEnglish = isEnglish && englishSub !== null;
 
                 if (isIsolatedEnglish) {
+                    // English is completely excluded from installment payments if core subjects are present
+                    if (payType === 2 && otherSubs.length > 0) {
+                        return;
+                    }
                     subjectAllocatedFund = englishFund;
                 } else { 
                     // Use price weight ratio for ALL payment types (MONTHLY, FULL, INSTALLMENT)
@@ -337,33 +579,96 @@ exports.getFinanceMatrix = async (req, res) => {
                 }
 
                 // 3. Active Months walin bedeema
-                let activeGroupIds = subjectActiveMonthsMap[sub] || monthlyGroups.map(g => g.id);
-                let activeMonthCount = activeGroupIds.length || 1;
-                
-                // Use course's explicit activeMonths if configured (e.g. 8 months for A/L Fast Track, 6 months for O/L, etc.)
-                const dbCourseForMonths = courses.find(c => c.name.trim().toUpperCase() === sub.trim().toUpperCase() && c.activeMonths && c.activeMonths > 0)
-                    || courses.find(c => c.name.trim().toUpperCase() === sub.trim().toUpperCase());
-                if (dbCourseForMonths && dbCourseForMonths.activeMonths && dbCourseForMonths.activeMonths > 0) {
-                    activeMonthCount = dbCourseForMonths.activeMonths;
+                const targetCourse = es.courseObj || courses.find(c => {
+                    let name = c.name.trim().toUpperCase();
+                    if (!parsedClassType && (c.courseType === 2 || rawGroups.find(g => g.id === c.groupId)?.classType === 2)) {
+                        name += ' (PAPER)';
+                    }
+                    return name === sub;
+                });
+
+                let activeGroupIds = subjectActiveMonthsMap[sub] || (targetCourse ? getActiveMonthsForCourse(targetCourse).map(g => g.id) : monthlyGroups.map(g => g.id));
+                if (!activeGroupIds || activeGroupIds.length === 0) {
+                    activeGroupIds = monthlyGroups.map(g => g.id);
                 }
+                const numActive = activeGroupIds.length || 1;
 
                 if (isIsolatedEnglish) {
                     if (payType === 1) { // MONTHLY for English
                         let targetMg = monthlyGroups.find(mg => mg.id === p.groupId);
                         let targetMgId = targetMg ? targetMg.id : (activeGroupIds.length > 0 ? activeGroupIds[0] : (monthlyGroups[0]?.id || null));
-                        if (targetMgId && sData.matrixValues[targetMgId]) {
-                            sData.matrixValues[targetMgId][sub].Monthly += subjectAllocatedFund;
+                        if (targetMgId && sData.matrixValues[targetMgId] && sData.matrixValues[targetMgId][sub]) {
+                            if (isAdj) {
+                                sData.matrixValues[targetMgId][sub].Adjusted = (sData.matrixValues[targetMgId][sub].Adjusted || 0) + subjectAllocatedFund;
+                            } else {
+                                sData.matrixValues[targetMgId][sub].Monthly += subjectAllocatedFund;
+                            }
                             sData.matrixValues[targetMgId][sub].total += subjectAllocatedFund;
                         }
-                    } else { // FULL or INSTALLMENT for English
-                        const amountPerMonth = subjectAllocatedFund / activeMonthCount;
-                        activeGroupIds.forEach(mgId => {
-                            if (sData.matrixValues[mgId]) {
-                                const typeKey = payType === 3 ? 'Full' : 'Installment';
-                                sData.matrixValues[mgId][sub][typeKey] += amountPerMonth;
-                                sData.matrixValues[mgId][sub].total += amountPerMonth;
+                    } else if (payType === 3) { // FULL for English
+                        let lastPaidMonthlyIndex = -1;
+                        studentMonthlyPayments.forEach(pm => {
+                            const idx = activeGroupIds.indexOf(pm.groupId);
+                            if (idx > lastPaidMonthlyIndex) {
+                                lastPaidMonthlyIndex = idx;
                             }
                         });
+                        const startIdx = (isUpgrade && lastPaidMonthlyIndex >= 0) ? Math.min(lastPaidMonthlyIndex + 1, Math.max(0, numActive - 1)) : 0;
+                        const divisor = Math.max(1, numActive - startIdx);
+                        const amountPerMonth = subjectAllocatedFund / divisor;
+
+                        for (let i = startIdx; i < numActive; i++) {
+                            const mgId = activeGroupIds[i];
+                            if (mgId && sData.matrixValues[mgId] && sData.matrixValues[mgId][sub]) {
+                                if (isAdj) {
+                                    sData.matrixValues[mgId][sub].Adjusted = (sData.matrixValues[mgId][sub].Adjusted || 0) + amountPerMonth;
+                                } else if (isUpgrade) {
+                                    sData.matrixValues[mgId][sub].Upgrade = (sData.matrixValues[mgId][sub].Upgrade || 0) + amountPerMonth;
+                                } else {
+                                    sData.matrixValues[mgId][sub].Full += amountPerMonth;
+                                }
+                                sData.matrixValues[mgId][sub].total += amountPerMonth;
+                            }
+                        }
+                    } else { // INSTALLMENT for English
+                        const applicablePlans = installmentPlans.filter(pl => pl.subjectCount <= (otherSubs.length || 1)).sort((a, b) => b.subjectCount - a.subjectCount);
+                        const plan = applicablePlans.length > 0 ? applicablePlans[0] : null;
+                        const stepDetails = plan ? JSON.parse(plan.details) : [];
+                        const totalPhases = stepDetails.length || 3;
+                        const instNo = p.installment_no || 1;
+                        const instIdx = instNo - 1;
+
+                        const start_norm = Math.floor((instIdx * numActive) / totalPhases);
+                        const end_norm = Math.floor(((instIdx + 1) * numActive) / totalPhases);
+                        let start = start_norm;
+                        let end = end_norm;
+                        if (isUpgrade) {
+                            start = Math.max(start, alreadyPaidMonthlyCount);
+                            if (start > end) start = end;
+                        }
+                        if (start < 0) start = 0;
+                        if (end > numActive) end = numActive;
+                        if (start > end) start = end;
+
+                        const monthsToCover = end - start;
+                        const divisor = monthsToCover > 0 ? monthsToCover : Math.max(1, numActive);
+                        const amountPerMonth = subjectAllocatedFund / divisor;
+                        const actualStart = monthsToCover > 0 ? start : 0;
+                        const actualEnd = monthsToCover > 0 ? end : numActive;
+
+                        for (let i = actualStart; i < actualEnd; i++) {
+                            const mgId = activeGroupIds[i];
+                            if (mgId && sData.matrixValues[mgId] && sData.matrixValues[mgId][sub]) {
+                                if (isAdj) {
+                                    sData.matrixValues[mgId][sub].Adjusted = (sData.matrixValues[mgId][sub].Adjusted || 0) + amountPerMonth;
+                                } else if (isUpgrade) {
+                                    sData.matrixValues[mgId][sub].Upgrade = (sData.matrixValues[mgId][sub].Upgrade || 0) + amountPerMonth;
+                                } else {
+                                    sData.matrixValues[mgId][sub].Installment += amountPerMonth;
+                                }
+                                sData.matrixValues[mgId][sub].total += amountPerMonth;
+                            }
+                        }
                     }
                 } else if (payType === 3) { // FULL PAYMENT
                     let lastPaidMonthlyIndex = -1;
@@ -374,82 +679,65 @@ exports.getFinanceMatrix = async (req, res) => {
                         }
                     });
                     
-                    const startIdx = (isUpgrade && lastPaidMonthlyIndex >= 0) ? Math.min(lastPaidMonthlyIndex + 1, activeMonthCount - 1) : 0;
-                    const divisor = activeMonthCount - startIdx;
-                    const amountPerMonth = subjectAllocatedFund / (divisor || 1);
+                    const startIdx = (isUpgrade && lastPaidMonthlyIndex >= 0) ? Math.min(lastPaidMonthlyIndex + 1, Math.max(0, numActive - 1)) : 0;
+                    const divisor = Math.max(1, numActive - startIdx);
+                    const amountPerMonth = subjectAllocatedFund / divisor;
 
-                    for (let i = startIdx; i < activeMonthCount; i++) {
+                    for (let i = startIdx; i < numActive; i++) {
                         const mgId = activeGroupIds[i];
-                        if (sData.matrixValues[mgId]) {
-                            sData.matrixValues[mgId][sub].Full += amountPerMonth;
+                        if (mgId && sData.matrixValues[mgId] && sData.matrixValues[mgId][sub]) {
+                            if (isAdj) {
+                                sData.matrixValues[mgId][sub].Adjusted = (sData.matrixValues[mgId][sub].Adjusted || 0) + amountPerMonth;
+                            } else if (isUpgrade) {
+                                sData.matrixValues[mgId][sub].Upgrade = (sData.matrixValues[mgId][sub].Upgrade || 0) + amountPerMonth;
+                            } else {
+                                sData.matrixValues[mgId][sub].Full += amountPerMonth;
+                            }
                             sData.matrixValues[mgId][sub].total += amountPerMonth;
                         }
                     }
                 } else if (payType === 1) { // MONTHLY
                     let targetMg = monthlyGroups.find(mg => mg.id === p.groupId);
                     let targetMgId = targetMg ? targetMg.id : (activeGroupIds.length > 0 ? activeGroupIds[0] : (monthlyGroups[0]?.id || null));
-                    if (targetMgId && sData.matrixValues[targetMgId]) {
-                        sData.matrixValues[targetMgId][sub].Monthly += subjectAllocatedFund;
+                    if (targetMgId && sData.matrixValues[targetMgId] && sData.matrixValues[targetMgId][sub]) {
+                        if (isAdj) {
+                            sData.matrixValues[targetMgId][sub].Adjusted = (sData.matrixValues[targetMgId][sub].Adjusted || 0) + subjectAllocatedFund;
+                        } else {
+                            sData.matrixValues[targetMgId][sub].Monthly += subjectAllocatedFund;
+                        }
                         sData.matrixValues[targetMgId][sub].total += subjectAllocatedFund;
                     }
                 } else { // INSTALLMENT
                     // Filter down to the correct subject count to avoid 2-phase plans for 3-subject students
                     const applicablePlans = installmentPlans.filter(pl => pl.subjectCount <= (otherSubs.length || 1)).sort((a, b) => b.subjectCount - a.subjectCount);
                     const plan = applicablePlans.length > 0 ? applicablePlans[0] : null;
-                    const stepDetails = plan ? JSON.parse(plan.details) : [];
-                    const totalPhases = stepDetails.length || 3;
+                    let stepDetails = [];
+                    if (plan && plan.details) {
+                        try { stepDetails = JSON.parse(plan.details); } catch(e) {}
+                    }
                     const instNo = p.installment_no || 1;
-                    const instIdx = instNo - 1;
+                    const instIdx = Math.max(0, instNo - 1);
 
-                    let rangeField = 'rangeNormal';
-                    if (isUpgrade) {
-                        if (alreadyPaidMonthlyCount === 1) rangeField = 'rangeUp1';
-                        else if (alreadyPaidMonthlyCount === 2) rangeField = 'rangeUp2';
-                    }
-
-                    const currentStepConfig = stepDetails[instIdx] || {};
-                    const rangeStr = currentStepConfig[rangeField];
-
-                    let explicitStart = null;
-                    let explicitEnd = null;
-
-                    if (rangeStr && rangeStr.includes('-')) {
-                        const parts = rangeStr.split('-');
-                        const s = parseInt(parts[0]);
-                        const e = parseInt(parts[1]);
-                        if (!isNaN(s) && !isNaN(e)) {
-                            explicitStart = s - 1; // 1-indexed (Month 1 -> Index 0)
-                            explicitEnd = e; // non-inclusive end index
-                        }
-                    }
-
-                    let start = explicitStart;
-                    let end = explicitEnd;
-
-                    if (start === null || end === null) {
-                        // Fallback to mathematical calculation if no explicit range or invalid
-                        const start_norm = Math.floor((instIdx * activeMonthCount) / totalPhases);
-                        const end_norm = Math.floor(((instIdx + 1) * activeMonthCount) / totalPhases);
-                        start = start_norm;
-                        end = end_norm;
-                        if (isUpgrade) {
-                            start = Math.max(start, alreadyPaidMonthlyCount);
-                            if (start > end) start = end;
-                        }
-                    }
-
-                    // Ensure bounds
-                    if (start < 0) start = 0;
-                    if (end > activeMonthCount) end = activeMonthCount;
-                    if (start > end) start = end;
-
+                    const stepRange = resolveInstallmentStepRange(stepDetails, instIdx, isUpgrade, alreadyPaidMonthlyCount, numActive);
+                    const start = stepRange.start;
+                    const end = stepRange.end;
                     const monthsToCover = end - start;
-                    const amountPerMonth = monthsToCover > 0 ? subjectAllocatedFund / monthsToCover : 0;
+                    const divisor = monthsToCover > 0 ? monthsToCover : Math.max(1, numActive);
+                    const amountPerMonth = subjectAllocatedFund / divisor;
+                    
+                    const actualStart = monthsToCover > 0 ? start : 0;
+                    const actualEnd = monthsToCover > 0 ? end : numActive;
 
-                    for (let i = start; i < end; i++) {
+                    for (let i = actualStart; i < actualEnd; i++) {
                         const mgId = activeGroupIds[i];
-                        if (sData.matrixValues[mgId]) {
-                            sData.matrixValues[mgId][sub].Installment += amountPerMonth;
+                        if (mgId && sData.matrixValues[mgId] && sData.matrixValues[mgId][sub]) {
+                            if (isAdj) {
+                                sData.matrixValues[mgId][sub].Adjusted = (sData.matrixValues[mgId][sub].Adjusted || 0) + amountPerMonth;
+                            } else if (isUpgrade) {
+                                sData.matrixValues[mgId][sub].Upgrade = (sData.matrixValues[mgId][sub].Upgrade || 0) + amountPerMonth;
+                            } else {
+                                sData.matrixValues[mgId][sub].Installment += amountPerMonth;
+                            }
                             sData.matrixValues[mgId][sub].total += amountPerMonth;
                         }
                     }
@@ -457,18 +745,24 @@ exports.getFinanceMatrix = async (req, res) => {
             });
         });
 
-        // Hybrid and Upgrade detection
+        // Hybrid, Upgrade, and Adjusted detection
         Object.values(studentMap).forEach(sData => {
-            if (sData.isUpgradeStudent) {
+            const baseType = sData.paymentTypes.size > 1 ? 'Hybrid' : (Array.from(sData.paymentTypes)[0] || 'Other');
+            sData.originalType = baseType;
+            if (sData.isAdjustedStudent) {
+                sData.isAdjusted = true;
+                sData.type = 'Adjusted';
+            } else if (sData.isUpgradeStudent) {
                 sData.type = 'Upgrade';
             } else {
-                sData.type = sData.paymentTypes.size > 1 ? 'Hybrid' : Array.from(sData.paymentTypes)[0];
+                sData.type = baseType;
             }
             delete sData.paymentTypes;
             delete sData.isUpgradeStudent;
+            delete sData.isAdjustedStudent;
         });
 
-        const typeOrder = { 'Full': 1, 'Monthly': 2, 'Installment': 3, 'Upgrade': 4, 'Hybrid': 5 };
+        const typeOrder = { 'Full': 1, 'Monthly': 2, 'Installment': 3, 'Upgrade': 4, 'Hybrid': 5, 'Adjusted': 6 };
         const sortedStudents = Object.values(studentMap).sort((a, b) => {
             const wA = typeOrder[a.type] || 99;
             const wB = typeOrder[b.type] || 99;
@@ -515,13 +809,16 @@ exports.getPaidCampaignDropMatrix = async (req, res) => {
              return res.status(403).json({ error: "Access Denied." });
         }
 
+        // Auto-create missing monthly groups for courses in this batch
+        await ensureBatchMonthlyGroups(parsedBatchId);
+
         // 1. Get Monthly Groups
         let groupWhere = { batchId: parsedBatchId };
         if (parsedClassType) groupWhere.classType = parsedClassType;
         const rawGroups = await prisma.group.findMany({
             where: groupWhere,
             orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }],
-            select: { id: true, name: true, classType: true }
+            select: { id: true, name: true, classType: true, itemOrder: true }
         });
         const monthlyGroups = rawGroups
             .filter(g => !g.name.toLowerCase().includes('full payment') && !g.name.toLowerCase().includes('full'))
@@ -545,6 +842,37 @@ exports.getPaidCampaignDropMatrix = async (req, res) => {
             select: { id: true, name: true, code: true, startMonth: true, endMonth: true, courseType: true, groupId: true }
         });
 
+        // Sort monthly groups chronologically based on batch intake start month
+        let intakeStartMonth = null;
+        for (const c of courses) {
+            const parsed = parseMonthName(c.startMonth);
+            if (parsed) {
+                intakeStartMonth = parsed;
+                break;
+            }
+        }
+        if (!intakeStartMonth && monthlyGroups.length > 0) {
+            intakeStartMonth = parseMonthName(monthlyGroups[0].name) || 'January';
+        }
+        const intakeStartIdx = intakeStartMonth ? MONTH_NAMES.indexOf(intakeStartMonth) : 0;
+
+        const getMonthOffset = (name) => {
+            const m = parseMonthName(name);
+            if (!m) return 99;
+            const idx = MONTH_NAMES.indexOf(m);
+            return (idx - intakeStartIdx + 12) % 12;
+        };
+
+        monthlyGroups.sort((a, b) => {
+            const offA = getMonthOffset(a.name);
+            const offB = getMonthOffset(b.name);
+            if (offA !== offB) return offA - offB;
+            const ctA = parseInt(a.classType || 1);
+            const ctB = parseInt(b.classType || 1);
+            if (ctA !== ctB) return ctA - ctB;
+            return (a.itemOrder || 0) - (b.itemOrder || 0);
+        });
+
         const courseMap = {};
         courses.forEach(c => {
             let normalizedSubName = c.name.trim().toUpperCase();
@@ -561,15 +889,22 @@ exports.getPaidCampaignDropMatrix = async (req, res) => {
             const relevantGroups = monthlyGroups.filter(g => parseInt(g.classType || 1) === cType);
             const candidateGroups = relevantGroups.length > 0 ? relevantGroups : monthlyGroups;
 
-            const startStr = (course.startMonth || '').trim().toLowerCase();
-            const endStr = (course.endMonth || '').trim().toLowerCase();
+            const startStr = course.startMonth;
+            const endStr = course.endMonth;
             if (!startStr || !endStr) return candidateGroups;
-            let startIndex = candidateGroups.findIndex(g => g.name.toLowerCase().includes(startStr));
-            let endIndex = candidateGroups.findIndex(g => g.name.toLowerCase().includes(endStr));
-            if (startIndex === -1) startIndex = 0;
-            if (endIndex === -1) endIndex = candidateGroups.length - 1;
-            if (startIndex <= endIndex) return candidateGroups.slice(startIndex, endIndex + 1);
-            else return [...candidateGroups.slice(startIndex), ...candidateGroups.slice(0, endIndex + 1)];
+
+            const span = getMonthSpan(startStr, endStr);
+            if (span.length === 0) return candidateGroups;
+
+            const matched = [];
+            span.forEach(mName => {
+                const found = candidateGroups.find(g => parseMonthName(g.name) === mName);
+                if (found && !matched.some(m => m.id === found.id)) {
+                    matched.push(found);
+                }
+            });
+
+            return matched.length > 0 ? matched : candidateGroups;
         };
 
         const subjectActiveMonthsMap = {};
@@ -695,8 +1030,8 @@ exports.getPaidCampaignDropMatrix = async (req, res) => {
                 enrolledSubjectData.forEach(sub => {
                      let activeGroupIds = subjectActiveMonthsMap[sub] || monthlyGroups.map(g => g.id);
                      if (payType === 1) {
-                         let targetMgId = monthlyGroups.find(mg => mg.id === p.groupId)?.id || monthlyGroups[0].id;
-                         if (sData.matrixValues[targetMgId]) {
+                         let targetMgId = monthlyGroups.find(mg => mg.id === p.groupId)?.id || (activeGroupIds.length > 0 ? activeGroupIds[0] : (monthlyGroups[0]?.id || null));
+                         if (targetMgId && sData.matrixValues[targetMgId]) {
                              sData.matrixValues[targetMgId].activeSubjects.add(sub);
                          }
                      } else {

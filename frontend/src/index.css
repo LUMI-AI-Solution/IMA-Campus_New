@@ -1,8 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Sora:wght@500;600;700&family=Noto+Sans+Sinhala:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
-@import "./themes/aurora.css";
-@import "./themes/chatline.css";
-@import "./themes/bento.css";
 @plugin "@tailwindcss/typography";
 
 /* 🔥 FIX: Tailwind v4 Class-based Dark Mode 🔥 */
@@ -75,8 +72,12 @@ body {
   scrollbar-width: none;
 }
 
-* {
-  transition: background-color 0.4s ease, border-color 0.4s ease, color 0.4s ease;
+/* Zero-lag theme transition lock to guarantee instant 60fps dark/light toggle */
+.no-transitions,
+.no-transitions *,
+.no-transitions *::before,
+.no-transitions *::after {
+  transition: none !important;
 }
 
 /* Modal fix */

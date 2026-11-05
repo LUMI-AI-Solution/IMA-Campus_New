@@ -1,102 +1,239 @@
-import React, { useState, useEffect, useRef, useCallback, useContext } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
     View, Text, StyleSheet, TouchableOpacity, ScrollView,
-    ActivityIndicator, Modal, Alert, Image, StatusBar, Platform, Dimensions
+    ActivityIndicator, Modal, Alert, Image, StatusBar, Platform, Dimensions, Linking
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
-import api from '../services/api';
+import { launchImageLibrary, launchCamera } from 'react-native-image-picker';
+import api, { IMAGE_URL } from '../services/api';
 import COLORS from '../constants/colors';
-import { AuthContext } from '../context/AuthContext';
 
 const { width } = Dimensions.get('window');
 
 const MCQPaperScreen = ({ route, navigation }) => {
     const insets = useSafeAreaInsets();
     const { contentId, courseTitle, paperTitle, thumbnail: initialThumbnail } = route.params || {};
-    const { userInfo } = useContext(AuthContext);
-    const currentUserId = userInfo?.id || userInfo?.userId;
 
-    const [loading, setLoading] = useState(true);
+    const [activeContentId, setActiveContentId] = useState(contentId || null);
+    const [activeCourseTitle, setActiveCourseTitle] = useState(courseTitle || "");
+    const [activePaperTitle, setActivePaperTitle] = useState(paperTitle || "");
+    const [activeThumbnail, setActiveThumbnail] = useState(initialThumbnail || null);
+
+    // Exam Hub States (When opened without contentId)
+    const [hubLoading, setHubLoading] = useState(!contentId);
+    const [hubTab, setHubTab] = useState("AVAILABLE"); // "AVAILABLE" | "HISTORY"
+    const [hubPapers, setHubPapers] = useState([]);
+    const [hubProgress, setHubProgress] = useState(null);
+
+    const [loading, setLoading] = useState(Boolean(contentId));
     const [submitting, setSubmitting] = useState(false);
     const [paperData, setPaperData] = useState(null);
     const [submission, setSubmission] = useState(null);
 
-    // Student Leaderboard Modal state
-    const [showLeaderboardModal, setShowLeaderboardModal] = useState(false);
-    const [leaderboardData, setLeaderboardData] = useState([]);
-    const [loadingLeaderboard, setLoadingLeaderboard] = useState(false);
-
-    // Exam States: 'PRE_START' | 'COUNTDOWN_TO_START' | 'IN_PROGRESS' | 'SUBMITTED'
+    // Exam States: 'PRE_START' | 'COUNTDOWN_TO_START' | 'IN_PROGRESS' | 'INTERMISSION' | 'STRUCTURED_WRITING' | 'STRUCTURED_UPLOADING' | 'SUBMITTED'
     const [examStatus, setExamStatus] = useState('PRE_START');
     const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
     const [selectedAnswers, setSelectedAnswers] = useState({}); // { [questionId]: optionId }
     const [timeRemainingSeconds, setTimeRemainingSeconds] = useState(null);
     const [timeUntilStartSeconds, setTimeUntilStartSeconds] = useState(null);
+    const [answerImages, setAnswerImages] = useState([]); // [{ uri, fileName, type }]
 
     // Modals
     const [showPaletteModal, setShowPaletteModal] = useState(false);
     const [showConfirmModal, setShowConfirmModal] = useState(false);
 
-    // Question Figures Viewer / Lightbox state
-    const [lightboxVisible, setLightboxVisible] = useState(false);
-    const [lightboxImages, setLightboxImages] = useState([]);
-    const [lightboxIndex, setLightboxIndex] = useState(0);
-    const [activeFigureIdx, setActiveFigureIdx] = useState(0);
-
     const timerIntervalRef = useRef(null);
 
-    useEffect(() => {
-        setActiveFigureIdx(0);
-    }, [currentQuestionIdx]);
+    const loadHubData = async () => {
+        try {
+            setHubLoading(true);
+            const [progRes, classRes] = await Promise.all([
+                api.get("papers/student/progress").catch(() => ({ data: null })),
+                api.get("mobile/classroom").catch(() => ({ data: [] }))
+            ]);
+
+            setHubProgress(progRes?.data || null);
+            const subjects = classRes?.data || [];
+
+            const modulePromises = subjects.map(s =>
+                api.get(`mobile/module/${s.id}`).then(res => ({ subject: s, data: res.data })).catch(() => null)
+            );
+            const moduleRes = await Promise.all(modulePromises);
+
+            const collected = [];
+            moduleRes.filter(Boolean).forEach(m => {
+                const groups = m.data?.lessonGroups || m.data?.contentGroups || [];
+                const directContents = m.data?.contents || [];
+                const allItems = [...directContents];
+                groups.forEach(g => {
+                    if (Array.isArray(g.contents)) allItems.push(...g.contents);
+                });
+
+                allItems.forEach(item => {
+                    const isPaper = item.type === "paper" || item.type === "exam" || item.paper || String(item.title || "").toLowerCase().includes("paper");
+                    if (isPaper) {
+                        collected.push({
+                            id: item.id,
+                            contentId: item.id,
+                            title: item.title,
+                            courseTitle: m.subject?.name || "Course Subject",
+                            batchName: m.subject?.batchName || "",
+                            paperType: item.paper?.paperType || "MCQ",
+                            durationMinutes: item.paper?.durationMinutes || 60,
+                            totalQuestions: item.paper?.questionsCount || item.paper?.questions?.length || 50,
+                            thumbnail: item.thumbnail
+                        });
+                    }
+                });
+            });
+
+            setHubPapers(collected);
+        } catch (err) {
+            console.log("Error loading exam hub:", err);
+        } finally {
+            setHubLoading(false);
+        }
+    };
 
     useEffect(() => {
-        if (contentId) {
-            loadPaper();
+        if (activeContentId) {
+            loadPaper(activeContentId);
+        } else {
+            loadHubData();
         }
         return () => {
             if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
         };
-    }, [contentId]);
+    }, [activeContentId]);
 
-    const loadPaper = async () => {
+    const loadPaper = async (targetId = activeContentId) => {
+        if (!targetId) return;
         try {
             setLoading(true);
-            const res = await api.get(`papers/content/${contentId}`);
+            const res = await api.get(`papers/content/${targetId}`);
             const data = res.data;
             setPaperData(data);
 
             const p = data.paper;
             const sub = data.userSubmission;
             const serverNow = new Date(data.serverTime || Date.now());
+            const pType = p.paperType || (data?.content?.contentType === 'sPaper' ? 'STRUCTURED' : 'MCQ');
+
+            // 1. Check if student has already submitted (single attempt enforcement)
+            const isFullySubmitted = Boolean(
+                sub && (
+                    sub.status === 'SUBMITTED' ||
+                    sub.status === 'GRADED' ||
+                    sub.status === 'PENDING_EVALUATION' ||
+                    (pType === 'STRUCTURED' && Boolean(sub.structuredSubmittedAt || sub.submittedAt || sub.answerFile || sub.answerImages)) ||
+                    (pType === 'BOTH' && Boolean(sub.structuredSubmittedAt || (sub.mcqSubmittedAt && (sub.answerFile || sub.answerImages))))
+                )
+            );
+
+            if (isFullySubmitted) {
+                setSubmission(sub);
+                setExamStatus('SUBMITTED');
+                if (Array.isArray(sub.answers)) {
+                    const ansMap = {};
+                    sub.answers.forEach(a => {
+                        ansMap[a.questionId] = a.selectedOptionId;
+                    });
+                    setSelectedAnswers(ansMap);
+                }
+                setLoading(false);
+                return;
+            }
 
             if (sub) {
                 setSubmission(sub);
-                if (sub.status === 'SUBMITTED' || sub.status === 'GRADED') {
-                    setExamStatus('SUBMITTED');
-                    if (Array.isArray(sub.answers)) {
-                        const ansMap = {};
-                        sub.answers.forEach(a => {
-                            ansMap[a.questionId] = a.selectedOptionId;
-                        });
-                        setSelectedAnswers(ansMap);
+                if (Array.isArray(sub.answers)) {
+                    const ansMap = {};
+                    sub.answers.forEach(a => {
+                        ansMap[a.questionId] = a.selectedOptionId;
+                    });
+                    setSelectedAnswers(ansMap);
+                }
+            }
+
+            // 2. Check BOTH Paper Flow (Part 1 MCQ -> Intermission -> Part 2 Structured)
+            if (pType === 'BOTH') {
+                if (sub && sub.mcqSubmittedAt) {
+                    // Part 1 MCQ already submitted! Check Part 2:
+                    if (sub.structuredStartedAt) {
+                        const sStart = new Date(sub.structuredStartedAt);
+                        const strDurMins = parseInt(p.structuredDurationMinutes || 60, 10);
+                        const strUploadMins = parseInt(p.structuredUploadMinutes || 15, 10);
+                        const writingEnd = new Date(sStart.getTime() + strDurMins * 60 * 1000);
+                        const uploadEnd = new Date(writingEnd.getTime() + strUploadMins * 60 * 1000);
+
+                        if (serverNow < writingEnd) {
+                            const diff = Math.floor((writingEnd.getTime() - serverNow.getTime()) / 1000);
+                            setTimeRemainingSeconds(diff);
+                            setExamStatus('STRUCTURED_WRITING');
+                        } else if (serverNow < uploadEnd) {
+                            const diff = Math.floor((uploadEnd.getTime() - serverNow.getTime()) / 1000);
+                            setTimeRemainingSeconds(diff);
+                            setExamStatus('STRUCTURED_UPLOADING');
+                        } else {
+                            setTimeRemainingSeconds(0);
+                            setExamStatus('SUBMITTED');
+                        }
+                    } else {
+                        // In Intermission break!
+                        const breakMins = parseInt(p.breakIntervalMinutes || 15, 10);
+                        const mcqSubAt = new Date(sub.mcqSubmittedAt);
+                        const breakEnd = new Date(mcqSubAt.getTime() + breakMins * 60 * 1000);
+                        const diffBreak = Math.floor((breakEnd.getTime() - serverNow.getTime()) / 1000);
+                        setTimeRemainingSeconds(Math.max(0, diffBreak));
+                        setExamStatus('INTERMISSION');
                     }
                     setLoading(false);
                     return;
                 }
             }
 
-            // Check Scheduled vs Flexible Timer
-            if (p.timerMode === 'SCHEDULED' && p.scheduledStartTime) {
-                const startTime = new Date(p.scheduledStartTime);
+            // 3. Check Standalone STRUCTURED Paper Flow
+            if (pType === 'STRUCTURED') {
+                if (sub && sub.startedAt) {
+                    const sStart = new Date(sub.startedAt);
+                    const strDurMins = parseInt(p.durationMinutes || p.structuredDurationMinutes || 60, 10);
+                    const strUploadMins = parseInt(p.structuredUploadMinutes || 15, 10);
+                    const writingEnd = new Date(sStart.getTime() + strDurMins * 60 * 1000);
+                    const uploadEnd = new Date(writingEnd.getTime() + strUploadMins * 60 * 1000);
+
+                    if (serverNow < writingEnd) {
+                        const diff = Math.floor((writingEnd.getTime() - serverNow.getTime()) / 1000);
+                        setTimeRemainingSeconds(diff);
+                        setExamStatus('STRUCTURED_WRITING');
+                    } else if (serverNow < uploadEnd) {
+                        const diff = Math.floor((uploadEnd.getTime() - serverNow.getTime()) / 1000);
+                        setTimeRemainingSeconds(diff);
+                        setExamStatus('STRUCTURED_UPLOADING');
+                    } else {
+                        setTimeRemainingSeconds(0);
+                        setExamStatus('SUBMITTED');
+                    }
+                    setLoading(false);
+                    return;
+                }
+            }
+
+            // 4. Check Scheduled Timer vs Flexible Timer
+            const isScheduled = (p.mcqTimerMode === 'SCHEDULED' || p.timerMode === 'SCHEDULED');
+            const scheduledStartTime = p.mcqScheduledStartTime || p.scheduledStartTime;
+
+            if (isScheduled && scheduledStartTime) {
+                const startTime = new Date(scheduledStartTime);
                 const diffToStart = Math.floor((startTime.getTime() - serverNow.getTime()) / 1000);
 
                 if (diffToStart > 0) {
                     setTimeUntilStartSeconds(diffToStart);
                     setExamStatus('COUNTDOWN_TO_START');
                 } else {
-                    const examEndTime = new Date(startTime.getTime() + p.durationMinutes * 60 * 1000);
+                    const mcqDurMins = parseInt(p.durationMinutes || p.mcqDurationMinutes || 60, 10);
+                    const examEndTime = new Date(startTime.getTime() + mcqDurMins * 60 * 1000);
                     const diffToEnd = Math.floor((examEndTime.getTime() - serverNow.getTime()) / 1000);
 
                     if (diffToEnd > 0) {
@@ -111,7 +248,8 @@ const MCQPaperScreen = ({ route, navigation }) => {
                 // Flexible Mode
                 if (sub && sub.status === 'IN_PROGRESS' && sub.startedAt) {
                     const startedAt = new Date(sub.startedAt);
-                    const examEndTime = new Date(startedAt.getTime() + p.durationMinutes * 60 * 1000);
+                    const mcqDurMins = parseInt(p.durationMinutes || p.mcqDurationMinutes || 60, 10);
+                    const examEndTime = new Date(startedAt.getTime() + mcqDurMins * 60 * 1000);
                     const diffToEnd = Math.floor((examEndTime.getTime() - serverNow.getTime()) / 1000);
 
                     if (diffToEnd > 0) {
@@ -165,6 +303,48 @@ const MCQPaperScreen = ({ route, navigation }) => {
             }, 1000);
         }
 
+        if (examStatus === 'INTERMISSION' && timeRemainingSeconds !== null) {
+            timerIntervalRef.current = setInterval(() => {
+                setTimeRemainingSeconds(prev => {
+                    if (prev <= 1) {
+                        clearInterval(timerIntervalRef.current);
+                        handleStartStructuredSection();
+                        return 0;
+                    }
+                    return prev - 1;
+                });
+            }, 1000);
+        }
+
+        if (examStatus === 'STRUCTURED_WRITING' && timeRemainingSeconds !== null) {
+            timerIntervalRef.current = setInterval(() => {
+                setTimeRemainingSeconds(prev => {
+                    if (prev <= 1) {
+                        clearInterval(timerIntervalRef.current);
+                        const uploadSecs = (paperData?.paper?.structuredUploadMinutes || 15) * 60;
+                        setTimeRemainingSeconds(uploadSecs);
+                        setExamStatus('STRUCTURED_UPLOADING');
+                        Alert.alert("Writing Time Over", "Writing time is complete! You now have time to upload your answer sheets.");
+                        return 0;
+                    }
+                    return prev - 1;
+                });
+            }, 1000);
+        }
+
+        if (examStatus === 'STRUCTURED_UPLOADING' && timeRemainingSeconds !== null) {
+            timerIntervalRef.current = setInterval(() => {
+                setTimeRemainingSeconds(prev => {
+                    if (prev <= 1) {
+                        clearInterval(timerIntervalRef.current);
+                        handleAutoSubmit();
+                        return 0;
+                    }
+                    return prev - 1;
+                });
+            }, 1000);
+        }
+
         return () => {
             if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
         };
@@ -174,17 +354,95 @@ const MCQPaperScreen = ({ route, navigation }) => {
         if (!paperData?.paper?.id) return;
         try {
             setLoading(true);
-            const res = await api.post(`papers/${paperData.paper.id}/start`);
-            setSubmission(res.data.submission);
-            const durationSecs = (paperData.paper.durationMinutes || 60) * 60;
-            setTimeRemainingSeconds(durationSecs);
-            setExamStatus('IN_PROGRESS');
+            const p = paperData.paper;
+            const pType = p.paperType || (paperData.content?.contentType === 'sPaper' ? 'STRUCTURED' : 'MCQ');
+
+            if (pType === 'STRUCTURED') {
+                const res = await api.post(`papers/${p.id}/start`, { section: 'STRUCTURED' });
+                setSubmission(res.data.submission);
+                const durationSecs = (p.durationMinutes || p.structuredDurationMinutes || 60) * 60;
+                setTimeRemainingSeconds(durationSecs);
+                setExamStatus('STRUCTURED_WRITING');
+            } else {
+                const res = await api.post(`papers/${p.id}/start`, { section: 'MCQ' });
+                setSubmission(res.data.submission);
+                const durationSecs = (p.durationMinutes || p.mcqDurationMinutes || 60) * 60;
+                setTimeRemainingSeconds(durationSecs);
+                setExamStatus('IN_PROGRESS');
+            }
         } catch (err) {
             console.error("Failed to start paper session:", err);
-            Alert.alert("Error", "Failed to start exam. Please try again.");
+            Alert.alert("Error", err.response?.data?.error || "Failed to start exam. Please try again.");
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleStartStructuredSection = async () => {
+        if (!paperData?.paper?.id) return;
+        try {
+            setLoading(true);
+            const res = await api.post(`papers/${paperData.paper.id}/start`, { section: 'STRUCTURED' });
+            setSubmission(res.data.submission);
+            const durationSecs = (paperData.paper.structuredDurationMinutes || paperData.paper.durationMinutes || 60) * 60;
+            setTimeRemainingSeconds(durationSecs);
+            setExamStatus('STRUCTURED_WRITING');
+            Alert.alert("Part 2 Started", "Structured essay section has begun! Your writing time is active.");
+        } catch (err) {
+            console.error("Failed to start structured section:", err);
+            Alert.alert("Error", err.response?.data?.error || "Failed to start Part 2.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleUnlockUploadEarly = () => {
+        const uploadSecs = (paperData?.paper?.structuredUploadMinutes || 15) * 60;
+        setTimeRemainingSeconds(uploadSecs);
+        setExamStatus('STRUCTURED_UPLOADING');
+        Alert.alert("Upload Window Active", "You can now attach and upload clear photos of your answer sheets.");
+    };
+
+    const handlePickImage = (source) => {
+        const options = {
+            mediaType: 'photo',
+            quality: 0.8,
+            selectionLimit: 5
+        };
+
+        const callback = (res) => {
+            if (res.didCancel) return;
+            if (res.errorCode) {
+                Alert.alert("Error", res.errorMessage || "Failed to pick image");
+                return;
+            }
+            if (res.assets && res.assets.length > 0) {
+                setAnswerImages(prev => [...prev, ...res.assets].slice(0, 10));
+            }
+        };
+
+        if (source === 'camera') {
+            launchCamera(options, callback);
+        } else {
+            launchImageLibrary(options, callback);
+        }
+    };
+
+    const handleRemoveImage = (index) => {
+        setAnswerImages(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleOpenQuestionPaper = () => {
+        const p = paperData?.paper;
+        const file = p?.structuredPaperFile || p?.mcqPaperFile || paperData?.content?.fileName;
+        if (!file) {
+            Alert.alert("File Not Found", "The master question paper file is not available.");
+            return;
+        }
+        let url = file.startsWith('http') ? file : `${IMAGE_URL}documents/${file}`;
+        Linking.openURL(url).catch(() => {
+            Alert.alert("Error", "Could not open question paper. Please make sure a PDF viewer or browser is installed.");
+        });
     };
 
     const handleSelectOption = (questionId, optionId) => {
@@ -205,41 +463,106 @@ const MCQPaperScreen = ({ route, navigation }) => {
         setSubmitting(true);
         setShowConfirmModal(false);
         try {
-            const answersArray = Object.keys(selectedAnswers).map(qId => ({
-                questionId: parseInt(qId),
-                selectedOptionId: selectedAnswers[qId]
-            }));
+            const p = paperData.paper;
+            const pType = p.paperType || (paperData.content?.contentType === 'sPaper' ? 'STRUCTURED' : 'MCQ');
 
-            const res = await api.post(`papers/${paperData.paper.id}/submit`, {
-                answers: answersArray
-            });
+            if (pType === 'BOTH') {
+                if (examStatus === 'IN_PROGRESS') {
+                    // Submitting Part 1 MCQ
+                    const answersArray = Object.keys(selectedAnswers).map(qId => ({
+                        questionId: parseInt(qId),
+                        selectedOptionId: selectedAnswers[qId]
+                    }));
 
-            setSubmission(res.data.submission);
-            setExamStatus('SUBMITTED');
-            // Refresh to get correct answers for review
-            loadPaper();
-            Alert.alert("Exam Completed", `Your answers have been submitted! Score: ${res.data.score}%`);
+                    const res = await api.post(`papers/${p.id}/submit`, {
+                        section: 'MCQ',
+                        answers: answersArray
+                    });
+
+                    setSubmission(res.data.submission);
+                    const breakMins = parseInt(p.breakIntervalMinutes || 15, 10);
+                    setTimeRemainingSeconds(breakMins * 60);
+                    setExamStatus('INTERMISSION');
+                    Alert.alert(
+                        "Part 1 (MCQ) Completed",
+                        `Your MCQ score has been recorded (${res.data.mcqScore ?? res.data.score} marks). You have a ${breakMins} minute break before Part 2 begins.`
+                    );
+                    return;
+                } else if (examStatus === 'STRUCTURED_WRITING' || examStatus === 'STRUCTURED_UPLOADING') {
+                    // Submitting Part 2 Structured
+                    if (answerImages.length === 0) {
+                        Alert.alert("Missing Answer Sheets", "Please take photos or select your answer sheets before submitting.");
+                        setSubmitting(false);
+                        return;
+                    }
+
+                    const formData = new FormData();
+                    formData.append('section', 'STRUCTURED');
+                    answerImages.forEach((img, idx) => {
+                        formData.append('answerImages', {
+                            uri: Platform.OS === 'android' ? img.uri : img.uri.replace('file://', ''),
+                            type: img.type || 'image/jpeg',
+                            name: img.fileName || `page_${idx + 1}_${Date.now()}.jpg`
+                        });
+                    });
+
+                    const res = await api.post(`papers/${p.id}/submit`, formData, {
+                        headers: { 'Content-Type': 'multipart/form-data' }
+                    });
+
+                    setSubmission(res.data.submission);
+                    setExamStatus('SUBMITTED');
+                    loadPaper(activeContentId);
+                    Alert.alert("Exam Completed", "Your structured paper has been submitted successfully! Awaiting teacher evaluation.");
+                    return;
+                }
+            } else if (pType === 'STRUCTURED') {
+                if (answerImages.length === 0) {
+                    Alert.alert("Missing Answer Sheets", "Please take photos or select your answer sheets before submitting.");
+                    setSubmitting(false);
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('section', 'STRUCTURED');
+                answerImages.forEach((img, idx) => {
+                    formData.append('answerImages', {
+                        uri: Platform.OS === 'android' ? img.uri : img.uri.replace('file://', ''),
+                        type: img.type || 'image/jpeg',
+                        name: img.fileName || `page_${idx + 1}_${Date.now()}.jpg`
+                    });
+                });
+
+                const res = await api.post(`papers/${p.id}/submit`, formData, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
+                });
+
+                setSubmission(res.data.submission);
+                setExamStatus('SUBMITTED');
+                loadPaper(activeContentId);
+                Alert.alert("Submitted", "Your structured paper has been submitted successfully! Awaiting evaluation.");
+                return;
+            } else {
+                // Standalone MCQ
+                const answersArray = Object.keys(selectedAnswers).map(qId => ({
+                    questionId: parseInt(qId),
+                    selectedOptionId: selectedAnswers[qId]
+                }));
+
+                const res = await api.post(`papers/${p.id}/submit`, {
+                    answers: answersArray
+                });
+
+                setSubmission(res.data.submission);
+                setExamStatus('SUBMITTED');
+                loadPaper(activeContentId);
+                Alert.alert("Exam Completed", `Your answers have been submitted! Score: ${res.data.score}%`);
+            }
         } catch (err) {
             console.error("Failed to submit exam:", err);
-            Alert.alert("Error", "Submission failed. Please check connection and try again.");
+            Alert.alert("Error", err.response?.data?.error || "Submission failed. Please check connection and try again.");
         } finally {
             setSubmitting(false);
-        }
-    };
-
-    const fetchStudentLeaderboard = async () => {
-        const paperId = paperData?.paper?.id;
-        if (!paperId) return;
-        try {
-            setLoadingLeaderboard(true);
-            const res = await api.get(`papers/${paperId}/leaderboard`);
-            setLeaderboardData(res.data?.leaderboard || []);
-            setShowLeaderboardModal(true);
-        } catch (err) {
-            console.error("Failed to load leaderboard", err);
-            Alert.alert("Leaderboard", "Unable to load test rankings at this moment.");
-        } finally {
-            setLoadingLeaderboard(false);
         }
     };
 
@@ -278,51 +601,247 @@ const MCQPaperScreen = ({ route, navigation }) => {
     const answeredCount = Object.keys(selectedAnswers).filter(k => selectedAnswers[k] !== undefined && selectedAnswers[k] !== null).length;
     const unansweredCount = questions.length - answeredCount;
 
-    if (loading) {
+    if (!activeContentId) {
         return (
-            <View style={[styles.centerContainer, { paddingTop: insets.top }]}>
-                <StatusBar barStyle="light-content" backgroundColor="#0a0f1d" />
-                <ActivityIndicator size="large" color={COLORS.primary} />
-                <Text style={styles.loadingText}>Loading exam details...</Text>
+            <View style={[styles.container, { paddingTop: Math.max(insets.top, 20) + 8, paddingBottom: insets.bottom, backgroundColor: "#F8FAFC" }]}>
+                <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+
+                {/* HUB TOP HEADER */}
+                <View style={[styles.header, { backgroundColor: "#FFFFFF", borderBottomColor: "#E2E8F0" }]}>
+                    <TouchableOpacity
+                        onPress={() => navigation.goBack()}
+                        style={[styles.headerBackBtn, { backgroundColor: "#F1F5F9" }]}
+                    >
+                        <Icon name="arrow-left" size={22} color="#0F172A" />
+                    </TouchableOpacity>
+
+                    <View style={styles.headerTitleWrap}>
+                        <Text style={[styles.headerSubBadge, { color: COLORS.primary }]}>EXAM HALL & PAST PAPERS</Text>
+                        <Text style={[styles.headerTitle, { color: "#0F172A", fontSize: 17 }]} numberOfLines={1}>
+                            Online Examination Portal
+                        </Text>
+                    </View>
+
+                    <TouchableOpacity
+                        onPress={loadHubData}
+                        style={[styles.headerBackBtn, { backgroundColor: "#F1F5F9", marginRight: 0 }]}
+                    >
+                        <Icon name="refresh" size={20} color="#64748B" />
+                    </TouchableOpacity>
+                </View>
+
+                {/* Dual Tabs: Available vs History */}
+                <View style={hubStyles.tabContainer}>
+                    <TouchableOpacity
+                        style={[hubStyles.tabBtn, hubTab === "AVAILABLE" && hubStyles.tabBtnActive]}
+                        onPress={() => setHubTab("AVAILABLE")}
+                    >
+                        <Icon name="file-document-edit-outline" size={16} color={hubTab === "AVAILABLE" ? "#FFFFFF" : "#64748B"} style={{ marginRight: 6 }} />
+                        <Text style={[hubStyles.tabText, hubTab === "AVAILABLE" && hubStyles.tabTextActive]}>
+                            Active Exams ({hubPapers.length})
+                        </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                        style={[hubStyles.tabBtn, hubTab === "HISTORY" && hubStyles.tabBtnActive]}
+                        onPress={() => setHubTab("HISTORY")}
+                    >
+                        <Icon name="history" size={16} color={hubTab === "HISTORY" ? "#FFFFFF" : "#64748B"} style={{ marginRight: 6 }} />
+                        <Text style={[hubStyles.tabText, hubTab === "HISTORY" && hubStyles.tabTextActive]}>
+                            Completed ({(hubProgress?.history || []).length})
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+
+                {hubLoading ? (
+                    <View style={[styles.centerContainer, { backgroundColor: "#F8FAFC" }]}>
+                        <ActivityIndicator size="large" color={COLORS.primary} />
+                        <Text style={[styles.loadingText, { color: "#64748B" }]}>Loading exam hall papers...</Text>
+                    </View>
+                ) : (
+                    <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+                        {/* Overall Stats Cards */}
+                        <View style={hubStyles.statsGrid}>
+                            <View style={hubStyles.statCard}>
+                                <Icon name="clipboard-check-outline" size={22} color="#10B981" />
+                                <Text style={hubStyles.statNum}>{hubProgress?.overall?.totalTaken || 0}</Text>
+                                <Text style={hubStyles.statLabel}>Tests Completed</Text>
+                            </View>
+                            <View style={hubStyles.statCard}>
+                                <Icon name="percent-outline" size={22} color="#3B82F6" />
+                                <Text style={hubStyles.statNum}>{Math.round(hubProgress?.overall?.averageScore || 0)}%</Text>
+                                <Text style={hubStyles.statLabel}>Average Score</Text>
+                            </View>
+                            <View style={hubStyles.statCard}>
+                                <Icon name="trophy-outline" size={22} color="#F59E0B" />
+                                <Text style={hubStyles.statNum}>{hubProgress?.overall?.highestScore || 0}</Text>
+                                <Text style={hubStyles.statLabel}>Top Score</Text>
+                            </View>
+                        </View>
+
+                        {hubTab === "AVAILABLE" ? (
+                            <View>
+                                <Text style={hubStyles.sectionHeader}>Available Practice & Model Papers</Text>
+                                {hubPapers.length === 0 ? (
+                                    <View style={hubStyles.emptyBox}>
+                                        <Icon name="file-search-outline" size={54} color="#CBD5E1" />
+                                        <Text style={hubStyles.emptyTitle}>No Pending Exams</Text>
+                                        <Text style={hubStyles.emptySub}>You have attempted all currently available model papers for your enrolled subjects.</Text>
+                                    </View>
+                                ) : (
+                                    hubPapers.map(paper => (
+                                        <View key={paper.id} style={hubStyles.paperCard}>
+                                            <View style={hubStyles.paperCardHeader}>
+                                                <View style={hubStyles.paperTypePill}>
+                                                    <Text style={hubStyles.paperTypePillText}>{paper.paperType || "MCQ"} PAPER</Text>
+                                                </View>
+                                                <Text style={hubStyles.paperDurationText}>⏱ {paper.durationMinutes || 60} mins</Text>
+                                            </View>
+                                            <Text style={hubStyles.paperTitle}>{paper.title}</Text>
+                                            <Text style={hubStyles.paperSub}>{paper.courseTitle} {paper.batchName ? `• ${paper.batchName}` : ""}</Text>
+
+                                            <View style={hubStyles.paperCardFooter}>
+                                                <View style={hubStyles.badgeRow}>
+                                                    <Icon name="help-circle-outline" size={14} color="#64748B" />
+                                                    <Text style={hubStyles.badgeInfoText}>{paper.totalQuestions} Questions</Text>
+                                                </View>
+
+                                                <TouchableOpacity
+                                                    activeOpacity={0.88}
+                                                    style={hubStyles.startPaperBtn}
+                                                    onPress={() => {
+                                                        setActiveContentId(paper.contentId);
+                                                        setActivePaperTitle(paper.title);
+                                                        setActiveCourseTitle(paper.courseTitle);
+                                                        setActiveThumbnail(paper.thumbnail);
+                                                        loadPaper(paper.contentId);
+                                                    }}
+                                                >
+                                                    <Text style={hubStyles.startPaperBtnText}>Start Exam</Text>
+                                                    <Icon name="arrow-right" size={14} color="#FFFFFF" style={{ marginLeft: 4 }} />
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+                                    ))
+                                )}
+                            </View>
+                        ) : (
+                            <View>
+                                <Text style={hubStyles.sectionHeader}>Past Attempt History & Answers</Text>
+                                {(hubProgress?.history || []).length === 0 ? (
+                                    <View style={hubStyles.emptyBox}>
+                                        <Icon name="history" size={54} color="#CBD5E1" />
+                                        <Text style={hubStyles.emptyTitle}>No Completed Records</Text>
+                                        <Text style={hubStyles.emptySub}>Complete your first exam to review detailed answer breakdowns and rankings.</Text>
+                                    </View>
+                                ) : (
+                                    (hubProgress?.history || []).map((item, idx) => (
+                                        <View key={item.id || idx} style={hubStyles.historyCard}>
+                                            <View style={hubStyles.historyTopRow}>
+                                                <View style={{ flex: 1, marginRight: 10 }}>
+                                                    <Text style={hubStyles.historyTitle}>{item.testTitle || item.title || "Model Paper"}</Text>
+                                                    <Text style={hubStyles.historyDate}>
+                                                        {item.submittedAt ? new Date(item.submittedAt).toLocaleDateString() : "Completed"}
+                                                    </Text>
+                                                </View>
+                                                <View style={hubStyles.historyScoreBox}>
+                                                    <Text style={hubStyles.historyScoreText}>{item.score ?? 0}</Text>
+                                                    <Text style={hubStyles.historyScoreSub}>PTS</Text>
+                                                </View>
+                                            </View>
+
+                                            <View style={hubStyles.historyBottomRow}>
+                                                <View style={{ flexDirection: "row", alignItems: "center" }}>
+                                                    <Icon name="trophy-variant" size={14} color="#F59E0B" style={{ marginRight: 4 }} />
+                                                    <Text style={hubStyles.historyRankText}>
+                                                        Rank #{item.rank || 1} of {item.totalParticipants || 1}
+                                                    </Text>
+                                                </View>
+
+                                                <TouchableOpacity
+                                                    style={hubStyles.reviewBtn}
+                                                    onPress={() => {
+                                                        const targetCId = item.contentId || item.paper?.content?.id || item.paperId;
+                                                        if (targetCId) {
+                                                            setActiveContentId(targetCId);
+                                                            setActivePaperTitle(item.testTitle || item.title);
+                                                            loadPaper(targetCId);
+                                                        }
+                                                    }}
+                                                >
+                                                    <Text style={hubStyles.reviewBtnText}>Review Answers</Text>
+                                                    <Icon name="chevron-right" size={14} color="#4F46E5" />
+                                                </TouchableOpacity>
+                                            </View>
+                                        </View>
+                                    ))
+                                )}
+                            </View>
+                        )}
+                    </ScrollView>
+                )}
             </View>
         );
     }
 
+    if (loading) {
+        return (
+            <View style={[styles.centerContainer, { paddingTop: insets.top, backgroundColor: '#F8FAFC' }]}>
+                <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
+                <ActivityIndicator size="large" color={COLORS.primary} />
+                <Text style={[styles.loadingText, { color: '#64748B' }]}>Loading exam details...</Text>
+            </View>
+        );
+    }
+
+    const handleExitExam = () => {
+        const exitAction = () => {
+            if (contentId) {
+                navigation.goBack();
+            } else {
+                setActiveContentId(null);
+                loadHubData();
+            }
+        };
+
+        if (examStatus === 'IN_PROGRESS' || examStatus === 'STRUCTURED_WRITING' || examStatus === 'STRUCTURED_UPLOADING') {
+            Alert.alert(
+                "Leave Exam?",
+                "Your exam timer is currently running! Are you sure you want to leave?",
+                [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Leave", style: "destructive", onPress: exitAction }
+                ]
+            );
+        } else {
+            exitAction();
+        }
+    };
+
     return (
-        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-            <StatusBar barStyle="light-content" backgroundColor="#0a0f1d" />
+        <View style={[styles.container, { paddingTop: Math.max(insets.top, 20) + 8, paddingBottom: insets.bottom, backgroundColor: '#F8FAFC' }]}>
+            <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
 
             {/* 🌟 TOP HEADER 🌟 */}
-            <View style={styles.header}>
+            <View style={[styles.header, { backgroundColor: '#FFFFFF', borderBottomColor: '#E2E8F0' }]}>
                 <TouchableOpacity
-                    onPress={() => {
-                        if (examStatus === 'IN_PROGRESS') {
-                            Alert.alert(
-                                "Leave Exam?",
-                                "Your exam timer is currently running! Are you sure you want to leave?",
-                                [
-                                    { text: "Cancel", style: "cancel" },
-                                    { text: "Leave", style: "destructive", onPress: () => navigation.goBack() }
-                                ]
-                            );
-                        } else {
-                            navigation.goBack();
-                        }
-                    }}
-                    style={styles.headerBackBtn}
+                    onPress={handleExitExam}
+                    style={[styles.headerBackBtn, { backgroundColor: '#F1F5F9' }]}
                 >
-                    <Icon name="arrow-left" size={22} color="#ffffff" />
+                    <Icon name="arrow-left" size={22} color="#0F172A" />
                 </TouchableOpacity>
 
                 <View style={styles.headerTitleWrap}>
-                    <Text style={styles.headerSubBadge}>MCQ Examination</Text>
-                    <Text style={styles.headerTitle} numberOfLines={1}>
-                        {paperData?.content?.title || paperTitle || "MCQ Paper"}
+                    <Text style={[styles.headerSubBadge, { color: COLORS.primary }]}>
+                        {paperData?.paper?.paperType === 'BOTH' ? 'COMBINED EXAMINATION' : (paperData?.paper?.paperType === 'STRUCTURED' || paperData?.content?.contentType === 'sPaper' ? 'STRUCTURED ESSAY PAPER' : 'MCQ EXAMINATION')}
+                    </Text>
+                    <Text style={[styles.headerTitle, { color: '#0F172A' }]} numberOfLines={1}>
+                        {paperData?.content?.title || activePaperTitle || "Exam Paper"}
                     </Text>
                 </View>
 
                 {/* Status Indicator / Timer in Header */}
-                {examStatus === 'IN_PROGRESS' && (
+                {(examStatus === 'IN_PROGRESS' || examStatus === 'INTERMISSION' || examStatus === 'STRUCTURED_WRITING' || examStatus === 'STRUCTURED_UPLOADING') && (
                     <View style={styles.headerRightActions}>
                         <View style={[
                             styles.timerPill,
@@ -341,13 +860,15 @@ const MCQPaperScreen = ({ route, navigation }) => {
                             </Text>
                         </View>
 
-                        <TouchableOpacity
-                            style={styles.paletteToggleBtn}
-                            onPress={() => setShowPaletteModal(true)}
-                        >
-                            <Icon name="grid" size={18} color="#ffffff" />
-                            <Text style={styles.paletteToggleText}>{answeredCount}/{questions.length}</Text>
-                        </TouchableOpacity>
+                        {examStatus === 'IN_PROGRESS' && (
+                            <TouchableOpacity
+                                style={styles.paletteToggleBtn}
+                                onPress={() => setShowPaletteModal(true)}
+                            >
+                                <Icon name="grid" size={18} color="#ffffff" />
+                                <Text style={styles.paletteToggleText}>{answeredCount}/{questions.length}</Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 )}
             </View>
@@ -427,21 +948,6 @@ const MCQPaperScreen = ({ route, navigation }) => {
                                 <Text style={styles.startBtnText}>START EXAM NOW</Text>
                             </LinearGradient>
                         </TouchableOpacity>
-
-                        {/* View Rankings / Leaderboard Button */}
-                        <TouchableOpacity
-                            style={styles.viewLeaderboardOutlineBtn}
-                            onPress={fetchStudentLeaderboard}
-                            disabled={loadingLeaderboard}
-                            activeOpacity={0.8}
-                        >
-                            {loadingLeaderboard ? (
-                                <ActivityIndicator size="small" color="#f59e0b" style={{ marginRight: 8 }} />
-                            ) : (
-                                <Icon name="trophy-award" size={18} color="#f59e0b" style={{ marginRight: 8 }} />
-                            )}
-                            <Text style={styles.viewLeaderboardOutlineBtnText}>VIEW TEST RANKINGS & LEADERBOARD</Text>
-                        </TouchableOpacity>
                     </View>
                 </ScrollView>
             )}
@@ -498,100 +1004,16 @@ const MCQPaperScreen = ({ route, navigation }) => {
                                 {/* Question Text */}
                                 <Text style={styles.questionText}>{currentQ.questionText}</Text>
 
-                                {/* Question Figures / Diagrams */}
-                                {(() => {
-                                    const qImages = (Array.isArray(currentQ.images) && currentQ.images.length > 0)
-                                        ? currentQ.images
-                                        : (currentQ.image ? [currentQ.image] : []);
-
-                                    if (qImages.length === 0) return null;
-
-                                    const activeImg = qImages[activeFigureIdx] || qImages[0];
-
-                                    return (
-                                        <View style={styles.qFigureCard}>
-                                            {/* Multiple Figure Switcher Tabs */}
-                                            {qImages.length > 1 && (
-                                                <View style={styles.qFigureHeader}>
-                                                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.qFigureTabsContainer}>
-                                                        {qImages.map((_, fIdx) => (
-                                                            <TouchableOpacity
-                                                                key={fIdx}
-                                                                style={[
-                                                                    styles.qFigureTab,
-                                                                    activeFigureIdx === fIdx && styles.qFigureTabActive
-                                                                ]}
-                                                                onPress={() => setActiveFigureIdx(fIdx)}
-                                                                activeOpacity={0.8}
-                                                            >
-                                                                <Icon
-                                                                    name="image-outline"
-                                                                    size={14}
-                                                                    color={activeFigureIdx === fIdx ? "#000000" : "#94a3b8"}
-                                                                />
-                                                                <Text style={[
-                                                                    styles.qFigureTabText,
-                                                                    activeFigureIdx === fIdx && styles.qFigureTabTextActive
-                                                                ]}>
-                                                                    Figure {fIdx + 1}
-                                                                </Text>
-                                                            </TouchableOpacity>
-                                                        ))}
-                                                    </ScrollView>
-                                                    <View style={styles.qFigureCounter}>
-                                                        <Text style={styles.qFigureCounterText}>
-                                                            {activeFigureIdx + 1} / {qImages.length}
-                                                        </Text>
-                                                    </View>
-                                                </View>
-                                            )}
-
-                                            {/* Main Interactive Figure Display */}
-                                            <TouchableOpacity
-                                                style={styles.qImageBox}
-                                                onPress={() => {
-                                                    setLightboxImages(qImages);
-                                                    setLightboxIndex(activeFigureIdx);
-                                                    setLightboxVisible(true);
-                                                }}
-                                                activeOpacity={0.9}
-                                            >
-                                                <Image
-                                                    source={{ uri: `https://imacampus.online/api/storage/documents/${activeImg}` }}
-                                                    style={styles.qImage}
-                                                    resizeMode="contain"
-                                                />
-                                                <View style={styles.tapToZoomBadge}>
-                                                    <Icon name="magnify-plus-outline" size={13} color="#ffffff" />
-                                                    <Text style={styles.tapToZoomText}>Tap to zoom</Text>
-                                                </View>
-                                            </TouchableOpacity>
-
-                                            {/* Thumbnail Strip for multiple images */}
-                                            {qImages.length > 1 && (
-                                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.qThumbStrip}>
-                                                    {qImages.map((thumbImg, tIdx) => (
-                                                        <TouchableOpacity
-                                                            key={tIdx}
-                                                            style={[
-                                                                styles.qThumbBox,
-                                                                activeFigureIdx === tIdx && styles.qThumbBoxActive
-                                                            ]}
-                                                            onPress={() => setActiveFigureIdx(tIdx)}
-                                                            activeOpacity={0.8}
-                                                        >
-                                                            <Image
-                                                                source={{ uri: `https://imacampus.online/api/storage/documents/${thumbImg}` }}
-                                                                style={styles.qThumbImg}
-                                                                resizeMode="cover"
-                                                            />
-                                                        </TouchableOpacity>
-                                                    ))}
-                                                </ScrollView>
-                                            )}
-                                        </View>
-                                    );
-                                })()}
+                                {/* Optional Question Image / Figure */}
+                                {currentQ.image && (
+                                    <View style={styles.qImageBox}>
+                                        <Image
+                                            source={{ uri: `https://imacampus.online/api/storage/documents/${currentQ.image}` }}
+                                            style={styles.qImage}
+                                            resizeMode="contain"
+                                        />
+                                    </View>
+                                )}
 
                                 {/* Options List */}
                                 <View style={styles.optionsWrap}>
@@ -667,27 +1089,284 @@ const MCQPaperScreen = ({ route, navigation }) => {
                 </View>
             )}
 
+            {/* 🌟 3.5 INTERMISSION / BREAK STATE (Combined Papers) 🌟 */}
+            {examStatus === 'INTERMISSION' && (
+                <View style={styles.intermissionCenterWrap}>
+                    <View style={styles.breakIconCircle}>
+                        <Icon name="coffee" size={48} color="#8B5CF6" />
+                    </View>
+
+                    <View style={styles.breakBadge}>
+                        <Text style={styles.breakBadgeText}>INTERMISSION BREAK</Text>
+                    </View>
+
+                    <Text style={styles.breakTitle}>Part 1 (MCQ) Completed!</Text>
+                    <Text style={styles.breakSubtitle}>
+                        Take a short break before Part 2 (Structured Essay) begins. You can start immediately or wait for the timer.
+                    </Text>
+
+                    <View style={styles.breakCard}>
+                        <Text style={styles.breakCardLabel}>BREAK REMAINING</Text>
+                        <Text style={styles.breakTimerValue}>{formatSeconds(timeRemainingSeconds)}</Text>
+                        <Text style={styles.breakCardNotice}>
+                            Part 2 will automatically begin when the timer reaches zero.
+                        </Text>
+                    </View>
+
+                    <TouchableOpacity
+                        style={styles.startPart2Btn}
+                        onPress={handleStartStructuredSection}
+                        activeOpacity={0.85}
+                    >
+                        <LinearGradient
+                            colors={['#7C3AED', '#6D28D9']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.startBtnGradient}
+                        >
+                            <Icon name="pencil" size={20} color="#FFFFFF" />
+                            <Text style={styles.startBtnText}>START PART 2 NOW</Text>
+                        </LinearGradient>
+                    </TouchableOpacity>
+                </View>
+            )}
+
+            {/* 🌟 3.6 STRUCTURED WRITING STATE 🌟 */}
+            {examStatus === 'STRUCTURED_WRITING' && (
+                <ScrollView contentContainerStyle={styles.structuredScroll} showsVerticalScrollIndicator={false}>
+                    {/* Header Card */}
+                    <View style={styles.structuredHeaderCard}>
+                        <View style={styles.structuredBadge}>
+                            <Icon name="file-document-edit-outline" size={14} color="#4F46E5" />
+                            <Text style={styles.structuredBadgeText}>Part 2: Structured Essay</Text>
+                        </View>
+                        <Text style={styles.structuredTitleText}>Writing Time Active</Text>
+                        <Text style={styles.structuredSubtitleText}>
+                            Download the question paper, write your answers on blank A4 sheets, and upload your pages before the deadline.
+                        </Text>
+
+                        {/* Writing Timer Box */}
+                        <View style={styles.writingTimerBox}>
+                            <Icon name="timer-sand" size={24} color="#EA580C" />
+                            <View style={{ marginLeft: 12, flex: 1 }}>
+                                <Text style={styles.writingTimerLabel}>WRITING TIME REMAINING</Text>
+                                <Text style={styles.writingTimerValue}>{formatSeconds(timeRemainingSeconds)}</Text>
+                            </View>
+                        </View>
+                    </View>
+
+                    {/* Question Paper Download Card */}
+                    <View style={styles.questionPaperBox}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <View style={styles.docIconCircle}>
+                                <Icon name="file-pdf-box" size={32} color="#DC2626" />
+                            </View>
+                            <View style={{ marginLeft: 14, flex: 1 }}>
+                                <Text style={styles.questionPaperTitle} numberOfLines={1}>
+                                    {paperData?.paper?.structuredPaperFile || paperData?.content?.title || "Structured Question Paper"}
+                                </Text>
+                                <Text style={styles.questionPaperSub}>Official Examination Sheet</Text>
+                            </View>
+                        </View>
+
+                        <TouchableOpacity
+                            style={styles.downloadPaperBtn}
+                            onPress={handleOpenQuestionPaper}
+                            activeOpacity={0.8}
+                        >
+                            <Icon name="file-download-outline" size={20} color="#FFFFFF" />
+                            <Text style={styles.downloadPaperBtnText}>View / Download Question Paper</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Writing Guidelines Box */}
+                    <View style={styles.guidelinesBox}>
+                        <View style={styles.guidelinesHeader}>
+                            <Icon name="shield-check-outline" size={18} color="#2563EB" />
+                            <Text style={{ fontSize: 14, fontWeight: '700', color: '#1E293B', marginLeft: 8 }}>
+                                Student Guidelines
+                            </Text>
+                        </View>
+                        <Text style={styles.guidelineItem}>• Write clearly with dark blue or black ink.</Text>
+                        <Text style={styles.guidelineItem}>• Number each page clearly (e.g. Page 1, Page 2).</Text>
+                        <Text style={styles.guidelineItem}>• Include your Student ID / Index on top of each page.</Text>
+                        <Text style={styles.guidelineItem}>• Upload window opens when writing time finishes, or tap below to unlock early.</Text>
+                    </View>
+
+                    {/* Unlock Upload Early Button */}
+                    <TouchableOpacity
+                        style={styles.unlockUploadBtn}
+                        onPress={handleUnlockUploadEarly}
+                        activeOpacity={0.85}
+                    >
+                        <Icon name="cloud-upload" size={20} color="#FFFFFF" />
+                        <Text style={styles.unlockUploadBtnText}>I've Finished Writing - Upload Answers</Text>
+                    </TouchableOpacity>
+                </ScrollView>
+            )}
+
+            {/* 🌟 3.7 STRUCTURED UPLOADING STATE 🌟 */}
+            {examStatus === 'STRUCTURED_UPLOADING' && (
+                <ScrollView contentContainerStyle={styles.structuredScroll} showsVerticalScrollIndicator={false}>
+                    {/* Header Card */}
+                    <View style={styles.structuredHeaderCard}>
+                        <View style={[styles.structuredBadge, { backgroundColor: '#FEF3C7' }]}>
+                            <Icon name="camera-plus" size={14} color="#D97706" />
+                            <Text style={[styles.structuredBadgeText, { color: '#D97706' }]}>Answer Sheet Submission</Text>
+                        </View>
+                        <Text style={styles.structuredTitleText}>Upload Answer Sheets</Text>
+                        <Text style={styles.structuredSubtitleText}>
+                            Take photos or select scanned documents of your answer sheets. Ensure good lighting and readability.
+                        </Text>
+
+                        {/* Upload Timer Box */}
+                        <View style={[styles.writingTimerBox, { borderColor: '#FDE68A', backgroundColor: '#FFFBEB' }]}>
+                            <Icon name="clock-alert-outline" size={24} color="#D97706" />
+                            <View style={{ marginLeft: 12, flex: 1 }}>
+                                <Text style={[styles.writingTimerLabel, { color: '#B45309' }]}>UPLOAD TIME REMAINING</Text>
+                                <Text style={[styles.writingTimerValue, { color: '#B45309' }]}>{formatSeconds(timeRemainingSeconds)}</Text>
+                            </View>
+                        </View>
+                    </View>
+
+                    {/* Image Pickers Row */}
+                    <View style={styles.pickButtonsRow}>
+                        <TouchableOpacity
+                            style={styles.pickBtn}
+                            onPress={() => handlePickImage('camera')}
+                            activeOpacity={0.8}
+                        >
+                            <Icon name="camera" size={24} color="#4F46E5" />
+                            <Text style={styles.pickBtnText}>Take Photo</Text>
+                            <Text style={styles.pickBtnSub}>Using Camera</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                            style={styles.pickBtn}
+                            onPress={() => handlePickImage('gallery')}
+                            activeOpacity={0.8}
+                        >
+                            <Icon name="image-multiple" size={24} color="#2563EB" />
+                            <Text style={styles.pickBtnText}>Choose Photos</Text>
+                            <Text style={styles.pickBtnSub}>From Gallery</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Attached Photos Preview */}
+                    <View style={styles.uploadedImagesSection}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                            <Text style={{ fontSize: 15, fontWeight: '700', color: '#0F172A' }}>
+                                Attached Pages ({answerImages.length}/10)
+                            </Text>
+                            <Text style={styles.uploadedCountText}>
+                                {answerImages.length === 0 ? 'No files added' : `${answerImages.length} ready`}
+                            </Text>
+                        </View>
+
+                        {answerImages.length === 0 ? (
+                            <View style={styles.emptyUploadBox}>
+                                <Icon name="file-image-outline" size={40} color="#CBD5E1" />
+                                <Text style={styles.emptyUploadTitle}>No pages attached yet</Text>
+                                <Text style={styles.emptyUploadSub}>Tap 'Take Photo' or 'Choose Photos' above to attach your written sheets.</Text>
+                            </View>
+                        ) : (
+                            <View style={styles.imageThumbnailsGrid}>
+                                {answerImages.map((img, idx) => (
+                                    <View key={idx} style={styles.thumbnailBox}>
+                                        <Image source={{ uri: img.uri }} style={styles.pageThumbImage} />
+                                        <View style={styles.pageNumberBadge}>
+                                            <Text style={styles.pageNumberBadgeText}>Page {idx + 1}</Text>
+                                        </View>
+                                        <TouchableOpacity
+                                            style={styles.deleteThumbBtn}
+                                            onPress={() => handleRemoveImage(idx)}
+                                        >
+                                            <Icon name="close" size={14} color="#FFFFFF" />
+                                        </TouchableOpacity>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
+                    </View>
+
+                    {/* Final Submit Button */}
+                    <TouchableOpacity
+                        style={[
+                            styles.finalSubmitBtn,
+                            answerImages.length === 0 && { opacity: 0.6 }
+                        ]}
+                        disabled={submitting || answerImages.length === 0}
+                        onPress={() => setShowConfirmModal(true)}
+                        activeOpacity={0.85}
+                    >
+                        <LinearGradient
+                            colors={['#059669', '#10B981']}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={styles.startBtnGradient}
+                        >
+                            {submitting ? (
+                                <ActivityIndicator size="small" color="#FFFFFF" />
+                            ) : (
+                                <>
+                                    <Icon name="send-check" size={20} color="#FFFFFF" />
+                                    <Text style={styles.startBtnText}>SUBMIT {answerImages.length} ANSWER SHEET{answerImages.length === 1 ? '' : 'S'}</Text>
+                                </>
+                            )}
+                        </LinearGradient>
+                    </TouchableOpacity>
+                </ScrollView>
+            )}
+
             {/* 🌟 4. SUBMITTED / RESULTS STATE 🌟 */}
             {examStatus === 'SUBMITTED' && (
                 <ScrollView contentContainerStyle={styles.resultScroll} showsVerticalScrollIndicator={false}>
                     {/* Score Banner */}
                     <View style={styles.scoreBanner}>
-                        <View style={styles.trophyCircle}>
-                            <Icon name="trophy-award" size={42} color="#ffffff" />
+                        <View style={[
+                            styles.trophyCircle,
+                            submission?.status === 'PENDING_EVALUATION' && { backgroundColor: '#F59E0B' }
+                        ]}>
+                            <Icon
+                                name={submission?.status === 'PENDING_EVALUATION' ? "file-clock" : "trophy-award"}
+                                size={40}
+                                color="#ffffff"
+                            />
                         </View>
 
                         <View style={[
                             styles.passFailBadge,
-                            (submission?.score || 0) >= (paperData?.paper?.passMarks || 40) ? styles.passBadge : styles.failBadge
+                            submission?.status === 'PENDING_EVALUATION'
+                                ? { backgroundColor: '#FEF3C7' }
+                                : (submission?.score || 0) >= (paperData?.paper?.passMarks || 40) ? styles.passBadge : styles.failBadge
                         ]}>
-                            <Text style={styles.passFailText}>
-                                {(submission?.score || 0) >= (paperData?.paper?.passMarks || 40) ? 'EXAM PASSED' : 'EXAM FAILED'}
+                            <Text style={[
+                                styles.passFailText,
+                                submission?.status === 'PENDING_EVALUATION' && { color: '#D97706' }
+                            ]}>
+                                {submission?.status === 'PENDING_EVALUATION'
+                                    ? 'PENDING TEACHER EVALUATION'
+                                    : (submission?.score || 0) >= (paperData?.paper?.passMarks || 40) ? 'EXAM PASSED' : 'EXAM FAILED'}
                             </Text>
                         </View>
 
-                        <Text style={styles.scorePercentage}>{submission?.score || 0}%</Text>
+                        {submission?.status === 'PENDING_EVALUATION' && (!paperData?.paper?.paperType || paperData?.paper?.paperType === 'STRUCTURED') ? (
+                            <Text style={[styles.scorePercentage, { fontSize: 28, color: '#D97706', marginVertical: 8 }]}>
+                                Submitted
+                            </Text>
+                        ) : (
+                            <Text style={styles.scorePercentage}>
+                                {submission?.finalMarks ?? submission?.totalScore ?? submission?.score ?? 0}%
+                            </Text>
+                        )}
+
                         <Text style={styles.scoreDetail}>
-                            You scored {submission?.correctAnswers || 0} of {submission?.totalQuestions || questions.length} questions correctly.
+                            {paperData?.paper?.paperType === 'BOTH'
+                                ? `Part 1 MCQ: ${submission?.mcqScore ?? submission?.score ?? 0}% • Part 2: ${submission?.structuredMarks !== null && submission?.structuredMarks !== undefined ? `${submission.structuredMarks} Marks` : 'Awaiting Teacher Evaluation'}`
+                                : (paperData?.paper?.paperType === 'STRUCTURED' || paperData?.content?.contentType === 'sPaper')
+                                    ? `Structured Paper submitted on ${submission?.structuredSubmittedAt ? new Date(submission.structuredSubmittedAt).toLocaleDateString() : 'today'}. Marks will appear after teacher review.`
+                                    : `You scored ${submission?.correctAnswers || 0} of ${submission?.totalQuestions || questions.length} questions correctly.`
+                            }
                         </Text>
 
                         {/* Summary Numbers */}
@@ -696,140 +1375,144 @@ const MCQPaperScreen = ({ route, navigation }) => {
                                 <Text style={styles.statLabel}>Pass Mark</Text>
                                 <Text style={styles.statValue}>{paperData?.paper?.passMarks || 40}%</Text>
                             </View>
-                            <View style={styles.resultStatBox}>
-                                <Text style={styles.statLabel}>Correct</Text>
-                                <Text style={[styles.statValue, { color: '#34d399' }]}>{submission?.correctAnswers || 0}</Text>
-                            </View>
-                            <View style={styles.resultStatBox}>
-                                <Text style={styles.statLabel}>Total</Text>
-                                <Text style={styles.statValue}>{questions.length}</Text>
-                            </View>
-                        </View>
-                    </View>
-
-                    {/* 🏆 PROMINENT LEADERBOARD & RANKINGS BUTTON 🏆 */}
-                    <TouchableOpacity
-                        style={styles.viewLeaderboardCta}
-                        onPress={fetchStudentLeaderboard}
-                        disabled={loadingLeaderboard}
-                        activeOpacity={0.85}
-                    >
-                        <LinearGradient
-                            colors={['#f59e0b', '#d97706']}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={styles.viewLeaderboardCtaGradient}
-                        >
-                            {loadingLeaderboard ? (
-                                <ActivityIndicator size="small" color="#ffffff" style={{ marginRight: 8 }} />
+                            {paperData?.paper?.paperType === 'BOTH' ? (
+                                <>
+                                    <View style={styles.resultStatBox}>
+                                        <Text style={styles.statLabel}>Part 1 MCQ</Text>
+                                        <Text style={[styles.statValue, { color: '#34d399' }]}>{submission?.mcqScore ?? submission?.score ?? 0}%</Text>
+                                    </View>
+                                    <View style={styles.resultStatBox}>
+                                        <Text style={styles.statLabel}>Part 2 Structured</Text>
+                                        <Text style={[styles.statValue, { color: '#6366F1' }]}>
+                                            {submission?.structuredMarks !== null && submission?.structuredMarks !== undefined ? `${submission.structuredMarks}` : 'Pending'}
+                                        </Text>
+                                    </View>
+                                </>
+                            ) : (paperData?.paper?.paperType === 'STRUCTURED' || paperData?.content?.contentType === 'sPaper') ? (
+                                <>
+                                    <View style={styles.resultStatBox}>
+                                        <Text style={styles.statLabel}>Evaluation</Text>
+                                        <Text style={[styles.statValue, { color: submission?.status === 'EVALUATED' ? '#16A34A' : '#D97706' }]}>
+                                            {submission?.status === 'EVALUATED' ? 'Marked' : 'In Review'}
+                                        </Text>
+                                    </View>
+                                    <View style={styles.resultStatBox}>
+                                        <Text style={styles.statLabel}>Score</Text>
+                                        <Text style={[styles.statValue, { color: '#4F46E5' }]}>
+                                            {submission?.structuredMarks !== null && submission?.structuredMarks !== undefined ? `${submission.structuredMarks}` : '-'}
+                                        </Text>
+                                    </View>
+                                </>
                             ) : (
-                                <Icon name="trophy-variant" size={22} color="#ffffff" style={{ marginRight: 8 }} />
+                                <>
+                                    <View style={styles.resultStatBox}>
+                                        <Text style={styles.statLabel}>Correct</Text>
+                                        <Text style={[styles.statValue, { color: '#34d399' }]}>{submission?.correctAnswers || 0}</Text>
+                                    </View>
+                                    <View style={styles.resultStatBox}>
+                                        <Text style={styles.statLabel}>Total</Text>
+                                        <Text style={styles.statValue}>{questions.length}</Text>
+                                    </View>
+                                </>
                             )}
-                            <Text style={styles.viewLeaderboardCtaText}>VIEW TEST LEADERBOARD & RANKINGS</Text>
-                        </LinearGradient>
-                    </TouchableOpacity>
+                        </View>
+
+                        {/* Leaderboard CTA Button */}
+                        <TouchableOpacity
+                            style={styles.leaderboardCtaBtn}
+                            onPress={() => navigation.navigate('Leaderboard', { contentId: activeContentId || paperData?.content?.id })}
+                            activeOpacity={0.85}
+                        >
+                            <LinearGradient
+                                colors={['#4F46E5', '#6366F1']}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 0 }}
+                                style={styles.leaderboardCtaGradient}
+                            >
+                                <Icon name="trophy-variant" size={20} color="#FFFFFF" />
+                                <Text style={styles.leaderboardCtaText}>View Exam Leaderboard & Rankings</Text>
+                                <Icon name="chevron-right" size={20} color="#FFFFFF" />
+                            </LinearGradient>
+                        </TouchableOpacity>
+                    </View>
 
                     {/* Question Review Section */}
-                    <View style={styles.reviewHeader}>
-                        <Icon name="eye-outline" size={20} color="#818cf8" />
-                        <Text style={styles.reviewHeaderText}>Question Review</Text>
-                    </View>
-
-                    {questions.map((q, idx) => {
-                        const studentAnswerId = selectedAnswers[q.id];
-                        return (
-                            <View key={q.id || idx} style={styles.reviewCard}>
-                                <View style={styles.reviewCardTop}>
-                                    <Text style={styles.reviewQNum}>Question {idx + 1}</Text>
-                                </View>
-                                <Text style={styles.reviewQText}>{q.questionText}</Text>
-
-                                {/* Question Figures in Review Mode */}
-                                {(() => {
-                                    const qImages = (Array.isArray(q.images) && q.images.length > 0)
-                                        ? q.images
-                                        : (q.image ? [q.image] : []);
-
-                                    if (qImages.length === 0) return null;
-
-                                    return (
-                                        <View style={styles.reviewFigureWrap}>
-                                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reviewFigureScroll}>
-                                                {qImages.map((img, imgIdx) => (
-                                                    <TouchableOpacity
-                                                        key={imgIdx}
-                                                        style={styles.reviewImageBox}
-                                                        onPress={() => {
-                                                            setLightboxImages(qImages);
-                                                            setLightboxIndex(imgIdx);
-                                                            setLightboxVisible(true);
-                                                        }}
-                                                        activeOpacity={0.85}
-                                                    >
-                                                        <Image
-                                                            source={{ uri: `https://imacampus.online/api/storage/documents/${img}` }}
-                                                            style={styles.reviewImage}
-                                                            resizeMode="contain"
-                                                        />
-                                                        <View style={styles.reviewImageBadge}>
-                                                            <Icon name="magnify" size={11} color="#ffffff" />
-                                                            <Text style={styles.reviewImageBadgeText}>Fig {imgIdx + 1}</Text>
-                                                        </View>
-                                                    </TouchableOpacity>
-                                                ))}
-                                            </ScrollView>
-                                        </View>
-                                    );
-                                })()}
-
-                                <View style={styles.reviewOptionsList}>
-                                    {(q.options || []).map((opt, oIdx) => {
-                                        const isChosen = studentAnswerId === opt.id;
-                                        const isCorrect = opt.isCorrect;
-
-                                        let optStyle = styles.reviewOpt;
-                                        if (isCorrect) optStyle = [styles.reviewOpt, styles.reviewOptCorrect];
-                                        else if (isChosen && !isCorrect) optStyle = [styles.reviewOpt, styles.reviewOptWrong];
-
-                                        return (
-                                            <View key={opt.id || oIdx} style={optStyle}>
-                                                <View style={[
-                                                    styles.reviewOptCircle,
-                                                    isCorrect && { backgroundColor: '#059669' },
-                                                    isChosen && !isCorrect && { backgroundColor: '#dc2626' }
-                                                ]}>
-                                                    {isCorrect ? (
-                                                        <Icon name="check" size={14} color="#ffffff" />
-                                                    ) : isChosen ? (
-                                                        <Icon name="close" size={14} color="#ffffff" />
-                                                    ) : (
-                                                        <Text style={styles.reviewOptCircleText}>{oIdx + 1}</Text>
-                                                    )}
-                                                </View>
-                                                <Text style={[
-                                                    styles.reviewOptText,
-                                                    isCorrect && { color: '#34d399', fontWeight: 'bold' },
-                                                    isChosen && !isCorrect && { color: '#f87171' }
-                                                ]}>
-                                                    {opt.optionText}
-                                                </Text>
-                                                {isCorrect && (
-                                                    <View style={styles.correctPill}>
-                                                        <Text style={styles.correctPillText}>Correct</Text>
-                                                    </View>
-                                                )}
-                                                {isChosen && !isCorrect && (
-                                                    <View style={styles.wrongPill}>
-                                                        <Text style={styles.wrongPillText}>Your Choice</Text>
-                                                    </View>
-                                                )}
-                                            </View>
-                                        );
-                                    })}
-                                </View>
+                    {questions.length > 0 && (
+                        <>
+                            <View style={styles.reviewHeader}>
+                                <Icon name="eye-outline" size={20} color="#818cf8" />
+                                <Text style={styles.reviewHeaderText}>Question Review</Text>
                             </View>
-                        );
-                    })}
+
+                            {questions.map((q, idx) => {
+                                const studentAnswerId = selectedAnswers[q.id];
+                                return (
+                                    <View key={q.id || idx} style={styles.reviewCard}>
+                                        <View style={styles.reviewCardTop}>
+                                            <Text style={styles.reviewQNum}>Question {idx + 1}</Text>
+                                        </View>
+                                        <Text style={styles.reviewQText}>{q.questionText}</Text>
+
+                                        {q.image && (
+                                            <View style={styles.qImageBox}>
+                                                <Image
+                                                    source={{ uri: `https://imacampus.online/api/storage/documents/${q.image}` }}
+                                                    style={styles.qImage}
+                                                    resizeMode="contain"
+                                                />
+                                            </View>
+                                        )}
+
+                                        <View style={styles.reviewOptionsList}>
+                                            {(q.options || []).map((opt, oIdx) => {
+                                                const isChosen = studentAnswerId === opt.id;
+                                                const isCorrect = opt.isCorrect;
+
+                                                let optStyle = styles.reviewOpt;
+                                                if (isCorrect) optStyle = [styles.reviewOpt, styles.reviewOptCorrect];
+                                                else if (isChosen && !isCorrect) optStyle = [styles.reviewOpt, styles.reviewOptWrong];
+
+                                                return (
+                                                    <View key={opt.id || oIdx} style={optStyle}>
+                                                        <View style={[
+                                                            styles.reviewOptCircle,
+                                                            isCorrect && { backgroundColor: '#059669' },
+                                                            isChosen && !isCorrect && { backgroundColor: '#dc2626' }
+                                                        ]}>
+                                                            {isCorrect ? (
+                                                                <Icon name="check" size={14} color="#ffffff" />
+                                                            ) : isChosen ? (
+                                                                <Icon name="close" size={14} color="#ffffff" />
+                                                            ) : (
+                                                                <Text style={styles.reviewOptCircleText}>{oIdx + 1}</Text>
+                                                            )}
+                                                        </View>
+                                                        <Text style={[
+                                                            styles.reviewOptText,
+                                                            isCorrect && { color: '#34d399', fontWeight: 'bold' },
+                                                            isChosen && !isCorrect && { color: '#f87171' }
+                                                        ]}>
+                                                            {opt.optionText}
+                                                        </Text>
+                                                        {isCorrect && (
+                                                            <View style={styles.correctPill}>
+                                                                <Text style={styles.correctPillText}>Correct</Text>
+                                                            </View>
+                                                        )}
+                                                        {isChosen && !isCorrect && (
+                                                            <View style={styles.wrongPill}>
+                                                                <Text style={styles.wrongPillText}>Your Choice</Text>
+                                                            </View>
+                                                        )}
+                                                    </View>
+                                                );
+                                            })}
+                                        </View>
+                                    </View>
+                                );
+                            })}
+                        </>
+                    )}
                 </ScrollView>
             )}
 
@@ -888,6 +1571,32 @@ const MCQPaperScreen = ({ route, navigation }) => {
                         </ScrollView>
 
                         <TouchableOpacity
+                            style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 6,
+                                paddingVertical: 10,
+                                marginTop: 10,
+                                marginBottom: 6,
+                                backgroundColor: 'rgba(245, 158, 11, 0.1)',
+                                borderRadius: 8,
+                                borderWidth: 1,
+                                borderColor: 'rgba(245, 158, 11, 0.25)'
+                            }}
+                            onPress={() => {
+                                setShowPaletteModal(false);
+                                Alert.alert(
+                                    "Exam Instructions",
+                                    paperData?.paper?.instructions || "Read all questions carefully. Answers will automatically submit when time expires."
+                                );
+                            }}
+                        >
+                            <Icon name="information-outline" size={16} color="#f59e0b" />
+                            <Text style={{ color: '#f59e0b', fontSize: 12, fontWeight: '700' }}>View Exam Instructions</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
                             style={styles.paletteDoneBtn}
                             onPress={() => setShowPaletteModal(false)}
                         >
@@ -904,19 +1613,31 @@ const MCQPaperScreen = ({ route, navigation }) => {
                         <View style={styles.confirmIconCircle}>
                             <Icon name="send-check" size={36} color="#ffffff" />
                         </View>
-                        <Text style={styles.confirmTitle}>Submit Examination?</Text>
+                        <Text style={styles.confirmTitle}>
+                            {examStatus === 'STRUCTURED_UPLOADING' ? 'Submit Answer Sheets?' : 'Submit Examination?'}
+                        </Text>
                         <Text style={styles.confirmMsg}>
-                            Are you ready to submit your answers? Once submitted, you cannot change your answers.
+                            {examStatus === 'STRUCTURED_UPLOADING'
+                                ? `Are you ready to submit your ${answerImages.length} answer page(s)? Once submitted, you cannot edit or re-upload.`
+                                : 'Are you ready to submit your answers? Once submitted, you cannot change your answers.'}
                         </Text>
 
-                        <View style={styles.confirmStatsBox}>
-                            <Text style={styles.confirmStatText}>
-                                ✅ Answered: <Text style={{ fontWeight: 'bold', color: '#34d399' }}>{answeredCount}</Text>
-                            </Text>
-                            <Text style={styles.confirmStatText}>
-                                ⚠️ Unanswered: <Text style={{ fontWeight: 'bold', color: unansweredCount > 0 ? '#f87171' : '#94a3b8' }}>{unansweredCount}</Text>
-                            </Text>
-                        </View>
+                        {examStatus === 'STRUCTURED_UPLOADING' ? (
+                            <View style={styles.confirmStatsBox}>
+                                <Text style={styles.confirmStatText}>
+                                    📄 Answer Pages: <Text style={{ fontWeight: 'bold', color: '#4F46E5' }}>{answerImages.length} Sheets</Text>
+                                </Text>
+                            </View>
+                        ) : (
+                            <View style={styles.confirmStatsBox}>
+                                <Text style={styles.confirmStatText}>
+                                    ✅ Answered: <Text style={{ fontWeight: 'bold', color: '#34d399' }}>{answeredCount}</Text>
+                                </Text>
+                                <Text style={styles.confirmStatText}>
+                                    ⚠️ Unanswered: <Text style={{ fontWeight: 'bold', color: unansweredCount > 0 ? '#f87171' : '#94a3b8' }}>{unansweredCount}</Text>
+                                </Text>
+                            </View>
+                        )}
 
                         <View style={styles.confirmActionsRow}>
                             <TouchableOpacity
@@ -941,262 +1662,6 @@ const MCQPaperScreen = ({ route, navigation }) => {
                     </View>
                 </View>
             </Modal>
-
-            {/* Fullscreen Figure Lightbox Modal */}
-            <Modal
-                visible={lightboxVisible}
-                transparent={true}
-                animationType="fade"
-                onRequestClose={() => setLightboxVisible(false)}
-            >
-                <View style={styles.lightboxBackdrop}>
-                    <StatusBar backgroundColor="#000000" barStyle="light-content" />
-                    
-                    {/* Lightbox Top Bar */}
-                    <View style={[styles.lightboxHeader, { paddingTop: Math.max(insets.top, 16) }]}>
-                        <View style={styles.lightboxCountPill}>
-                            <Icon name="image-filter-frames" size={16} color="#34d399" />
-                            <Text style={styles.lightboxCountText}>
-                                Figure {lightboxIndex + 1} of {lightboxImages.length}
-                            </Text>
-                        </View>
-
-                        <TouchableOpacity
-                            style={styles.lightboxCloseBtn}
-                            onPress={() => setLightboxVisible(false)}
-                            activeOpacity={0.7}
-                        >
-                            <Icon name="close" size={20} color="#ffffff" />
-                        </TouchableOpacity>
-                    </View>
-
-                    {/* Lightbox Main Image Display */}
-                    <View style={styles.lightboxContent}>
-                        {lightboxImages.length > 1 && (
-                            <TouchableOpacity
-                                style={[styles.lightboxArrowBtn, styles.lightboxArrowLeft]}
-                                onPress={() => setLightboxIndex(prev => (prev - 1 + lightboxImages.length) % lightboxImages.length)}
-                                activeOpacity={0.7}
-                            >
-                                <Icon name="chevron-left" size={28} color="#ffffff" />
-                            </TouchableOpacity>
-                        )}
-
-                        {lightboxImages[lightboxIndex] && (
-                            <Image
-                                source={{ uri: `https://imacampus.online/api/storage/documents/${lightboxImages[lightboxIndex]}` }}
-                                style={styles.lightboxImage}
-                                resizeMode="contain"
-                            />
-                        )}
-
-                        {lightboxImages.length > 1 && (
-                            <TouchableOpacity
-                                style={[styles.lightboxArrowBtn, styles.lightboxArrowRight]}
-                                onPress={() => setLightboxIndex(prev => (prev + 1) % lightboxImages.length)}
-                                activeOpacity={0.7}
-                            >
-                                <Icon name="chevron-right" size={28} color="#ffffff" />
-                            </TouchableOpacity>
-                        )}
-                    </View>
-
-                    {/* Lightbox Bottom Thumbnails */}
-                    {lightboxImages.length > 1 && (
-                        <View style={[styles.lightboxFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.lightboxThumbStrip}>
-                                {lightboxImages.map((img, idx) => (
-                                    <TouchableOpacity
-                                        key={idx}
-                                        style={[
-                                            styles.lightboxThumbBox,
-                                            lightboxIndex === idx && styles.lightboxThumbBoxActive
-                                        ]}
-                                        onPress={() => setLightboxIndex(idx)}
-                                        activeOpacity={0.8}
-                                    >
-                                        <Image
-                                            source={{ uri: `https://imacampus.online/api/storage/documents/${img}` }}
-                                            style={styles.lightboxThumbImg}
-                                            resizeMode="cover"
-                                        />
-                                    </TouchableOpacity>
-                                ))}
-                            </ScrollView>
-                        </View>
-                    )}
-                </View>
-            </Modal>
-
-            {/* 🏆 STUDENT LEADERBOARD & RANKINGS MODAL 🏆 */}
-            <Modal
-                visible={showLeaderboardModal}
-                transparent={true}
-                animationType="slide"
-                onRequestClose={() => setShowLeaderboardModal(false)}
-            >
-                <View style={styles.leaderboardModalBackdrop}>
-                    <View style={[styles.leaderboardModalCard, { maxHeight: '90%' }]}>
-                        {/* Modal Header */}
-                        <View style={styles.leaderboardModalHeader}>
-                            <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 10 }}>
-                                <View style={styles.leaderboardTrophyIconBox}>
-                                    <Icon name="trophy" size={22} color="#f59e0b" />
-                                </View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.leaderboardModalTitle}>Test Rankings & Leaderboard</Text>
-                                    <Text style={styles.leaderboardModalSubTitle} numberOfLines={1}>
-                                        {paperData?.content?.title || paperTitle}
-                                    </Text>
-                                </View>
-                            </View>
-                            <TouchableOpacity
-                                style={styles.leaderboardCloseBtn}
-                                onPress={() => setShowLeaderboardModal(false)}
-                                activeOpacity={0.7}
-                            >
-                                <Icon name="close" size={20} color="#94a3b8" />
-                            </TouchableOpacity>
-                        </View>
-
-                        {/* Modal Body */}
-                        <ScrollView contentContainerStyle={{ padding: 16 }} showsVerticalScrollIndicator={false}>
-                            {leaderboardData.length === 0 ? (
-                                <View style={{ alignItems: 'center', paddingVertical: 40 }}>
-                                    <Icon name="trophy-outline" size={48} color="#475569" style={{ marginBottom: 12 }} />
-                                    <Text style={{ color: '#94a3b8', fontSize: 14, fontWeight: '700' }}>
-                                        No standings available yet.
-                                    </Text>
-                                    <Text style={{ color: '#64748b', fontSize: 12, marginTop: 4 }}>
-                                        Be among the first to complete the test!
-                                    </Text>
-                                </View>
-                            ) : (
-                                <>
-                                    {/* TOP 3 PODIUM */}
-                                    <View style={styles.podiumContainer}>
-                                        {/* #2 Silver */}
-                                        <View style={styles.podiumItemSilver}>
-                                            <Text style={{ fontSize: 24, marginBottom: 2 }}>🥈</Text>
-                                            <View style={styles.podiumRankBadgeSilver}>
-                                                <Text style={styles.podiumRankTextSilver}>#2 SILVER</Text>
-                                            </View>
-                                            {leaderboardData[1] ? (
-                                                <View style={{ marginTop: 8, alignItems: 'center' }}>
-                                                    <Text style={styles.podiumName} numberOfLines={1}>
-                                                        {leaderboardData[1].student?.firstName} {leaderboardData[1].student?.lastName}
-                                                    </Text>
-                                                    <Text style={styles.podiumScore}>{leaderboardData[1].score ?? 0} pts</Text>
-                                                    <Text style={styles.podiumTime}>{leaderboardData[1].durationMinutes || 0} mins</Text>
-                                                </View>
-                                            ) : (
-                                                <Text style={styles.podiumOpen}>Spot open</Text>
-                                            )}
-                                        </View>
-
-                                        {/* #1 Champion Gold */}
-                                        <View style={styles.podiumItemGold}>
-                                            <Text style={{ fontSize: 32, marginBottom: 2 }}>🥇</Text>
-                                            <View style={styles.podiumRankBadgeGold}>
-                                                <Text style={styles.podiumRankTextGold}>#1 CHAMPION</Text>
-                                            </View>
-                                            {leaderboardData[0] ? (
-                                                <View style={{ marginTop: 8, alignItems: 'center' }}>
-                                                    <Text style={[styles.podiumName, { fontSize: 14, color: '#ffffff' }]} numberOfLines={1}>
-                                                        {leaderboardData[0].student?.firstName} {leaderboardData[0].student?.lastName}
-                                                    </Text>
-                                                    <Text style={[styles.podiumScore, { color: '#fbbf24', fontSize: 20 }]}>
-                                                        {leaderboardData[0].score ?? 0} pts
-                                                    </Text>
-                                                    <Text style={[styles.podiumTime, { color: '#cbd5e1' }]}>
-                                                        {leaderboardData[0].durationMinutes || 0} mins
-                                                    </Text>
-                                                </View>
-                                            ) : (
-                                                <Text style={styles.podiumOpen}>Spot open</Text>
-                                            )}
-                                        </View>
-
-                                        {/* #3 Bronze */}
-                                        <View style={styles.podiumItemBronze}>
-                                            <Text style={{ fontSize: 24, marginBottom: 2 }}>🥉</Text>
-                                            <View style={styles.podiumRankBadgeBronze}>
-                                                <Text style={styles.podiumRankTextBronze}>#3 BRONZE</Text>
-                                            </View>
-                                            {leaderboardData[2] ? (
-                                                <View style={{ marginTop: 8, alignItems: 'center' }}>
-                                                    <Text style={styles.podiumName} numberOfLines={1}>
-                                                        {leaderboardData[2].student?.firstName} {leaderboardData[2].student?.lastName}
-                                                    </Text>
-                                                    <Text style={[styles.podiumScore, { color: '#f97316' }]}>
-                                                        {leaderboardData[2].score ?? 0} pts
-                                                    </Text>
-                                                    <Text style={styles.podiumTime}>{leaderboardData[2].durationMinutes || 0} mins</Text>
-                                                </View>
-                                            ) : (
-                                                <Text style={styles.podiumOpen}>Spot open</Text>
-                                            )}
-                                        </View>
-                                    </View>
-
-                                    {/* STANDINGS LIST */}
-                                    <View style={styles.standingsCard}>
-                                        <View style={styles.standingsHeaderRow}>
-                                            <Text style={[styles.standingsColHeader, { width: 55 }]}>RANK</Text>
-                                            <Text style={[styles.standingsColHeader, { flex: 1 }]}>STUDENT</Text>
-                                            <Text style={[styles.standingsColHeader, { width: 70, textAlign: 'center' }]}>TIME</Text>
-                                            <Text style={[styles.standingsColHeader, { width: 65, textAlign: 'right' }]}>SCORE</Text>
-                                        </View>
-
-                                        {leaderboardData.map((item, idx) => {
-                                            const isMe = currentUserId && (String(item.student?.id) === String(currentUserId));
-                                            return (
-                                                <View
-                                                    key={item.id || idx}
-                                                    style={[
-                                                        styles.standingRow,
-                                                        isMe && styles.standingRowMe
-                                                    ]}
-                                                >
-                                                    <View style={{ width: 55, flexDirection: 'row', alignItems: 'center' }}>
-                                                        <Text style={[
-                                                            styles.rankNumberText,
-                                                            item.rank === 1 && { color: '#fbbf24' },
-                                                            item.rank === 2 && { color: '#e2e8f0' },
-                                                            item.rank === 3 && { color: '#f97316' }
-                                                        ]}>
-                                                            {item.rank === 1 ? '🥇 #1' : item.rank === 2 ? '🥈 #2' : item.rank === 3 ? '🥉 #3' : `#${item.rank}`}
-                                                        </Text>
-                                                    </View>
-
-                                                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingRight: 6 }}>
-                                                        <Text style={[styles.studentNameText, isMe && { color: '#fbbf24' }]} numberOfLines={1}>
-                                                            {item.student?.firstName} {item.student?.lastName}
-                                                        </Text>
-                                                        {isMe && (
-                                                            <View style={styles.youBadge}>
-                                                                <Text style={styles.youBadgeText}>YOU</Text>
-                                                            </View>
-                                                        )}
-                                                    </View>
-
-                                                    <Text style={[styles.timeText, { width: 70, textAlign: 'center' }]}>
-                                                        {item.durationMinutes || 0}m
-                                                    </Text>
-
-                                                    <Text style={[styles.scoreText, { width: 65, textAlign: 'right' }]}>
-                                                        {item.score ?? 0} pts
-                                                    </Text>
-                                                </View>
-                                            );
-                                        })}
-                                    </View>
-                                </>
-                            )}
-                        </ScrollView>
-                    </View>
-                </View>
-            </Modal>
         </View>
     );
 };
@@ -1206,897 +1671,673 @@ export default MCQPaperScreen;
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#0a0f1d'
+        backgroundColor: "#F8FAFC"
     },
     centerContainer: {
         flex: 1,
-        backgroundColor: '#0a0f1d',
-        justifyContent: 'center',
-        alignItems: 'center',
+        backgroundColor: "#F8FAFC",
+        justifyContent: "center",
+        alignItems: "center",
         padding: 20
     },
     loadingText: {
-        color: '#94a3b8',
+        color: "#64748B",
         marginTop: 12,
-        fontSize: 14
+        fontSize: 14,
+        fontWeight: "600"
     },
     header: {
-        height: 60,
-        flexDirection: 'row',
-        alignItems: 'center',
+        minHeight: 56,
+        paddingVertical: 8,
+        flexDirection: "row",
+        alignItems: "center",
         paddingHorizontal: 16,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-        backgroundColor: '#0e1526'
+        borderBottomColor: "#E2E8F0",
+        backgroundColor: "#FFFFFF",
+        elevation: 2
     },
     headerBackBtn: {
-        width: 38,
-        height: 38,
+        width: 36,
+        height: 36,
         borderRadius: 10,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 12
+        backgroundColor: "#F1F5F9",
+        justifyContent: "center",
+        alignItems: "center",
+        marginRight: 10
     },
     headerTitleWrap: {
-        flex: 1
+        flex: 1,
+        justifyContent: "center",
+        marginRight: 6
     },
     headerSubBadge: {
         fontSize: 10,
-        fontWeight: 'bold',
-        color: '#f43f5e',
-        textTransform: 'uppercase',
+        fontWeight: "bold",
+        color: COLORS.primary,
+        textTransform: "uppercase",
         letterSpacing: 0.5
     },
     headerTitle: {
         fontSize: 15,
-        fontWeight: 'bold',
-        color: '#ffffff'
+        fontWeight: "800",
+        color: "#0F172A",
+        lineHeight: 19
     },
     headerRightActions: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6
     },
     timerPill: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        paddingHorizontal: 10,
-        paddingVertical: 6,
-        borderRadius: 20,
-        backgroundColor: 'rgba(16, 185, 129, 0.12)',
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4,
+        paddingHorizontal: 9,
+        paddingVertical: 5,
+        borderRadius: 12,
+        backgroundColor: "#DCFCE7",
         borderWidth: 1,
-        borderColor: 'rgba(16, 185, 129, 0.3)'
+        borderColor: "#86EFAC"
     },
     timerPillUrgent: {
-        backgroundColor: 'rgba(239, 68, 68, 0.15)',
-        borderColor: 'rgba(239, 68, 68, 0.4)'
+        backgroundColor: "#FEE2E2",
+        borderColor: "#FCA5A5"
     },
     timerText: {
-        fontSize: 13,
-        fontWeight: 'bold',
-        color: '#34d399',
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace'
+        fontSize: 12,
+        fontWeight: "900",
+        color: "#16A34A"
     },
     timerTextUrgent: {
-        color: '#f87171'
+        color: "#DC2626"
     },
     paletteToggleBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
+        flexDirection: "row",
+        alignItems: "center",
         gap: 4,
+        backgroundColor: "#4F46E5",
         paddingHorizontal: 10,
         paddingVertical: 6,
-        borderRadius: 10,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.1)'
+        borderRadius: 12
     },
     paletteToggleText: {
-        color: '#ffffff',
         fontSize: 11,
-        fontWeight: 'bold'
+        fontWeight: "900",
+        color: "#FFFFFF"
     },
-    /* Pre-Start Screen */
     preStartScroll: {
-        padding: 20,
-        alignItems: 'center'
-    },
-    thumbnailContainer: {
-        width: '100%',
-        aspectRatio: 16 / 9,
-        maxHeight: 220,
-        borderRadius: 18,
-        overflow: 'hidden',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)',
-        marginBottom: 18,
-        position: 'relative'
-    },
-    thumbnailImage: {
-        width: '100%',
-        height: '100%'
-    },
-    thumbnailPlaceholder: {
-        width: '100%',
-        height: '100%',
-        justifyContent: 'center',
-        alignItems: 'center'
-    },
-    thumbnailOverlayBadge: {
-        position: 'absolute',
-        top: 12,
-        right: 12,
-        backgroundColor: 'rgba(6, 78, 59, 0.85)',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 20,
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        borderWidth: 1,
-        borderColor: 'rgba(52, 211, 153, 0.4)'
-    },
-    thumbnailOverlayText: {
-        color: '#34d399',
-        fontSize: 11,
-        fontWeight: 'bold'
+        padding: 16,
+        paddingBottom: 40
     },
     preStartContent: {
-        width: '100%',
-        alignItems: 'center'
+        backgroundColor: "#FFFFFF",
+        borderRadius: 20,
+        padding: 20,
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        elevation: 2
+    },
+    thumbnailContainer: {
+        width: "100%",
+        height: 180,
+        borderRadius: 14,
+        overflow: "hidden",
+        marginBottom: 16,
+        backgroundColor: "#F1F5F9"
+    },
+    thumbnailImage: {
+        width: "100%",
+        height: "100%"
+    },
+    thumbnailPlaceholder: {
+        width: "100%",
+        height: "100%",
+        justifyContent: "center",
+        alignItems: "center",
+        backgroundColor: "#EEF2FF"
+    },
+    thumbnailOverlayBadge: {
+        position: "absolute",
+        bottom: 10,
+        left: 10,
+        backgroundColor: "rgba(15, 23, 42, 0.75)",
+        paddingHorizontal: 10,
+        paddingVertical: 4,
+        borderRadius: 8
+    },
+    thumbnailOverlayText: {
+        color: "#FFFFFF",
+        fontSize: 10,
+        fontWeight: "800"
     },
     preStartTitle: {
         fontSize: 20,
-        fontWeight: '800',
-        color: '#ffffff',
-        textAlign: 'center',
+        fontWeight: "900",
+        color: "#0F172A",
         marginBottom: 4
     },
     preStartCourse: {
         fontSize: 13,
-        color: '#94a3b8',
-        marginBottom: 16,
-        textAlign: 'center'
-    },
-    instructionBox: {
-        width: '100%',
-        backgroundColor: 'rgba(255, 255, 255, 0.04)',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
-        borderRadius: 14,
-        padding: 14,
+        fontWeight: "700",
+        color: "#64748B",
         marginBottom: 16
     },
-    instructionHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        marginBottom: 6
-    },
-    instructionHeaderText: {
-        color: '#c7d2fe',
-        fontSize: 13,
-        fontWeight: 'bold'
-    },
-    instructionText: {
-        color: '#94a3b8',
-        fontSize: 12,
-        lineHeight: 18
-    },
     metricsGrid: {
-        flexDirection: 'row',
+        flexDirection: "row",
+        flexWrap: "wrap",
         gap: 10,
-        width: '100%',
-        marginBottom: 24
+        marginBottom: 20
     },
     metricCard: {
-        flex: 1,
-        backgroundColor: 'rgba(255, 255, 255, 0.04)',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        width: (width - 74) / 2,
+        backgroundColor: "#F8FAFC",
         borderRadius: 14,
         padding: 12,
-        alignItems: 'center'
+        borderWidth: 1,
+        borderColor: "#E2E8F0"
     },
     metricLabel: {
-        fontSize: 10,
-        fontWeight: 'bold',
-        color: '#94a3b8',
-        marginTop: 6,
-        textTransform: 'uppercase'
+        color: "#64748B",
+        fontSize: 11,
+        fontWeight: "600"
     },
     metricValue: {
+        color: "#0F172A",
+        fontSize: 16,
+        fontWeight: "900",
+        marginTop: 4
+    },
+    instructionBox: {
+        backgroundColor: "#F8FAFC",
+        borderRadius: 14,
+        padding: 14,
+        marginBottom: 20,
+        borderWidth: 1,
+        borderColor: "#E2E8F0"
+    },
+    instructionHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        marginBottom: 8
+    },
+    instructionHeaderText: {
+        color: "#0F172A",
         fontSize: 13,
-        fontWeight: 'bold',
-        color: '#ffffff',
-        marginTop: 2
+        fontWeight: "800"
+    },
+    instructionText: {
+        color: "#475569",
+        fontSize: 12,
+        lineHeight: 18,
+        marginBottom: 6
     },
     startBtn: {
-        width: '100%',
         borderRadius: 14,
-        overflow: 'hidden',
-        elevation: 6
+        overflow: "hidden"
     },
     startBtnGradient: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 16,
-        gap: 8
+        flexDirection: "row",
+        justifyContent: "center",
+        alignItems: "center",
+        paddingVertical: 14,
+        borderRadius: 14
     },
     startBtnText: {
-        color: '#ffffff',
-        fontSize: 15,
-        fontWeight: '900',
-        letterSpacing: 0.5
+        color: "#FFFFFF",
+        fontSize: 14,
+        fontWeight: "900",
+        letterSpacing: 0.5,
+        marginLeft: 8
     },
-    /* Scheduled Countdown View */
     countdownCenterWrap: {
         flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 24
+        justifyContent: "center",
+        alignItems: "center",
+        padding: 20
     },
     calendarIconCircle: {
         width: 80,
         height: 80,
         borderRadius: 40,
-        backgroundColor: 'rgba(245, 158, 11, 0.12)',
+        backgroundColor: "#FEF3C7",
+        justifyContent: "center",
+        alignItems: "center",
+        marginBottom: 16,
         borderWidth: 1,
-        borderColor: 'rgba(245, 158, 11, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 16
+        borderColor: "#FDE68A"
     },
     scheduledBadge: {
-        color: '#fbbf24',
+        color: "#D97706",
         fontSize: 11,
-        fontWeight: 'bold',
-        letterSpacing: 0.5,
-        marginBottom: 8
+        fontWeight: "900",
+        letterSpacing: 1,
+        marginBottom: 6
     },
     scheduledTitle: {
+        color: "#0F172A",
         fontSize: 20,
-        fontWeight: '800',
-        color: '#ffffff',
-        textAlign: 'center',
+        fontWeight: "900",
+        textAlign: "center",
         marginBottom: 6
     },
     scheduledSubtitle: {
-        fontSize: 12,
-        color: '#94a3b8',
-        textAlign: 'center',
-        marginBottom: 24,
-        paddingHorizontal: 20
+        color: "#64748B",
+        fontSize: 13,
+        textAlign: "center",
+        maxWidth: 280,
+        marginBottom: 24
     },
     countdownCard: {
-        width: '100%',
-        backgroundColor: 'rgba(255, 255, 255, 0.04)',
-        borderWidth: 1,
-        borderColor: 'rgba(245, 158, 11, 0.3)',
-        borderRadius: 20,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 18,
         padding: 24,
-        alignItems: 'center'
+        alignItems: "center",
+        width: "100%",
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        elevation: 2
     },
     countdownCardLabel: {
-        color: '#fbbf24',
+        color: "#64748B",
         fontSize: 11,
-        fontWeight: 'bold',
+        fontWeight: "800",
         letterSpacing: 1,
         marginBottom: 8
     },
     countdownValue: {
-        fontSize: 32,
-        fontWeight: '900',
-        color: '#ffffff',
-        fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-        marginBottom: 10
+        color: "#4F46E5",
+        fontSize: 28,
+        fontWeight: "900",
+        letterSpacing: 1
     },
     countdownCardNotice: {
-        color: '#64748b',
+        color: "#94A3B8",
         fontSize: 11,
-        textAlign: 'center'
+        textAlign: "center",
+        marginTop: 12
     },
-    /* Exam In-Progress Screen */
     examScroll: {
-        padding: 16,
-        paddingBottom: 24
+        paddingBottom: 30
     },
     questionCard: {
-        backgroundColor: 'rgba(255, 255, 255, 0.03)',
+        backgroundColor: "#FFFFFF",
+        borderRadius: 18,
+        padding: 18,
+        marginHorizontal: 16,
+        marginTop: 16,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
-        borderRadius: 20,
-        padding: 16
+        borderColor: "#E2E8F0",
+        elevation: 2
     },
     qTopBar: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.06)',
-        paddingBottom: 10,
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
         marginBottom: 14
     },
     qBadge: {
-        backgroundColor: 'rgba(244, 63, 94, 0.15)',
+        backgroundColor: "#EEF2FF",
         paddingHorizontal: 10,
         paddingVertical: 4,
-        borderRadius: 8,
-        borderWidth: 1,
-        borderColor: 'rgba(244, 63, 94, 0.3)'
+        borderRadius: 8
     },
     qBadgeText: {
-        color: '#fb7185',
+        color: "#4F46E5",
         fontSize: 11,
-        fontWeight: 'bold'
+        fontWeight: "800"
     },
     qStatusBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
+        flexDirection: "row",
+        alignItems: "center",
         gap: 4
     },
     qStatusText: {
-        color: '#94a3b8',
-        fontSize: 11
+        color: "#64748B",
+        fontSize: 11,
+        fontWeight: "700"
     },
     questionText: {
         fontSize: 16,
-        fontWeight: '700',
-        color: '#ffffff',
+        fontWeight: "700",
+        color: "#0F172A",
         lineHeight: 24,
-        marginBottom: 16
-    },
-    qFigureCard: {
-        backgroundColor: 'rgba(255, 255, 255, 0.03)',
-        borderRadius: 14,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
-        padding: 10,
-        marginBottom: 16
-    },
-    qFigureHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.06)',
-        paddingBottom: 8,
-        marginBottom: 10
-    },
-    qFigureTabsContainer: {
-        flexDirection: 'row',
-        gap: 6
-    },
-    qFigureTab: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        paddingHorizontal: 10,
-        paddingVertical: 5,
-        borderRadius: 8,
-        backgroundColor: 'rgba(255, 255, 255, 0.06)'
-    },
-    qFigureTabActive: {
-        backgroundColor: '#34d399'
-    },
-    qFigureTabText: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: '#94a3b8'
-    },
-    qFigureTabTextActive: {
-        color: '#000000'
-    },
-    qFigureCounter: {
-        backgroundColor: 'rgba(255, 255, 255, 0.06)',
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-        borderRadius: 6,
-        marginLeft: 8
-    },
-    qFigureCounterText: {
-        fontSize: 10,
-        fontWeight: '700',
-        color: '#94a3b8'
+        marginBottom: 14
     },
     qImageBox: {
-        width: '100%',
-        height: 220,
-        backgroundColor: '#000000',
+        width: "100%",
+        height: 200,
         borderRadius: 12,
-        overflow: 'hidden',
-        justifyContent: 'center',
-        alignItems: 'center',
-        position: 'relative'
+        overflow: "hidden",
+        marginBottom: 14,
+        backgroundColor: "#F8FAFC"
     },
     qImage: {
-        width: '100%',
-        height: '100%'
-    },
-    tapToZoomBadge: {
-        position: 'absolute',
-        top: 8,
-        right: 8,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        paddingHorizontal: 8,
-        paddingVertical: 4,
-        borderRadius: 6,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.15)'
-    },
-    tapToZoomText: {
-        color: '#ffffff',
-        fontSize: 10,
-        fontWeight: '700'
-    },
-    qThumbStrip: {
-        flexDirection: 'row',
-        gap: 8,
-        paddingTop: 10
-    },
-    qThumbBox: {
-        width: 48,
-        height: 48,
-        borderRadius: 8,
-        borderWidth: 1.5,
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        overflow: 'hidden',
-        opacity: 0.6
-    },
-    qThumbBoxActive: {
-        borderColor: '#34d399',
-        opacity: 1
-    },
-    qThumbImg: {
-        width: '100%',
-        height: '100%'
-    },
-    reviewFigureWrap: {
-        marginBottom: 12
-    },
-    reviewFigureScroll: {
-        flexDirection: 'row',
-        gap: 10
-    },
-    reviewImageBox: {
-        width: 140,
-        height: 110,
-        backgroundColor: '#000000',
-        borderRadius: 10,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-        overflow: 'hidden',
-        position: 'relative'
-    },
-    reviewImage: {
-        width: '100%',
-        height: '100%'
-    },
-    reviewImageBadge: {
-        position: 'absolute',
-        bottom: 4,
-        left: 4,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 3,
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 4
-    },
-    reviewImageBadgeText: {
-        color: '#ffffff',
-        fontSize: 9,
-        fontWeight: '700'
-    },
-    lightboxBackdrop: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.96)',
-        justifyContent: 'space-between'
-    },
-    lightboxHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 16,
-        paddingBottom: 12
-    },
-    lightboxCountPill: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        borderRadius: 20
-    },
-    lightboxCountText: {
-        color: '#ffffff',
-        fontSize: 12,
-        fontWeight: '700'
-    },
-    lightboxCloseBtn: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: 'rgba(255, 255, 255, 0.15)',
-        justifyContent: 'center',
-        alignItems: 'center'
-    },
-    lightboxContent: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        position: 'relative'
-    },
-    lightboxImage: {
-        width: width - 20,
-        height: '80%'
-    },
-    lightboxArrowBtn: {
-        position: 'absolute',
-        top: '50%',
-        marginTop: -24,
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 10
-    },
-    lightboxArrowLeft: {
-        left: 12
-    },
-    lightboxArrowRight: {
-        right: 12
-    },
-    lightboxFooter: {
-        paddingTop: 10,
-        paddingHorizontal: 16
-    },
-    lightboxThumbStrip: {
-        flexDirection: 'row',
-        gap: 10,
-        justifyContent: 'center',
-        alignItems: 'center'
-    },
-    lightboxThumbBox: {
-        width: 50,
-        height: 50,
-        borderRadius: 8,
-        borderWidth: 2,
-        borderColor: 'transparent',
-        overflow: 'hidden',
-        opacity: 0.5
-    },
-    lightboxThumbBoxActive: {
-        borderColor: '#34d399',
-        opacity: 1
-    },
-    lightboxThumbImg: {
-        width: '100%',
-        height: '100%'
+        width: "100%",
+        height: "100%"
     },
     optionsWrap: {
-        gap: 10
+        marginTop: 6
     },
     optionBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 14,
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#F8FAFC",
         borderRadius: 14,
-        backgroundColor: 'rgba(255, 255, 255, 0.03)',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
-        gap: 12
+        padding: 14,
+        marginBottom: 10,
+        borderWidth: 1.5,
+        borderColor: "#E2E8F0"
     },
     optionBtnSelected: {
-        backgroundColor: 'rgba(244, 63, 94, 0.12)',
-        borderColor: '#f43f5e'
+        backgroundColor: "#EEF2FF",
+        borderColor: "#4F46E5"
     },
     optionNumberCircle: {
-        width: 30,
-        height: 30,
-        borderRadius: 10,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        justifyContent: 'center',
-        alignItems: 'center'
+        width: 32,
+        height: 32,
+        borderRadius: 16,
+        backgroundColor: "#F1F5F9",
+        justifyContent: "center",
+        alignItems: "center",
+        marginRight: 12,
+        borderWidth: 1,
+        borderColor: "#CBD5E1"
     },
     optionNumberCircleSelected: {
-        backgroundColor: '#f43f5e'
+        backgroundColor: "#4F46E5",
+        borderColor: "#4F46E5"
     },
     optionNumberText: {
-        color: '#94a3b8',
         fontSize: 13,
-        fontWeight: 'bold'
+        fontWeight: "800",
+        color: "#475569"
     },
     optionText: {
-        flex: 1,
-        color: '#cbd5e1',
         fontSize: 14,
+        fontWeight: "600",
+        color: "#334155",
+        flex: 1,
         lineHeight: 20
     },
     optionTextSelected: {
-        color: '#ffffff',
-        fontWeight: 'bold'
+        color: "#1E1B4B",
+        fontWeight: "800"
+    },
+    emptyWrap: {
+        padding: 40,
+        alignItems: "center"
+    },
+    emptyText: {
+        color: "#94A3B8",
+        fontSize: 13,
+        fontWeight: "600"
     },
     bottomActionBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
         paddingHorizontal: 16,
         paddingVertical: 12,
-        backgroundColor: '#0e1526',
+        backgroundColor: "#FFFFFF",
         borderTopWidth: 1,
-        borderTopColor: 'rgba(255, 255, 255, 0.08)'
+        borderTopColor: "#E2E8F0"
     },
     navBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#F1F5F9",
         paddingHorizontal: 16,
-        paddingVertical: 12,
-        borderRadius: 12,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        gap: 6
+        paddingVertical: 10,
+        borderRadius: 12
     },
     navBtnDisabled: {
-        opacity: 0.3
+        opacity: 0.4
     },
     navBtnText: {
-        color: '#ffffff',
+        color: "#334155",
         fontSize: 13,
-        fontWeight: 'bold'
+        fontWeight: "700",
+        marginLeft: 4
     },
     nextBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#4F46E5",
         paddingHorizontal: 20,
-        paddingVertical: 12,
-        borderRadius: 12,
-        backgroundColor: '#3b82f6',
-        gap: 6
+        paddingVertical: 10,
+        borderRadius: 12
     },
     nextBtnText: {
-        color: '#ffffff',
+        color: "#FFFFFF",
         fontSize: 13,
-        fontWeight: 'bold'
+        fontWeight: "800",
+        marginRight: 4
     },
     submitExamBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#16A34A",
         paddingHorizontal: 20,
-        paddingVertical: 12,
-        borderRadius: 12,
-        backgroundColor: '#059669',
-        gap: 6
+        paddingVertical: 10,
+        borderRadius: 12
     },
     submitExamBtnText: {
-        color: '#ffffff',
+        color: "#FFFFFF",
         fontSize: 13,
-        fontWeight: '900'
+        fontWeight: "800",
+        marginLeft: 6
     },
-    /* Submitted / Scorecard Section */
     resultScroll: {
-        padding: 16
+        padding: 16,
+        paddingBottom: 50
     },
     scoreBanner: {
-        backgroundColor: 'rgba(255, 255, 255, 0.04)',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)',
-        borderRadius: 22,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 20,
         padding: 24,
-        alignItems: 'center',
+        alignItems: "center",
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        elevation: 2,
         marginBottom: 20
     },
     trophyCircle: {
         width: 72,
         height: 72,
         borderRadius: 36,
-        backgroundColor: '#d97706',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginBottom: 12,
-        borderWidth: 3,
-        borderColor: 'rgba(255, 255, 255, 0.2)'
+        backgroundColor: "#D97706",
+        justifyContent: "center",
+        alignItems: "center",
+        marginBottom: 12
     },
     passFailBadge: {
         paddingHorizontal: 12,
         paddingVertical: 4,
-        borderRadius: 20,
-        marginBottom: 6
+        borderRadius: 8,
+        marginBottom: 10
     },
     passBadge: {
-        backgroundColor: 'rgba(16, 185, 129, 0.2)',
-        borderWidth: 1,
-        borderColor: 'rgba(16, 185, 129, 0.5)'
+        backgroundColor: "#DCFCE7"
     },
     failBadge: {
-        backgroundColor: 'rgba(239, 68, 68, 0.2)',
-        borderWidth: 1,
-        borderColor: 'rgba(239, 68, 68, 0.5)'
+        backgroundColor: "#FEE2E2"
     },
     passFailText: {
         fontSize: 11,
-        fontWeight: '900',
-        color: '#ffffff',
-        letterSpacing: 0.5
+        fontWeight: "900",
+        color: "#16A34A"
     },
     scorePercentage: {
-        fontSize: 44,
-        fontWeight: '900',
-        color: '#ffffff',
-        marginVertical: 4
+        fontSize: 42,
+        fontWeight: "900",
+        color: "#0F172A",
+        marginBottom: 4
     },
     scoreDetail: {
         fontSize: 13,
-        color: '#94a3b8',
-        textAlign: 'center',
-        marginBottom: 16
+        color: "#64748B",
+        textAlign: "center",
+        marginBottom: 18
     },
     resultStatsRow: {
-        flexDirection: 'row',
-        gap: 12,
-        width: '100%',
-        borderTopWidth: 1,
-        borderTopColor: 'rgba(255, 255, 255, 0.08)',
-        paddingTop: 14
+        flexDirection: "row",
+        width: "100%",
+        backgroundColor: "#F8FAFC",
+        borderRadius: 14,
+        padding: 12,
+        justifyContent: "space-around"
     },
     resultStatBox: {
-        flex: 1,
-        alignItems: 'center'
+        alignItems: "center"
     },
     statLabel: {
-        fontSize: 11,
-        color: '#94a3b8',
-        marginBottom: 2
+        fontSize: 10,
+        fontWeight: "700",
+        color: "#64748B"
     },
     statValue: {
         fontSize: 16,
-        fontWeight: 'bold',
-        color: '#ffffff'
+        fontWeight: "900",
+        color: "#0F172A",
+        marginTop: 2
     },
     reviewHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-        marginBottom: 14
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 6,
+        marginBottom: 12
     },
     reviewHeaderText: {
-        color: '#ffffff',
         fontSize: 16,
-        fontWeight: 'bold'
+        fontWeight: "900",
+        color: "#0F172A"
     },
     reviewCard: {
-        backgroundColor: 'rgba(255, 255, 255, 0.03)',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)',
+        backgroundColor: "#FFFFFF",
         borderRadius: 16,
-        padding: 14,
-        marginBottom: 14
+        padding: 16,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: "#E2E8F0"
     },
     reviewCardTop: {
-        marginBottom: 6
+        flexDirection: "row",
+        justifyContent: "space-between",
+        marginBottom: 8
     },
     reviewQNum: {
         fontSize: 12,
-        fontWeight: 'bold',
-        color: '#818cf8'
+        fontWeight: "800",
+        color: "#4F46E5"
     },
     reviewQText: {
         fontSize: 14,
-        color: '#ffffff',
-        fontWeight: '600',
+        fontWeight: "700",
+        color: "#0F172A",
+        lineHeight: 20,
         marginBottom: 12
     },
     reviewOptionsList: {
         gap: 8
     },
     reviewOpt: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        padding: 10,
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#F8FAFC",
         borderRadius: 10,
-        backgroundColor: 'rgba(255, 255, 255, 0.02)',
+        padding: 10,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.06)',
-        gap: 8
+        borderColor: "#E2E8F0"
     },
     reviewOptCorrect: {
-        backgroundColor: 'rgba(5, 150, 105, 0.15)',
-        borderColor: '#059669'
+        backgroundColor: "#DCFCE7",
+        borderColor: "#86EFAC"
     },
     reviewOptWrong: {
-        backgroundColor: 'rgba(220, 38, 38, 0.15)',
-        borderColor: '#dc2626'
+        backgroundColor: "#FEE2E2",
+        borderColor: "#FCA5A5"
     },
     reviewOptCircle: {
         width: 24,
         height: 24,
-        borderRadius: 8,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        justifyContent: 'center',
-        alignItems: 'center'
+        borderRadius: 12,
+        backgroundColor: "#E2E8F0",
+        justifyContent: "center",
+        alignItems: "center",
+        marginRight: 8
     },
     reviewOptCircleText: {
-        color: '#94a3b8',
         fontSize: 11,
-        fontWeight: 'bold'
+        fontWeight: "800",
+        color: "#475569"
     },
     reviewOptText: {
-        flex: 1,
-        color: '#94a3b8',
-        fontSize: 12
+        fontSize: 13,
+        fontWeight: "600",
+        color: "#334155",
+        flex: 1
     },
     correctPill: {
-        backgroundColor: 'rgba(5, 150, 105, 0.3)',
-        paddingHorizontal: 8,
+        backgroundColor: "#16A34A",
+        paddingHorizontal: 6,
         paddingVertical: 2,
         borderRadius: 6
     },
     correctPillText: {
-        color: '#34d399',
-        fontSize: 10,
-        fontWeight: 'bold'
+        color: "#FFFFFF",
+        fontSize: 9,
+        fontWeight: "800"
     },
     wrongPill: {
-        backgroundColor: 'rgba(220, 38, 38, 0.3)',
-        paddingHorizontal: 8,
+        backgroundColor: "#DC2626",
+        paddingHorizontal: 6,
         paddingVertical: 2,
         borderRadius: 6
     },
     wrongPillText: {
-        color: '#f87171',
-        fontSize: 10,
-        fontWeight: 'bold'
+        color: "#FFFFFF",
+        fontSize: 9,
+        fontWeight: "800"
     },
-    /* Question Palette Modal */
     modalBackdrop: {
         flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.75)',
-        justifyContent: 'center',
-        alignItems: 'center',
+        backgroundColor: "rgba(0,0,0,0.5)",
+        justifyContent: "center",
+        alignItems: "center",
         padding: 20
     },
     paletteModalCard: {
-        width: '100%',
-        backgroundColor: '#0e1526',
+        backgroundColor: "#FFFFFF",
         borderRadius: 20,
         padding: 20,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)'
+        width: "100%",
+        maxHeight: "80%"
     },
     paletteModalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
         marginBottom: 12
     },
     paletteModalTitle: {
-        color: '#ffffff',
         fontSize: 16,
-        fontWeight: 'bold'
+        fontWeight: "900",
+        color: "#0F172A"
     },
     paletteSummaryRow: {
-        flexDirection: 'row',
-        gap: 16,
-        marginBottom: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-        paddingBottom: 10
+        flexDirection: "row",
+        justifyContent: "space-around",
+        backgroundColor: "#F8FAFC",
+        borderRadius: 12,
+        padding: 10,
+        marginBottom: 12
     },
     paletteLegend: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 6
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4
     },
     legendDot: {
         width: 10,
@@ -2104,391 +2345,687 @@ const styles = StyleSheet.create({
         borderRadius: 5
     },
     legendText: {
-        color: '#94a3b8',
-        fontSize: 11
+        fontSize: 11,
+        fontWeight: "700",
+        color: "#64748B"
     },
     paletteGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: 10,
-        justifyContent: 'flex-start'
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 8,
+        paddingVertical: 10
     },
     paletteItem: {
-        width: (width - 40 - 40 - 40) / 5,
-        height: 42,
+        width: (width - 100) / 5,
+        height: 40,
         borderRadius: 10,
-        backgroundColor: 'rgba(255, 255, 255, 0.06)',
-        justifyContent: 'center',
-        alignItems: 'center',
+        backgroundColor: "#F1F5F9",
+        justifyContent: "center",
+        alignItems: "center",
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.08)'
+        borderColor: "#CBD5E1"
     },
     paletteItemAnswered: {
-        backgroundColor: '#059669',
-        borderColor: '#10b981'
+        backgroundColor: "#DCFCE7",
+        borderColor: "#86EFAC"
     },
     paletteItemCurrent: {
-        borderWidth: 2,
-        borderColor: '#38bdf8'
+        borderColor: "#4F46E5",
+        borderWidth: 2
     },
     paletteItemText: {
-        color: '#94a3b8',
         fontSize: 13,
-        fontWeight: 'bold'
+        fontWeight: "800",
+        color: "#0F172A"
     },
     paletteDoneBtn: {
-        marginTop: 18,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        paddingVertical: 12,
+        backgroundColor: "#4F46E5",
         borderRadius: 12,
-        alignItems: 'center'
+        paddingVertical: 12,
+        alignItems: "center",
+        marginTop: 10
     },
     paletteDoneBtnText: {
-        color: '#ffffff',
-        fontSize: 12,
-        fontWeight: 'bold',
-        letterSpacing: 0.5
+        color: "#FFFFFF",
+        fontSize: 13,
+        fontWeight: "800"
     },
-    /* Confirm Modal */
     confirmModalCard: {
-        width: '100%',
-        backgroundColor: '#0e1526',
-        borderRadius: 22,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 20,
         padding: 24,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.12)'
+        alignItems: "center",
+        width: "100%"
     },
     confirmIconCircle: {
         width: 64,
         height: 64,
         borderRadius: 32,
-        backgroundColor: '#059669',
-        justifyContent: 'center',
-        alignItems: 'center',
+        backgroundColor: "#4F46E5",
+        justifyContent: "center",
+        alignItems: "center",
         marginBottom: 14
     },
     confirmTitle: {
         fontSize: 18,
-        fontWeight: 'bold',
-        color: '#ffffff',
+        fontWeight: "900",
+        color: "#0F172A",
         marginBottom: 6
     },
     confirmMsg: {
         fontSize: 13,
-        color: '#94a3b8',
-        textAlign: 'center',
-        lineHeight: 18,
-        marginBottom: 16
+        color: "#64748B",
+        textAlign: "center",
+        marginBottom: 16,
+        lineHeight: 18
     },
     confirmStatsBox: {
-        width: '100%',
-        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+        flexDirection: "row",
+        justifyContent: "space-around",
+        width: "100%",
+        backgroundColor: "#F8FAFC",
         borderRadius: 12,
         padding: 12,
-        flexDirection: 'row',
-        justifyContent: 'space-around',
         marginBottom: 20
     },
     confirmStatText: {
         fontSize: 13,
-        color: '#cbd5e1'
+        fontWeight: "700",
+        color: "#0F172A"
     },
     confirmActionsRow: {
-        flexDirection: 'row',
+        flexDirection: "row",
         gap: 12,
-        width: '100%'
+        width: "100%"
     },
     confirmCancelBtn: {
         flex: 1,
-        paddingVertical: 14,
+        backgroundColor: "#F1F5F9",
         borderRadius: 12,
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        alignItems: 'center'
+        paddingVertical: 12,
+        alignItems: "center"
     },
     confirmCancelText: {
-        color: '#cbd5e1',
+        color: "#64748B",
         fontSize: 13,
-        fontWeight: 'bold'
+        fontWeight: "800"
     },
     confirmSubmitBtn: {
         flex: 1,
-        paddingVertical: 14,
+        backgroundColor: "#16A34A",
         borderRadius: 12,
-        backgroundColor: '#059669',
-        alignItems: 'center'
+        paddingVertical: 12,
+        alignItems: "center"
     },
     confirmSubmitText: {
-        color: '#ffffff',
+        color: "#FFFFFF",
         fontSize: 13,
-        fontWeight: 'bold'
+        fontWeight: "800"
     },
-    emptyWrap: {
-        padding: 30,
-        alignItems: 'center'
-    },
-    emptyText: {
-        color: '#94a3b8',
-        fontSize: 14
-    },
-    viewLeaderboardOutlineBtn: {
-        marginTop: 12,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 14,
-        borderRadius: 14,
-        borderWidth: 1.5,
-        borderColor: 'rgba(245, 158, 11, 0.4)',
-        backgroundColor: 'rgba(245, 158, 11, 0.08)',
-    },
-    viewLeaderboardOutlineBtnText: {
-        color: '#f59e0b',
-        fontWeight: '900',
-        fontSize: 13,
-        letterSpacing: 0.5,
-    },
-    viewLeaderboardCta: {
-        marginHorizontal: 16,
-        marginTop: 16,
-        marginBottom: 8,
-        borderRadius: 16,
-        overflow: 'hidden',
-        elevation: 4,
-        shadowColor: '#f59e0b',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-    },
-    viewLeaderboardCtaGradient: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: 15,
-        paddingHorizontal: 20,
-    },
-    viewLeaderboardCtaText: {
-        color: '#ffffff',
-        fontWeight: '900',
-        fontSize: 13,
-        letterSpacing: 0.8,
-        textTransform: 'uppercase',
-    },
-    leaderboardModalBackdrop: {
+    intermissionCenterWrap: {
         flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.85)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        padding: 16,
+        justifyContent: "center",
+        alignItems: "center",
+        padding: 24
     },
-    leaderboardModalCard: {
-        width: '100%',
-        backgroundColor: '#090e17',
-        borderRadius: 24,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.15)',
-        overflow: 'hidden',
-    },
-    leaderboardModalHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: 18,
-        paddingVertical: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-        backgroundColor: 'rgba(255, 255, 255, 0.02)',
-    },
-    leaderboardTrophyIconBox: {
-        width: 40,
-        height: 40,
-        borderRadius: 12,
-        backgroundColor: 'rgba(245, 158, 11, 0.15)',
-        borderWidth: 1,
-        borderColor: 'rgba(245, 158, 11, 0.3)',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 12,
-    },
-    leaderboardModalTitle: {
-        color: '#ffffff',
-        fontSize: 15,
-        fontWeight: '900',
-    },
-    leaderboardModalSubTitle: {
-        color: '#94a3b8',
-        fontSize: 11,
-        fontWeight: '600',
-        marginTop: 2,
-    },
-    leaderboardCloseBtn: {
-        padding: 8,
-        borderRadius: 10,
-        backgroundColor: 'rgba(255, 255, 255, 0.06)',
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.1)',
-    },
-    podiumContainer: {
-        flexDirection: 'row',
-        alignItems: 'flex-end',
-        justifyContent: 'space-between',
-        gap: 8,
+    breakIconCircle: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: "#EDE9FE",
+        justifyContent: "center",
+        alignItems: "center",
         marginBottom: 16,
-    },
-    podiumItemSilver: {
-        flex: 1,
-        backgroundColor: 'rgba(51, 65, 85, 0.4)',
         borderWidth: 1,
-        borderColor: 'rgba(148, 163, 184, 0.3)',
-        borderRadius: 16,
-        padding: 10,
-        alignItems: 'center',
+        borderColor: "#DDD6FE"
     },
-    podiumRankBadgeSilver: {
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 10,
+    breakBadge: {
+        backgroundColor: "#EDE9FE",
+        paddingHorizontal: 12,
+        paddingVertical: 5,
+        borderRadius: 8,
+        marginBottom: 8
     },
-    podiumRankTextSilver: {
-        color: '#cbd5e1',
-        fontSize: 8,
-        fontWeight: '900',
-        letterSpacing: 0.5,
+    breakBadgeText: {
+        color: "#7C3AED",
+        fontSize: 11,
+        fontWeight: "900",
+        letterSpacing: 1
     },
-    podiumItemGold: {
-        flex: 1.15,
-        backgroundColor: 'rgba(245, 158, 11, 0.12)',
-        borderWidth: 2,
-        borderColor: 'rgba(245, 158, 11, 0.6)',
+    breakTitle: {
+        color: "#0F172A",
+        fontSize: 22,
+        fontWeight: "900",
+        textAlign: "center",
+        marginBottom: 8
+    },
+    breakSubtitle: {
+        color: "#64748B",
+        fontSize: 13,
+        textAlign: "center",
+        maxWidth: 300,
+        lineHeight: 18,
+        marginBottom: 24
+    },
+    breakCard: {
+        backgroundColor: "#FFFFFF",
         borderRadius: 18,
-        padding: 12,
-        alignItems: 'center',
-        marginBottom: 8,
+        padding: 24,
+        alignItems: "center",
+        width: "100%",
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        elevation: 2,
+        marginBottom: 24
     },
-    podiumRankBadgeGold: {
-        backgroundColor: 'rgba(245, 158, 11, 0.25)',
+    breakCardLabel: {
+        color: "#64748B",
+        fontSize: 11,
+        fontWeight: "800",
+        letterSpacing: 1,
+        marginBottom: 8
+    },
+    breakTimerValue: {
+        color: "#7C3AED",
+        fontSize: 32,
+        fontWeight: "900",
+        letterSpacing: 1
+    },
+    breakCardNotice: {
+        color: "#94A3B8",
+        fontSize: 11,
+        textAlign: "center",
+        marginTop: 10
+    },
+    startPart2Btn: {
+        width: "100%",
+        borderRadius: 14,
+        overflow: "hidden"
+    },
+    structuredScroll: {
+        padding: 16,
+        paddingBottom: 40
+    },
+    structuredHeaderCard: {
+        backgroundColor: "#FFFFFF",
+        borderRadius: 20,
+        padding: 18,
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        elevation: 2,
+        marginBottom: 14
+    },
+    structuredBadge: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#EEF2FF",
         paddingHorizontal: 10,
-        paddingVertical: 3,
-        borderRadius: 10,
+        paddingVertical: 4,
+        borderRadius: 8,
+        alignSelf: "flex-start",
+        gap: 6,
+        marginBottom: 8
     },
-    podiumRankTextGold: {
-        color: '#fbbf24',
-        fontSize: 9,
-        fontWeight: '900',
-        letterSpacing: 0.5,
-    },
-    podiumItemBronze: {
-        flex: 1,
-        backgroundColor: 'rgba(67, 20, 7, 0.3)',
-        borderWidth: 1,
-        borderColor: 'rgba(249, 115, 22, 0.3)',
-        borderRadius: 16,
-        padding: 10,
-        alignItems: 'center',
-    },
-    podiumRankBadgeBronze: {
-        backgroundColor: 'rgba(255, 255, 255, 0.08)',
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-        borderRadius: 10,
-    },
-    podiumRankTextBronze: {
-        color: '#fdba74',
-        fontSize: 8,
-        fontWeight: '900',
-        letterSpacing: 0.5,
-    },
-    podiumName: {
-        color: '#e2e8f0',
+    structuredBadgeText: {
+        color: "#4F46E5",
         fontSize: 11,
-        fontWeight: '800',
-        textAlign: 'center',
+        fontWeight: "800"
     },
-    podiumScore: {
-        color: '#e2e8f0',
-        fontSize: 14,
-        fontWeight: '900',
-        marginTop: 2,
+    structuredTitleText: {
+        fontSize: 20,
+        fontWeight: "900",
+        color: "#0F172A",
+        marginBottom: 4
     },
-    podiumTime: {
-        color: '#94a3b8',
-        fontSize: 9,
-        fontWeight: '600',
-        marginTop: 1,
+    structuredSubtitleText: {
+        fontSize: 12,
+        color: "#64748B",
+        lineHeight: 18,
+        marginBottom: 14
     },
-    podiumOpen: {
-        color: '#64748b',
+    writingTimerBox: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#FFF7ED",
+        borderRadius: 14,
+        padding: 14,
+        borderWidth: 1,
+        borderColor: "#FED7AA"
+    },
+    writingTimerLabel: {
         fontSize: 10,
-        fontStyle: 'italic',
-        marginTop: 8,
+        fontWeight: "800",
+        color: "#C2410C",
+        letterSpacing: 0.5
     },
-    standingsCard: {
+    writingTimerValue: {
+        fontSize: 20,
+        fontWeight: "900",
+        color: "#EA580C",
+        marginTop: 2
+    },
+    questionPaperBox: {
+        backgroundColor: "#FFFFFF",
+        borderRadius: 18,
+        padding: 18,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.1)',
+        borderColor: "#E2E8F0",
+        elevation: 2,
+        marginBottom: 14
+    },
+    docIconCircle: {
+        width: 48,
+        height: 48,
+        borderRadius: 12,
+        backgroundColor: "#FEE2E2",
+        justifyContent: "center",
+        alignItems: "center"
+    },
+    questionPaperTitle: {
+        fontSize: 15,
+        fontWeight: "800",
+        color: "#0F172A"
+    },
+    questionPaperSub: {
+        fontSize: 11,
+        color: "#64748B",
+        marginTop: 2
+    },
+    downloadPaperBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#DC2626",
+        borderRadius: 12,
+        paddingVertical: 12,
+        marginTop: 14,
+        gap: 8
+    },
+    downloadPaperBtnText: {
+        color: "#FFFFFF",
+        fontSize: 13,
+        fontWeight: "800"
+    },
+    guidelinesBox: {
+        backgroundColor: "#F8FAFC",
         borderRadius: 16,
-        backgroundColor: 'rgba(255, 255, 255, 0.02)',
-        overflow: 'hidden',
+        padding: 16,
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        marginBottom: 16
     },
-    standingsHeaderRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.1)',
-        backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    guidelinesHeader: {
+        flexDirection: "row",
+        alignItems: "center",
+        marginBottom: 10
     },
-    standingsColHeader: {
-        color: '#94a3b8',
+    guidelineItem: {
+        fontSize: 12,
+        color: "#475569",
+        lineHeight: 19,
+        marginBottom: 4
+    },
+    unlockUploadBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        backgroundColor: "#4F46E5",
+        borderRadius: 14,
+        paddingVertical: 14,
+        gap: 8,
+        elevation: 2
+    },
+    unlockUploadBtnText: {
+        color: "#FFFFFF",
+        fontSize: 14,
+        fontWeight: "800"
+    },
+    pickButtonsRow: {
+        flexDirection: "row",
+        gap: 12,
+        marginBottom: 16
+    },
+    pickBtn: {
+        flex: 1,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 16,
+        padding: 16,
+        alignItems: "center",
+        borderWidth: 1.5,
+        borderColor: "#E2E8F0",
+        elevation: 1
+    },
+    pickBtnText: {
+        fontSize: 13,
+        fontWeight: "800",
+        color: "#0F172A",
+        marginTop: 8
+    },
+    pickBtnSub: {
+        fontSize: 10,
+        fontWeight: "600",
+        color: "#64748B",
+        marginTop: 2
+    },
+    uploadedImagesSection: {
+        backgroundColor: "#FFFFFF",
+        borderRadius: 18,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        marginBottom: 16
+    },
+    uploadedCountText: {
+        fontSize: 11,
+        fontWeight: "700",
+        color: "#4F46E5"
+    },
+    emptyUploadBox: {
+        alignItems: "center",
+        paddingVertical: 24,
+        paddingHorizontal: 16
+    },
+    emptyUploadTitle: {
+        fontSize: 14,
+        fontWeight: "800",
+        color: "#64748B",
+        marginTop: 10
+    },
+    emptyUploadSub: {
+        fontSize: 11,
+        color: "#94A3B8",
+        textAlign: "center",
+        marginTop: 4
+    },
+    imageThumbnailsGrid: {
+        flexDirection: "row",
+        flexWrap: "wrap",
+        gap: 10
+    },
+    thumbnailBox: {
+        width: (width - 76) / 3,
+        height: 120,
+        borderRadius: 12,
+        overflow: "hidden",
+        backgroundColor: "#F1F5F9",
+        borderWidth: 1,
+        borderColor: "#E2E8F0"
+    },
+    pageThumbImage: {
+        width: "100%",
+        height: "100%"
+    },
+    pageNumberBadge: {
+        position: "absolute",
+        bottom: 4,
+        left: 4,
+        backgroundColor: "rgba(15, 23, 42, 0.75)",
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 6
+    },
+    pageNumberBadgeText: {
+        color: "#FFFFFF",
         fontSize: 9,
-        fontWeight: '800',
-        letterSpacing: 0.5,
+        fontWeight: "800"
     },
-    standingRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 12,
-        paddingVertical: 10,
-        borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+    deleteThumbBtn: {
+        position: "absolute",
+        top: 4,
+        right: 4,
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        backgroundColor: "#EF4444",
+        justifyContent: "center",
+        alignItems: "center"
     },
-    standingRowMe: {
-        backgroundColor: 'rgba(245, 158, 11, 0.15)',
-        borderLeftWidth: 3,
-        borderLeftColor: '#f59e0b',
+    finalSubmitBtn: {
+        borderRadius: 14,
+        overflow: "hidden",
+        elevation: 3
     },
-    rankNumberText: {
-        color: '#e2e8f0',
-        fontSize: 11,
-        fontWeight: '800',
+    leaderboardCtaBtn: {
+        width: "100%",
+        borderRadius: 14,
+        overflow: "hidden",
+        marginTop: 16
     },
-    studentNameText: {
-        color: '#f8fafc',
+    leaderboardCtaGradient: {
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        paddingVertical: 14,
+        paddingHorizontal: 16,
+        gap: 8
+    },
+    leaderboardCtaText: {
+        color: "#FFFFFF",
+        fontSize: 13,
+        fontWeight: "800",
+        flex: 1,
+        textAlign: "center"
+    }
+});
+
+const hubStyles = StyleSheet.create({
+    tabContainer: {
+        flexDirection: "row",
+        backgroundColor: "#F1F5F9",
+        marginHorizontal: 16,
+        marginVertical: 10,
+        borderRadius: 14,
+        padding: 4,
+        borderWidth: 1,
+        borderColor: "#E2E8F0"
+    },
+    tabBtn: {
+        flex: 1,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        paddingVertical: 9,
+        borderRadius: 10
+    },
+    tabBtnActive: {
+        backgroundColor: "#4F46E5",
+        elevation: 2
+    },
+    tabText: {
+        color: "#64748B",
         fontSize: 12,
-        fontWeight: '700',
-        flexShrink: 1,
+        fontWeight: "800"
     },
-    youBadge: {
-        backgroundColor: '#f59e0b',
-        paddingHorizontal: 5,
-        paddingVertical: 1,
-        borderRadius: 4,
-        marginLeft: 6,
+    tabTextActive: {
+        color: "#FFFFFF"
     },
-    youBadgeText: {
-        color: '#000000',
+    statsGrid: {
+        flexDirection: "row",
+        gap: 10,
+        marginBottom: 16
+    },
+    statCard: {
+        flex: 1,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 14,
+        padding: 12,
+        alignItems: "center",
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        elevation: 1
+    },
+    statNum: {
+        color: "#0F172A",
+        fontSize: 18,
+        fontWeight: "900",
+        marginTop: 4
+    },
+    statLabel: {
+        color: "#64748B",
+        fontSize: 10,
+        fontWeight: "700",
+        marginTop: 2
+    },
+    sectionHeader: {
+        color: "#0F172A",
+        fontSize: 15,
+        fontWeight: "900",
+        marginBottom: 12
+    },
+    emptyBox: {
+        backgroundColor: "#FFFFFF",
+        borderRadius: 16,
+        padding: 30,
+        alignItems: "center",
+        borderWidth: 1,
+        borderColor: "#E2E8F0"
+    },
+    emptyTitle: {
+        color: "#0F172A",
+        fontSize: 16,
+        fontWeight: "800",
+        marginTop: 10
+    },
+    emptySub: {
+        color: "#64748B",
+        fontSize: 12,
+        textAlign: "center",
+        marginTop: 4
+    },
+    paperCard: {
+        backgroundColor: "#FFFFFF",
+        borderRadius: 16,
+        padding: 16,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        elevation: 1
+    },
+    paperCardHeader: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 8
+    },
+    paperTypePill: {
+        backgroundColor: "#EEF2FF",
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6
+    },
+    paperTypePillText: {
+        color: "#4F46E5",
+        fontSize: 9,
+        fontWeight: "900"
+    },
+    paperDurationText: {
+        color: "#64748B",
+        fontSize: 11,
+        fontWeight: "700"
+    },
+    paperTitle: {
+        color: "#0F172A",
+        fontSize: 15,
+        fontWeight: "900",
+        marginBottom: 4
+    },
+    paperSub: {
+        color: "#64748B",
+        fontSize: 11,
+        fontWeight: "600",
+        marginBottom: 12
+    },
+    paperCardFooter: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        borderTopWidth: 1,
+        borderTopColor: "#F1F5F9",
+        paddingTop: 10
+    },
+    badgeRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 4
+    },
+    badgeInfoText: {
+        color: "#64748B",
+        fontSize: 11,
+        fontWeight: "700"
+    },
+    startPaperBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        backgroundColor: "#10B981",
+        paddingHorizontal: 14,
+        paddingVertical: 7,
+        borderRadius: 10
+    },
+    startPaperBtnText: {
+        color: "#FFFFFF",
+        fontSize: 11,
+        fontWeight: "800"
+    },
+    historyCard: {
+        backgroundColor: "#FFFFFF",
+        borderRadius: 16,
+        padding: 14,
+        marginBottom: 10,
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        elevation: 1
+    },
+    historyTopRow: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        marginBottom: 8
+    },
+    historyTitle: {
+        color: "#0F172A",
+        fontSize: 14,
+        fontWeight: "800"
+    },
+    historyDate: {
+        color: "#94A3B8",
+        fontSize: 10,
+        fontWeight: "600",
+        marginTop: 2
+    },
+    historyScoreBox: {
+        alignItems: "flex-end"
+    },
+    historyScoreText: {
+        color: "#16A34A",
+        fontSize: 16,
+        fontWeight: "900"
+    },
+    historyScoreSub: {
+        color: "#16A34A",
         fontSize: 8,
-        fontWeight: '900',
+        fontWeight: "800"
     },
-    timeText: {
-        color: '#94a3b8',
+    historyBottomRow: {
+        flexDirection: "row",
+        justifyContent: "space-between",
+        alignItems: "center",
+        borderTopWidth: 1,
+        borderTopColor: "#F1F5F9",
+        paddingTop: 8
+    },
+    historyRankText: {
+        color: "#D97706",
         fontSize: 11,
-        fontWeight: '600',
+        fontWeight: "700"
     },
-    scoreText: {
-        color: '#34d399',
-        fontSize: 12,
-        fontWeight: '900',
+    reviewBtn: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 2
     },
+    reviewBtnText: {
+        color: "#4F46E5",
+        fontSize: 11,
+        fontWeight: "800"
+    }
 });

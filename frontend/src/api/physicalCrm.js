@@ -36,6 +36,7 @@ export const physicalCrmService = {
   getClassFeeMatrix: (classId) => api.get(`/physical-crm/classes/${classId}/fee-matrix`).then(res => res.data),
   toggleFeePayment: (data) => api.post('/physical-crm/classes/toggle-fee', data).then(res => res.data),
   reverseFeePayment: (data) => api.post('/physical-crm/classes/reverse-fee', data).then(res => res.data),
+  moveFeePaymentMonth: (data) => api.post('/physical-crm/classes/move-fee-month', data).then(res => res.data),
   bulkToggleFeePayment: (data) => api.post('/physical-crm/classes/bulk-fee-payment', data).then(res => res.data),
 
   // Teacher Reports & Invoices
@@ -45,6 +46,7 @@ export const physicalCrmService = {
   getStudentReports: (params = {}) => api.get('/physical-crm/student-reports', { params }).then(res => res.data),
   getStudentFullDetails: (id) => api.get(`/physical-crm/student-reports/${id}`).then(res => res.data),
   getAttendanceSessionsReport: (params = {}) => api.get('/physical-crm/attendance-sessions-report', { params }).then(res => res.data),
+  getClassFollowUpReport: (params = {}) => api.get('/physical-crm/class-followup-report', { params }).then(res => res.data),
 
   // E-SMS Gateway & Bulk SMS
   getSmsSettings: () => api.get('/physical-crm/sms/settings').then(res => res.data),

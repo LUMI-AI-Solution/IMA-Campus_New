@@ -142,8 +142,9 @@ async function recordWebhookBillingEvent(statusData, metadata = {}, wabaId = nul
         }
     }
 
-    const created = await prisma.whatsAppBillingRecord.create({
-        data: {
+    const created = await prisma.whatsAppBillingRecord.upsert({
+        where: { wamid },
+        create: {
             businessId,
             wabaId: wabaId ? String(wabaId) : null,
             phoneNumberId: phoneNumberId ? String(phoneNumberId) : null,
@@ -158,6 +159,10 @@ async function recordWebhookBillingEvent(statusData, metadata = {}, wabaId = nul
             billable: isBillable,
             status,
             eventTimestamp: eventTime
+        },
+        update: {
+            status,
+            ...(isBillable ? { billable: true, costUsd } : {})
         }
     });
 

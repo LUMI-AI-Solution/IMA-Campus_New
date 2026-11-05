@@ -62,6 +62,16 @@ export default function AttendancePortal() {
         year: new Date().getFullYear()
     });
 
+    // Move Accidental Payment Month Modal State
+    const [moveMonthModal, setMoveMonthModal] = useState({
+        isOpen: false,
+        classObj: null,
+        currentMonth: '',
+        targetMonth: '',
+        pRecord: null,
+        loading: false
+    });
+
     // Custom / Partial Payment Modal State
     const [customPayModal, setCustomPayModal] = useState({
         isOpen: false,
@@ -444,6 +454,28 @@ export default function AttendancePortal() {
         }
     };
 
+    // Move Accidental Fee Payment to another month cleanly
+    const handleMoveFeePayment = async (classId, currentMonth, targetMonth) => {
+        if (!studentData || !classId || !currentMonth || !targetMonth) return;
+        try {
+            setMoveMonthModal(prev => ({ ...prev, loading: true }));
+            const res = await physicalCrmService.moveFeePaymentMonth({
+                studentId: studentData.id,
+                classId,
+                currentMonth,
+                targetMonth,
+                reason: 'Accidental payment month moved by staff'
+            });
+            toast.success(res.message || `Payment moved to ${targetMonth}!`, { icon: '📅' });
+            setMoveMonthModal({ isOpen: false, classObj: null, currentMonth: '', targetMonth: '', pRecord: null, loading: false });
+            handleScan(studentData.studentId || studentData.id);
+        } catch (error) {
+            console.error('Error moving fee payment:', error);
+            toast.error(error.response?.data?.error || error.message);
+            setMoveMonthModal(prev => ({ ...prev, loading: false }));
+        }
+    };
+
     // Toggle / Full Mark Class Fee Payment with 80mm Thermal Receipt (Instant Auto-Print)
     const handleClassFeePayment = async (classId, monthStr, currentStatus, optionalAmount = null) => {
         if (!studentData) return;
@@ -622,6 +654,15 @@ export default function AttendancePortal() {
         const dueClasses = [];
         studentEnrolledClasses.forEach(cls => {
             const pRecord = feePayments.find(p => p.classId === cls.id && p.month === activeMonthStr);
+            const joinDate = cls.enrolledAt || studentData?.createdAt;
+            const joinMonthStr = joinDate ? format(new Date(joinDate), 'yyyy-MM') : null;
+            const isBeforeEnrollment = !pRecord && joinMonthStr && activeMonthStr < joinMonthStr;
+
+            if (isBeforeEnrollment) {
+                // Not enrolled yet in this past month; ignore
+                return;
+            }
+
             const cType = cls.cardType || studentData.cardType || 'FULL';
             const expectedFee = cType === 'FREE' ? 0 : (cType === 'HALF' ? (cls.monthlyFee || 0) / 2 : (cls.monthlyFee || 0));
             const isPaidRecord = pRecord && (pRecord.status === 'PAID' || pRecord.status === 'FREE_CARD' || pRecord.status === 'HALF_PAYMENT');
@@ -801,6 +842,15 @@ export default function AttendancePortal() {
 
         studentEnrolledClasses.forEach(cls => {
             const pRecord = feePayments.find(p => p.classId === cls.id && p.month === activeMonthStr);
+            const joinDate = cls.enrolledAt || studentData?.createdAt;
+            const joinMonthStr = joinDate ? format(new Date(joinDate), 'yyyy-MM') : null;
+            const isBeforeEnrollment = !pRecord && joinMonthStr && activeMonthStr < joinMonthStr;
+
+            if (isBeforeEnrollment) {
+                // Not enrolled yet in this past month; ignore
+                return;
+            }
+
             const cType = cls.cardType || studentData.cardType || 'FULL';
             const expected = cType === 'FREE' ? 0 : (cType === 'HALF' ? (cls.monthlyFee || 0) / 2 : (cls.monthlyFee || 0));
             const isPaid = pRecord && (pRecord.status === 'PAID' || pRecord.status === 'HALF_PAYMENT' || pRecord.status === 'FREE_CARD' || pRecord.status === 'PARTIAL');
@@ -993,7 +1043,8 @@ export default function AttendancePortal() {
             map.set(studentData.class.id, {
                 ...studentData.class,
                 cardType: studentData.cardType || 'FULL',
-                enrollmentId: null
+                enrollmentId: null,
+                enrolledAt: studentData.createdAt
             });
         }
         if (studentData.enrollments) {
@@ -1002,7 +1053,8 @@ export default function AttendancePortal() {
                     map.set(e.class.id, {
                         ...e.class,
                         cardType: e.cardType || studentData.cardType || 'FULL',
-                        enrollmentId: e.id
+                        enrollmentId: e.id,
+                        enrolledAt: e.createdAt || studentData.createdAt
                     });
                 }
             });
@@ -1055,8 +1107,18 @@ export default function AttendancePortal() {
 
         studentEnrolledClasses.forEach(cls => {
             const pRecord = feePayments.find(p => p.classId === cls.id && p.month === activeMonthStr);
-            const cType = cls.cardType || 'FULL';
+            const cType = cls.cardType || studentData?.cardType || 'FULL';
             const expected = cType === 'FREE' ? 0 : (cType === 'HALF' ? (cls.monthlyFee || 0) / 2 : (cls.monthlyFee || 0));
+
+            const joinDate = cls.enrolledAt || studentData?.createdAt;
+            const joinMonthStr = joinDate ? format(new Date(joinDate), 'yyyy-MM') : null;
+            const isBeforeEnrollment = !pRecord && joinMonthStr && activeMonthStr < joinMonthStr;
+
+            if (isBeforeEnrollment) {
+                // Not enrolled yet in this past month; do not count as expected or due
+                return;
+            }
+
             totalExpected += expected;
 
             if (pRecord && (pRecord.status === 'PAID' || pRecord.status === 'FREE_CARD' || pRecord.status === 'HALF_PAYMENT' || pRecord.status === 'PARTIAL')) {
@@ -1076,7 +1138,7 @@ export default function AttendancePortal() {
         });
 
         return { totalExpected, totalPaid, totalDue, paidCount, partialCount, pendingCount };
-    }, [studentEnrolledClasses, feePayments, activeMonthStr]);
+    }, [studentEnrolledClasses, feePayments, activeMonthStr, studentData]);
 
     // Render Active Month Calendar Widget
     const renderCalendarMonth = (baseDate, compact = false) => {
@@ -1513,6 +1575,10 @@ export default function AttendancePortal() {
                                                 const attTime = attRecord?.createdAt ? format(new Date(attRecord.createdAt), 'hh:mm a') : null;
 
                                                 const pRecCheck = feePayments.find(p => p.classId === cls.id && p.month === activeMonthStr);
+                                                const joinDate = cls.enrolledAt || studentData?.createdAt;
+                                                const joinMonthStr = joinDate ? format(new Date(joinDate), 'yyyy-MM') : null;
+                                                const isBeforeEnrollment = !pRecCheck && joinMonthStr && activeMonthStr < joinMonthStr;
+
                                                 const cTypeCheck = cls.cardType || studentData?.cardType || 'FULL';
                                                 const isClassPaid = cTypeCheck === 'FREE' || (pRecCheck && (pRecCheck.status === 'PAID' || pRecCheck.status === 'FREE_CARD' || pRecCheck.status === 'HALF_PAYMENT'));
 
@@ -1522,7 +1588,9 @@ export default function AttendancePortal() {
                                                         className={`p-3 rounded-2xl border transition-all ${
                                                             isClassPaid 
                                                                 ? 'bg-emerald-950/20 border-emerald-500/25 hover:border-emerald-500/40' 
-                                                                : 'bg-rose-950/20 border-rose-500/25 hover:border-rose-500/40'
+                                                                : isBeforeEnrollment
+                                                                    ? 'bg-slate-900/40 border-white/5 opacity-75'
+                                                                    : 'bg-rose-950/20 border-rose-500/25 hover:border-rose-500/40'
                                                         }`}
                                                     >
                                                         {/* Top Row: Full Class Name & Paid Status Badge */}
@@ -1533,6 +1601,10 @@ export default function AttendancePortal() {
                                                             {isClassPaid ? (
                                                                 <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0 whitespace-nowrap shadow-sm">
                                                                     PAID ✓
+                                                                </span>
+                                                            ) : isBeforeEnrollment ? (
+                                                                <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-slate-800 text-slate-400 border border-slate-700 shrink-0 whitespace-nowrap shadow-sm" title={`Joined in ${joinMonthStr}`}>
+                                                                    NOT ENROLLED
                                                                 </span>
                                                             ) : (
                                                                 <span className="px-2 py-0.5 rounded-md text-[9px] font-black bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse shrink-0 whitespace-nowrap shadow-sm">
@@ -1988,6 +2060,10 @@ export default function AttendancePortal() {
                                                         const dueIds = studentEnrolledClasses
                                                             .filter(cls => {
                                                                 const pRecord = feePayments.find(p => p.classId === cls.id && p.month === activeMonthStr);
+                                                                const joinDate = cls.enrolledAt || studentData?.createdAt;
+                                                                const joinMonthStr = joinDate ? format(new Date(joinDate), 'yyyy-MM') : null;
+                                                                if (!pRecord && joinMonthStr && activeMonthStr < joinMonthStr) return false;
+
                                                                 const cType = cls.cardType || studentData?.cardType || 'FULL';
                                                                 const expectedFee = cType === 'FREE' ? 0 : (cType === 'HALF' ? (cls.monthlyFee || 0) / 2 : (cls.monthlyFee || 0));
                                                                 const isPaid = pRecord && (pRecord.status === 'PAID' || pRecord.status === 'FREE_CARD' || pRecord.status === 'HALF_PAYMENT');
@@ -2026,6 +2102,10 @@ export default function AttendancePortal() {
                                         <div className={`space-y-3.5 max-h-[calc(100vh-270px)] overflow-y-auto pr-1.5 custom-scrollbar`}>
                                             {studentEnrolledClasses.map(cls => {
                                                 const pRecord = feePayments.find(p => p.classId === cls.id && p.month === activeMonthStr);
+                                                const joinDate = cls.enrolledAt || studentData?.createdAt;
+                                                const joinMonthStr = joinDate ? format(new Date(joinDate), 'yyyy-MM') : null;
+                                                const isBeforeEnrollment = !pRecord && joinMonthStr && activeMonthStr < joinMonthStr;
+
                                                 const cType = cls.cardType || studentData.cardType || 'FULL';
                                                 const expectedFee = cType === 'FREE' ? 0 : (cType === 'HALF' ? (cls.monthlyFee || 0) / 2 : (cls.monthlyFee || 0));
                                                 
@@ -2036,7 +2116,7 @@ export default function AttendancePortal() {
                                                     ? (cType === 'FREE' ? 0 : (pRecord.amount !== undefined ? pRecord.amount : expectedFee))
                                                     : (isPartialRecord ? (pRecord.amount || 0) : 0);
                                                 
-                                                const dueAmount = cType === 'FREE' ? 0 : Math.max(0, expectedFee - paidAmount);
+                                                const dueAmount = (cType === 'FREE' || isBeforeEnrollment) ? 0 : Math.max(0, expectedFee - paidAmount);
 
                                                 const teacherNames = cls.teachers && cls.teachers.length > 0 
                                                     ? cls.teachers.map(t => t.name).join(', ') 
@@ -2054,14 +2134,16 @@ export default function AttendancePortal() {
                                                                     ? 'bg-gradient-to-b from-emerald-950/40 via-slate-900/90 to-slate-950 border-emerald-500/40 shadow-emerald-950/20' 
                                                                     : isPartialRecord 
                                                                         ? 'bg-gradient-to-b from-amber-950/40 via-slate-900/90 to-slate-950 border-amber-500/40 shadow-amber-950/20' 
-                                                                        : 'bg-gradient-to-b from-slate-900/95 via-slate-900/90 to-slate-950 border-white/15'
+                                                                        : isBeforeEnrollment
+                                                                            ? 'bg-gradient-to-b from-slate-950 via-slate-900/80 to-slate-950 border-white/5 opacity-80'
+                                                                            : 'bg-gradient-to-b from-slate-900/95 via-slate-900/90 to-slate-950 border-white/15'
                                                         }`}
                                                     >
                                                         {/* Top Header */}
                                                         <div className="space-y-2.5">
                                                             <div className="flex items-start justify-between gap-3">
                                                                 <div className="flex items-start gap-2.5 min-w-0 flex-1">
-                                                                    {cType !== 'FREE' && !isPaidRecord && (
+                                                                    {cType !== 'FREE' && !isPaidRecord && !isBeforeEnrollment && (
                                                                         <input
                                                                             type="checkbox"
                                                                             checked={isClassSelected}
@@ -2101,6 +2183,10 @@ export default function AttendancePortal() {
                                                                             ) : isPartialRecord ? (
                                                                                 <span className="text-[11px] font-black px-3 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 border border-amber-300 shadow-md shadow-amber-500/30 flex items-center gap-1 ml-auto">
                                                                                     <Clock size={13} /> PARTIAL (Rs. {paidAmount.toLocaleString()})
+                                                                                </span>
+                                                                            ) : isBeforeEnrollment ? (
+                                                                                <span className="text-[11px] font-bold px-3 py-1 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 shadow-sm flex items-center gap-1 ml-auto" title={`Joined in ${joinMonthStr}`}>
+                                                                                    <Clock size={13} /> NOT ENROLLED (N/A)
                                                                                 </span>
                                                                             ) : (
                                                                                 <span className="text-[11px] font-black px-3 py-1 rounded-xl bg-gradient-to-r from-rose-600 to-red-600 text-white border border-rose-400 shadow-md shadow-rose-600/30 flex items-center gap-1 ml-auto animate-pulse">
@@ -2225,6 +2311,10 @@ export default function AttendancePortal() {
                                                                         <span className="text-xs font-black text-amber-300 bg-amber-500/25 px-3 py-1 rounded-xl border border-amber-400/50 flex items-center gap-1.5 shadow-sm">
                                                                             ⚡ PARTIAL (Paid: Rs. {paidAmount.toLocaleString()})
                                                                         </span>
+                                                                    ) : isBeforeEnrollment ? (
+                                                                        <span className="text-xs font-bold text-slate-400 bg-slate-800/80 px-3 py-1 rounded-xl border border-slate-700 flex items-center gap-1.5 shadow-sm">
+                                                                            <Clock size={14} /> NOT ENROLLED YET (Joined {joinMonthStr})
+                                                                        </span>
                                                                     ) : (
                                                                         <span className="text-xs font-black text-rose-300 bg-rose-500/25 px-3 py-1 rounded-xl border border-rose-400/50 flex items-center gap-1.5 shadow-sm animate-pulse">
                                                                             ⚠️ NOT PAID (DUE: Rs. {dueAmount.toLocaleString()})
@@ -2232,7 +2322,7 @@ export default function AttendancePortal() {
                                                                     )}
                                                                 </div>
 
-                                                                {dueAmount > 0 && cType !== 'FREE' && (
+                                                                {dueAmount > 0 && cType !== 'FREE' && !isBeforeEnrollment && (
                                                                     <div className="bg-rose-500/20 border border-rose-500/40 px-3.5 py-2 rounded-xl flex items-center justify-between shadow-sm">
                                                                         <span className="text-rose-200 font-black text-xs">Remaining Due for {format(viewMonth, 'MMMM')}:</span>
                                                                         <span className="text-rose-300 font-black text-base">Rs. {dueAmount.toLocaleString()}</span>
@@ -2305,6 +2395,25 @@ export default function AttendancePortal() {
                                                                                 <span>Custom Pay</span>
                                                                             </button>
                                                                         </>
+                                                                    ) : isBeforeEnrollment ? (
+                                                                        <div className="flex-1 flex items-center justify-between text-xs text-slate-400 bg-white/5 py-2 px-3 rounded-xl border border-white/5">
+                                                                            <span className="italic text-slate-400 text-[11px]">No payment due before registration ({joinMonthStr})</span>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => setCustomPayModal({
+                                                                                    isOpen: true,
+                                                                                    classObj: cls,
+                                                                                    monthStr: activeMonthStr,
+                                                                                    amount: String(expectedFee),
+                                                                                    isIncremental: false,
+                                                                                    paymentMethod: 'CASH',
+                                                                                    remark: 'Previous month payment'
+                                                                                })}
+                                                                                className="py-1 px-2.5 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-bold transition-all cursor-pointer"
+                                                                            >
+                                                                                Record Past Fee
+                                                                            </button>
+                                                                        </div>
                                                                     ) : (
                                                                         <>
                                                                             <button
@@ -2409,152 +2518,254 @@ export default function AttendancePortal() {
 
             </div>
 
-            {/* PER-CLASS 12-MONTH PAYMENT HISTORY MODAL */}
+            {/* PER-CLASS 12-MONTH PAYMENT HISTORY MODAL (EXPANDED TILES GRID) */}
             {classHistoryModal.isOpen && classHistoryModal.classObj && (
-                <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in">
-                    <div className="bg-slate-900 border border-white/20 rounded-3xl p-5 sm:p-6 max-w-3xl w-full text-white shadow-2xl relative space-y-4 max-h-[90vh] flex flex-col">
+                <div className="fixed inset-0 z-[99999] flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-in fade-in">
+                    <div className="bg-slate-900 border border-white/20 rounded-3xl p-5 sm:p-6 max-w-6xl w-full text-white shadow-2xl relative space-y-4 max-h-[92vh] flex flex-col">
                         
                         <button
                             onClick={() => setClassHistoryModal({ isOpen: false, classObj: null, year: new Date().getFullYear() })}
-                            className="absolute top-4 right-4 text-gray-400 hover:text-white p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all cursor-pointer"
+                            className="absolute top-4 right-4 text-gray-400 hover:text-white p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all cursor-pointer z-10"
                         >
-                            <X size={18} />
+                            <X size={20} />
                         </button>
 
-                        <div className="flex items-center gap-3">
-                            <div className="p-2.5 bg-purple-500/20 rounded-xl border border-purple-500/30 text-purple-400">
-                                <CalendarIcon size={20} />
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pr-10">
+                            <div className="flex items-center gap-3">
+                                <div className="p-3 bg-purple-500/20 rounded-2xl border border-purple-500/30 text-purple-400 shadow-md">
+                                    <CalendarIcon size={22} />
+                                </div>
+                                <div>
+                                    <h3 className="text-base sm:text-lg font-black text-white flex items-center gap-2">
+                                        {classHistoryModal.classObj.name}
+                                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-white/10 text-white/70">
+                                            Monthly Fee History
+                                        </span>
+                                    </h3>
+                                    <p className="text-xs text-white/50">
+                                        {studentData ? `Payment records for ${studentData.studentName || studentData.firstName} (${studentData.studentId})` : ''}
+                                    </p>
+                                </div>
                             </div>
-                            <div>
-                                <h3 className="text-lg font-black text-white">
-                                    {classHistoryModal.classObj.name} - Monthly Fee History
-                                </h3>
-                                <p className="text-xs text-white/50">
-                                    {studentData ? `Payment records for ${studentData.studentName || studentData.firstName} (${studentData.studentId})` : ''}
-                                </p>
-                            </div>
+
+                            {/* Current Year Jump Button */}
+                            {classHistoryModal.year !== new Date().getFullYear() && (
+                                <button
+                                    onClick={() => setClassHistoryModal(prev => ({ ...prev, year: new Date().getFullYear() }))}
+                                    className="self-start sm:self-center px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                                >
+                                    <Clock size={13} /> Jump to This Year ({new Date().getFullYear()})
+                                </button>
+                            )}
                         </div>
 
-                        {/* Year Selector */}
-                        <div className="flex items-center justify-between bg-white/5 p-2.5 rounded-xl border border-white/10">
-                            <button
-                                onClick={() => setClassHistoryModal(prev => ({ ...prev, year: prev.year - 1 }))}
-                                className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all cursor-pointer"
-                            >
-                                ◀ {classHistoryModal.year - 1}
-                            </button>
-                            <span className="font-black text-base text-white">{classHistoryModal.year} Fee History</span>
-                            <button
-                                onClick={() => setClassHistoryModal(prev => ({ ...prev, year: prev.year + 1 }))}
-                                className="px-3 py-1 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-bold transition-all cursor-pointer"
-                            >
-                                {classHistoryModal.year + 1} ▶
-                            </button>
+                        {/* Year Selector & Future Year Warning */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between bg-white/5 p-2.5 rounded-2xl border border-white/10">
+                                <button
+                                    onClick={() => setClassHistoryModal(prev => ({ ...prev, year: prev.year - 1 }))}
+                                    className="px-3.5 py-1.5 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                                >
+                                    ◀ {classHistoryModal.year - 1}
+                                </button>
+                                <div className="flex items-center gap-2">
+                                    <span className="font-black text-lg text-white tracking-wide">{classHistoryModal.year}</span>
+                                    <span className="text-xs uppercase font-bold text-white/50 tracking-wider">Fee Calendar</span>
+                                </div>
+                                <button
+                                    onClick={() => setClassHistoryModal(prev => ({ ...prev, year: prev.year + 1 }))}
+                                    className="px-3.5 py-1.5 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                                >
+                                    {classHistoryModal.year + 1} ▶
+                                </button>
+                            </div>
+
+                            {classHistoryModal.year > new Date().getFullYear() && (
+                                <div className="p-3 bg-amber-500/15 border border-amber-500/30 rounded-2xl text-amber-300 text-xs flex items-center gap-2">
+                                    <AlertCircle size={16} className="text-amber-400 shrink-0" />
+                                    <span>
+                                        <strong>⚠️ Future Year Alert:</strong> You are viewing future year <strong>{classHistoryModal.year}</strong>. Any fees marked here will be recorded under {classHistoryModal.year}.
+                                    </span>
+                                </div>
+                            )}
                         </div>
 
-                        {/* 12 Months Grid */}
-                        <div className="flex-1 overflow-y-auto pr-1.5 custom-scrollbar space-y-2">
+                        {/* 12 Months Tiles Grid (3 rows x 4 cols on desktop) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5 flex-1 overflow-y-auto p-1 custom-scrollbar">
                             {Array.from({ length: 12 }, (_, idx) => {
                                 const mDate = new Date(classHistoryModal.year, idx, 1);
                                 const mStr = format(mDate, 'yyyy-MM');
                                 const pRecord = feePayments.find(p => p.classId === classHistoryModal.classObj.id && p.month === mStr);
                                 
                                 const enr = studentData?.enrollments?.find(e => e.classId === classHistoryModal.classObj.id);
+                                const joinDate = enr?.createdAt || studentData?.createdAt;
+                                const joinMonthStr = joinDate ? format(new Date(joinDate), 'yyyy-MM') : null;
+                                const isBeforeEnrollment = !pRecord && joinMonthStr && mStr < joinMonthStr;
+
                                 const cType = enr?.cardType || studentData?.cardType || 'FULL';
                                 const fullFee = cType === 'FREE' ? 0 : (cType === 'HALF' ? (classHistoryModal.classObj.monthlyFee || 0) / 2 : (classHistoryModal.classObj.monthlyFee || 0));
 
                                 const isPaid = pRecord && (pRecord.status === 'PAID' || pRecord.status === 'FREE_CARD' || pRecord.status === 'HALF_PAYMENT');
                                 const isPartial = pRecord && pRecord.status === 'PARTIAL';
+                                const isFree = cType === 'FREE' || pRecord?.status === 'FREE_CARD';
                                 const paidVal = isPaid ? (cType === 'FREE' ? 0 : (pRecord.amount !== undefined ? pRecord.amount : fullFee)) : (isPartial ? (pRecord.amount || 0) : 0);
-                                const dueVal = cType === 'FREE' ? 0 : Math.max(0, fullFee - paidVal);
+                                const dueVal = (isBeforeEnrollment || cType === 'FREE') ? 0 : Math.max(0, fullFee - paidVal);
 
                                 return (
                                     <div 
                                         key={mStr}
-                                        className={`p-3 rounded-xl border transition-all flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 ${
+                                        className={`rounded-2xl p-4 border transition-all flex flex-col justify-between shadow-lg relative ${
                                             isPaid 
-                                                ? 'bg-emerald-500/10 border-emerald-500/25' 
+                                                ? 'bg-emerald-950/25 border-emerald-500/30 hover:border-emerald-500/50 shadow-emerald-950/20' 
                                                 : isPartial 
-                                                    ? 'bg-amber-500/10 border-amber-500/25' 
-                                                    : 'bg-white/5 border-white/5'
+                                                    ? 'bg-amber-950/25 border-amber-500/30 hover:border-amber-500/50 shadow-amber-950/20' 
+                                                    : isFree
+                                                        ? 'bg-purple-950/25 border-purple-500/30 hover:border-purple-500/50 shadow-purple-950/20'
+                                                        : isBeforeEnrollment
+                                                            ? 'bg-slate-900/40 border-white/5 opacity-70'
+                                                            : 'bg-slate-800/40 border-white/10 hover:border-white/20'
                                         }`}
                                     >
-                                        <div className="flex items-center gap-2.5">
-                                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center font-black text-xs shrink-0 ${
-                                                isPaid 
-                                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' 
-                                                    : isPartial 
-                                                        ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' 
-                                                        : 'bg-white/10 text-white/50'
-                                            }`}>
-                                                {format(mDate, 'MMM')}
-                                            </div>
-                                            <div>
-                                                <h4 className="font-bold text-xs text-white">{format(mDate, 'MMMM yyyy')}</h4>
-                                                <div className="flex items-center gap-1.5 mt-0.5 text-[11px]">
-                                                    <span className="text-white/60">Fee: Rs. {fullFee.toLocaleString()}</span>
-                                                    {paidVal > 0 && <span className="text-emerald-400 font-bold">• Paid: Rs. {paidVal.toLocaleString()}</span>}
-                                                    {dueVal > 0 && <span className="text-rose-400 font-bold">• Due: Rs. {dueVal.toLocaleString()}</span>}
+                                        {/* Month Card Header */}
+                                        <div>
+                                            <div className="flex items-center justify-between gap-2 mb-2.5">
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs ${
+                                                        isPaid ? 'bg-emerald-500/20 text-emerald-300' : isPartial ? 'bg-amber-500/20 text-amber-300' : 'bg-white/10 text-white/70'
+                                                    }`}>
+                                                        {String(idx + 1).padStart(2, '0')}
+                                                    </span>
+                                                    <div>
+                                                        <h4 className="font-bold text-sm text-white">{format(mDate, 'MMMM')}</h4>
+                                                        <span className="text-[10px] text-white/50">{mStr}</span>
+                                                    </div>
                                                 </div>
+
+                                                {/* Status Badge */}
+                                                {isFree ? (
+                                                    <span className="text-[10px] font-black text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded-full border border-purple-500/30">
+                                                        FREE
+                                                    </span>
+                                                ) : isPaid ? (
+                                                    <span className="text-[10px] font-black text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-full border border-emerald-500/30 flex items-center gap-1">
+                                                        <Check size={11} /> PAID
+                                                    </span>
+                                                ) : isPartial ? (
+                                                    <span className="text-[10px] font-black text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30">
+                                                        PARTIAL
+                                                    </span>
+                                                ) : isBeforeEnrollment ? (
+                                                    <span className="text-[10px] font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded-full border border-slate-700">
+                                                        NOT ENROLLED
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[10px] font-black text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded-full border border-rose-500/30">
+                                                        UNPAID
+                                                    </span>
+                                                )}
                                             </div>
+
+                                            {/* Financial Details Box */}
+                                            {isBeforeEnrollment ? (
+                                                <div className="bg-black/30 rounded-xl p-2.5 space-y-1 mb-3 text-xs">
+                                                    <div className="flex justify-between items-center text-white/50">
+                                                        <span>Status:</span>
+                                                        <span className="italic text-slate-400">Joined in {joinMonthStr}</span>
+                                                    </div>
+                                                    <div className="flex justify-between items-center text-white/50">
+                                                        <span>Standard Fee:</span>
+                                                        <span className="text-white/50">Rs. {fullFee.toLocaleString()}</span>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="bg-black/30 rounded-xl p-2.5 space-y-1 mb-3 text-xs">
+                                                    <div className="flex justify-between items-center text-white/60">
+                                                        <span>Standard Fee:</span>
+                                                        <span className="font-semibold text-white">Rs. {fullFee.toLocaleString()}</span>
+                                                    </div>
+                                                    {paidVal > 0 && (
+                                                        <div className="flex justify-between items-center text-emerald-400 font-bold">
+                                                            <span>Paid:</span>
+                                                            <span>Rs. {paidVal.toLocaleString()}</span>
+                                                        </div>
+                                                    )}
+                                                    {dueVal > 0 && (
+                                                        <div className="flex justify-between items-center text-rose-400 font-bold">
+                                                            <span>Due Balance:</span>
+                                                            <span>Rs. {dueVal.toLocaleString()}</span>
+                                                        </div>
+                                                    )}
+                                                    {pRecord?.paidDate && (
+                                                        <div className="text-[10px] text-white/40 pt-1 border-t border-white/5 flex items-center justify-between">
+                                                            <span>Paid On:</span>
+                                                            <span>{new Date(pRecord.paidDate).toISOString().slice(0, 10)}</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
 
-                                        <div className="flex items-center gap-1.5 self-end sm:self-center">
-                                            {cType === 'FREE' ? (
-                                                <span className="text-[10px] font-black text-purple-300 bg-purple-500/20 px-2 py-0.5 rounded border border-purple-500/30">
-                                                    FREE
-                                                </span>
-                                            ) : isPaid ? (
-                                                <span className="text-[10px] font-black text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded border border-emerald-500/30 flex items-center gap-1">
-                                                    <Check size={11} /> PAID
-                                                </span>
-                                            ) : isPartial ? (
-                                                <span className="text-[10px] font-black text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30">
-                                                    PARTIAL
-                                                </span>
-                                            ) : (
-                                                <span className="text-[10px] font-black text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded border border-rose-500/30">
-                                                    UNPAID
-                                                </span>
-                                            )}
-
-                                            {(isPaid || isPartial) && (
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handlePrintClassReceipt(classHistoryModal.classObj, mStr, pRecord)}
-                                                    className="p-1 rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 text-xs cursor-pointer"
-                                                    title="Print Receipt"
-                                                >
-                                                    <Printer size={12} />
-                                                </button>
-                                            )}
-
-                                            {cType !== 'FREE' && (
+                                        {/* Action Buttons Footer */}
+                                        <div className="pt-2 border-t border-white/10 flex flex-wrap items-center gap-1.5 justify-between">
+                                            {(isPaid || isPartial) ? (
                                                 <>
-                                                    {isPaid && (
-                                                        <>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleReverseFeePayment(classHistoryModal.classObj.id, mStr)}
-                                                                className="px-2 py-0.5 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1"
-                                                                title="Reverse accidental/future month payment & adjust cashflow"
-                                                            >
-                                                                <RotateCcw size={11} /> Reverse
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    if (window.confirm(`Are you sure you want to mark ${format(mDate, 'MMMM yyyy')} as UNPAID for "${classHistoryModal.classObj?.name}"?`)) {
-                                                                        handleClassFeePayment(classHistoryModal.classObj.id, mStr, 'PAID');
-                                                                    }
-                                                                }}
-                                                                className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/60 text-[11px] font-bold cursor-pointer transition-all"
-                                                                title="Mark this month as UNPAID"
-                                                            >
-                                                                Mark Unpaid
-                                                            </button>
-                                                        </>
-                                                    )}
+                                                    <div className="flex items-center gap-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handlePrintClassReceipt(classHistoryModal.classObj, mStr, pRecord)}
+                                                            className="p-1.5 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 text-xs cursor-pointer"
+                                                            title="Print Thermal Receipt"
+                                                        >
+                                                            <Printer size={13} />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setMoveMonthModal({
+                                                                isOpen: true,
+                                                                classObj: classHistoryModal.classObj,
+                                                                currentMonth: mStr,
+                                                                targetMonth: '',
+                                                                pRecord,
+                                                                loading: false
+                                                            })}
+                                                            className="px-2 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1"
+                                                            title="Move payment to another month"
+                                                        >
+                                                            <CalendarIcon size={12} /> Move
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleReverseFeePayment(classHistoryModal.classObj.id, mStr)}
+                                                            className="px-2 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-[11px] font-bold cursor-pointer transition-all flex items-center gap-1"
+                                                            title="Reverse accidental/wrong payment & adjust cashflow"
+                                                        >
+                                                            <RotateCcw size={12} /> Reverse
+                                                        </button>
+                                                    </div>
+                                                    <div className="flex items-center gap-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setClassHistoryModal({ isOpen: false, classObj: null, year: new Date().getFullYear() });
+                                                                setCustomPayModal({
+                                                                    isOpen: true,
+                                                                    classObj: classHistoryModal.classObj,
+                                                                    monthStr: mStr,
+                                                                    amount: dueVal > 0 ? String(dueVal) : String(fullFee),
+                                                                    isIncremental: isPartial,
+                                                                    paymentMethod: 'CASH',
+                                                                    remark: ''
+                                                                });
+                                                            }}
+                                                            className="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold cursor-pointer"
+                                                        >
+                                                            Edit
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            ) : isBeforeEnrollment ? (
+                                                <div className="w-full flex items-center justify-between text-xs text-slate-500 italic py-1">
+                                                    <span className="text-[11px]">No fee due before registration</span>
                                                     <button
                                                         type="button"
                                                         onClick={() => {
@@ -2563,24 +2774,131 @@ export default function AttendancePortal() {
                                                                 isOpen: true,
                                                                 classObj: classHistoryModal.classObj,
                                                                 monthStr: mStr,
-                                                                amount: dueVal > 0 ? String(dueVal) : String(fullFee),
-                                                                isIncremental: isPartial,
+                                                                amount: String(fullFee),
+                                                                isIncremental: false,
+                                                                paymentMethod: 'CASH',
+                                                                remark: 'Previous month payment'
+                                                            });
+                                                        }}
+                                                        className="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-[11px] font-medium transition-all cursor-pointer"
+                                                    >
+                                                        Record Fee (Optional)
+                                                    </button>
+                                                </div>
+                                            ) : cType !== 'FREE' ? (
+                                                <div className="w-full flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            if (classHistoryModal.year > new Date().getFullYear()) {
+                                                                if (!window.confirm(`⚠️ You are marking class fee for FUTURE YEAR ${classHistoryModal.year} (${mStr})!\n\nAre you sure you want to mark this future month as PAID?`)) {
+                                                                    return;
+                                                                }
+                                                            }
+                                                            handleClassFeePayment(classHistoryModal.classObj.id, mStr, 'PAID');
+                                                        }}
+                                                        className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                                                    >
+                                                        <Check size={13} /> Pay Rs. {fullFee.toLocaleString()}
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setClassHistoryModal({ isOpen: false, classObj: null, year: new Date().getFullYear() });
+                                                            setCustomPayModal({
+                                                                isOpen: true,
+                                                                classObj: classHistoryModal.classObj,
+                                                                monthStr: mStr,
+                                                                amount: String(fullFee),
+                                                                isIncremental: false,
                                                                 paymentMethod: 'CASH',
                                                                 remark: ''
                                                             });
                                                         }}
-                                                        className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white text-[11px] font-bold cursor-pointer"
+                                                        className="py-2 px-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-xs font-bold transition-all cursor-pointer"
+                                                        title="Custom or Partial Amount"
                                                     >
-                                                        {isPaid ? 'Edit' : 'Pay'}
+                                                        Custom
                                                     </button>
-                                                </>
-                                            )}
+                                                </div>
+                                            ) : null}
                                         </div>
                                     </div>
                                 );
                             })}
                         </div>
 
+                    </div>
+                </div>
+            )}
+
+            {/* MOVE ACCIDENTAL FEE PAYMENT TO ANOTHER MONTH MODAL */}
+            {moveMonthModal.isOpen && moveMonthModal.classObj && (
+                <div className="fixed inset-0 z-[999999] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
+                    <div className="bg-slate-900 border border-white/20 rounded-3xl p-6 max-w-md w-full text-white shadow-2xl relative space-y-4">
+                        <button
+                            onClick={() => setMoveMonthModal({ isOpen: false, classObj: null, currentMonth: '', targetMonth: '', pRecord: null, loading: false })}
+                            className="absolute top-4 right-4 text-gray-400 hover:text-white p-2 rounded-xl bg-white/5 hover:bg-white/10 transition-all cursor-pointer"
+                        >
+                            <X size={18} />
+                        </button>
+                        <div className="flex items-center gap-3">
+                            <div className="p-3 bg-indigo-500/20 text-indigo-400 rounded-2xl border border-indigo-500/30">
+                                <CalendarIcon size={22} />
+                            </div>
+                            <div>
+                                <h3 className="text-base font-black text-white">Move Payment Month</h3>
+                                <p className="text-xs text-white/50">{moveMonthModal.classObj.name}</p>
+                            </div>
+                        </div>
+
+                        <div className="bg-white/5 rounded-2xl p-4 border border-white/10 space-y-2 text-xs">
+                            <div className="flex justify-between">
+                                <span className="text-white/60">Current Recorded Month:</span>
+                                <span className="font-bold text-rose-400">{moveMonthModal.currentMonth}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-white/60">Paid Amount:</span>
+                                <span className="font-bold text-emerald-400">Rs. {Number(moveMonthModal.pRecord?.amount || 0).toLocaleString()}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="text-white/60">Paid Date:</span>
+                                <span className="font-bold text-white">{moveMonthModal.pRecord?.paidDate ? new Date(moveMonthModal.pRecord.paidDate).toISOString().slice(0, 10) : 'N/A'}</span>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-300">
+                                Select Target Month
+                            </label>
+                            <input 
+                                type="month"
+                                value={moveMonthModal.targetMonth}
+                                onChange={(e) => setMoveMonthModal(prev => ({ ...prev, targetMonth: e.target.value }))}
+                                className="w-full px-3.5 py-2.5 bg-slate-800 border border-slate-700 rounded-xl text-sm font-bold text-white outline-none focus:border-indigo-500 cursor-pointer"
+                            />
+                            <p className="text-[11px] text-slate-400">
+                                This will transfer the payment record and update the Cashflow entry to the selected month.
+                            </p>
+                        </div>
+
+                        <div className="flex items-center gap-2 pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setMoveMonthModal({ isOpen: false, classObj: null, currentMonth: '', targetMonth: '', pRecord: null, loading: false })}
+                                className="flex-1 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white text-xs font-bold transition-all cursor-pointer"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!moveMonthModal.targetMonth || moveMonthModal.loading}
+                                onClick={() => handleMoveFeePayment(moveMonthModal.classObj.id, moveMonthModal.currentMonth, moveMonthModal.targetMonth)}
+                                className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-lg flex items-center justify-center gap-1.5 cursor-pointer"
+                            >
+                                {moveMonthModal.loading ? 'Moving...' : 'Confirm Move'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

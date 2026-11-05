@@ -76,6 +76,7 @@ export default function ContentHub() {
   const [hubActiveBatchTab, setHubActiveBatchTab] = useState(null);
   const [isSubmittingFolder, setIsSubmittingFolder] = useState(false);
   const [isSubmittingContent, setIsSubmittingContent] = useState(false);
+  const [isSubmittingCourse, setIsSubmittingCourse] = useState(false);
   const [openFolders, setOpenFolders] = useState({});
 
   const [postBizId, setPostBizId] = useState('all');
@@ -213,7 +214,7 @@ export default function ContentHub() {
       batch?.groups?.forEach(g => {
           g.courses?.forEach(c => {
               const cType = parseInt(c.courseType || g.classType || 1);
-              const existing = subs.find(s => s.name === c.name && parseInt(s.courseType || 1) === cType);
+              const existing = subs.find(s => (s.name || '').trim() === (c.name || '').trim() && parseInt(s.courseType || 1) === cType);
               
               let gpData = {};
               try {
@@ -237,8 +238,14 @@ export default function ContentHub() {
               if(!existing) { 
                   subs.push({...c, courseType: cType, groupPrices: [priceObj], allCourseIds: [c.id] }); 
               } else { 
-                  existing.groupPrices.push(priceObj); 
-                  existing.allCourseIds.push(c.id);
+                  // 🔥 DEDUPLICATE: Prevent duplicate group pricing tags for the same group
+                  const alreadyHasGroup = existing.groupPrices.some(p => parseInt(p.groupId) === parseInt(g.id));
+                  if (!alreadyHasGroup) {
+                      existing.groupPrices.push(priceObj); 
+                  }
+                  if (!existing.allCourseIds.includes(c.id)) {
+                      existing.allCourseIds.push(c.id);
+                  }
                   if (c.price > existing.price) {
                       existing.id = c.id;
                       existing.price = c.price;
@@ -396,7 +403,7 @@ export default function ContentHub() {
           const ytRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=|live\/|shorts\/)|youtu\.be\/)([^"&?\/\s]{11})/i;
           const match = url.match(ytRegex);
           if (match && match[1] && match[1].length === 11) {
-              return `https://www.youtube-nocookie.com/embed/${match[1]}?rel=0&modestbranding=1`;
+              return `https://www.youtube.com/embed/${match[1]}?rel=0&modestbranding=1`;
           }
           return url; 
       } catch(e) {
@@ -404,8 +411,8 @@ export default function ContentHub() {
       }
   };
 
-  const isMatchedType = (item) => {
-      const typeStr = contentType || contentTab;
+  const isMatchedType = (item, explicitType) => {
+      const typeStr = (typeof explicitType === 'string' && explicitType) ? explicitType : contentTab;
       const typeInt = getTypeInt(typeStr);
       
       // If filtering for Test Ranking tab
@@ -421,6 +428,9 @@ export default function ContentHub() {
 
       // If item is a folder (ContentGroup), it has a numeric 'type'
       if (item.type !== undefined) {
+          if (typeInt === 3) {
+              return parseInt(item.type) === 3 || parseInt(item.type) === 2;
+          }
           return parseInt(item.type) === typeInt;
       }
       
@@ -661,8 +671,10 @@ export default function ContentHub() {
 
   const handleCourseSubmit = async (e) => {
       e.preventDefault();
+      if (isSubmittingCourse) return;
       const keys = Object.keys(selectedGroupPrices);
       if (keys.length === 0) return toast.error("Please tick at least one group and enter a price!");
+      setIsSubmittingCourse(true);
       
       const formData = new FormData(e.target);
       formData.set("startMonth", formData.get("startMonth") || "");
@@ -710,6 +722,9 @@ export default function ContentHub() {
           toast.success(editMode ? "Subject Updated!" : `${resolvedCourseType === 2 ? 'Paper' : 'Theory'} Subject Created!`);
           setShowCourseModal(false); refreshBatches(activeBusiness.id);
       } catch (error) { toast.error("Action Failed"); }
+      finally {
+          setIsSubmittingCourse(false);
+      }
   };
 
   const [parentFolderForSub, setParentFolderForSub] = useState(null);
@@ -821,12 +836,15 @@ export default function ContentHub() {
               formData.set('selectedBatches', JSON.stringify(selectedBatchesForContent));
               if (editData?.id) formData.set('content_id', editData.id);
               const formFolder = formData.get('contentGroupId');
-              const topF = (formFolder !== null && formFolder !== undefined) ? formFolder : (editData?.contentGroupId ? String(editData.contentGroupId) : '');
-              if (topF && topF !== 'null' && topF !== 'undefined' && topF !== '' && topF !== '0') {
-                  formData.set('contentGroupId', topF);
-              } else {
-                  formData.set('contentGroupId', '');
+              let targetFolderId = '';
+              if (formFolder === 'uncategorized') {
+                  targetFolderId = 'uncategorized';
+              } else if (formFolder && formFolder !== 'null' && formFolder !== 'undefined' && formFolder !== '0') {
+                  targetFolderId = formFolder;
+              } else if (editData?.contentGroupId) {
+                  targetFolderId = String(editData.contentGroupId);
               }
+              formData.set('contentGroupId', targetFolderId);
               await api.put('/admin/manager/contents/update', formData, { headers: { 'Content-Type': 'multipart/form-data' }});
           } else {
               // Group selections by folderId for multi-batch, multi-folder creation
@@ -905,7 +923,7 @@ export default function ContentHub() {
     selectedGroupPrices, discountRules, contentType, prefilledFolder, selectedBatchesForContent, massAssignSubjects, openFolders,
     postBizId, postBatches, showInstallmentModal, existingInstallments, editInstallmentId, installmentSubjectCount, installmentSteps, groupedSubjects, loading, showLecturerModal, masterTutes,
     selectedClassType, setSelectedClassType, theoryCount: theorySubjects.length, paperCount: paperSubjects.length,
-    isSubmittingFolder, isSubmittingContent,
+    isSubmittingFolder, isSubmittingContent, isSubmittingCourse,
     hubBatchConfigs, hubActiveBatchTab, parentFolderForSub, selectedFolderParentId
   };
 
@@ -970,7 +988,6 @@ export default function ContentHub() {
                           <button onClick={openInstallmentModal} className="flex-1 sm:flex-none bg-orange-500/90 hover:bg-orange-500 text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(249,115,22,0.4)] border border-transparent outline-none"><CreditCard size={16}/> <span className="hidden xs:inline">Setup</span> Installments</button>
                           {batchTab === 'groups' && <button onClick={() => { setEditMode(false); setEditData(null); setShowGroupModal(true); setDiscountRules([{courseCount:'',packagePrice:'',pricePerCourse:'',fixedDiscount:''}]); }} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none border border-transparent"><Plus size={16}/> New {selectedClassType === 'paper' ? 'Paper' : 'Theory'} Group</button>}
                           {batchTab === 'subjects' && <button onClick={() => { setEditMode(false); setEditData(null); setShowCourseModal(true); setSelectedGroupPrices({}); }} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none border border-transparent"><Plus size={16}/> New {selectedClassType === 'paper' ? 'Paper' : 'Theory'} Subject</button>}
-                          {batchTab === 'lecturers' && <button onClick={() => { setEditMode(false); setEditData(null); setShowLecturerModal(true); }} className="flex-1 sm:flex-none bg-brand-accent/90 hover:bg-brand-accent text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(225,29,72,0.4)] outline-none border border-transparent"><Plus size={16}/> New Lecturer</button>}
                       </>
                   )}
                   {viewLevel === 'contents' && canManageContent && (
@@ -981,7 +998,7 @@ export default function ContentHub() {
                               setSelectedBatchesForContent([activeBatch.id]); 
                               setMassAssignSubjects(activeSubject?.allCourseIds && activeSubject.allCourseIds.length > 0 ? activeSubject.allCourseIds : (activeSubject?.id ? [activeSubject.id] : []));
                               setHubBatchConfigs({});
-                              setHubActiveBatchTab(null);
+                              setHubActiveBatchTab(activeBatch?.id || null);
                           }} className="flex-1 sm:flex-none bg-emerald-600/90 hover:bg-emerald-600 text-white px-3.5 sm:px-5 py-2.5 rounded-xl font-bold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-[0_4px_15px_rgba(5,150,105,0.4)] border border-transparent outline-none"><Plus size={16}/> Add Content</button>
                       </>
                   )}

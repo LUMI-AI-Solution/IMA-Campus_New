@@ -29,28 +29,17 @@ export default function MissedCallsNavButton() {
             const token = localStorage.getItem('token');
             if (!token) return;
 
-            // Fetch staff pending tasks count
-            const staffRes = await axios.get('/missed-call-tasks/my-tasks', {
-                params: { status: 'PENDING' },
+            const res = await axios.get('/missed-call-tasks/nav-counts', {
                 headers: { Authorization: `Bearer ${token}` }
             });
-            if (staffRes.data?.summary) {
-                setStaffPendingCount(staffRes.data.summary.pending || 0);
-            }
-
-            // If manager, also get today's unassigned/total missed calls count
-            if (isManager) {
-                const managerRes = await axios.get('/missed-call-tasks/daily', {
-                    headers: { Authorization: `Bearer ${token}` }
-                });
-                if (managerRes.data?.summary) {
-                    setDailyMissedCount(managerRes.data.summary.pendingDistribution || 0);
-                }
+            if (res.data) {
+                setStaffPendingCount(res.data.staffPending || 0);
+                setDailyMissedCount(res.data.dailyMissed || 0);
             }
         } catch (e) {
             // silent fail
         }
-    }, [isManager]);
+    }, []);
 
     useEffect(() => {
         fetchCounts();

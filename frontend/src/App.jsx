@@ -77,10 +77,14 @@ import CallCenterAgentDashboard from './pages/call_center/CallCenterAgentDashboa
 import PhysicalManagerDashboard from './pages/physical/PhysicalManagerDashboard';
 import StudentRegistration from './pages/PhysicalCRM/StudentRegistration';
 import ClassTeacherManagement from './pages/PhysicalCRM/ClassTeacherManagement';
+import LecturerReports from './pages/PhysicalCRM/LecturerReports';
 import EntranceGateScanner from './pages/PhysicalCRM/EntranceGateScanner';
 
 // Finance Dashboard Import
 import FinanceOverview from './pages/finance/FinanceOverview';
+import TeacherSalaryPortal from './pages/finance/TeacherSalaryPortal';
+import TeacherSalaryHistory from './pages/finance/TeacherSalaryHistory';
+import PettyCashPortal from './pages/finance/PettyCashPortal';
 
 // Student
 import StudentDashboard from './pages/student/StudentDashboard';
@@ -90,6 +94,7 @@ import PaycorpReturn from './pages/student/components/PaycorpReturn';
 
 // Test
 import SecureYoutubePlayerTest from './pages/test/SecureYoutubePlayerTest';
+import VideoTestPage from './VideoTestPage';
 
 // Social Media Department
 import SocialMediaManagerDashboard from './pages/social_media/SocialMediaManagerDashboard';
@@ -243,7 +248,8 @@ export default function App() {
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/register" element={<Register />} />
-            <Route path="/test-youtube-player" element={<SecureYoutubePlayerTest />} />
+            <Route path="/test-youtube-player" element={<VideoTestPage />} />
+            <Route path="/test-video" element={<VideoTestPage />} />
             <Route path="/headless-ivr/:callId" element={<HeadlessIvrBot />} />
             <Route path="/physical/entrance-gate" element={<EntranceGateScanner isStandalone={true} />} />
 
@@ -283,6 +289,17 @@ export default function App() {
               <Route path="/delivery/dashboard" element={<DeliveryDashboard loggedInUser={loggedInUser} />} />
 
               <Route path="/admin/finance-matrix" element={<FinanceMatrix loggedInUser={loggedInUser} />} />
+              <Route path="/admin/teacher-salary" element={<TeacherSalaryPortal loggedInUser={loggedInUser} />} />
+              <Route path="/finance/teacher-salary" element={<TeacherSalaryPortal loggedInUser={loggedInUser} />} />
+              <Route path="/admin/teacher-salary-history" element={<TeacherSalaryHistory loggedInUser={loggedInUser} />} />
+              <Route path="/finance/teacher-salary-history" element={<TeacherSalaryHistory loggedInUser={loggedInUser} />} />
+              
+              {/* Petty Cash Management System */}
+              <Route path="/petty-cash" element={<PettyCashPortal loggedInUser={loggedInUser} />} />
+              <Route path="/admin/petty-cash" element={<PettyCashPortal loggedInUser={loggedInUser} />} />
+              <Route path="/finance/petty-cash" element={<PettyCashPortal loggedInUser={loggedInUser} />} />
+              <Route path="/manager/petty-cash" element={<PettyCashPortal loggedInUser={loggedInUser} />} />
+
               <Route path="/admin/paid-campaign" element={<PaidCampaignDropMatrix loggedInUser={loggedInUser} />} />
               <Route path="/admin/lead-data-center" element={<LeadDataCenter loggedInUser={loggedInUser} />} />
               <Route path="/admin/call-campaign-data-center" element={<CallCampaignDataCenter />} />

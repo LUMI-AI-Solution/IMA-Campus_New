@@ -7,11 +7,12 @@ import {
     Camera, Sparkles, Plus, Check, Trophy, Award, TrendingUp,
     BarChart3, ChevronRight, MessageSquare, CheckCircle2, FileText,
     ArrowRight, Layers, Eye, RefreshCw, GraduationCap, Target, HelpCircle,
-    ChevronDown, ChevronUp
+    ChevronDown, ChevronUp, Copy, ExternalLink
 } from 'lucide-react';
 import UpgradeOfferWidget from './UpgradeOfferWidget';
 import toast from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
+import { resolveAvatarUrl } from '../../../utils/avatarUtils';
 
 export default function StudentOverview({ setActiveTab }) {
     const navigate = useNavigate();
@@ -53,9 +54,16 @@ export default function StudentOverview({ setActiveTab }) {
     const user = currentUser;
     const backendBaseUrl = axios.defaults.baseURL ? axios.defaults.baseURL.replace('/api', '') : 'https://imacampus.online';
 
-    const profilePic = currentUser.image && currentUser.image !== 'default.png' && currentUser.image !== 'null'
-        ? `${backendBaseUrl}/storage/images/${currentUser.image}`
-        : null;
+    const avatarUrl = resolveAvatarUrl(
+        currentUser.image,
+        currentUser.phone || currentUser.whatsapp,
+        axios.defaults.baseURL
+    );
+    const hasCustomPhoto = currentUser.image && 
+                           currentUser.image !== 'default.png' && 
+                           currentUser.image !== 'null' && 
+                           !String(currentUser.image).startsWith('chat_dps/');
+    const profilePic = avatarUrl;
 
     useEffect(() => {
         const handleUserUpdate = () => {
@@ -321,13 +329,37 @@ export default function StudentOverview({ setActiveTab }) {
         return { h, m };
     };
 
-    // 🔥 Live Class Logic 🔥
+    // 🔥 Live Class Logic (Timezone-Aware for Sri Lanka Asia/Colombo) 🔥
     const getLiveClassInfo = (c) => {
         if (!c || !c.date) return null;
 
-        // Parse calendar day cleanly from ISO or date string
-        const datePart = String(c.date).split('T')[0];
-        const [y, mo, d] = datePart.split('-').map(Number);
+        // Parse calendar day with consideration for Sri Lankan time (Asia/Colombo)
+        let y, mo, d;
+        try {
+            const dObj = new Date(c.date);
+            if (!isNaN(dObj.getTime())) {
+                const slFormatter = new Intl.DateTimeFormat('en-CA', {
+                    timeZone: 'Asia/Colombo',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit'
+                });
+                const parts = slFormatter.format(dObj).split('-').map(Number);
+                y = parts[0];
+                mo = parts[1];
+                d = parts[2];
+            }
+        } catch (e) {
+            console.error("Date format error:", e);
+        }
+
+        if (!y || !mo || !d) {
+            const datePart = String(c.date).split('T')[0];
+            const parts = datePart.split('-').map(Number);
+            y = parts[0];
+            mo = parts[1];
+            d = parts[2];
+        }
         if (!y || !mo || !d) return null;
 
         const { h: startH, m: startM } = parseTimeComponents(c.startTime);
@@ -358,15 +390,16 @@ export default function StudentOverview({ setActiveTab }) {
         const liveClass = getLiveClassInfo(c);
         if (!liveClass) return null;
 
-        // Allow class banner to remain visible during class AND for up to 3 hours after scheduled end time
-        const expiryTime = liveClass.endObj.getTime() + (3 * 60 * 60 * 1000);
-        if (expiryTime <= currentTime.getTime()) return null; // Hide only if expired more than 3 hours ago
+        // Allow class banner to remain visible during class AND for up to 6 hours after scheduled end time
+        const expiryTime = liveClass.endObj.getTime() + (6 * 60 * 60 * 1000);
+        if (expiryTime <= currentTime.getTime()) return null; // Hide only if expired more than 6 hours ago
 
         const diff = liveClass.startObj - currentTime;
         const isLiveNow = diff <= 0 && currentTime <= liveClass.endObj;
         const isOvertime = diff <= 0 && currentTime > liveClass.endObj && currentTime.getTime() <= expiryTime;
         const isJoinable = true;
         const isUrgent = diff > 0 && diff < 15 * 60 * 1000; // Pulse animation 15 mins before
+        const hasLink = Boolean(liveClass.safeLink || liveClass.link);
 
         let timeUI = null;
         if (isLiveNow) {
@@ -451,20 +484,37 @@ export default function StudentOverview({ setActiveTab }) {
                         {timeUI}
                     </div>
 
-                    <a
-                        href={liveClass.safeLink || liveClass.link || '#'}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`w-full h-12 md:h-14 rounded-xl font-black flex items-center justify-center gap-2 uppercase tracking-widest transition-all duration-300 text-xs md:text-sm ${(liveClass.safeLink || liveClass.link) ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(220,38,38,0.3)] animate-pulse hover:animate-none hover:scale-105 border border-red-400' : 'bg-black/20 backdrop-blur-xl text-white/70 font-medium cursor-not-allowed border border-white/20'} `}
-                        onClick={(e) => {
-                            if (!liveClass.safeLink && !liveClass.link) {
-                                e.preventDefault();
-                                toast.error("Live link will be available soon!");
-                            }
-                        }}
-                    >
-                        {(liveClass.safeLink || liveClass.link) ? <><Play size={16} className="fill-white" /> Join Now</> : <><Lock size={14} /> Link Pending</>}
-                    </a>
+                    <div className="w-full flex flex-col items-center gap-1.5">
+                        <a
+                            href={liveClass.safeLink || liveClass.link || '#'}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className={`w-full h-12 md:h-14 rounded-xl font-black flex items-center justify-center gap-2 uppercase tracking-widest transition-all duration-300 text-xs md:text-sm ${hasLink ? 'bg-red-600 hover:bg-red-500 text-white shadow-[0_0_20px_rgba(220,38,38,0.3)] animate-pulse hover:animate-none hover:scale-105 border border-red-400 cursor-pointer' : 'bg-black/20 backdrop-blur-xl text-white/70 font-medium cursor-not-allowed border border-white/20'} `}
+                            onClick={(e) => {
+                                if (!hasLink) {
+                                    e.preventDefault();
+                                    toast.error("Live link will be available soon!");
+                                }
+                            }}
+                        >
+                            {hasLink ? <><Play size={16} className="fill-white" /> Join Now</> : <><Lock size={14} /> Link Pending</>}
+                        </a>
+
+                        {hasLink && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    navigator.clipboard.writeText(liveClass.safeLink || liveClass.link);
+                                    toast.success("Zoom live link copied to clipboard! 📋");
+                                }}
+                                className="text-[11px] text-white/60 hover:text-white flex items-center justify-center gap-1.5 py-1 px-3 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+                                title="Copy Zoom Link"
+                            >
+                                <Copy size={12} />
+                                <span>Copy Link</span>
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
         );
@@ -564,8 +614,8 @@ export default function StudentOverview({ setActiveTab }) {
                             title={profilePic ? "Click to change your profile picture" : "Click to add your profile picture"}
                             onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && fileInputRef.current?.click()}
                         >
-                            {/* Animated Blinking & Radar Waves when no profile picture */}
-                            {!profilePic && (
+                            {/* Animated Blinking & Radar Waves when no custom profile picture */}
+                            {!hasCustomPhoto && (
                                 <>
                                     <span className="absolute -inset-3 rounded-full bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 opacity-70 blur-md animate-ping pointer-events-none"></span>
                                     <span className="absolute -inset-2 rounded-full bg-gradient-to-tr from-rose-500 via-purple-600 to-amber-400 opacity-90 blur-sm animate-pulse pointer-events-none"></span>
@@ -590,6 +640,10 @@ export default function StudentOverview({ setActiveTab }) {
                                                 src={profilePic}
                                                 alt="Profile"
                                                 className="w-full h-full rounded-full object-cover group-hover:scale-110 transition-transform duration-300"
+                                                onError={(e) => {
+                                                    e.target.onerror = null;
+                                                    e.target.src = resolveAvatarUrl(null, currentUser.phone || currentUser.whatsapp, axios.defaults.baseURL);
+                                                }}
                                             />
                                             {/* Hover Camera Overlay */}
                                             <div className="absolute inset-0 bg-black/55 opacity-0 group-hover:opacity-100 flex items-center justify-center rounded-full transition-opacity duration-200">
@@ -605,7 +659,7 @@ export default function StudentOverview({ setActiveTab }) {
                             </div>
 
                             {/* Social Media Corner Badge */}
-                            {isUploading ? null : !profilePic ? (
+                            {isUploading ? null : !hasCustomPhoto ? (
                                 <div className="absolute -bottom-1 -right-1 w-7 h-7 md:w-8 md:h-8 rounded-full bg-gradient-to-tr from-rose-500 to-amber-500 text-white flex items-center justify-center border-2 border-[#0a0f1d] shadow-lg shadow-rose-500/50 animate-bounce group-hover:scale-125 transition-transform">
                                     <Plus size={16} className="stroke-[3]" />
                                 </div>
@@ -617,7 +671,7 @@ export default function StudentOverview({ setActiveTab }) {
                         </div>
 
                         {/* Button directly under Avatar */}
-                        {!profilePic ? (
+                        {!hasCustomPhoto ? (
                             <button
                                 type="button"
                                 onClick={() => fileInputRef.current?.click()}
@@ -1015,17 +1069,25 @@ export default function StudentOverview({ setActiveTab }) {
 
                                             {/* Score & Grade Display */}
                                             <div className="flex items-center gap-3 shrink-0">
-                                                <div className="text-right">
-                                                    <div className="text-white font-black text-base md:text-lg">
-                                                        {t.score} <span className="text-white/50 text-xs font-normal">/ {t.totalMarks}</span>
-                                                    </div>
-                                                    <div className="text-white/60 text-[11px] font-semibold">
-                                                        {t.percentage}%
-                                                    </div>
-                                                </div>
-                                                <span className={`px-3 py-1 rounded-xl text-sm font-black border ${getGradeBadgeStyle(t.grade)} shadow-sm`}>
-                                                    {t.grade || 'Pass'}
-                                                </span>
+                                                {t.status === 'PENDING_EVALUATION' ? (
+                                                    <span className="px-3 py-1 rounded-xl text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                                                        ⏳ Evaluation Pending
+                                                    </span>
+                                                ) : (
+                                                    <>
+                                                        <div className="text-right">
+                                                            <div className="text-white font-black text-base md:text-lg">
+                                                                {t.score} <span className="text-white/50 text-xs font-normal">/ {t.totalMarks}</span>
+                                                            </div>
+                                                            <div className="text-white/60 text-[11px] font-semibold">
+                                                                {t.percentage}%
+                                                            </div>
+                                                        </div>
+                                                        <span className={`px-3 py-1 rounded-xl text-sm font-black border ${getGradeBadgeStyle(t.grade)} shadow-sm`}>
+                                                            {t.grade || 'Pass'}
+                                                        </span>
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
 

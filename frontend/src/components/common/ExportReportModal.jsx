@@ -45,6 +45,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
     const [localFilters, setLocalFilters] = useState({
         businessId: initialFilters.businessId,
         batchId: initialFilters.batchId,
+        classType: initialFilters.classType || 'All',
         type: 'All', 
         method: 'All', 
         acquisitionSource: 'All',
@@ -78,6 +79,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
         let validPays = payments;
         if (localFilters.businessId !== 'All') validPays = validPays.filter(p => (p.businessId || p.business_id)?.toString() === localFilters.businessId.toString());
         if (localFilters.batchId !== 'All') validPays = validPays.filter(p => (p.batchId || p.batch_id)?.toString() === localFilters.batchId.toString());
+        if (localFilters.classType && localFilters.classType !== 'All') validPays = validPays.filter(p => p.classType?.toString() === localFilters.classType.toString());
         if (localFilters.type !== 'All') validPays = validPays.filter(p => p.type === localFilters.type);
 
         const extracted = new Map();
@@ -103,7 +105,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
             }
         });
         return Array.from(extracted.values());
-    }, [payments, localFilters.businessId, localFilters.batchId, localFilters.type]);
+    }, [payments, localFilters.businessId, localFilters.batchId, localFilters.classType, localFilters.type]);
 
     const handleLocalChange = (field, value) => {
         setLocalFilters(prev => {
@@ -114,7 +116,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
             if (field === 'batchId') {
                 updated.subjectNames = [];
             }
-            if (field === 'type') {
+            if (field === 'type' || field === 'classType') {
                 updated.subjectNames = [];
             }
             return updated;
@@ -129,6 +131,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
 
             const matchesBiz = localFilters.businessId === 'All' || (p.businessId || p.business_id)?.toString() === localFilters.businessId.toString();
             const matchesBatch = localFilters.batchId === 'All' || (p.batchId || p.batch_id)?.toString() === localFilters.batchId.toString();
+            const matchesClassType = !localFilters.classType || localFilters.classType === 'All' || p.classType?.toString() === localFilters.classType.toString();
             const matchesType = localFilters.type === 'All' || p.type === localFilters.type;
             const matchesMethod = localFilters.method === 'All' || (localFilters.method === 'Online' ? (p.method === 'PayHere' || p.method === 'Online') : p.method === 'Slip');
 
@@ -157,7 +160,7 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
 
             const matchesSource = !localFilters.acquisitionSource || localFilters.acquisitionSource === 'All' || p.inquirySource === localFilters.acquisitionSource;
 
-            return matchesBiz && matchesBatch && matchesType && matchesMethod && matchesSubject && matchesDate && matchesSource;
+            return matchesBiz && matchesBatch && matchesClassType && matchesType && matchesMethod && matchesSubject && matchesDate && matchesSource;
         });
     }, [payments, localFilters, localSubjects]);
 
@@ -803,7 +806,10 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
         XLSX.utils.book_append_sheet(wb, wsUpgrade, "Upgrade Payments");
 
         // Save file
-        XLSX.writeFile(wb, `IMA_Financial_Report_${new Date().toISOString().slice(0,10)}.xlsx`);
+        let fileSuffix = '';
+        if (localFilters.classType === '1') fileSuffix = '_Theory';
+        else if (localFilters.classType === '2') fileSuffix = '_Paper';
+        XLSX.writeFile(wb, `IMA_Financial_Report${fileSuffix}_${new Date().toISOString().slice(0,10)}.xlsx`);
         toast.success("Excel Report Exported Successfully!");
     };
 
@@ -864,6 +870,45 @@ export default function ExportReportModal({ onClose, payments, filters: initialF
                                     <option value="All">All Batches</option>
                                     {fetchedBatches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
                                 </select>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label className="text-[10px] font-bold text-slate-400 uppercase ml-1">Class Type Stream</label>
+                                <div className="grid grid-cols-3 gap-1 bg-black/40 p-1 rounded-xl border border-white/10">
+                                    <button
+                                        type="button"
+                                        onClick={() => handleLocalChange('classType', 'All')}
+                                        className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                            (!localFilters.classType || localFilters.classType === 'All')
+                                                ? 'bg-emerald-600 text-white shadow-sm'
+                                                : 'text-slate-400 hover:text-white'
+                                        }`}
+                                    >
+                                        All
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleLocalChange('classType', '1')}
+                                        className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                            localFilters.classType === '1'
+                                                ? 'bg-sky-600 text-white shadow-sm'
+                                                : 'text-sky-400 hover:text-white'
+                                        }`}
+                                    >
+                                        📘 Theory
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => handleLocalChange('classType', '2')}
+                                        className={`py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                                            localFilters.classType === '2'
+                                                ? 'bg-amber-600 text-white shadow-sm'
+                                                : 'text-amber-400 hover:text-white'
+                                        }`}
+                                    >
+                                        📝 Paper
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-2">

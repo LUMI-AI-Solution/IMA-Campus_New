@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import notifee, { AndroidImportance } from '@notifee/react-native';
 import COLORS from '../constants/colors';
@@ -12,6 +13,7 @@ import api from '../services/api';
 import moment from 'moment';
 
 const PaymentsScreen = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('upcoming');
@@ -107,6 +109,32 @@ const PaymentsScreen = ({ navigation }) => {
 
     const isOverdue = statusText === 'Overdue';
 
+    const extractAmountFromRemark = (remark) => {
+      if (!remark) return 0;
+      const match = String(remark).match(/(?:Extracted Total|Target Amount|Wallet Excess \(-?LKR|Wallet Due \(\+?LKR|Wallet adjusted by LKR [+-]?|LKR|Rs\.?)\s*:?\s*(?:LKR|Rs\.?)?\s*([\d,]+(?:\.\d{1,2})?)/i);
+      if (match && match[1]) {
+        return parseFloat(match[1].replace(/,/g, ''));
+      }
+      return 0;
+    };
+
+    let displayAmount = parseFloat(
+      item.amount ||
+      item.actualAmountPaid ||
+      item.paidAmount ||
+      item.amountPaid ||
+      item.customAmount ||
+      item.totalAmount ||
+      0
+    );
+
+    if (displayAmount === 0 && item.remark) {
+      displayAmount = extractAmountFromRemark(item.remark);
+    }
+
+    const isWalletSettled = String(item.remark || '').includes('Wallet');
+    const isFreeCard = String(item.remark || '').includes('Free Card');
+
     return (
       <View style={[styles.card, isOverdue && styles.cardOverdue]}>
         {/* 🔥 Web එකේ වගේ Overdue නම් රතු පාට ඉරක් අයිනෙන් වැටෙන්න */}
@@ -143,8 +171,26 @@ const PaymentsScreen = ({ navigation }) => {
 
         <View style={styles.cardFooter}>
           <View>
-            <Text style={styles.label}>AMOUNT PAYABLE</Text>
-            <Text style={styles.amountValue}>LKR {parseFloat(item.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</Text>
+            <Text style={styles.label}>{isHistory ? 'AMOUNT PAID' : 'AMOUNT PAYABLE'}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Text style={styles.amountValue}>
+                {displayAmount > 0 
+                  ? `LKR ${displayAmount.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                  : isFreeCard 
+                    ? 'FREE CARD'
+                    : 'LKR 0.00'}
+              </Text>
+              {isWalletSettled && (
+                <View style={{ backgroundColor: '#D1FAE5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                  <Text style={{ fontSize: 10, color: '#065F46', fontWeight: '800' }}>Wallet</Text>
+                </View>
+              )}
+              {isFreeCard && displayAmount > 0 && (
+                <View style={{ backgroundColor: '#DBEAFE', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 }}>
+                  <Text style={{ fontSize: 10, color: '#1E40AF', fontWeight: '800' }}>Free Grant</Text>
+                </View>
+              )}
+            </View>
           </View>
 
           {!isHistory && (
@@ -196,7 +242,7 @@ const PaymentsScreen = ({ navigation }) => {
       <StatusBar backgroundColor={COLORS.primary} barStyle="light-content" translucent={true} />
 
       {/* 🔥 අලුත් ලස්සන Header එක */}
-      <LinearGradient colors={['#9A0007', '#E53935']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.header, { borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 8 }]}>
+      <LinearGradient colors={['#9A0007', '#E53935']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.header, { paddingTop: Math.max(insets.top, 20) + 8, borderBottomLeftRadius: 35, borderBottomRightRadius: 35, elevation: 8 }]}>
         <View style={styles.topBar}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <Icon name="arrow-left" size={24} color="white" />
@@ -264,14 +310,10 @@ const PaymentsScreen = ({ navigation }) => {
   );
 };
 
-// 🔥 Status Bar Height Calculation
-const STATUSBAR_HEIGHT = Platform.OS === 'ios' ? 50 : StatusBar.currentHeight || 24;
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F4F6F9' },
 
   header: {
-    paddingTop: STATUSBAR_HEIGHT + 10,
     paddingBottom: 40, // Tabs වලට ඉඩ දෙන්න
     backgroundColor: COLORS.primary,
     borderBottomLeftRadius: 35,

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { MessageCircle, Bell, Check, Phone, ArrowRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { FaPhoneAlt, FaWhatsapp } from 'react-icons/fa';
@@ -23,16 +23,26 @@ export default function LeadCallCard({ lead, roundData, activeRound, index, onSa
     
   const [callOutcome, setCallOutcome] = useState(initialOutcome);
 
+  useEffect(() => {
+    setCallMethod(data.callMethod || 'Direct Call');
+    setAttempts(data.callAttempt || 1);
+    setRemarks(data.feedback || '');
+    const outcome = ['ANSWERED', 'REJECT', 'NO_ANSWER'].includes(data.callStatus?.toUpperCase()) 
+      ? data.callStatus.toUpperCase() 
+      : 'PENDING';
+    setCallOutcome(outcome);
+  }, [lead.id, activeRound, data.callStatus, data.feedback, data.callMethod, data.callAttempt]);
+
   const handleSave = () => {
-    if (callOutcome === 'PENDING') {
-      toast.error('Please select a Call Outcome (e.g. No Answer, Answered) before saving.');
+    if (callOutcome === 'PENDING' && !remarks.trim()) {
+      toast.error('Please select a Call Outcome or enter Remarks before saving.');
       return;
     }
     onSave(lead.id, activeRound, {
       callMethod,
       attempts,
       feedback: remarks,
-      callOutcome
+      callOutcome: callOutcome !== 'PENDING' ? callOutcome : (data.callStatus || 'PENDING')
     });
   };
 

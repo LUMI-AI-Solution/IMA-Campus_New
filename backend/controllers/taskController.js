@@ -204,7 +204,7 @@ exports.completeTask = async (req, res) => {
         // 🔥 TECHNICAL DEPARTMENT SYNC: Update Timetable Delivery Status
         if (updatedTask.timetableId) {
             if (updatedTask.taskType === 'LIVE_LINK' && updatedTask.content) {
-                const linkToSync = updatedTask.content.link || updatedTask.content.meetingId || "Delivered (Check Content)";
+                const linkToSync = updatedTask.content.link || updatedTask.content.youtubeLink || updatedTask.content.meetingId || "Delivered (Check Content)";
                 await prisma.timetable.update({
                     where: { id: updatedTask.timetableId },
                     data: { 

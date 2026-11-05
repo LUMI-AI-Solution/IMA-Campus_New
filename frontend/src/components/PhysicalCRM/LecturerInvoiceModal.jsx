@@ -305,7 +305,14 @@ export default function LecturerInvoiceModal({
             </div>
             <div>
               <h2 className="text-base font-bold text-white tracking-tight">Month-End Lecturer Payout Statement</h2>
-              <p className="text-xs text-slate-400">{teacher.name} • {formatMonthYear(selectedMonth)}</p>
+              <p className="text-xs text-slate-400">
+                {teacher.name} • {formatMonthYear(selectedMonth)}
+                {reportData.dateRange?.isCustom && (
+                  <span className="ml-2 px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30 font-medium">
+                    {reportData.dateRange.startDate} to {reportData.dateRange.endDate}
+                  </span>
+                )}
+              </p>
             </div>
           </div>
 
@@ -527,7 +534,14 @@ export default function LecturerInvoiceModal({
                 </span>
                 <p className="text-xs font-bold text-slate-800">{invoiceNumber}</p>
                 <p className="text-xs text-slate-500">Date: <span className="font-semibold text-slate-700">{invoiceDate}</span></p>
-                <p className="text-xs text-slate-500">Cycle: <span className="font-bold text-blue-600">{formatMonthYear(selectedMonth)}</span></p>
+                <p className="text-xs text-slate-500">
+                  Cycle: <span className="font-bold text-blue-600">{formatMonthYear(selectedMonth)}</span>
+                  {reportData.dateRange?.isCustom && (
+                    <span className="block text-[11px] font-semibold text-slate-600 mt-0.5">
+                      Range: <span className="text-blue-700">{reportData.dateRange.startDate} ~ {reportData.dateRange.endDate}</span>
+                    </span>
+                  )}
+                </p>
               </div>
             </div>
 
@@ -694,7 +708,7 @@ export default function LecturerInvoiceModal({
                       Late Class Fees Remittance Breakdown (ප්‍රමාද පන්ති ගාස්තු)
                     </h5>
                     <span className="text-[10px] text-slate-500 font-semibold">
-                      Past month fee payments collected during {formatMonthYear(selectedMonth)}
+                      Past month fee payments collected during {reportData.dateRange?.isCustom ? `${reportData.dateRange.startDate} to ${reportData.dateRange.endDate}` : formatMonthYear(selectedMonth)}
                     </span>
                   </div>
                   <table className="w-full text-xs text-left border-collapse border border-amber-200 bg-amber-50/30">
@@ -729,7 +743,7 @@ export default function LecturerInvoiceModal({
                     <tfoot>
                       <tr className="bg-amber-100/80 font-bold text-amber-950 text-xs border-t border-amber-300">
                         <td colSpan={4} className="p-2 uppercase tracking-wider text-amber-900">
-                          Total Late Class Fees Collected in {formatMonthYear(selectedMonth)} ({relevantLateFeeCollections.length} payments):
+                          Total Late Class Fees Collected in {reportData.dateRange?.isCustom ? `${reportData.dateRange.startDate} to ${reportData.dateRange.endDate}` : formatMonthYear(selectedMonth)} ({relevantLateFeeCollections.length} payments):
                         </td>
                         <td className="p-2 text-right font-black text-emerald-900">
                           + Rs. {relevantLateFeeCollections.reduce((s, p) => s + (p.amount || 0), 0).toLocaleString()}

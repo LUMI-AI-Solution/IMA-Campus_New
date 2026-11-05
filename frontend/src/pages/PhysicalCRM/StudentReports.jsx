@@ -6,18 +6,19 @@ import BulkSmsModal from '../../components/PhysicalCRM/BulkSmsModal';
 import StudentDetailModal from '../../components/PhysicalCRM/StudentDetailModal';
 import AttendanceSessionsReportView from '../../components/PhysicalCRM/AttendanceSessionsReportView';
 import AutomatedSmsAuditView from '../../components/PhysicalCRM/AutomatedSmsAuditView';
+import ClassFollowUpReportView from '../../components/PhysicalCRM/ClassFollowUpReportView';
 import { 
   Users, Search, Filter, FileSpreadsheet, Send, Settings, Eye, 
   RefreshCw, GraduationCap, Building, Phone, Calendar, 
   ChevronLeft, ChevronRight, Check, X, Clock, ShieldCheck,
-  ExternalLink, Camera, Sparkles, MessageSquare
+  ExternalLink, Camera, Sparkles, MessageSquare, PhoneCall
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function StudentReports() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [activeMainView, setActiveMainView] = useState('matrix'); // 'matrix' | 'attendance-sessions' | 'sms-audit'
+  const [activeMainView, setActiveMainView] = useState('matrix'); // 'matrix' | 'attendance-sessions' | 'sms-audit' | 'class-call-sheet'
   const [activeSegment, setActiveSegment] = useState('ENROLLED'); // 'ENROLLED' | 'ALL'
 
   const [data, setData] = useState({
@@ -270,6 +271,21 @@ export default function StudentReports() {
         </button>
 
         <button
+          onClick={() => setActiveMainView('class-call-sheet')}
+          className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
+            activeMainView === 'class-call-sheet'
+              ? 'bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-700 text-white shadow-lg border border-emerald-400/50'
+              : 'text-white/60 hover:text-white hover:bg-white/5'
+          }`}
+        >
+          <PhoneCall size={15} className="text-emerald-400" />
+          <span>Class Follow-up & Call Sheet</span>
+          <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hidden sm:inline-block">
+            📞 Phone & Address
+          </span>
+        </button>
+
+        <button
           onClick={() => setActiveMainView('sms-audit')}
           className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer ${
             activeMainView === 'sms-audit'
@@ -286,7 +302,9 @@ export default function StudentReports() {
       </div>
 
       {/* CONDITIONAL MAIN VIEW */}
-      {activeMainView === 'attendance-sessions' ? (
+      {activeMainView === 'class-call-sheet' ? (
+        <ClassFollowUpReportView onBack={() => setActiveMainView('matrix')} />
+      ) : activeMainView === 'attendance-sessions' ? (
         <AttendanceSessionsReportView onBack={() => setActiveMainView('matrix')} />
       ) : activeMainView === 'sms-audit' ? (
         <AutomatedSmsAuditView onBack={() => setActiveMainView('matrix')} />
@@ -587,6 +605,7 @@ export default function StudentReports() {
                                   if (!monthData) return <div key={cls.classId} className="text-white/30 text-xs">-</div>;
 
                                   const isPaid = monthData.feeStatus === 'PAID' || monthData.feeStatus === 'FREE_CARD';
+                                  const isNotEnrolled = monthData.feeStatus === 'NOT_ENROLLED' || monthData.isBeforeEnrollment;
 
                                   return (
                                     <div 
@@ -594,25 +613,37 @@ export default function StudentReports() {
                                       className="p-2 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center gap-1.5"
                                     >
                                       {/* Fee Status Badge - Direct link to Attendance Portal */}
-                                      <button
-                                        onClick={() => handleOpenInAttendancePortal(student.studentId)}
-                                        className={`w-full py-1 px-2.5 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                                          isPaid
-                                            ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/30'
-                                            : monthData.feeStatus === 'HALF_PAYMENT'
-                                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
-                                            : 'bg-red-500/20 text-red-300 border-red-500/30 hover:bg-red-500/30'
-                                        }`}
-                                        title="Click to open student in Attendance & Fee Portal"
-                                      >
-                                        {isPaid ? <Check size={13} /> : <X size={13} />}
-                                        <span>{isPaid ? 'PAID' : 'UNPAID'}</span>
-                                      </button>
+                                      {isNotEnrolled ? (
+                                        <span className="w-full py-1 px-2 rounded-lg text-xs font-semibold bg-slate-800/80 text-slate-400 border border-slate-700/60 flex items-center justify-center">
+                                          Not Enrolled
+                                        </span>
+                                      ) : (
+                                        <button
+                                          onClick={() => handleOpenInAttendancePortal(student.studentId)}
+                                          className={`w-full py-1 px-2.5 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                                            isPaid
+                                              ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/30'
+                                              : monthData.feeStatus === 'HALF_PAYMENT'
+                                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+                                              : 'bg-red-500/20 text-red-300 border-red-500/30 hover:bg-red-500/30'
+                                          }`}
+                                          title="Click to open student in Attendance & Fee Portal"
+                                        >
+                                          {isPaid ? <Check size={13} /> : <X size={13} />}
+                                          <span>{isPaid ? 'PAID' : 'UNPAID'}</span>
+                                        </button>
+                                      )}
 
                                       {/* Attendance Count */}
-                                      <span className="text-xs text-white/70 font-medium">
-                                        {monthData.attendedSessions}/{monthData.scheduledSessions} Days Attended
-                                      </span>
+                                      {isNotEnrolled ? (
+                                        <span className="text-[11px] text-white/40 italic">
+                                          Joined {monthData.enrollmentMonth || 'Later'}
+                                        </span>
+                                      ) : (
+                                        <span className="text-xs text-white/70 font-medium">
+                                          {monthData.attendedSessions}/{monthData.scheduledSessions} Days Attended
+                                        </span>
+                                      )}
 
                                     </div>
                                   );

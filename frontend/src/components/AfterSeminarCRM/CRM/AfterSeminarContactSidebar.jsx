@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import axios from '../../../api/axios'; 
+import { resolveAvatarUrl } from '../../../utils/avatarUtils';
 import { FaSearch, FaUserCircle, FaUserPlus, FaFileImport, FaTimes, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, FaUserMinus, FaLock, FaBullhorn, FaCommentDots, FaPaperPlane, FaUserCheck, FaHeadset, FaClock, FaHistory, FaLayerGroup, FaFilter, FaChartBar, FaWhatsapp, FaShieldAlt, FaExchangeAlt, FaBan } from 'react-icons/fa';
 import { FiPhoneMissed, FiPhoneIncoming, FiPhoneOutgoing } from 'react-icons/fi';
 import CustomSelect from '../../common/CustomSelect';
@@ -38,6 +39,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   const [callTabCounts, setCallTabCounts] = useState({ INBOUND: 0, OUTBOUND: 0, MISSED: 0, NEW_INQUIRY: 0 }); 
   
   const [leads, setLeads] = useState([]);
+  const [activeSessionLeadId, setActiveSessionLeadId] = useState(null);
   const [tabCounts, setTabCounts] = useState({ NEW: 0, NEW_INQ: 0, ASSIGNED: 0, ALL: 0, OPEN_SEMINAR: 0, IMPORTED: 0 });
   const [unreadCounts, setUnreadCounts] = useState({ NEW: 0, NEW_INQ: 0, ASSIGNED: 0, ALL: 0, OPEN_SEMINAR: 0, IMPORTED: 0 });
   const [totalUnread, setTotalUnread] = useState(0);
@@ -58,6 +60,26 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   const [assignTargetBatchId, setAssignTargetBatchId] = useState('');
   
   const [assignConfirmation, setAssignConfirmation] = useState(null);
+  const [lockedBatchesMap, setLockedBatchesMap] = useState({});
+
+  useEffect(() => {
+    const fetchLockStatus = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get('/after-seminar-crm/campaign-lock-status', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.data?.lockedMap) {
+          setLockedBatchesMap(res.data.lockedMap);
+        }
+      } catch (err) {}
+    };
+    fetchLockStatus();
+  }, []);
+
+  useEffect(() => {
+    setActiveSessionLeadId(null);
+  }, [activeTab, newSubTab]);
 
   const displayBatches = useMemo(() => {
       if (!batches || !Array.isArray(batches)) return [];
@@ -123,6 +145,28 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   useEffect(() => {
       setVisibleCount(50);
   }, [activeTab, newSubTab, searchQuery]);
+
+  useEffect(() => {
+    const handleAvatarUpdate = (e) => {
+      const { phone, rawPhone, avatar } = e.detail || {};
+      if (!avatar) return;
+      setLeads(prevLeads => prevLeads.map(l => {
+        const lClean = String(l.phone || '').split('_')[0].replace(/[^0-9]/g, '');
+        const pClean = String(phone || '').split('_')[0].replace(/[^0-9]/g, '');
+        const rawClean = String(rawPhone || '').split('_')[0].replace(/[^0-9]/g, '');
+        const lRawClean = String(l.rawPhone || '').split('_')[0].replace(/[^0-9]/g, '');
+        
+        const isMatch = (pClean && lClean && (lClean.endsWith(pClean.slice(-9)) || pClean.endsWith(lClean.slice(-9)))) ||
+                        (rawClean && lRawClean && (lRawClean.endsWith(rawClean.slice(-9)) || rawClean.endsWith(lRawClean.slice(-9))));
+        if (isMatch) {
+          return { ...l, avatar, image: avatar };
+        }
+        return l;
+      }));
+    };
+    window.addEventListener('lead-avatar-updated', handleAvatarUpdate);
+    return () => window.removeEventListener('lead-avatar-updated', handleAvatarUpdate);
+  }, []);
 
   // 🔥 UPDATE: Pagination variables (fetchPage, fetchLimit) api call ekata yawanawa 🔥
   const fetchLeads = async (showLoading = true, fetchPage = 1, fetchLimit = 50) => {
@@ -510,6 +554,11 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
           const batchToUse = targetBatchId || modalBatchId || assignConfirmation?.batchId || assignConfirmation?.formData?.batchId || assignTargetBatchId || filters?.selectedBatch;
           const cleanBatch = (batchToUse && batchToUse !== 'ALL') ? batchToUse : undefined;
 
+          // Block Open Seminar assignment if batch is locked
+          if ((assignType === 'OPEN_SEMINAR' || assignType === 'NORMAL') && cleanBatch && cleanBatch !== 'UNASSIGNED' && lockedBatchesMap[cleanBatch]) {
+              return toast.error("Opening Seminar campaign for this batch is currently locked by Management. Cannot assign leads to it.");
+          }
+
           if (assignConfirmation.type === 'selected') {
               await axios.post('/after-seminar-crm/leads/bulk-action', {
                   action: 'ASSIGN',
@@ -539,6 +588,9 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
   const handleLeadClick = async (lead) => {
       setSelectedLead(lead);
       if (lead.unreadCount > 0) {
+          // Keep this unread chat pinned at the top of the unread list while the coordinator is working on it.
+          // When the coordinator clicks the NEXT chat, this pin moves to the new chat, and this one drops below unread chats!
+          setActiveSessionLeadId(lead.id);
           setLeads(prevLeads => prevLeads.map(l => l.id === lead.id ? { ...l, unreadCount: 0 } : l));
           setTotalUnreadMatching(prev => Math.max(0, prev - 1));
           setUnreadCounts(prev => ({
@@ -550,20 +602,37 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
               const token = localStorage.getItem('token');
               await axios.post('/after-seminar-crm/leads/bulk-action', { action: 'MARK_READ', leadIds: [lead.id] }, { headers: { Authorization: `Bearer ${token}` } });
           } catch (e) {}
+      } else {
+          // If coordinator clicked an already read lead, clear the session pin so previously answered leads settle below unread
+          setActiveSessionLeadId(null);
       }
   };
 
   const filteredLeads = useMemo(() => {
       let result = leads.filter(lead => !lead.isBlocked && lead.status !== 'BLOCKED');
 
-      if (!searchQuery) return result;
-      const q = String(searchQuery).toLowerCase().trim();
-      return result.filter(lead => {
-          const phoneMatch = lead.phone ? String(lead.phone).toLowerCase().includes(q) : false;
-          const nameMatch = lead.name ? String(lead.name).toLowerCase().includes(q) : false;
-          return phoneMatch || nameMatch;
-      });
-  }, [leads, searchQuery, selectedLead]);
+      if (searchQuery) {
+          const q = String(searchQuery).toLowerCase().trim();
+          result = result.filter(lead => {
+              const phoneMatch = lead.phone ? String(lead.phone).toLowerCase().includes(q) : false;
+              const nameMatch = lead.name ? String(lead.name).toLowerCase().includes(q) : false;
+              return phoneMatch || nameMatch;
+          });
+      }
+
+      // 🔥 PIN ACTIVE UNREAD CHAT ON TOP WHILE VIEWING 🔥
+      // Only when coordinator opens the NEXT chat does this lead drop down below the unread list!
+      if (activeSessionLeadId) {
+          const activeLead = result.find(l => l.id === activeSessionLeadId);
+          if (activeLead) {
+              const otherUnread = result.filter(l => l.id !== activeSessionLeadId && l.unreadCount > 0);
+              const otherRead = result.filter(l => l.id !== activeSessionLeadId && l.unreadCount === 0);
+              return [activeLead, ...otherUnread, ...otherRead];
+          }
+      }
+
+      return result;
+  }, [leads, searchQuery, activeSessionLeadId]);
 
   const getAssignedStats = () => {
       if (activeTab === 'ASSIGNED' && (staffFilter || groupFilter || statusFilter || assignedInqFilter || roundFilter)) {
@@ -1067,7 +1136,15 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                 </div>
 
                 <div className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer" onClick={() => handleLeadClick(lead)}>
-                  <FaUserCircle className="text-3xl text-slate-500 shrink-0" />
+                  <img 
+                    src={resolveAvatarUrl([lead.image, lead.avatar], lead.phone, axios.defaults.baseURL)} 
+                    alt="DP" 
+                    className="w-9 h-9 rounded-full object-cover shrink-0 border border-slate-700/60 shadow-sm"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.src = resolveAvatarUrl(null, lead.phone, axios.defaults.baseURL);
+                    }}
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between items-start mb-1">
                       
@@ -1182,9 +1259,19 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                            onChange={(e) => setBulkAssignType(e.target.value)}
                            className="w-full bg-[#1a2430] border border-slate-700 text-slate-300 rounded-lg p-2 text-xs outline-none focus:border-emerald-500"
                         >
-                           <option value="OPEN_SEMINAR">Open Seminar Inquiries</option>
+                           <option 
+                             value="OPEN_SEMINAR"
+                             disabled={Boolean(assignTargetBatchId && lockedBatchesMap[assignTargetBatchId])}
+                           >
+                             {assignTargetBatchId && lockedBatchesMap[assignTargetBatchId] ? '🔒 Open Seminar Inquiries (Locked)' : 'Open Seminar Inquiries'}
+                           </option>
                            <option value="NEW_INQ">Normal Inbox Inquiries</option>
-                           <option value="NORMAL">Imported Leads (Open Seminar)</option>
+                           <option 
+                             value="NORMAL"
+                             disabled={Boolean(assignTargetBatchId && lockedBatchesMap[assignTargetBatchId])}
+                           >
+                             {assignTargetBatchId && lockedBatchesMap[assignTargetBatchId] ? '🔒 Imported Leads (Locked)' : 'Imported Leads (Open Seminar)'}
+                           </option>
                         </select>
                      </div>
 
@@ -1210,7 +1297,9 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                          >
                              <option value="">Filter/Assign by Batch (Optional)...</option>
                              {displayBatches.map(b => (
-                                 <option key={b.id} value={b.id}>{b.name}</option>
+                                 <option key={b.id} value={b.id}>
+                                   {b.name} {lockedBatchesMap[b.id] ? '🔒 [Open Sem Locked]' : ''}
+                                 </option>
                              ))}
                          </select>
                      </div>
@@ -1248,9 +1337,26 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                </div>
 
                <div className="bg-[#121a24] p-3 rounded-xl border border-slate-800 mb-3">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Import To:</label>
-                  <select id="importTargetTab" className="w-full bg-[#1a2430] border border-slate-700 text-emerald-400 font-bold rounded-lg p-2 text-xs outline-none focus:border-emerald-500">
-                      <option value="OPEN_SEMINAR">Open Seminar Tab</option>
+                  <div className="flex justify-between items-center mb-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">Import To:</label>
+                      {filters?.selectedBatch && filters?.selectedBatch !== 'ALL' && lockedBatchesMap[filters?.selectedBatch] && (
+                          <span className="text-[10px] font-bold text-red-400 flex items-center gap-1 bg-red-950/40 px-2 py-0.5 rounded border border-red-500/30">
+                              <FaLock size={10} /> Open Sem Locked
+                          </span>
+                      )}
+                  </div>
+                  <select 
+                      id="importTargetTab" 
+                      defaultValue={filters?.selectedBatch && filters?.selectedBatch !== 'ALL' && lockedBatchesMap[filters?.selectedBatch] ? 'NEW_INQ' : 'OPEN_SEMINAR'}
+                      className="w-full bg-[#1a2430] border border-slate-700 text-emerald-400 font-bold rounded-lg p-2 text-xs outline-none focus:border-emerald-500"
+                  >
+                      <option 
+                          value="OPEN_SEMINAR" 
+                          disabled={filters?.selectedBatch && filters?.selectedBatch !== 'ALL' && lockedBatchesMap[filters?.selectedBatch]}
+                          className={filters?.selectedBatch && filters?.selectedBatch !== 'ALL' && lockedBatchesMap[filters?.selectedBatch] ? 'text-red-400 bg-slate-900 opacity-40' : ''}
+                      >
+                          {filters?.selectedBatch && filters?.selectedBatch !== 'ALL' && lockedBatchesMap[filters?.selectedBatch] ? '🔒 Open Seminar Tab (Locked)' : 'Open Seminar Tab'}
+                      </option>
                       <option value="NEW_INQ">New Inquiry Tab (Inbox)</option>
                   </select>
                </div>
@@ -1262,6 +1368,9 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                   <button onClick={() => {
                       if (!csvFile) return toast.error("Please select a CSV file first!");
                       const targetTab = document.getElementById('importTargetTab').value;
+                      if (targetTab === 'OPEN_SEMINAR' && filters?.selectedBatch && filters?.selectedBatch !== 'ALL' && lockedBatchesMap[filters?.selectedBatch]) {
+                          return toast.error("Open Seminar campaign for this batch is locked by Manager/Admin!");
+                      }
                       const reader = new FileReader();
                       reader.onload = async (evt) => {
                           const text = evt.target.result;
@@ -1294,6 +1403,9 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                   <form onSubmit={async (e) => {
                     e.preventDefault();
                     const targetTab = document.getElementById('importTargetTab').value;
+                    if (targetTab === 'OPEN_SEMINAR' && filters?.selectedBatch && filters?.selectedBatch !== 'ALL' && lockedBatchesMap[filters?.selectedBatch]) {
+                        return toast.error("Open Seminar campaign for this batch is locked by Manager/Admin!");
+                    }
                     const token = localStorage.getItem('token');
                     try {
                         await axios.post('/after-seminar-crm/leads/import', { 
@@ -1320,7 +1432,10 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
          </div>
       )}
 
-      {assignConfirmation && (
+      {assignConfirmation && (() => {
+          const effectiveBatch = modalBatchId || assignConfirmation?.batchId || filters?.selectedBatch;
+          const isConfirmOpenSemLocked = Boolean(effectiveBatch && effectiveBatch !== 'ALL' && lockedBatchesMap[effectiveBatch]);
+          return (
           <div className="absolute inset-0 z-[60] bg-[#0f172a]/90 backdrop-blur-sm flex items-center justify-center p-4">
               <div className="bg-[#1a2430] border border-slate-700 rounded-3xl p-6 w-[90%] max-w-sm shadow-2xl animate-fade-in">
                   <div className="text-center mb-4">
@@ -1343,18 +1458,40 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                       >
                           <option value="">Keep current batch / Default</option>
                           {displayBatches.map(b => (
-                              <option key={b.id} value={b.id}>{b.name}</option>
+                              <option key={b.id} value={b.id}>
+                                  {b.name} {lockedBatchesMap[b.id] ? '🔒 [Open Sem Locked]' : ''}
+                              </option>
                           ))}
                       </select>
                   </div>
 
+                  {isConfirmOpenSemLocked && (
+                      <div className="mb-3 p-2.5 bg-red-950/40 border border-red-500/30 rounded-xl text-[11px] text-red-300 flex items-start gap-2">
+                          <FaLock size={13} className="text-red-400 mt-0.5 shrink-0" />
+                          <span><strong>Campaign Locked:</strong> Open Seminar for this batch is locked by Manager/Admin. Leads cannot be assigned to Open Seminar.</span>
+                      </div>
+                  )}
+
                   <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-2">Select Inquiry Type:</label>
                   <div className="flex flex-col gap-2.5">
                       <button
-                          onClick={() => executeAssignment('OPEN_SEMINAR', modalBatchId)}
-                          className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 text-xs uppercase tracking-wider"
+                          disabled={isConfirmOpenSemLocked}
+                          onClick={() => {
+                              if (isConfirmOpenSemLocked) {
+                                  toast.error("Open Seminar campaign for this batch is locked!");
+                                  return;
+                              }
+                              executeAssignment('OPEN_SEMINAR', modalBatchId);
+                          }}
+                          className={`w-full font-bold py-3 rounded-xl transition-all shadow-lg flex items-center justify-center gap-2 text-xs uppercase tracking-wider ${
+                              isConfirmOpenSemLocked
+                                  ? 'bg-slate-800 text-slate-500 border border-red-500/30 opacity-40 cursor-not-allowed pointer-events-none'
+                                  : 'bg-purple-600 hover:bg-purple-500 text-white'
+                          }`}
+                          title={isConfirmOpenSemLocked ? "Open Seminar is locked for this batch" : "Assign to Open Seminar"}
                       >
-                          <FaBullhorn size={14} /> Open Seminar
+                          {isConfirmOpenSemLocked ? <FaLock size={14} className="text-red-400" /> : <FaBullhorn size={14} />} 
+                          {isConfirmOpenSemLocked ? 'Open Seminar (Locked)' : 'Open Seminar'}
                       </button>
                       <button
                           onClick={() => executeAssignment('NEW_INQ', modalBatchId)}
@@ -1372,7 +1509,8 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                   </button>
               </div>
           </div>
-      )}
+          );
+      })()}
 
       {showReportModal && (
           <InboundMissedCallsReportModal 

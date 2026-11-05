@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import axios from '../../../api/axios';
 import { User, Lock, Save, Loader2, Camera, Settings, MapPin } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { resolveAvatarUrl } from '../../../utils/avatarUtils';
 
 export default function ProfileSettings() {
     const user = JSON.parse(localStorage.getItem('user') || '{}') || {};
@@ -38,11 +39,7 @@ export default function ProfileSettings() {
     
 
     // Image URL එක හදනවා
-    const generatedImageUrl = user.image && user.image !== 'default.png' && user.image !== 'null' 
-    ? `${BACKEND_URL}/storage/images/${user.image}` // 🔥 සමහරවිට ඔයාගේ Node.js static path එක 'storage/images' වෙන්නත් පුළුවන්. ඒකත් මම මෙතන හැදුවා.
-    : null;
-
-    
+    const generatedImageUrl = resolveAvatarUrl(user.image, user.phone || user.whatsapp, axios.defaults?.baseURL);
 
     const [previewUrl, setPreviewUrl] = useState(generatedImageUrl);
 
@@ -142,7 +139,15 @@ export default function ProfileSettings() {
                         <div className="flex flex-col items-center sm:flex-row gap-6 mb-8 bg-black/20 backdrop-blur-xl p-6 rounded-3xl border border-white/20">
                             <div className="relative group cursor-pointer w-28 h-28 shrink-0">
                                 <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-red-600 to-orange-500 shadow-[0_0_15px_rgba(239,68,68,0.5)]"></div>
-                                <img src={previewUrl || '/logo.png'} alt="Profile" className="absolute inset-1 w-[calc(100%-8px)] h-[calc(100%-8px)] rounded-full object-cover z-10 bg-black/20 backdrop-blur-xl" />
+                                <img 
+                                    src={previewUrl || resolveAvatarUrl(null, user.phone || user.whatsapp, axios.defaults?.baseURL)} 
+                                    alt="Profile" 
+                                    className="absolute inset-1 w-[calc(100%-8px)] h-[calc(100%-8px)] rounded-full object-cover z-10 bg-black/20 backdrop-blur-xl" 
+                                    onError={(e) => {
+                                        e.target.onerror = null;
+                                        e.target.src = resolveAvatarUrl(null, user.phone || user.whatsapp, axios.defaults?.baseURL);
+                                    }}
+                                />
                                 
                                 <label className="absolute inset-1 rounded-full bg-black/60 z-20 flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer">
                                     <Camera size={20} className="text-white mb-1"/>

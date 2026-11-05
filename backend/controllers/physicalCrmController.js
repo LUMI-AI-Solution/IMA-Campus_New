@@ -342,19 +342,45 @@ exports.updateStudent = async (req, res) => {
 
     // Update enrollments if classIds is explicitly passed
     if (Array.isArray(classIds)) {
-      await prisma.physicalStudentClassEnrollment.deleteMany({
+      const existingEnrollments = await prisma.physicalStudentClassEnrollment.findMany({
         where: { studentId: student.id }
       });
+      const existingMap = new Map();
+      existingEnrollments.forEach(e => {
+        existingMap.set(e.classId, e);
+      });
 
-      if (selectedClassIds.length > 0) {
-        await prisma.physicalStudentClassEnrollment.createMany({
-          data: selectedClassIds.map(cId => ({
-            studentId: student.id,
-            classId: cId,
-            cardType: cardMap[cId] || globalCardType
-          })),
-          skipDuplicates: true
+      // Remove enrollments that are no longer selected
+      const toDeleteClassIds = existingEnrollments
+        .filter(e => !selectedClassIds.includes(e.classId))
+        .map(e => e.classId);
+
+      if (toDeleteClassIds.length > 0) {
+        await prisma.physicalStudentClassEnrollment.deleteMany({
+          where: { studentId: student.id, classId: { in: toDeleteClassIds } }
         });
+      }
+
+      // Add new or update cardType without resetting original createdAt
+      for (const cId of selectedClassIds) {
+        const existing = existingMap.get(cId);
+        const cType = cardMap[cId] || globalCardType;
+        if (existing) {
+          if (existing.cardType !== cType) {
+            await prisma.physicalStudentClassEnrollment.update({
+              where: { id: existing.id },
+              data: { cardType: cType }
+            });
+          }
+        } else {
+          await prisma.physicalStudentClassEnrollment.create({
+            data: {
+              studentId: student.id,
+              classId: cId,
+              cardType: cType
+            }
+          });
+        }
       }
     }
 
@@ -1292,9 +1318,17 @@ exports.getClassFeeMatrix = async (req, res) => {
     });
 
     const allStudents = [
-      ...enrollments.map(e => e.student),
-      ...primaryStudents
-    ].filter(Boolean);
+      ...enrollments.map(e => ({
+        ...e.student,
+        enrollmentCreatedAt: e.createdAt || e.student.createdAt,
+        enrollmentCardType: e.cardType || e.student.cardType
+      })),
+      ...primaryStudents.map(s => ({
+        ...s,
+        enrollmentCreatedAt: s.createdAt,
+        enrollmentCardType: s.cardType
+      }))
+    ].filter(s => s && s.id);
 
     // Sort students by name
     allStudents.sort((a, b) => {
@@ -1341,17 +1375,17 @@ exports.getClassFeeMatrix = async (req, res) => {
       paymentMap.set(`${p.studentId}_${p.month}`, p);
     });
 
-    // Monthly summary stats
+    // Monthly summary stats - calculated dynamically based on student active enrollment
     const monthlySummary = {};
     activeMonths.forEach(m => {
       monthlySummary[m] = {
         month: m,
-        totalEnrolled: allStudents.length,
+        totalEnrolled: 0,
         paidCount: 0,
         unpaidCount: 0,
         freeCount: 0,
         grossAmount: 0,
-        expectedGross: (allStudents.length * (phyClass.monthlyFee || 0))
+        expectedGross: 0
       };
     });
 
@@ -1361,44 +1395,88 @@ exports.getClassFeeMatrix = async (req, res) => {
       let totalPaidForStudent = 0;
       let totalPendingForStudent = 0;
 
+      const enrollDate = student.enrollmentCreatedAt || student.createdAt;
+      let enrollMonth = null;
+      if (enrollDate) {
+        const ed = new Date(enrollDate);
+        if (!isNaN(ed.getTime())) {
+          enrollMonth = `${ed.getFullYear()}-${String(ed.getMonth() + 1).padStart(2, '0')}`;
+        }
+      }
+
+      const effectiveCardType = student.enrollmentCardType || student.cardType || 'FULL';
+      const standardMonthlyFee = phyClass.monthlyFee || 0;
+      const expectedStudentFee = effectiveCardType === 'FREE' ? 0 : (effectiveCardType === 'HALF' ? standardMonthlyFee / 2 : standardMonthlyFee);
+
       activeMonths.forEach(m => {
         const pay = paymentMap.get(`${student.id}_${m}`);
-        if (pay && pay.status === 'PAID') {
+        const isBeforeEnrollment = !pay && enrollMonth && m < enrollMonth;
+
+        if (pay && (pay.status === 'PAID' || pay.status === 'HALF_PAYMENT')) {
           monthsData[m] = {
-            status: 'PAID',
-            amount: pay.amount || phyClass.monthlyFee || 0,
+            status: pay.status,
+            amount: pay.amount !== undefined ? pay.amount : expectedStudentFee,
             paidDate: pay.paidDate,
             paymentMethod: pay.paymentMethod,
-            id: pay.id
+            id: pay.id,
+            isBeforeEnrollment: false
           };
           totalPaidForStudent++;
           if (monthlySummary[m]) {
+            monthlySummary[m].totalEnrolled++;
             monthlySummary[m].paidCount++;
-            monthlySummary[m].grossAmount += (pay.amount || phyClass.monthlyFee || 0);
+            monthlySummary[m].grossAmount += (pay.amount !== undefined ? pay.amount : expectedStudentFee);
+            monthlySummary[m].expectedGross += expectedStudentFee;
           }
         } else if (pay && pay.status === 'FREE_CARD') {
           monthsData[m] = {
             status: 'FREE_CARD',
             amount: 0,
             paidDate: pay.paidDate,
-            id: pay.id
+            id: pay.id,
+            isBeforeEnrollment: false
           };
           if (monthlySummary[m]) {
+            monthlySummary[m].totalEnrolled++;
             monthlySummary[m].freeCount++;
           }
-        } else {
+        } else if (isBeforeEnrollment) {
           monthsData[m] = {
-            status: 'PENDING',
-            amount: phyClass.monthlyFee || 0,
+            status: 'NOT_ENROLLED',
+            amount: 0,
             paidDate: null,
-            id: pay ? pay.id : null
+            id: null,
+            isBeforeEnrollment: true,
+            enrollMonth
           };
-          totalPendingForStudent++;
-          if (monthlySummary[m]) {
-            monthlySummary[m].unpaidCount++;
+          // Student was NOT enrolled in this class in month m.
+          // Do NOT count as unpaid or pending.
+        } else {
+          const isStudentFree = effectiveCardType === 'FREE';
+          monthsData[m] = {
+            status: isStudentFree ? 'FREE_CARD' : 'PENDING',
+            amount: isStudentFree ? 0 : expectedStudentFee,
+            paidDate: null,
+            id: pay ? pay.id : null,
+            isBeforeEnrollment: false
+          };
+          if (isStudentFree) {
+            if (monthlySummary[m]) {
+              monthlySummary[m].totalEnrolled++;
+              monthlySummary[m].freeCount++;
+            }
+          } else {
+            totalPendingForStudent++;
+            if (monthlySummary[m]) {
+              monthlySummary[m].totalEnrolled++;
+              monthlySummary[m].unpaidCount++;
+              monthlySummary[m].expectedGross += expectedStudentFee;
+            }
           }
         }
       });
+
+      const totalEligibleMonths = activeMonths.filter(m => !enrollMonth || m >= enrollMonth).length;
 
       return {
         id: student.id,
@@ -1413,9 +1491,13 @@ exports.getClassFeeMatrix = async (req, res) => {
         school: student.school ? student.school.name : null,
         registrationFeeStatus: student.registrationFeeStatus || 'PENDING',
         registrationFeeAmount: student.registrationFeeAmount || 1000,
+        cardType: effectiveCardType,
+        enrollmentCreatedAt: student.enrollmentCreatedAt,
+        enrollmentMonth: enrollMonth,
         months: monthsData,
         totalPaidMonths: totalPaidForStudent,
-        totalPendingMonths: totalPendingForStudent
+        totalPendingMonths: totalPendingForStudent,
+        totalEligibleMonths
       };
     });
 
@@ -2078,6 +2160,104 @@ exports.reverseStudentFeePayment = async (req, res) => {
   }
 };
 
+// Move accidental fee payment to correct target month
+exports.moveStudentFeePaymentMonth = async (req, res) => {
+  try {
+    const { studentId, classId, currentMonth, targetMonth, reason } = req.body;
+    const sId = parseInt(studentId);
+    const cId = parseInt(classId);
+
+    if (!sId || !cId || !currentMonth || !targetMonth) {
+      return res.status(400).json({ error: 'Valid studentId, classId, currentMonth, and targetMonth are required' });
+    }
+
+    if (currentMonth === targetMonth) {
+      return res.status(400).json({ error: 'Current month and target month cannot be the same' });
+    }
+
+    // 1. Check if payment exists in currentMonth
+    const existingPayment = await prisma.physicalClassFeePayment.findUnique({
+      where: {
+        studentId_classId_month: {
+          studentId: sId,
+          classId: cId,
+          month: currentMonth
+        }
+      },
+      include: { class: true, student: true }
+    });
+
+    if (!existingPayment) {
+      return res.status(404).json({ error: `No fee payment record found for ${currentMonth}` });
+    }
+
+    // 2. Check if a payment already exists for targetMonth
+    const targetPayment = await prisma.physicalClassFeePayment.findUnique({
+      where: {
+        studentId_classId_month: {
+          studentId: sId,
+          classId: cId,
+          month: targetMonth
+        }
+      }
+    });
+
+    if (targetPayment) {
+      return res.status(400).json({ error: `A fee payment record already exists for ${targetMonth}` });
+    }
+
+    // 3. Update the month on the payment record
+    const updatedPayment = await prisma.physicalClassFeePayment.update({
+      where: { id: existingPayment.id },
+      data: {
+        month: targetMonth,
+        remark: [existingPayment.remark, `[Moved from ${currentMonth} to ${targetMonth}: ${reason || 'Month correction'}]`].filter(Boolean).join(' ')
+      }
+    });
+
+    // 4. Update matching PhysicalTransaction description & billingMonth if any
+    const matchingTx = await prisma.physicalTransaction.findFirst({
+      where: {
+        studentId: sId,
+        type: 'INCOME',
+        category: 'Class Fee',
+        isDeleted: false,
+        OR: [
+          { billingMonth: currentMonth },
+          { description: { contains: currentMonth } }
+        ]
+      },
+      orderBy: { date: 'desc' }
+    });
+
+    if (matchingTx) {
+      await prisma.physicalTransaction.update({
+        where: { id: matchingTx.id },
+        data: {
+          billingMonth: targetMonth,
+          description: matchingTx.description.replace(currentMonth, targetMonth)
+        }
+      });
+    }
+
+    const updatedFeePayments = await prisma.physicalClassFeePayment.findMany({
+      where: { studentId: sId },
+      include: { class: true },
+      orderBy: { month: 'desc' }
+    });
+
+    return res.json({
+      success: true,
+      message: `Fee payment moved successfully from ${currentMonth} to ${targetMonth}!`,
+      payment: updatedPayment,
+      feePayments: updatedFeePayments
+    });
+  } catch (error) {
+    console.error('Error moving fee payment month:', error);
+    return res.status(500).json({ error: 'Failed to move payment month: ' + error.message });
+  }
+};
+
 // --- CLASS COMPARISON & REPORT CONTROLLER ---
 exports.compareClasses = async (req, res) => {
   try {
@@ -2334,7 +2514,7 @@ exports.compareClasses = async (req, res) => {
 exports.getTeacherReport = async (req, res) => {
   try {
     const { teacherId } = req.params;
-    const { month, classId } = req.query;
+    const { month, classId, startDate, endDate } = req.query;
 
     const tId = parseInt(teacherId);
     const teacher = await prisma.physicalTeacher.findUnique({
@@ -2460,30 +2640,60 @@ exports.getTeacherReport = async (req, res) => {
     const availableMonths = Array.from(allMonthsSet).sort().reverse();
     const selectedMonth = (month && month.trim()) ? month.trim() : (allMonthsSet.has(currentMonthStr) ? currentMonthStr : (availableMonths[0] || currentMonthStr));
 
-    // Date range for month
+    // Date range calculation: defaults to full month or uses custom range if provided
     const [selYear, selMonthNum] = selectedMonth.split('-').map(Number);
-    const startOfMonth = new Date(Date.UTC(selYear, selMonthNum - 1, 1, 0, 0, 0));
-    const endOfMonth = new Date(Date.UTC(selYear, selMonthNum, 0, 23, 59, 59, 999));
+    const defaultStartOfMonth = new Date(Date.UTC(selYear, selMonthNum - 1, 1, 0, 0, 0));
+    const defaultEndOfMonth = new Date(Date.UTC(selYear, selMonthNum, 0, 23, 59, 59, 999));
 
-    // 1. Fetch Regular Payments for selectedMonth (collected on or before the end of selectedMonth)
+    let effectiveStartDate = defaultStartOfMonth;
+    let effectiveEndDate = defaultEndOfMonth;
+    const isCustomDateRange = Boolean(startDate || endDate);
+
+    if (startDate && typeof startDate === 'string' && startDate.trim()) {
+      const [sy, sm, sd] = startDate.trim().split('-').map(Number);
+      if (!isNaN(sy) && !isNaN(sm) && !isNaN(sd)) {
+        effectiveStartDate = new Date(Date.UTC(sy, sm - 1, sd, 0, 0, 0));
+      }
+    }
+
+    if (endDate && typeof endDate === 'string' && endDate.trim()) {
+      const [ey, em, ed] = endDate.trim().split('-').map(Number);
+      if (!isNaN(ey) && !isNaN(em) && !isNaN(ed)) {
+        effectiveEndDate = new Date(Date.UTC(ey, em - 1, ed, 23, 59, 59, 999));
+      }
+    }
+
+    // 1. Fetch Regular Payments for selectedMonth
+    const regularPaymentWhere = {
+      classId: { in: classIds },
+      month: selectedMonth
+    };
+
+    if (isCustomDateRange) {
+      regularPaymentWhere.paidDate = {
+        gte: effectiveStartDate,
+        lte: effectiveEndDate
+      };
+    } else {
+      regularPaymentWhere.paidDate = {
+        lte: effectiveEndDate
+      };
+    }
+
     const regularFeePayments = await prisma.physicalClassFeePayment.findMany({
-      where: {
-        classId: { in: classIds },
-        month: selectedMonth,
-        paidDate: { lte: endOfMonth }
-      },
+      where: regularPaymentWhere,
       include: {
         student: true,
         class: true
       }
     });
 
-    // 2. Fetch Late Class Fees: Payments for past months (month < selectedMonth) collected during selectedMonth
+    // 2. Fetch Late Class Fees: Payments for past months (month < selectedMonth) collected during date range
     const lateFeePaymentsRaw = await prisma.physicalClassFeePayment.findMany({
       where: {
         classId: { in: classIds },
         month: { lt: selectedMonth },
-        paidDate: { gte: startOfMonth, lte: endOfMonth },
+        paidDate: { gte: effectiveStartDate, lte: effectiveEndDate },
         status: { in: ['PAID', 'HALF_PAYMENT', 'PARTIAL'] }
       },
       include: {
@@ -2516,11 +2726,11 @@ exports.getTeacherReport = async (req, res) => {
       latePaymentsByStudentClass.get(key).push(p);
     });
 
-    // Fetch physical attendance records for these classes in this month
+    // Fetch physical attendance records for these classes within the date range
     const monthAttendances = await prisma.physicalAttendance.findMany({
       where: {
         classId: { in: classIds },
-        date: { gte: startOfMonth, lte: endOfMonth }
+        date: { gte: effectiveStartDate, lte: effectiveEndDate }
       },
       select: {
         studentId: true,
@@ -2528,6 +2738,29 @@ exports.getTeacherReport = async (req, res) => {
         date: true,
         status: true
       }
+    });
+
+    // Fetch historical physical attendance records across all months to identify active students (attendance in >= 2 distinct months)
+    const historicalAttendances = await prisma.physicalAttendance.findMany({
+      where: {
+        classId: { in: classIds },
+        status: 'PRESENT'
+      },
+      select: {
+        studentId: true,
+        classId: true,
+        date: true
+      }
+    });
+
+    const studentActiveMonthsMap = new Map();
+    historicalAttendances.forEach(att => {
+      if (!att.date) return;
+      const mStr = att.date.toISOString().slice(0, 7);
+      if (!studentActiveMonthsMap.has(att.studentId)) {
+        studentActiveMonthsMap.set(att.studentId, new Set());
+      }
+      studentActiveMonthsMap.get(att.studentId).add(mStr);
     });
 
     // Day of week mapping helper
@@ -2585,6 +2818,7 @@ exports.getTeacherReport = async (req, res) => {
     });
 
     let totalEnrolled = 0;
+    let totalActiveStudents = 0;
     let totalRegularPaidStudents = 0;
     let totalRegularGrossRevenue = 0;
     let totalLateFeeGrossRevenue = 0;
@@ -2595,6 +2829,7 @@ exports.getTeacherReport = async (req, res) => {
       const enrolledCount = students.length;
       totalEnrolled += enrolledCount;
 
+      let clsActiveCount = 0;
       let clsRegularPaidCount = 0;
       let clsRegularGross = 0;
 
@@ -2640,6 +2875,14 @@ exports.getTeacherReport = async (req, res) => {
           clsRegularGross += fee;
         }
 
+        // Active student determination: attendance in >= 2 distinct months
+        const activeMonthsSet = studentActiveMonthsMap.get(st.id) || new Set();
+        const activeMonthsCount = activeMonthsSet.size;
+        const isActive = activeMonthsCount >= 2;
+        if (isActive) {
+          clsActiveCount++;
+        }
+
         const lateFeesForStudent = latePaymentsByStudentClass.get(`${st.id}_${cls.id}`) || [];
 
         const rawAttendedDatesSet = studentAttendanceMap.get(`${st.id}_${cls.id}`) || new Set();
@@ -2663,6 +2906,8 @@ exports.getTeacherReport = async (req, res) => {
           amount: fee,
           paidDate: pay ? pay.paidDate : null,
           paymentMethod: pay ? pay.paymentMethod : null,
+          isActive,
+          activeMonthsCount,
           lateFees: lateFeesForStudent.map(lf => ({
             id: lf.id,
             feeMonth: lf.month,
@@ -2691,6 +2936,7 @@ exports.getTeacherReport = async (req, res) => {
       const instCutAmt = (clsTotalGross * instCutPct) / 100;
       const netPayout = clsTotalGross - instCutAmt;
 
+      totalActiveStudents += clsActiveCount;
       totalRegularPaidStudents += clsRegularPaidCount;
       totalRegularGrossRevenue += clsRegularGross;
       totalLateFeeGrossRevenue += clsLateGross;
@@ -2703,6 +2949,7 @@ exports.getTeacherReport = async (req, res) => {
         subject: cls.subject,
         monthlyFee: cls.monthlyFee || 0,
         enrolledCount,
+        activeCount: clsActiveCount,
         paidCount: clsRegularPaidCount,
         unpaidCount: enrolledCount - clsRegularPaidCount,
         regularPaidCount: clsRegularPaidCount,
@@ -2736,21 +2983,28 @@ exports.getTeacherReport = async (req, res) => {
     const overallInstCutAmt = (totalGrossRevenue * overallInstCutPct) / 100;
     const netPayoutBeforeDeductions = totalGrossRevenue - overallInstCutAmt;
 
-    // Fetch Teacher Advances / Expense Deductions / Incomes for this month from PhysicalTransaction
+    // Fetch Teacher Advances / Expense Deductions / Incomes for this month / date range from PhysicalTransaction
+    let txnWhere = {
+      teacherId: tId,
+      isDeleted: false
+    };
+
+    if (isCustomDateRange) {
+      txnWhere.date = { gte: effectiveStartDate, lte: effectiveEndDate };
+    } else {
+      txnWhere.OR = [
+        { billingMonth: selectedMonth },
+        {
+          AND: [
+            { billingMonth: null },
+            { date: { gte: effectiveStartDate, lte: effectiveEndDate } }
+          ]
+        }
+      ];
+    }
+
     const teacherTxns = await prisma.physicalTransaction.findMany({
-      where: {
-        teacherId: tId,
-        isDeleted: false,
-        OR: [
-          { billingMonth: selectedMonth },
-          {
-            AND: [
-              { billingMonth: null },
-              { date: { gte: startOfMonth, lte: endOfMonth } }
-            ]
-          }
-        ]
-      },
+      where: txnWhere,
       orderBy: { date: 'desc' }
     });
 
@@ -2784,9 +3038,15 @@ exports.getTeacherReport = async (req, res) => {
       },
       selectedMonth,
       availableMonths,
+      dateRange: {
+        startDate: effectiveStartDate.toISOString().slice(0, 10),
+        endDate: effectiveEndDate.toISOString().slice(0, 10),
+        isCustom: isCustomDateRange
+      },
       summary: {
         totalClasses: relevantClasses.length,
         totalEnrolledStudents: totalEnrolled,
+        totalActiveStudents: totalActiveStudents,
         totalPaidStudents: totalRegularPaidStudents,
         totalUnpaidStudents: totalEnrolled - totalRegularPaidStudents,
         regularGrossRevenue: totalRegularGrossRevenue,

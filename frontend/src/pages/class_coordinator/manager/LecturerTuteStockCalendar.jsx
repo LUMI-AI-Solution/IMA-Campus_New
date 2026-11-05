@@ -475,6 +475,13 @@ export default function LecturerTuteStockCalendar({ loggedInUser }) {
 
           {/* Quick Refresh & Role Badge */}
           <div className="flex items-center gap-3 w-full lg:w-auto justify-between lg:justify-end">
+            <a
+              href="/delivery/dashboard?tab=reports"
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/20 text-xs font-black text-pink-600 dark:text-pink-400 transition-all shadow-sm active:scale-95"
+            >
+              <BarChart3 size={14} />
+              <span>Stock Reports 📊</span>
+            </a>
             <button
               onClick={handleRefresh}
               disabled={refreshing}

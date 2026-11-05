@@ -69,6 +69,24 @@ router.use(verifyToken);
 // Direct Upload Master Question Paper PDF
 router.post('/upload-master-sheet', uploadMasterPaperMulter.single('file'), paperController.uploadMasterSheet);
 
+// Upload & Pre-Parse PDF for AI MCQ Extraction
+router.post('/ai-upload-mcq-pdf', uploadMasterPaperMulter.single('pdf'), paperController.aiUploadMcqPdf);
+
+// AI MCQ Extraction from PDF (Streaming SSE - accepts JSON { fileId, customApiKey } OR direct multipart upload)
+router.post('/ai-extract-mcq-stream', (req, res, next) => {
+    const contentType = req.headers['content-type'] || '';
+    if (contentType.includes('multipart/form-data')) {
+        return uploadMasterPaperMulter.single('pdf')(req, res, next);
+    }
+    next();
+}, paperController.aiExtractMcqStream);
+
+// Test Gemini API Key
+router.post('/gemini-key/test', paperController.testGeminiKey);
+
+// Save Gemini API Key to System AppSetting
+router.post('/gemini-key', paperController.saveGeminiApiKey);
+
 // Upload Question Images / Figures (up to 10 images at once)
 router.post('/upload-question-images', uploadQuestionImagesMulter.array('images', 10), paperController.uploadQuestionImages);
 

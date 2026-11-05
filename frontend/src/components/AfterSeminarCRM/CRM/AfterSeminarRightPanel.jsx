@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom'; 
 import axios from '../../../api/axios';
-import { FaPhoneAlt, FaCheckCircle, FaTimesCircle, FaUserSecret, FaKey, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaTimes, FaArrowsAlt, FaChevronRight, FaChevronLeft, FaLayerGroup, FaBan } from 'react-icons/fa';
+import { resolveAvatarUrl } from '../../../utils/avatarUtils';
+import { FaPhoneAlt, FaCheckCircle, FaTimesCircle, FaUserSecret, FaKey, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaTimes, FaArrowsAlt, FaChevronRight, FaChevronLeft, FaLayerGroup, FaBan, FaLock } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import { useCall } from '../../../contexts/CallContext';
 
@@ -16,6 +17,7 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
   const [batches, setBatches] = useState([]);
   const [selectedBatchToAssign, setSelectedBatchToAssign] = useState('');
   const [isAssigningBatch, setIsAssigningBatch] = useState(false);
+  const [lockedBatchesMap, setLockedBatchesMap] = useState({});
 
   // 🔥 DRAG AND DROP STATE 🔥
   const [iframePos, setIframePos] = useState({ x: 50, y: 50 });
@@ -43,7 +45,23 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
         console.error("Failed to load batches", err);
       }
     };
+
+    const fetchLockStatus = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const res = await axios.get('/after-seminar-crm/campaign-lock-status', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.data?.lockedMap) {
+          setLockedBatchesMap(res.data.lockedMap);
+        }
+      } catch (err) {
+        console.error("Failed to load campaign lock map", err);
+      }
+    };
+
     fetchBatches();
+    fetchLockStatus();
   }, []);
 
   const fetchStudentData = async () => {
@@ -59,6 +77,13 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
 
   const handleAssignBatch = async () => {
     if (!selectedBatchToAssign) return toast.error("Please select a batch first.");
+    
+    // Check if Open Seminar campaign for selected batch is locked
+    const isLeadInOpenSem = selectedLead?.inquiryType === 'OPEN_SEMINAR' || selectedLead?.inquiryType === 'NORMAL';
+    if (isLeadInOpenSem && lockedBatchesMap[selectedBatchToAssign]) {
+      return toast.error("The Opening Seminar campaign for this batch is currently locked by Management. Cannot allocate leads to it.");
+    }
+
     setIsAssigningBatch(true);
     try {
       const token = localStorage.getItem('token');
@@ -72,7 +97,7 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
         onBatchAssigned(selectedLead.id, selectedBatchToAssign);
       }
     } catch (error) {
-      toast.error("Failed to assign batch.");
+      toast.error(error.response?.data?.error || "Failed to assign batch.");
     } finally {
       setIsAssigningBatch(false);
     }
@@ -151,9 +176,15 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
       document.addEventListener('mouseup', onMouseUp);
   };
 
-  // 🔥 NEW: INQUIRY TYPE CHANGER 🔥
+  // 🔥 INQUIRY TYPE CHANGER 🔥
   const handleInquiryTypeChange = async (e) => {
       const newType = e.target.value;
+
+      // Check if trying to move to OPEN_SEMINAR when batch is locked
+      if ((newType === 'OPEN_SEMINAR' || newType === 'NORMAL') && selectedLead?.batchId && lockedBatchesMap[selectedLead.batchId]) {
+          return toast.error("Opening Seminar campaign for this batch is locked by Management. Cannot move lead to Open Seminar.");
+      }
+
       const load = toast.loading(`Moving lead to ${newType}...`);
       try {
           const token = localStorage.getItem('token');
@@ -171,7 +202,7 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
           toast.success(`Lead successfully moved!`, { id: load });
           setTimeout(() => window.location.reload(), 1000); // UI Refresh to update lists
       } catch (err) {
-          toast.error("Failed to move lead", { id: load });
+          toast.error(err.response?.data?.error || "Failed to move lead", { id: load });
       }
   };
 
@@ -179,6 +210,12 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
   const bizMatch = selectedLead?.phone?.match(/_BIZ_(\d+)/);
   const leadBizId = activeBusinessId || (bizMatch ? bizMatch[1] : null);
   const displayBatches = leadBizId ? batches.filter(b => String(b.businessId) === String(leadBizId)) : batches;
+
+  const currentAvatarUrl = resolveAvatarUrl(
+    studentDetails?.student?.image || selectedLead?.avatar || selectedLead?.image,
+    selectedLead?.phone,
+    axios.defaults.baseURL
+  );
 
   return (
     <div className={`${isMinimized ? 'w-[70px]' : 'w-[300px] xl:w-[320px]'} transition-all duration-300 ease-in-out bg-[#23303f] rounded-2xl flex flex-col shrink-0 overflow-hidden text-slate-400 border border-white/5 shadow-lg relative`}>
@@ -188,8 +225,22 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
             <button className="p-2 bg-black/20 group-hover:bg-blue-600/20 rounded-full hover:text-white mb-6 text-slate-500 group-hover:text-blue-400 transition-colors">
                 <FaChevronLeft size={16} />
             </button>
-            <div className="w-12 h-12 bg-[#2a3942] rounded-full border border-slate-600 flex items-center justify-center text-xl font-bold shadow-md text-slate-300">
-               {selectedLead.name ? selectedLead.name.charAt(0).toUpperCase() : 'U'}
+            <div className="w-12 h-12 rounded-full border border-emerald-500/40 overflow-hidden shadow-md shrink-0 bg-[#2a3942] flex items-center justify-center">
+              {currentAvatarUrl ? (
+                <img 
+                  src={currentAvatarUrl} 
+                  alt={selectedLead.name || 'U'} 
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.src = resolveAvatarUrl(null, selectedLead.phone, axios.defaults.baseURL);
+                  }}
+                />
+              ) : (
+                <span className="text-xl font-bold text-slate-300">
+                  {selectedLead.name ? selectedLead.name.charAt(0).toUpperCase() : 'U'}
+                </span>
+              )}
             </div>
          </div>
       ) : (
@@ -199,8 +250,22 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
                <FaChevronRight size={14}/>
             </button>
 
-            <div className="w-20 h-20 bg-[#2a3942] rounded-full border border-slate-600 flex items-center justify-center text-3xl font-bold mb-3 shadow-md text-slate-300">
-              {selectedLead.name ? selectedLead.name.charAt(0).toUpperCase() : 'U'}
+            <div className="w-20 h-20 rounded-full border-2 border-emerald-500/40 overflow-hidden mb-3 shadow-xl shrink-0 bg-[#2a3942] flex items-center justify-center">
+              {currentAvatarUrl ? (
+                <img 
+                  src={currentAvatarUrl} 
+                  alt={selectedLead.name || 'U'} 
+                  className="w-full h-full object-cover"
+                  onError={(e) => {
+                    e.target.onerror = null;
+                    e.target.src = resolveAvatarUrl(null, selectedLead.phone, axios.defaults.baseURL);
+                  }}
+                />
+              ) : (
+                <span className="text-3xl font-bold text-slate-300">
+                  {selectedLead.name ? selectedLead.name.charAt(0).toUpperCase() : 'U'}
+                </span>
+              )}
             </div>
             <h2 className="text-lg font-bold text-center text-slate-200">{selectedLead.name || 'Unknown Lead'}</h2>
             <div className="flex items-center gap-2 mt-2 text-xs bg-[#0b141a] px-3 py-1.5 rounded-full border border-slate-700 text-emerald-400">
@@ -237,19 +302,41 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
                 <span className="text-sm font-semibold capitalize text-slate-300">{selectedLead.callStatus}</span>
               </div>
 
-              {/* 🔥 NEW: INQUIRY TAB MOVER 🔥 */}
-              <div className="flex justify-between items-center pt-3 border-t border-slate-700/50 mt-2">
-                <span className="text-xs font-medium text-slate-400">Inquiry Tab</span>
-                <select 
-                  value={selectedLead.inquiryType || 'NEW_INQ'}
-                  onChange={handleInquiryTypeChange}
-                  className="bg-[#0f172a] text-[10px] font-bold text-emerald-400 border border-slate-600 rounded-lg px-2 py-1.5 outline-none cursor-pointer uppercase tracking-wider"
-                >
-                  <option value="NEW_INQ">New Inbox</option>
-                  <option value="OPEN_SEMINAR">Open Seminar</option>
-                  <option value="NORMAL">Imported (Normal)</option>
-                </select>
-              </div>
+              {/* 🔥 INQUIRY TAB MOVER 🔥 */}
+              {(() => {
+                const isCurrentBatchLocked = Boolean(selectedLead?.batchId && lockedBatchesMap[selectedLead.batchId]);
+                return (
+                  <div className="flex flex-col gap-1.5 pt-3 border-t border-slate-700/50 mt-2">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-medium text-slate-400">Inquiry Tab</span>
+                      <select 
+                        value={selectedLead.inquiryType || 'NEW_INQ'}
+                        onChange={handleInquiryTypeChange}
+                        className={`text-[10px] font-bold border rounded-lg px-2 py-1.5 outline-none cursor-pointer uppercase tracking-wider ${
+                          isCurrentBatchLocked && (selectedLead.inquiryType === 'OPEN_SEMINAR' || selectedLead.inquiryType === 'NORMAL')
+                            ? 'bg-rose-950/60 border-rose-500/50 text-rose-300'
+                            : 'bg-[#0f172a] text-emerald-400 border-slate-600'
+                        }`}
+                      >
+                        <option value="NEW_INQ">New Inbox</option>
+                        <option 
+                          value="OPEN_SEMINAR" 
+                          disabled={isCurrentBatchLocked && selectedLead.inquiryType !== 'OPEN_SEMINAR'}
+                          className={isCurrentBatchLocked && selectedLead.inquiryType !== 'OPEN_SEMINAR' ? 'text-slate-500 bg-slate-900 opacity-40' : ''}
+                        >
+                          {isCurrentBatchLocked && selectedLead.inquiryType !== 'OPEN_SEMINAR' ? '🔒 Open Seminar (Locked)' : 'Open Seminar'}
+                        </option>
+                        <option value="NORMAL">Imported (Normal)</option>
+                      </select>
+                    </div>
+                    {isCurrentBatchLocked && (
+                      <span className="text-[10px] text-rose-400 font-bold flex items-center gap-1 bg-rose-500/10 px-2 py-1 rounded-lg border border-rose-500/20">
+                        <FaLock size={9} /> Open Seminar Campaign Locked for Batch
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* 🔥 QUICK LEAD ACTIONS (BLOCK / UNBLOCK) 🔥 */}
@@ -296,28 +383,69 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
             </div>
 
             {/* 🔥 BATCH ALLOCATION SECTION 🔥 */}
-            <div className="bg-[#1a2430] p-4 rounded-xl border border-white/5 mb-4 shadow-sm">
-              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                <FaLayerGroup /> Allocate to Batch
-              </h3>
-              <select 
-                value={selectedBatchToAssign} 
-                onChange={(e) => setSelectedBatchToAssign(e.target.value)}
-                className="w-full mb-3 p-2 text-xs bg-[#0f172a] border border-slate-700 text-slate-300 rounded-lg outline-none focus:border-emerald-600"
-              >
-                <option value="">-- Unassigned (Select Batch) --</option>
-                {displayBatches.map(b => (
-                  <option key={b.id} value={b.id}>{b.name}</option>
-                ))}
-              </select>
-              <button 
-                onClick={handleAssignBatch}
-                disabled={isAssigningBatch}
-                className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 rounded-lg text-xs transition-colors shadow-md disabled:opacity-50"
-              >
-                {isAssigningBatch ? 'Saving...' : 'Save Batch'}
-              </button>
-            </div>
+            {(() => {
+              const isLeadInOpenSem = selectedLead?.inquiryType === 'OPEN_SEMINAR' || selectedLead?.inquiryType === 'NORMAL';
+              const isSelectedBatchLocked = Boolean(selectedBatchToAssign && lockedBatchesMap[selectedBatchToAssign]);
+              const shouldDisableAllocation = isLeadInOpenSem && isSelectedBatchLocked;
+
+              return (
+                <div className={`p-4 rounded-xl border border-white/5 mb-4 shadow-sm transition-all ${
+                  shouldDisableAllocation ? 'bg-red-950/20 border-red-500/30' : 'bg-[#1a2430]'
+                }`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                      <FaLayerGroup /> Allocate to Batch
+                    </h3>
+                    {shouldDisableAllocation && (
+                      <span className="text-[9px] font-black uppercase text-rose-400 bg-rose-500/20 px-1.5 py-0.5 rounded border border-rose-500/30 flex items-center gap-1">
+                        <FaLock size={8} /> Open Sem Locked
+                      </span>
+                    )}
+                  </div>
+                  <select 
+                    value={selectedBatchToAssign} 
+                    onChange={(e) => setSelectedBatchToAssign(e.target.value)}
+                    className={`w-full mb-3 p-2 text-xs bg-[#0f172a] border rounded-lg outline-none transition-colors ${
+                      shouldDisableAllocation 
+                        ? 'border-red-500/50 text-red-300' 
+                        : 'border-slate-700 text-slate-300 focus:border-emerald-600'
+                    }`}
+                  >
+                    <option value="">-- Unassigned (Select Batch) --</option>
+                    {displayBatches.map(b => {
+                      const isLocked = Boolean(lockedBatchesMap[b.id]);
+                      return (
+                        <option 
+                          key={b.id} 
+                          value={b.id}
+                          className={isLocked ? 'text-rose-400 bg-slate-900' : ''}
+                        >
+                          {b.name} {isLocked ? '🔒 [Open Sem Locked]' : ''}
+                        </option>
+                      );
+                    })}
+                  </select>
+
+                  {shouldDisableAllocation && (
+                    <p className="text-[10px] text-rose-400/90 mb-2.5 leading-snug">
+                      ⚠️ Opening Seminar campaign for this batch is locked. Open Seminar lead allocations are disabled.
+                    </p>
+                  )}
+
+                  <button 
+                    onClick={handleAssignBatch}
+                    disabled={isAssigningBatch || shouldDisableAllocation}
+                    className={`w-full font-bold py-2 rounded-lg text-xs transition-all shadow-md flex items-center justify-center gap-1.5 ${
+                      shouldDisableAllocation
+                        ? 'bg-slate-800 text-slate-500 border border-slate-700 opacity-40 cursor-not-allowed pointer-events-none'
+                        : 'bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50'
+                    }`}
+                  >
+                    {isAssigningBatch ? 'Saving...' : shouldDisableAllocation ? '🔒 Campaign Locked' : 'Save Batch'}
+                  </button>
+                </div>
+              );
+            })()}
 
             {/* SYSTEM RECORDS */}
             <div className="bg-[#1a2430] p-4 rounded-xl border border-white/5 shadow-sm">
