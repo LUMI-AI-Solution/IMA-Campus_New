@@ -773,7 +773,12 @@ exports.getLeads = async (req, res) => {
             leads[i].image = userImg || null;
         }));
 
-        // Display only (see crm module): writing ENROLLED here undid the monthly reset.
+        if (leadsNeedingEnrollmentDbUpdate.length > 0) {
+            prisma.lead.updateMany({
+                where: { id: { in: leadsNeedingEnrollmentDbUpdate } },
+                data: { enrollmentStatus: 'ENROLLED' }
+            }).catch(err => console.error("Error auto-syncing enrolled leads:", err));
+        }
 
         // Map the correct campaign fields back to the base properties for frontend compatibility
         const mappedLeads = leads.map(l => {
