@@ -810,8 +810,6 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
                 <NavLink to="/admin/whatsapp-billing" className={getNavLinkClass}><CreditCard size={18} className={getIconColorClass('emerald')} /> {isSidebarOpen && <span className="truncate text-sm">WhatsApp Billing 💳</span>}</NavLink>
                 <NavLink to="/admin/data-export" className={getNavLinkClass}><BarChart size={18} className={getIconColorClass('cyan')} /> {isSidebarOpen && <span className="truncate text-sm">Data Analytics</span>}</NavLink>
                 <NavLink to="/admin/student-center" className={getNavLinkClass}><Database size={18} className={getIconColorClass('teal')} /> {isSidebarOpen && <span className="truncate text-sm">Student Data Center</span>}</NavLink>
-                <NavLink to="/admin/teacher-salary" className={getNavLinkClass}><GraduationCap size={18} className={getIconColorClass('purple')} /> {isSidebarOpen && <span className="truncate text-sm">Teachers Salary</span>}</NavLink>
-              <NavLink to="/finance/teacher-salary-history" className={getNavLinkClass}><History size={18} className={getIconColorClass('cyan')} /> {isSidebarOpen && <span className="truncate text-sm">Salary Cycle History</span>}</NavLink>
               </>
             ))}
 
