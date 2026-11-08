@@ -51,12 +51,15 @@ function sortByNearest(contents, now = new Date()) {
 }
 
 /** What the page shows. Never includes the Zoom link itself. */
-function livePageView(content, { courseName, batchName, access }) {
+function livePageView(content, { courseName, batchName, access, lecturerName, lecturerImage, thumbnail }) {
     return {
         id: content.id,
         title: content.title,
         courseName: courseName || null,
         batchName: batchName || null,
+        lecturerName: lecturerName || null,
+        lecturerImage: lecturerImage || null,
+        thumbnail: thumbnail || content.thumbnail || null,
         date: content.date || null,
         startTime: content.startTime || null,
         endTime: content.endTime || null,

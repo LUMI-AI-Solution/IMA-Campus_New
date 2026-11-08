@@ -11,7 +11,7 @@ const db = () => require('../../core/db');
 const router = express.Router();
 
 const LIVE_TYPES = ['live', '1'];
-const CONTENT_SELECT = { id: true, title: true, contentType: true, link: true, meetingId: true, date: true, startTime: true, endTime: true, courseId: true, batchId: true, createdAt: true };
+const CONTENT_SELECT = { id: true, title: true, contentType: true, link: true, meetingId: true, date: true, startTime: true, endTime: true, courseId: true, batchId: true, thumbnail: true, createdAt: true };
 const RECENT_DAYS = 180;
 // Zoom link changed / class deleted → the old link finds nothing. Send them to the dashboard.
 const NOT_FOUND_MSG = 'මෙම link එක දැන් වලංගු නැත (Zoom link එක වෙනස් වී හෝ class එක ඉවත් කර ඇත). ඔබගේ dashboard එකෙන් Join වන්න. / This link is no longer valid — join from your dashboard.';
@@ -42,11 +42,67 @@ async function accessFor(user, contentId) {
 }
 
 async function view(content, access) {
-    const [course, batch] = await Promise.all([
-        content.courseId ? db().course.findUnique({ where: { id: content.courseId }, select: { name: true } }) : null,
-        content.batchId ? db().batch.findUnique({ where: { id: content.batchId }, select: { name: true } }) : null,
-    ]);
-    return rules.livePageView(content, { courseName: course?.name, batchName: batch?.name, access });
+    let course = null;
+    if (content.courseId && content.courseId > 0) {
+        course = await db().course.findUnique({
+            where: { id: content.courseId },
+            select: { name: true, lecturerName: true, groupPrices: true },
+        });
+    }
+    if (!course) {
+        const cc = await db().contentCourse.findFirst({
+            where: { content_id: content.id },
+            orderBy: { id: 'asc' },
+        });
+        if (cc?.course_id) {
+            course = await db().course.findUnique({
+                where: { id: Number(cc.course_id) },
+                select: { name: true, lecturerName: true, groupPrices: true },
+            });
+        }
+    }
+
+    const batch = content.batchId
+        ? await db().batch.findUnique({ where: { id: content.batchId }, select: { name: true } })
+        : null;
+
+    let lecturerName = course?.lecturerName || null;
+    let lecturerImage = null;
+
+    if (course?.groupPrices) {
+        try {
+            const parsed = typeof course.groupPrices === 'string' ? JSON.parse(course.groupPrices) : course.groupPrices;
+            if (Array.isArray(parsed)) {
+                for (const item of parsed) {
+                    if (item?.lecturerImage) {
+                        lecturerImage = item.lecturerImage;
+                        break;
+                    }
+                }
+            }
+        } catch (e) {}
+    }
+
+    if (!lecturerImage && lecturerName) {
+        try {
+            const norm = (s) => s.replace(/^(mr|mrs|ms|dr|prof)\.?\s+/i, '').trim().toLowerCase();
+            const clean = norm(lecturerName);
+            const teachers = await db().physicalTeacher.findMany({ select: { name: true, image: true } });
+            const match = teachers.find((t) => norm(t.name).includes(clean) || clean.includes(norm(t.name)));
+            if (match?.image) {
+                lecturerImage = match.image;
+            }
+        } catch (e) {}
+    }
+
+    return rules.livePageView(content, {
+        courseName: course?.name,
+        batchName: batch?.name,
+        lecturerName,
+        lecturerImage,
+        thumbnail: content.thumbnail,
+        access,
+    });
 }
 
 // One link per Zoom meeting: find every live class (any batch) with that Zoom link and
