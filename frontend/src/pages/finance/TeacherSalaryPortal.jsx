@@ -195,6 +195,11 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
   const [formCommissionType, setFormCommissionType] = useState('PERCENTAGE'); // 'PERCENTAGE' | 'PER_STUDENT'
   const [formCommissionRate, setFormCommissionRate] = useState(70);
   const [formPerStudentRate, setFormPerStudentRate] = useState(1500);
+  const [formPerStudentRateMonthly, setFormPerStudentRateMonthly] = useState(1500);
+  const [formPerStudentRateFull, setFormPerStudentRateFull] = useState(1500);
+  const [formPerStudentRateUpgrade, setFormPerStudentRateUpgrade] = useState(1500);
+  const [formPerStudentRateInstallment, setFormPerStudentRateInstallment] = useState(1500);
+  const [formPerStudentRateAdjusted, setFormPerStudentRateAdjusted] = useState(1500);
   const [formFixedAmount, setFormFixedAmount] = useState(100000);
   const [formWhtRate, setFormWhtRate] = useState(5); // Default 5% Withholding Tax
   const [formApplyToAllBatches, setFormApplyToAllBatches] = useState(false);
@@ -413,7 +418,20 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
         grossSalary = Math.round(Number(rule.fixedAmount) || 0);
       } else if (rule.model === 'COMMISSION') {
         if (rule.commissionType === 'PER_STUDENT') {
-          grossSalary = Math.round(totalApproved * (Number(rule.perStudentRate) || 0));
+          const rDef = Number(rule.perStudentRate) || 0;
+          const rM = rule.perStudentRateMonthly !== undefined && rule.perStudentRateMonthly !== null ? Number(rule.perStudentRateMonthly) : rDef;
+          const rF = rule.perStudentRateFull !== undefined && rule.perStudentRateFull !== null ? Number(rule.perStudentRateFull) : rDef;
+          const rU = rule.perStudentRateUpgrade !== undefined && rule.perStudentRateUpgrade !== null ? Number(rule.perStudentRateUpgrade) : rDef;
+          const rI = rule.perStudentRateInstallment !== undefined && rule.perStudentRateInstallment !== null ? Number(rule.perStudentRateInstallment) : rDef;
+          const rA = rule.perStudentRateAdjusted !== undefined && rule.perStudentRateAdjusted !== null ? Number(rule.perStudentRateAdjusted) : rDef;
+
+          grossSalary = Math.round(
+            (monthlyCount * rM) +
+            (fullCount * rF) +
+            (upgradeCount * rU) +
+            (installmentCount * rI) +
+            (adjustedCount * rA)
+          );
         } else {
           grossSalary = Math.round((totalAmount * (Number(rule.commissionRate) || 0)) / 100);
         }
@@ -1174,7 +1192,13 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       setFormModel(cfg.model || 'COMMISSION');
       setFormCommissionType(cfg.commissionType || 'PERCENTAGE');
       setFormCommissionRate(cfg.commissionRate !== undefined ? cfg.commissionRate : 70);
-      setFormPerStudentRate(cfg.perStudentRate !== undefined ? cfg.perStudentRate : 1500);
+      const defRate = cfg.perStudentRate !== undefined ? cfg.perStudentRate : 1500;
+      setFormPerStudentRate(defRate);
+      setFormPerStudentRateMonthly(cfg.perStudentRateMonthly !== undefined ? cfg.perStudentRateMonthly : defRate);
+      setFormPerStudentRateFull(cfg.perStudentRateFull !== undefined ? cfg.perStudentRateFull : defRate);
+      setFormPerStudentRateUpgrade(cfg.perStudentRateUpgrade !== undefined ? cfg.perStudentRateUpgrade : defRate);
+      setFormPerStudentRateInstallment(cfg.perStudentRateInstallment !== undefined ? cfg.perStudentRateInstallment : defRate);
+      setFormPerStudentRateAdjusted(cfg.perStudentRateAdjusted !== undefined ? cfg.perStudentRateAdjusted : defRate);
       setFormFixedAmount(cfg.fixedAmount !== undefined ? cfg.fixedAmount : 100000);
       setFormWhtRate(cfg.whtRate !== undefined ? cfg.whtRate : 5);
       setFormNote(cfg.note || '');
@@ -1183,6 +1207,11 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       setFormCommissionType('PERCENTAGE');
       setFormCommissionRate(70);
       setFormPerStudentRate(1500);
+      setFormPerStudentRateMonthly(1500);
+      setFormPerStudentRateFull(1500);
+      setFormPerStudentRateUpgrade(1500);
+      setFormPerStudentRateInstallment(1500);
+      setFormPerStudentRateAdjusted(1500);
       setFormFixedAmount(100000);
       setFormWhtRate(5);
       setFormNote('');
@@ -1203,6 +1232,11 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
         commissionType: formCommissionType,
         commissionRate: parseFloat(formCommissionRate) || 0,
         perStudentRate: parseFloat(formPerStudentRate) || 0,
+        perStudentRateMonthly: parseFloat(formPerStudentRateMonthly) || 0,
+        perStudentRateFull: parseFloat(formPerStudentRateFull) || 0,
+        perStudentRateUpgrade: parseFloat(formPerStudentRateUpgrade) || 0,
+        perStudentRateInstallment: parseFloat(formPerStudentRateInstallment) || 0,
+        perStudentRateAdjusted: parseFloat(formPerStudentRateAdjusted) || 0,
         fixedAmount: parseFloat(formFixedAmount) || 0,
         whtRate: Math.max(0, parseFloat(formWhtRate) || 0),
         batchId: batch.id,
@@ -1271,9 +1305,20 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       baseFormula = `Fixed: Rs. ${gross.toLocaleString()}`;
     } else {
       if (formCommissionType === 'PER_STUDENT') {
-        const rate = parseFloat(formPerStudentRate) || 0;
-        gross = Math.round(students * rate);
-        baseFormula = `Rs. ${rate.toLocaleString()} × ${students} stu = Rs. ${gross.toLocaleString()}`;
+        const mCount = subject.monthlyCount || 0;
+        const fCount = subject.fullCount || 0;
+        const uCount = subject.upgradeCount || 0;
+        const iCount = subject.installmentCount || subject.mixCount || 0;
+        const aCount = subject.adjustedCount || 0;
+
+        const rM = parseFloat(formPerStudentRateMonthly) || 0;
+        const rF = parseFloat(formPerStudentRateFull) || 0;
+        const rU = parseFloat(formPerStudentRateUpgrade) || 0;
+        const rI = parseFloat(formPerStudentRateInstallment) || 0;
+        const rA = parseFloat(formPerStudentRateAdjusted) || 0;
+
+        gross = Math.round((mCount * rM) + (fCount * rF) + (uCount * rU) + (iCount * rI) + (aCount * rA));
+        baseFormula = `Full (${fCount}×Rs.${rF.toLocaleString()}) + Monthly (${mCount}×Rs.${rM.toLocaleString()})${uCount > 0 ? ` + Upgr (${uCount}×Rs.${rU.toLocaleString()})` : ''}${iCount > 0 ? ` + Inst (${iCount}×Rs.${rI.toLocaleString()})` : ''}${aCount > 0 ? ` + Adj (${aCount}×Rs.${rA.toLocaleString()})` : ''} = Rs. ${gross.toLocaleString()}`;
       } else {
         const pct = parseFloat(formCommissionRate) || 0;
         gross = Math.round((revenue * pct) / 100);
@@ -1294,7 +1339,7 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       instituteShare: institute,
       formula: wht > 0 ? `${baseFormula} (WHT ${wht}%: -Rs. ${whtAmt.toLocaleString()})` : baseFormula
     };
-  }, [selectedSubjectForSalary, formModel, formCommissionType, formCommissionRate, formPerStudentRate, formFixedAmount, formWhtRate]);
+  }, [selectedSubjectForSalary, formModel, formCommissionType, formCommissionRate, formPerStudentRate, formPerStudentRateMonthly, formPerStudentRateFull, formPerStudentRateUpgrade, formPerStudentRateInstallment, formPerStudentRateAdjusted, formFixedAmount, formWhtRate]);
 
   // Open Print Modal for a lecturer
   const handlePrintLecturer = (lecturer) => {
@@ -2442,7 +2487,11 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                                                         ) : subject.salaryConfig.commissionType === 'PER_STUDENT' ? (
                                                           <>
                                                             <Users size={12} className="text-cyan-400" />
-                                                            <span>Rs. {(Number(subject.salaryConfig.perStudentRate) || 0).toLocaleString()}/stu</span>
+                                                            <span>
+                                                              {subject.salaryConfig.perStudentRateMonthly && subject.salaryConfig.perStudentRateFull && subject.salaryConfig.perStudentRateMonthly !== subject.salaryConfig.perStudentRateFull
+                                                                ? `M:Rs.${Number(subject.salaryConfig.perStudentRateMonthly).toLocaleString()} / F:Rs.${Number(subject.salaryConfig.perStudentRateFull).toLocaleString()}`
+                                                                : `Rs. ${(Number(subject.salaryConfig.perStudentRate) || 0).toLocaleString()}/stu`}
+                                                            </span>
                                                           </>
                                                         ) : (
                                                           <>
@@ -2766,7 +2815,11 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                                                           ) : subject.salaryConfig.commissionType === 'PER_STUDENT' ? (
                                                             <>
                                                               <Users size={12} className="text-cyan-400" />
-                                                              <span>Rs. {(Number(subject.salaryConfig.perStudentRate) || 0).toLocaleString()}/stu</span>
+                                                              <span>
+                                                                {subject.salaryConfig.perStudentRateMonthly && subject.salaryConfig.perStudentRateFull && subject.salaryConfig.perStudentRateMonthly !== subject.salaryConfig.perStudentRateFull
+                                                                  ? `M:Rs.${Number(subject.salaryConfig.perStudentRateMonthly).toLocaleString()} / F:Rs.${Number(subject.salaryConfig.perStudentRateFull).toLocaleString()}`
+                                                                  : `Rs. ${(Number(subject.salaryConfig.perStudentRate) || 0).toLocaleString()}/stu`}
+                                                              </span>
                                                             </>
                                                           ) : (
                                                             <>
@@ -3516,25 +3569,192 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                       </p>
                     </div>
                   ) : (
-                    <div>
-                      <label className="text-xs font-bold text-slate-300 block mb-1.5">
-                        Rate per Paid Student (Rs.)
-                      </label>
-                      <div className="relative">
-                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">Rs.</span>
-                        <input
-                          type="number"
-                          min="0"
-                          step="100"
-                          value={formPerStudentRate}
-                          onChange={(e) => setFormPerStudentRate(e.target.value)}
-                          className="w-full bg-black/50 border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white font-bold focus:outline-none focus:border-cyan-500"
-                          placeholder="e.g. 1500"
-                        />
+                    <div className="space-y-3.5">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 pb-2.5">
+                        <div>
+                          <label className="text-xs font-bold text-slate-200 block">
+                            Rate per Paid Student by Payment Plan (ශිෂ්‍ය ගෙවීම් වර්ගය අනුව අනුපාතය)
+                          </label>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Set distinct per-student rates for Full payments, Monthly payments, Upgrade, etc.
+                          </p>
+                        </div>
+
+                        {/* QUICK FILL / SYNC HELPER */}
+                        <div className="flex items-center gap-1.5 bg-black/40 p-1.5 rounded-xl border border-white/10">
+                          <span className="text-[10px] font-bold text-slate-400 pl-1">Quick Fill:</span>
+                          <div className="relative w-24">
+                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold">Rs.</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="50"
+                              value={formPerStudentRate}
+                              onChange={(e) => setFormPerStudentRate(e.target.value)}
+                              className="w-full bg-black/60 border border-white/10 rounded-lg pl-6 pr-2 py-1 text-xs text-white font-bold focus:outline-none focus:border-cyan-500"
+                              placeholder="1500"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const val = formPerStudentRate;
+                              setFormPerStudentRateMonthly(val);
+                              setFormPerStudentRateFull(val);
+                              setFormPerStudentRateUpgrade(val);
+                              setFormPerStudentRateInstallment(val);
+                              setFormPerStudentRateAdjusted(val);
+                              toast.success("Applied to all payment options");
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-cyan-600/30 hover:bg-cyan-600 text-cyan-300 hover:text-white border border-cyan-500/40 text-[10px] font-black uppercase tracking-wider transition-all cursor-pointer"
+                          >
+                            Apply All
+                          </button>
+                        </div>
                       </div>
-                      <p className="text-[11px] text-slate-500 mt-1.5">
-                        Multiplied by approved paid students count ({selectedSubjectForSalary.subject.totalApproved}).
-                      </p>
+
+                      {/* PAYMENT PLANS GRID */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {/* 1. FULL PAYMENTS */}
+                        <div className="bg-purple-950/20 border border-purple-500/30 rounded-xl p-3">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-black text-purple-300">
+                              Full Payments (සම්පූර්ණ)
+                            </span>
+                            <span className="text-[10.5px] font-bold text-purple-200 bg-purple-500/20 px-2 py-0.5 rounded-md border border-purple-500/30">
+                              {selectedSubjectForSalary.subject.fullCount || 0} students
+                            </span>
+                          </div>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">Rs.</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="50"
+                              value={formPerStudentRateFull}
+                              onChange={(e) => setFormPerStudentRateFull(e.target.value)}
+                              className="w-full bg-black/60 border border-purple-500/30 focus:border-purple-400 rounded-xl pl-9 pr-3 py-2 text-sm text-white font-bold focus:outline-none"
+                              placeholder="e.g. 1500"
+                            />
+                          </div>
+                          <p className="text-[10.5px] text-slate-400 mt-1.5 flex justify-between">
+                            <span>Subtotal:</span>
+                            <span className="font-bold text-purple-300">Rs. {((selectedSubjectForSalary.subject.fullCount || 0) * (parseFloat(formPerStudentRateFull) || 0)).toLocaleString()}</span>
+                          </p>
+                        </div>
+
+                        {/* 2. MONTHLY PAYMENTS */}
+                        <div className="bg-blue-950/20 border border-blue-500/30 rounded-xl p-3">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-black text-blue-300">
+                              Monthly Payments (මාසික)
+                            </span>
+                            <span className="text-[10.5px] font-bold text-blue-200 bg-blue-500/20 px-2 py-0.5 rounded-md border border-blue-500/30">
+                              {selectedSubjectForSalary.subject.monthlyCount || 0} students
+                            </span>
+                          </div>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">Rs.</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="50"
+                              value={formPerStudentRateMonthly}
+                              onChange={(e) => setFormPerStudentRateMonthly(e.target.value)}
+                              className="w-full bg-black/60 border border-blue-500/30 focus:border-blue-400 rounded-xl pl-9 pr-3 py-2 text-sm text-white font-bold focus:outline-none"
+                              placeholder="e.g. 1500"
+                            />
+                          </div>
+                          <p className="text-[10.5px] text-slate-400 mt-1.5 flex justify-between">
+                            <span>Subtotal:</span>
+                            <span className="font-bold text-blue-300">Rs. {((selectedSubjectForSalary.subject.monthlyCount || 0) * (parseFloat(formPerStudentRateMonthly) || 0)).toLocaleString()}</span>
+                          </p>
+                        </div>
+
+                        {/* 3. UPGRADE PAYMENTS */}
+                        <div className="bg-rose-950/20 border border-rose-500/30 rounded-xl p-3">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-black text-rose-300">
+                              Upgrade Payments (අප්ග්‍රේඩ්)
+                            </span>
+                            <span className="text-[10.5px] font-bold text-rose-200 bg-rose-500/20 px-2 py-0.5 rounded-md border border-rose-500/30">
+                              {selectedSubjectForSalary.subject.upgradeCount || 0} students
+                            </span>
+                          </div>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">Rs.</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="50"
+                              value={formPerStudentRateUpgrade}
+                              onChange={(e) => setFormPerStudentRateUpgrade(e.target.value)}
+                              className="w-full bg-black/60 border border-rose-500/30 focus:border-rose-400 rounded-xl pl-9 pr-3 py-2 text-sm text-white font-bold focus:outline-none"
+                              placeholder="e.g. 1500"
+                            />
+                          </div>
+                          <p className="text-[10.5px] text-slate-400 mt-1.5 flex justify-between">
+                            <span>Subtotal:</span>
+                            <span className="font-bold text-rose-300">Rs. {((selectedSubjectForSalary.subject.upgradeCount || 0) * (parseFloat(formPerStudentRateUpgrade) || 0)).toLocaleString()}</span>
+                          </p>
+                        </div>
+
+                        {/* 4. INSTALLMENT PAYMENTS */}
+                        <div className="bg-fuchsia-950/20 border border-fuchsia-500/30 rounded-xl p-3">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-black text-fuchsia-300">
+                              Installment Payments (වාරික)
+                            </span>
+                            <span className="text-[10.5px] font-bold text-fuchsia-200 bg-fuchsia-500/20 px-2 py-0.5 rounded-md border border-fuchsia-500/30">
+                              {selectedSubjectForSalary.subject.installmentCount || selectedSubjectForSalary.subject.mixCount || 0} students
+                            </span>
+                          </div>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">Rs.</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="50"
+                              value={formPerStudentRateInstallment}
+                              onChange={(e) => setFormPerStudentRateInstallment(e.target.value)}
+                              className="w-full bg-black/60 border border-fuchsia-500/30 focus:border-fuchsia-400 rounded-xl pl-9 pr-3 py-2 text-sm text-white font-bold focus:outline-none"
+                              placeholder="e.g. 1500"
+                            />
+                          </div>
+                          <p className="text-[10.5px] text-slate-400 mt-1.5 flex justify-between">
+                            <span>Subtotal:</span>
+                            <span className="font-bold text-fuchsia-300">Rs. {(((selectedSubjectForSalary.subject.installmentCount || selectedSubjectForSalary.subject.mixCount || 0)) * (parseFloat(formPerStudentRateInstallment) || 0)).toLocaleString()}</span>
+                          </p>
+                        </div>
+
+                        {/* 5. ADJUSTED PAYMENTS */}
+                        <div className="bg-amber-950/20 border border-amber-500/30 rounded-xl p-3 sm:col-span-2">
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className="text-xs font-black text-amber-300">
+                              Adjusted Payments (ගැලපුම්)
+                            </span>
+                            <span className="text-[10.5px] font-bold text-amber-200 bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-500/30">
+                              {selectedSubjectForSalary.subject.adjustedCount || 0} students
+                            </span>
+                          </div>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">Rs.</span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="50"
+                              value={formPerStudentRateAdjusted}
+                              onChange={(e) => setFormPerStudentRateAdjusted(e.target.value)}
+                              className="w-full bg-black/60 border border-amber-500/30 focus:border-amber-400 rounded-xl pl-9 pr-3 py-2 text-sm text-white font-bold focus:outline-none"
+                              placeholder="e.g. 1500"
+                            />
+                          </div>
+                          <p className="text-[10.5px] text-slate-400 mt-1.5 flex justify-between">
+                            <span>Subtotal:</span>
+                            <span className="font-bold text-amber-300">Rs. {((selectedSubjectForSalary.subject.adjustedCount || 0) * (parseFloat(formPerStudentRateAdjusted) || 0)).toLocaleString()}</span>
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </>

@@ -594,8 +594,14 @@ exports.getTeacherSalaryBreakdown = async (req, res) => {
                             grossSalary = Math.round(Number(rule.fixedAmount) || 0);
                         } else if (rule.model === 'COMMISSION') {
                             if (rule.commissionType === 'PER_STUDENT') {
-                                const rate = Number(rule.perStudentRate) || 0;
-                                grossSalary = Math.round(totalPaidStudents * rate);
+                                const rDef = Number(rule.perStudentRate) || 0;
+                                const rM = rule.perStudentRateMonthly !== undefined && rule.perStudentRateMonthly !== null ? Number(rule.perStudentRateMonthly) : rDef;
+                                const rF = rule.perStudentRateFull !== undefined && rule.perStudentRateFull !== null ? Number(rule.perStudentRateFull) : rDef;
+                                const rU = rule.perStudentRateUpgrade !== undefined && rule.perStudentRateUpgrade !== null ? Number(rule.perStudentRateUpgrade) : rDef;
+                                const rI = rule.perStudentRateInstallment !== undefined && rule.perStudentRateInstallment !== null ? Number(rule.perStudentRateInstallment) : rDef;
+                                const rA = rule.perStudentRateAdjusted !== undefined && rule.perStudentRateAdjusted !== null ? Number(rule.perStudentRateAdjusted) : rDef;
+
+                                grossSalary = Math.round((monthlyC * rM) + (fullC * rF) + (upgradeC * rU) + (installmentC * rI) + (adjustedC * rA));
                             } else {
                                 // PERCENTAGE (default)
                                 const pct = Number(rule.commissionRate) || 0;
@@ -869,6 +875,11 @@ exports.saveTeacherSalaryConfig = async (req, res) => {
                 commissionType: rule.commissionType === 'PER_STUDENT' ? 'PER_STUDENT' : 'PERCENTAGE',
                 commissionRate: Number(rule.commissionRate) || 0,
                 perStudentRate: Number(rule.perStudentRate) || 0,
+                perStudentRateMonthly: rule.perStudentRateMonthly !== undefined ? Number(rule.perStudentRateMonthly) : (Number(rule.perStudentRate) || 0),
+                perStudentRateFull: rule.perStudentRateFull !== undefined ? Number(rule.perStudentRateFull) : (Number(rule.perStudentRate) || 0),
+                perStudentRateUpgrade: rule.perStudentRateUpgrade !== undefined ? Number(rule.perStudentRateUpgrade) : (Number(rule.perStudentRate) || 0),
+                perStudentRateInstallment: rule.perStudentRateInstallment !== undefined ? Number(rule.perStudentRateInstallment) : (Number(rule.perStudentRate) || 0),
+                perStudentRateAdjusted: rule.perStudentRateAdjusted !== undefined ? Number(rule.perStudentRateAdjusted) : (Number(rule.perStudentRate) || 0),
                 fixedAmount: Number(rule.fixedAmount) || 0,
                 whtRate: Math.max(0, Math.min(100, Number(rule.whtRate) || 0)),
                 batchId: rule.batchId || null,
@@ -1149,7 +1160,14 @@ exports.getTeacherSalaryHistory = async (req, res) => {
                                 if (rule.model === 'FIXED') {
                                     subGross = Math.round(Number(rule.fixedAmount) || 0);
                                 } else if (rule.commissionType === 'PER_STUDENT') {
-                                    subGross = Math.round(subStudents * (Number(rule.perStudentRate) || 0));
+                                    const rDef = Number(rule.perStudentRate) || 0;
+                                    const rM = rule.perStudentRateMonthly !== undefined && rule.perStudentRateMonthly !== null ? Number(rule.perStudentRateMonthly) : rDef;
+                                    const rF = rule.perStudentRateFull !== undefined && rule.perStudentRateFull !== null ? Number(rule.perStudentRateFull) : rDef;
+                                    const rU = rule.perStudentRateUpgrade !== undefined && rule.perStudentRateUpgrade !== null ? Number(rule.perStudentRateUpgrade) : rDef;
+                                    const rI = rule.perStudentRateInstallment !== undefined && rule.perStudentRateInstallment !== null ? Number(rule.perStudentRateInstallment) : rDef;
+                                    const rA = rule.perStudentRateAdjusted !== undefined && rule.perStudentRateAdjusted !== null ? Number(rule.perStudentRateAdjusted) : rDef;
+
+                                    subGross = Math.round((mCount * rM) + (fCount * rF) + (uCount * rU) + (installmentCount * rI) + (aCount * rA));
                                 } else {
                                     subGross = Math.round((subRev * (Number(rule.commissionRate) || 0)) / 100);
                                 }
