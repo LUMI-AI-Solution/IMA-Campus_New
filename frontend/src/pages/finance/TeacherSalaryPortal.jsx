@@ -228,6 +228,32 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
     }));
   };
 
+  // Marked Paper Classes per Business & Batch for Consolidated / Altogether Salary Slip: { [businessId]: { [batchId]: boolean } }
+  const [markedPaperClasses, setMarkedPaperClasses] = useState({});
+
+  const isPaperMarked = (businessId, batchId) => markedPaperClasses[businessId]?.[batchId] !== false;
+
+  const toggleMarkPaperClass = (businessId, batchId, checked) => {
+    setMarkedPaperClasses(prev => ({
+      ...prev,
+      [businessId]: {
+        ...(prev[businessId] || {}),
+        [batchId]: checked
+      }
+    }));
+  };
+
+  const toggleSelectAllPaperClasses = (business, selectAll) => {
+    const newMarks = {};
+    business.batches?.forEach(b => {
+      newMarks[b.id] = selectAll;
+    });
+    setMarkedPaperClasses(prev => ({
+      ...prev,
+      [business.id]: newMarks
+    }));
+  };
+
   // Final Salary Slip Modal & Download States
   const [finalSlipModalOpen, setFinalSlipModalOpen] = useState(false);
   const [selectedFinalSlipData, setSelectedFinalSlipData] = useState(null);
@@ -1905,14 +1931,28 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                           const markedBatchList = business.batches.filter(b => isMarked(b.id));
                           const allSelected = markedBatchList.length === business.batches.length;
 
+                          const paperBatches = business.batches.filter(b =>
+                            (b.paperSubjects && b.paperSubjects.length > 0) ||
+                            b.subjects?.some(s => s.classType === 2 || s.isPaperClass)
+                          );
+                          const allPaperSelected = paperBatches.length > 0 && paperBatches.every(b => isPaperMarked(business.id, b.id));
+
                           // Gather live adjusted data from all marked batches' duplicate sheets
                           const consolidatedAdjSubjects = markedBatchList.flatMap(batch =>
-                            (batch.subjects || []).map(s => ({
-                              subject: s,
-                              adj: getSubjectAdjustedData(s, batch.id, lecturer.name),
-                              batchId: batch.id,
-                              batchName: batch.name
-                            }))
+                            (batch.subjects || [])
+                              .filter(s => {
+                                const isPaper = s.classType === 2 || s.isPaperClass || batch.paperSubjects?.some(ps => ps.id === s.id);
+                                if (isPaper && !isPaperMarked(business.id, batch.id)) {
+                                  return false;
+                                }
+                                return true;
+                              })
+                              .map(s => ({
+                                subject: s,
+                                adj: getSubjectAdjustedData(s, batch.id, lecturer.name),
+                                batchId: batch.id,
+                                batchName: batch.name
+                              }))
                           );
 
                           const consolidatedSubtotal = consolidatedAdjSubjects.reduce((acc, { adj }) => {
@@ -1963,6 +2003,22 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                                     {allSelected ? `All ${business.batches.length} Batches Marked` : `Marked ${markedBatchList.length} of ${business.batches.length} Batches`}
                                   </span>
                                 </label>
+
+                                {/* PAPER CLASSES TOGGLE */}
+                                {paperBatches.length > 0 && (
+                                  <label className="flex items-center gap-2 cursor-pointer bg-black/50 hover:bg-black/70 px-3 py-1.5 rounded-xl border border-purple-500/30 transition-all select-none" title="Toggle all Paper Classes in this business">
+                                    <input
+                                      type="checkbox"
+                                      checked={allPaperSelected}
+                                      onChange={(e) => toggleSelectAllPaperClasses(business, e.target.checked)}
+                                      className="w-4 h-4 rounded text-purple-600 bg-slate-900 border-white/20 focus:ring-purple-500 cursor-pointer"
+                                    />
+                                    <span className="text-xs font-black text-purple-200 flex items-center gap-1.5">
+                                      <FileText size={12} className="text-purple-400" />
+                                      <span>Paper Classes {allPaperSelected ? 'Included' : 'Excluded'}</span>
+                                    </span>
+                                  </label>
+                                )}
 
                                 {/* LIVE ALTOGETHER TOTALS (REFLECTING ALL DUPLICATE EDITS) */}
                                 <div className="text-xs text-slate-300 flex items-center gap-2 flex-wrap">
@@ -2067,8 +2123,9 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                                         onChange={(e) => toggleMarkBatch(business.id, batch.id, e.target.checked)}
                                         className="w-4 h-4 rounded text-purple-600 bg-slate-900 border-white/20 focus:ring-purple-500 cursor-pointer"
                                       />
-                                      <span className="text-xs font-bold text-slate-200">
-                                        Batch: {batch.name}
+                                      <span className="text-sm font-black text-amber-300 bg-amber-500/15 border border-amber-500/35 px-2.5 py-1 rounded-lg tracking-wide shadow-sm flex items-center gap-1.5">
+                                        <span className="text-amber-400 text-xs font-bold uppercase tracking-wider">Batch:</span>
+                                        <span className="text-amber-200 font-extrabold">{batch.name}</span>
                                       </span>
                                     </label>
                                     {markedBatches[business.id]?.[batch.id] !== false ? (
@@ -2183,11 +2240,12 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                                   const hasAnySectionMod = sectionAdjSubjects.some(item => item.adj.isModified);
                                   const sectionSalaryDiff = sectionAdjSubtotal.teacherSalary - sectionRealSubtotal.teacherSalary;
                                   const isPaperSection = section.type === 'PAPER';
+                                  const isPaperIncluded = isPaperSection ? isPaperMarked(business.id, batch.id) : true;
 
                                   return (
                                     <div
                                       key={section.type}
-                                      className={`${sIdx > 0 ? 'border-t-4 border-slate-900/90' : ''}`}
+                                      className={`${sIdx > 0 ? 'border-t-4 border-slate-900/90' : ''} ${!isPaperIncluded ? 'opacity-65 transition-opacity' : ''}`}
                                     >
                                       {/* 🌟 CLASS TYPE SECTION HEADER (THEORY CLASS or PAPER CLASS) 🌟 */}
                                       <div className={`px-4 py-2 border-b flex flex-wrap items-center justify-between gap-2 ${
@@ -2196,6 +2254,16 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                                           : 'bg-gradient-to-r from-blue-950/60 via-[#132238] to-slate-950 border-blue-500/30 text-blue-200'
                                       }`}>
                                         <div className="flex items-center gap-2.5">
+                                          {isPaperSection && (
+                                            <label className="flex items-center cursor-pointer select-none" title="Include / Exclude Paper Class from Salary Slip">
+                                              <input
+                                                type="checkbox"
+                                                checked={isPaperIncluded}
+                                                onChange={(e) => toggleMarkPaperClass(business.id, batch.id, e.target.checked)}
+                                                className="w-4 h-4 rounded text-purple-600 bg-slate-900 border-purple-400/40 focus:ring-purple-500 cursor-pointer"
+                                              />
+                                            </label>
+                                          )}
                                           {isPaperSection ? (
                                             <div className="p-1.5 rounded-lg bg-purple-500/20 text-purple-300 border border-purple-500/30">
                                               <FileText size={15} />
@@ -2216,6 +2284,19 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                                             }`}>
                                               {section.badgeText}
                                             </span>
+                                            {isPaperSection && (
+                                              isPaperIncluded ? (
+                                                <span className="text-[9.5px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.2 rounded border border-emerald-500/20 flex items-center gap-1">
+                                                  <Check size={10} />
+                                                  <span>Marked for Altogether Slip</span>
+                                                </span>
+                                              ) : (
+                                                <span className="text-[9.5px] font-bold text-rose-400 bg-rose-500/10 px-1.5 py-0.2 rounded border border-rose-500/20 flex items-center gap-1">
+                                                  <X size={10} />
+                                                  <span>Excluded</span>
+                                                </span>
+                                              )
+                                            )}
                                           </div>
                                         </div>
 
