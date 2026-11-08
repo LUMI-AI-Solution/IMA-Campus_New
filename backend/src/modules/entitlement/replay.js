@@ -47,9 +47,9 @@ if (require.main === module) {
         console.log('BY REASON', JSON.stringify(r.byReason));
         const sample = r.still.sort(() => Math.random() - 0.5).slice(0, 12);
         for (const x of sample) {
-            const course = x.kind === 'course' ? await prisma.course.findUnique({ where: { id: x.id }, select: { name: true, groupId: true, batchId: true, courseType: true } }) : null;
-            const g = course ? await prisma.group.findUnique({ where: { id: course.groupId }, select: { name: true } }) : null;
-            console.log(`STUDENT ${x.studentId} | ${x.kind} ${x.id} ${course ? course.name + ' / ' + (g && g.name) + ' / batch ' + course.batchId + ' / type ' + course.courseType : ''} | ${x.reason}`);
+            const course = x.kind === 'course' ? await prisma.course.findUnique({ where: { id: x.id }, select: { name: true, groupId: true, courseType: true, group: { select: { name: true, batchId: true } } } }) : null;
+            const g = course ? course.group : null;
+            console.log(`STUDENT ${x.studentId} | ${x.kind} ${x.id} ${course ? course.name + ' / ' + (g && g.name) + ' / batch ' + (g && g.batchId) + ' / type ' + course.courseType : ''} | ${x.reason}`);
             const ps = await prisma.payment.findMany({ where: { studentId: x.studentId }, orderBy: { id: 'desc' }, take: 4, select: { id: true, status: true, payment_type: true, batchId: true, groupId: true, subjects: true, created_at: true } });
             const gn = new Map((await prisma.group.findMany({ where: { id: { in: ps.map((p) => p.groupId).filter(Boolean) } }, select: { id: true, name: true } })).map((gg) => [gg.id, gg.name]));
             for (const p of ps) console.log(`   pay ${p.id} status ${p.status} type ${p.payment_type} batch ${p.batchId} group ${gn.get(p.groupId)} subjects ${p.subjects} date ${p.created_at.toISOString().slice(0, 10)}`);
