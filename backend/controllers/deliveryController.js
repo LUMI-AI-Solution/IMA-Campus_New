@@ -848,6 +848,59 @@ jobs.schedule('delivery-daily-0800', '0 8 * * *', async () => {
     }
 });
 
+// Helper to resolve packer names from SystemAuditLog for a collection of deliveries
+async function resolvePackersForDeliveries(deliveries) {
+    const packerMap = {};
+    if (!deliveries || deliveries.length === 0) return packerMap;
+
+    try {
+        const deliveryStaff = await prisma.user.findMany({
+            where: { department: { contains: 'Delivery' } },
+            select: { id: true, firstName: true, lastName: true }
+        });
+        const staffMap = {};
+        const staffIds = deliveryStaff.map(u => {
+            const fullName = `${u.firstName || ''} ${u.lastName || ''}`.trim();
+            staffMap[u.id] = fullName;
+            return u.id;
+        });
+
+        if (staffIds.length === 0) return packerMap;
+
+        const dateTimes = deliveries
+            .map(d => new Date(d.packedAt || d.updatedAt || d.createdAt).getTime())
+            .filter(t => !isNaN(t));
+
+        if (dateTimes.length === 0) return packerMap;
+
+        const minDate = new Date(Math.min(...dateTimes) - 86400000);
+        const maxDate = new Date(Math.max(...dateTimes) + 86400000);
+
+        const packLogs = await prisma.systemAuditLog.findMany({
+            where: {
+                userId: { in: staffIds },
+                endpoint: '/api/admin/delivery/pack',
+                statusCode: 200,
+                createdAt: { gte: minDate, lte: maxDate }
+            },
+            select: { userId: true, payload: true },
+            orderBy: { id: 'asc' }
+        });
+
+        packLogs.forEach(log => {
+            if (log.payload && log.payload.deliveryId) {
+                const delId = parseInt(log.payload.deliveryId);
+                if (!isNaN(delId)) {
+                    packerMap[delId] = staffMap[log.userId] || 'Staff';
+                }
+            }
+        });
+    } catch (err) {
+        console.error("resolvePackersForDeliveries error:", err);
+    }
+    return packerMap;
+}
+
 exports.getDispatchDeliveries = async (req, res) => {
     try {
         const { businessId } = req.query;
@@ -880,6 +933,7 @@ exports.getDispatchDeliveries = async (req, res) => {
         });
 
         const tagOf = await require('../src/modules/delivery/classTag').classTagger(prisma, deliveries);
+        const packerMap = await resolvePackersForDeliveries(deliveries);
         const formatted = deliveries.map(d => {
             const std = d.payment?.student || {};
             const addressParts = [std.addressHouseNo, std.addressStreet, std.city, std.district].filter(Boolean);
@@ -898,6 +952,7 @@ exports.getDispatchDeliveries = async (req, res) => {
                 batchName: d.payment?.batch?.name || 'Batch Not Assigned',
                 groupName: d.payment?.group?.name || 'No Group',
                 classTag: tagOf(d),
+                packedBy: packerMap[d.id] || null,
                 items: d.items.flatMap(item => resolveTutesForDeliveryItem(item, d, courses, allGroups))
             };
         });
@@ -975,6 +1030,7 @@ exports.getAdvancedHistory = async (req, res) => {
         });
 
         const tagOf = await require('../src/modules/delivery/classTag').classTagger(prisma, deliveries);
+        const packerMap = await resolvePackersForDeliveries(deliveries);
         const formatted = deliveries.map(d => {
             const bizName = businesses.find(b => b.id === d.businessId)?.name || 'Unknown';
             const std = d.payment?.student || {};
@@ -1004,6 +1060,7 @@ exports.getAdvancedHistory = async (req, res) => {
                 packedAt: d.packedAt,
                 packRemark: d.packRemark,
                 classTag: tagOf(d),
+                packedBy: packerMap[d.id] || null,
                 items: itemsWithDetails
             };
         });
@@ -2282,6 +2339,9 @@ exports.getPackingCalendarHistory = async (req, res) => {
             orderBy: { packedAt: 'desc' }
         });
 
+        // Preload packers from audit log
+        const packerMap = await resolvePackersForDeliveries(deliveries);
+
         // Preload courses, groups, and businesses for resolution
         const courseIds = [...new Set(deliveries.flatMap(d => d.items.map(i => i.courseId)).filter(Boolean))];
         const courses = await prisma.course.findMany({ where: { id: { in: courseIds } } });
@@ -2296,6 +2356,7 @@ exports.getPackingCalendarHistory = async (req, res) => {
         const lecturerStatsMap = {};
         const tuteStatsMap = {};
         const businessStatsMap = {};
+        const staffStatsMap = {};
 
         let totalOrdersPacked = 0;
         let totalTutesPacked = 0;
@@ -2325,12 +2386,29 @@ exports.getPackingCalendarHistory = async (req, res) => {
                     tutesCount: 0,
                     lecturers: {},
                     businesses: {},
-                    sampleItems: []
+                    sampleItems: [],
+                    staff: {}
                 };
             }
 
             daysMap[dateStr].ordersCount += 1;
             daysMap[dateStr].tutesCount += delTutesCount;
+
+            // Track staff packer breakdown
+            const packerName = packerMap[del.id] || null;
+            if (packerName) {
+                if (!daysMap[dateStr].staff[packerName]) {
+                    daysMap[dateStr].staff[packerName] = { name: packerName, ordersCount: 0, tutesCount: 0 };
+                }
+                daysMap[dateStr].staff[packerName].ordersCount += 1;
+                daysMap[dateStr].staff[packerName].tutesCount += delTutesCount;
+
+                if (!staffStatsMap[packerName]) {
+                    staffStatsMap[packerName] = { name: packerName, ordersCount: 0, tutesCount: 0 };
+                }
+                staffStatsMap[packerName].ordersCount += 1;
+                staffStatsMap[packerName].tutesCount += delTutesCount;
+            }
 
             const bizName = businessNameMap[del.businessId] || 'Other Business';
             daysMap[dateStr].businesses[bizName] = (daysMap[dateStr].businesses[bizName] || 0) + delTutesCount;
@@ -2373,6 +2451,13 @@ exports.getPackingCalendarHistory = async (req, res) => {
         const activeDaysCount = Object.keys(daysMap).length;
         const dailyAverage = activeDaysCount > 0 ? Math.round(totalTutesPacked / activeDaysCount) : 0;
 
+        // Format staffBreakdown list for each day
+        Object.values(daysMap).forEach(d => {
+            d.staffBreakdown = Object.values(d.staff || {}).sort((a, b) => b.ordersCount - a.ordersCount);
+        });
+
+        const monthlyStaffBreakdown = Object.values(staffStatsMap).sort((a, b) => b.ordersCount - a.ordersCount);
+
         let peakDay = { date: 'N/A', count: 0 };
         Object.values(daysMap).forEach(d => {
             if (d.tutesCount > peakDay.count) {
@@ -2396,7 +2481,8 @@ exports.getPackingCalendarHistory = async (req, res) => {
                 dailyAverage,
                 peakDay,
                 todayTutesCount,
-                todayOrdersCount
+                todayOrdersCount,
+                staffBreakdown: monthlyStaffBreakdown
             },
             days: daysMap,
             topLecturers,
@@ -2443,6 +2529,9 @@ exports.getPackingDayDetails = async (req, res) => {
             orderBy: { packedAt: 'desc' }
         });
 
+        // Preload packers for day deliveries
+        const packerMap = await resolvePackersForDeliveries(deliveries);
+
         const courseIds = [...new Set(deliveries.flatMap(d => d.items.map(i => i.courseId)).filter(Boolean))];
         const courses = await prisma.course.findMany({ where: { id: { in: courseIds } } });
         const batchIds = [...new Set(deliveries.map(d => d.payment?.batchId).filter(Boolean))];
@@ -2455,6 +2544,7 @@ exports.getPackingDayDetails = async (req, res) => {
         let formattedDeliveries = [];
         const lecturerCounts = {};
         const tuteCounts = {};
+        const staffCounts = {};
         let dayTotalTutes = 0;
 
         deliveries.forEach(del => {
@@ -2482,6 +2572,15 @@ exports.getPackingDayDetails = async (req, res) => {
                 tuteCounts[tName] = (tuteCounts[tName] || 0) + (i.quantity || 1);
             });
 
+            const packerName = packerMap[del.id] || null;
+            if (packerName) {
+                if (!staffCounts[packerName]) {
+                    staffCounts[packerName] = { name: packerName, ordersCount: 0, tutesCount: 0 };
+                }
+                staffCounts[packerName].ordersCount += 1;
+                staffCounts[packerName].tutesCount += orderTutesCount;
+            }
+
             formattedDeliveries.push({
                 id: del.id,
                 orderNo: `ORD-${del.id}`,
@@ -2496,6 +2595,7 @@ exports.getPackingDayDetails = async (req, res) => {
                 trackingNumber: del.trackingNumber || 'N/A',
                 packRemark: del.packRemark || '',
                 packedAt: del.packedAt || del.updatedAt,
+                packedBy: packerName,
                 totalTutesCount: orderTutesCount,
                 items: filteredItems.map(i => ({
                     tuteName: i.tuteName,
@@ -2513,6 +2613,7 @@ exports.getPackingDayDetails = async (req, res) => {
             date,
             totalOrders: formattedDeliveries.length,
             totalTutes: dayTotalTutes,
+            staffSummary: Object.values(staffCounts).sort((a, b) => b.ordersCount - a.ordersCount),
             lecturerSummary: Object.entries(lecturerCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
             tuteSummary: Object.entries(tuteCounts).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count),
             deliveries: formattedDeliveries

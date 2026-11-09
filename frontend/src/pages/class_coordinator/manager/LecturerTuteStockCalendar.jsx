@@ -5,7 +5,7 @@ import {
   Package, Calendar, Truck, Clock, CheckCircle, AlertTriangle, Search, Filter,
   RefreshCw, BarChart3, Layers, User, Phone, MapPin, ChevronLeft, ChevronRight,
   ChevronDown, ChevronUp, Maximize2, Minimize2,
-  X, Sparkles, Box, TrendingUp, ArrowUpRight, Copy, Check, Eye, BookOpen, AlertCircle
+  X, Sparkles, Box, TrendingUp, ArrowUpRight, Copy, Check, Eye, BookOpen, AlertCircle, Users
 } from 'lucide-react';
 import {
   ResponsiveContainer, BarChart, Bar, AreaChart, Area, XAxis, YAxis,
@@ -744,6 +744,53 @@ export default function LecturerTuteStockCalendar({ loggedInUser }) {
             </div>
           </div>
 
+          {/* 👥 Monthly Delivery Staff Breakdown */}
+          {calendarData.summary?.staffBreakdown && calendarData.summary.staffBreakdown.length > 0 && (
+            <div className="mb-6 p-4 rounded-3xl bg-gradient-to-r from-amber-500/10 via-purple-500/10 to-blue-500/10 border border-amber-500/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-sm">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-amber-500/20 text-amber-500 rounded-2xl shadow-xs">
+                  <Users size={20} />
+                </div>
+                <div>
+                  <h4 className="text-xs font-black uppercase tracking-wider text-gray-900 dark:text-white flex items-center gap-2">
+                    Delivery Staff Breakdown
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-600 dark:text-amber-400 font-black">
+                      {monthNames[currentMonth - 1]} {currentYear}
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-gray-500 dark:text-slate-400 font-bold mt-0.5">
+                    Individual packing counts for Delivery Department staff
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+                {calendarData.summary.staffBreakdown.map((staff, sIdx) => {
+                  const initials = staff.name.split(' ').map(n => n[0]).join('').slice(0, 2);
+                  const isPurple = sIdx % 2 === 0;
+                  return (
+                    <div
+                      key={sIdx}
+                      className="flex items-center gap-3 bg-white/90 dark:bg-black/50 px-4 py-2.5 rounded-2xl border border-gray-200 dark:border-white/10 shadow-xs flex-1 sm:flex-none min-w-[200px]"
+                    >
+                      <span className={`w-8 h-8 rounded-xl text-white font-black text-xs flex items-center justify-center shrink-0 shadow-sm ${
+                        isPurple ? 'bg-gradient-to-br from-purple-500 to-indigo-600' : 'bg-gradient-to-br from-blue-500 to-cyan-600'
+                      }`}>
+                        {initials}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-black text-gray-900 dark:text-white truncate">{staff.name}</p>
+                        <p className="text-[11px] font-bold text-gray-500 dark:text-slate-400">
+                          <span className="text-amber-500 font-black">{staff.ordersCount.toLocaleString()}</span> Orders &bull; <span className="text-blue-500 font-black">{staff.tutesCount.toLocaleString()}</span> Tutes
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Calendar 7-Day Grid */}
           <div className="grid grid-cols-7 gap-2 sm:gap-3">
             {dayNames.map((dName, idx) => (
@@ -797,6 +844,30 @@ export default function LecturerTuteStockCalendar({ loggedInUser }) {
                         <Truck size={10} className="text-amber-500 shrink-0" />
                         <span>{orders} Orders</span>
                       </p>
+
+                      {/* Staff Breakdown Badges */}
+                      {cell.data?.staffBreakdown && cell.data.staffBreakdown.length > 0 && (
+                        <div className="pt-1 flex flex-wrap gap-1">
+                          {cell.data.staffBreakdown.map((st, sIdx) => {
+                            const firstName = st.name.split(' ')[0];
+                            const isPurple = sIdx % 2 === 0;
+                            return (
+                              <span
+                                key={sIdx}
+                                className={`text-[9px] font-black px-1.5 py-0.5 rounded-md flex items-center gap-1 border shadow-2xs ${
+                                  isPurple
+                                    ? 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/25'
+                                    : 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/25'
+                                }`}
+                                title={`${st.name}: ${st.ordersCount} orders (${st.tutesCount} tutes)`}
+                              >
+                                <span className="opacity-80 font-bold">{firstName}:</span>
+                                <span>{st.ordersCount}</span>
+                              </span>
+                            );
+                          })}
+                        </div>
+                      )}
 
                       {/* Top Lecturer Snapshot */}
                       {cell.data?.sampleItems && cell.data.sampleItems.length > 0 && (
@@ -1183,6 +1254,46 @@ export default function LecturerTuteStockCalendar({ loggedInUser }) {
                     </div>
                   </div>
 
+                  {/* 👥 Staff Day Packing Cards */}
+                  {dayDetails.staffSummary && dayDetails.staffSummary.length > 0 && (
+                    <div className="bg-gradient-to-r from-amber-500/10 via-purple-500/10 to-blue-500/10 p-4 rounded-3xl border border-amber-500/20 space-y-3">
+                      <div className="flex items-center gap-2">
+                        <Users size={16} className="text-amber-500" />
+                        <span className="text-xs font-black uppercase tracking-wider text-gray-900 dark:text-white">
+                          Staff Packing Output on {selectedDay}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {dayDetails.staffSummary.map((staff, sIdx) => {
+                          const initials = staff.name.split(' ').map(n => n[0]).join('').slice(0, 2);
+                          const isPurple = sIdx % 2 === 0;
+                          return (
+                            <div
+                              key={sIdx}
+                              className="flex items-center justify-between p-3.5 rounded-2xl bg-white/90 dark:bg-black/50 border border-gray-200 dark:border-white/10 shadow-xs"
+                            >
+                              <div className="flex items-center gap-3">
+                                <span className={`w-8 h-8 rounded-xl text-white font-black text-xs flex items-center justify-center shrink-0 shadow-sm ${
+                                  isPurple ? 'bg-gradient-to-br from-purple-500 to-indigo-600' : 'bg-gradient-to-br from-blue-500 to-cyan-600'
+                                }`}>
+                                  {initials}
+                                </span>
+                                <div>
+                                  <p className="text-xs font-black text-gray-900 dark:text-white">{staff.name}</p>
+                                  <p className="text-[10px] text-gray-400 font-bold">Delivery Department</p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs font-black text-amber-500">{staff.ordersCount.toLocaleString()} Orders</p>
+                                <p className="text-[10px] font-bold text-gray-500 dark:text-slate-400">{staff.tutesCount.toLocaleString()} Tutes</p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
                   {/* Search within Day */}
                   <div className="relative">
                     <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
@@ -1204,13 +1315,19 @@ export default function LecturerTuteStockCalendar({ loggedInUser }) {
                       >
                         {/* Order Top Bar */}
                         <div className="flex flex-wrap justify-between items-start gap-2 pb-3 border-b border-gray-100 dark:border-white/5">
-                          <div className="flex items-center gap-3">
+                          <div className="flex flex-wrap items-center gap-2.5">
                             <span className="px-3 py-1 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 font-black text-xs border border-amber-500/20">
                               {order.orderNo}
                             </span>
                             <span className="text-[11px] font-black text-gray-500 dark:text-slate-400">
                               {order.businessName} &bull; {order.batchName}
                             </span>
+                            {order.packedBy && (
+                              <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 text-[10px] font-black">
+                                <Users size={11} className="shrink-0" />
+                                <span>Packed by: {order.packedBy}</span>
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-2">

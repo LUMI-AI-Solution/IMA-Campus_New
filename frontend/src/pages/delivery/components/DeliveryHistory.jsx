@@ -106,7 +106,7 @@ export default function DeliveryHistory({ isReadOnly }) {
                 return;
             }
 
-            const headers = ["Order ID", "Student Name", "Phone", "Address", "Business", "Batch", "Payment Type", "Class Type", "Status", "Tracking Number", "Subjects Included"];
+            const headers = ["Order ID", "Student Name", "Phone", "Address", "Business", "Batch", "Payment Type", "Class Type", "Status", "Tracking Number", "Packed By", "Subjects Included"];
             
             const csvRows = data.map(row => {
                 const subjectsStr = row.items ? row.items.map(i => `${i.tuteName} (x${i.quantity})`).join(' | ') : 'N/A';
@@ -122,6 +122,7 @@ export default function DeliveryHistory({ isReadOnly }) {
                     `"${row.classTag || 'Theory'}"`,
                     `"${row.status}"`,
                     `"${row.trackingNumber || 'N/A'}"`,
+                    `"${row.packedBy || 'N/A'}"`,
                     `"${subjectsStr}"`
                 ].join(',');
             });
@@ -336,14 +337,15 @@ export default function DeliveryHistory({ isReadOnly }) {
                                     <th className="p-5 font-black whitespace-nowrap">Plan Type</th>
                                     <th className="p-5 font-black whitespace-nowrap">Batch & Status</th>
                                     <th className="p-5 font-black whitespace-nowrap">Tracking</th>
+                                    <th className="p-5 font-black whitespace-nowrap">Packed By</th>
                                     <th className="p-5 font-black text-center whitespace-nowrap">Action</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100 dark:divide-white/5 transition-colors">
                                 {loading ? (
-                                    <tr><td colSpan="7" className="p-10 text-center"><Loader2 className="animate-spin text-brand-accent mx-auto" size={30}/></td></tr>
+                                    <tr><td colSpan="8" className="p-10 text-center"><Loader2 className="animate-spin text-brand-accent mx-auto" size={30}/></td></tr>
                                 ) : historyData.length === 0 ? (
-                                    <tr><td colSpan="7" className="p-10 text-center text-gray-500 dark:text-slate-400 font-bold">No history data found.</td></tr>
+                                    <tr><td colSpan="8" className="p-10 text-center text-gray-500 dark:text-slate-400 font-bold">No history data found.</td></tr>
                                 ) : (
                                     historyData.map((row) => (
                                         <tr key={row.id} className="hover:bg-white/40 dark:hover:bg-white/[0.05] transition-colors">
@@ -470,6 +472,22 @@ export default function DeliveryHistory({ isReadOnly }) {
                                                         </button>
                                                     )}
                                                 </div>
+                                            </td>
+
+                                            <td className="p-4">
+                                                {row.packedBy ? (
+                                                    <div className="flex items-center gap-2.5">
+                                                        <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500/20 to-purple-500/20 text-indigo-600 dark:text-indigo-400 font-black text-xs flex items-center justify-center border border-indigo-500/30 shrink-0">
+                                                            {row.packedBy.split(' ').map(n => n[0]).join('').slice(0, 2)}
+                                                        </span>
+                                                        <div className="flex flex-col min-w-0">
+                                                            <span className="text-xs font-bold text-gray-800 dark:text-slate-200 whitespace-nowrap">{row.packedBy}</span>
+                                                            <span className="text-[9px] text-gray-400 font-semibold uppercase tracking-wider">Delivery Staff</span>
+                                                        </div>
+                                                    </div>
+                                                ) : (
+                                                    <span className="text-gray-400 dark:text-slate-500 text-xs font-bold">—</span>
+                                                )}
                                             </td>
 
                                             <td className="p-4 text-center">
