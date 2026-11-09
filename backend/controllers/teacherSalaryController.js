@@ -608,11 +608,11 @@ exports.getTeacherSalaryBreakdown = async (req, res) => {
                                 grossSalary = Math.round((subRevenue * pct) / 100);
                             }
                         }
-                        whtRate = Number(rule.whtRate) || 0;
-                        if (whtRate > 0) {
-                            whtAmount = Math.round((grossSalary * whtRate) / 100);
-                        }
-                        teacherSalary = Math.max(0, grossSalary - whtAmount);
+                        // WHT is handled exclusively at the final slip / voucher level (Section 5)
+                        // when monthly teacher remuneration >= Rs. 100,000
+                        whtRate = 0;
+                        whtAmount = 0;
+                        teacherSalary = grossSalary;
                     }
                     const instituteShare = Math.max(0, Math.round(subRevenue - grossSalary));
 
@@ -881,7 +881,7 @@ exports.saveTeacherSalaryConfig = async (req, res) => {
                 perStudentRateInstallment: rule.perStudentRateInstallment !== undefined ? Number(rule.perStudentRateInstallment) : (Number(rule.perStudentRate) || 0),
                 perStudentRateAdjusted: rule.perStudentRateAdjusted !== undefined ? Number(rule.perStudentRateAdjusted) : (Number(rule.perStudentRate) || 0),
                 fixedAmount: Number(rule.fixedAmount) || 0,
-                whtRate: Math.max(0, Math.min(100, Number(rule.whtRate) || 0)),
+                whtRate: 0,
                 batchId: rule.batchId || null,
                 batchName: rule.batchName || '',
                 subjectName: rule.subjectName || '',
@@ -1176,9 +1176,9 @@ exports.getTeacherSalaryHistory = async (req, res) => {
                                 subGross = Math.round(subRev * ratio);
                             }
 
-                            const wRate = Number(rule?.whtRate ?? s.whtRate ?? 0) || 0;
-                            const wAmt = wRate > 0 ? Math.round((subGross * wRate) / 100) : 0;
-                            const subNet = Math.max(0, subGross - wAmt);
+                            const wRate = 0;
+                            const wAmt = 0;
+                            const subNet = subGross;
 
                             adjustedStudents += subStudents;
                             adjustedIncome += subRev;

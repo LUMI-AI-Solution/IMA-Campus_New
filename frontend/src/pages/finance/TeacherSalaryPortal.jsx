@@ -441,9 +441,11 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       grossSalary = Math.round(totalAmount * ratio);
     }
 
-    const whtRate = Number(rule?.whtRate ?? subject.whtRate ?? 0) || 0;
-    const whtAmount = whtRate > 0 ? Math.round((grossSalary * whtRate) / 100) : 0;
-    const teacherSalary = Math.max(0, grossSalary - whtAmount);
+    // WHT is handled exclusively at the final slip / voucher level (Section 5)
+    // when monthly teacher remuneration >= Rs. 100,000
+    const whtRate = 0;
+    const whtAmount = 0;
+    const teacherSalary = grossSalary;
     const instituteShare = Math.max(0, totalAmount - grossSalary);
 
     const isModified = adj !== undefined && (
@@ -595,6 +597,10 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       grossSalary: 0, whtAmount: 0, teacherSalary: 0, instituteShare: 0
     });
 
+    const initialWhtRate = savedConfig.whtRate !== undefined
+      ? Number(savedConfig.whtRate)
+      : (data.whtRate !== undefined ? Number(data.whtRate) : 5);
+
     setPreSlipData({
       ...data,
       baseAdjSubjects: cleanBaseAdjSubjects,
@@ -603,7 +609,8 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       deductions: initialDeductions,
       additions: initialAdditions,
       manualBatches: initialManualBatches,
-      breakdownMode: initialMode
+      breakdownMode: initialMode,
+      whtRate: initialWhtRate
     });
     setPreSlipModalOpen(true);
   };
@@ -755,11 +762,19 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       const batchId = preSlipData.isConsolidated ? `MULTI-${preSlipData.business?.id}` : preSlipData.batch?.id;
       const voucherKey = preSlipData.voucherKey || getVoucherAdjKey(monthKey, preSlipData.lecturer?.name, batchId, preSlipData.sectionType);
 
+      const baseTotalGross = (preSlipData.baseSubtotalAdj?.grossSalary ?? preSlipData.subtotalAdj?.grossSalary ?? 0)
+        + cleanManualBatches.reduce((s, b) => s + (parseFloat(b.grossAmount) || 0), 0);
+      const isEligibleForWht = baseTotalGross >= 100000;
+      const slipWhtRate = isEligibleForWht
+        ? (preSlipData.whtRate !== undefined ? Number(preSlipData.whtRate) : 5)
+        : 0;
+
       const voucherPayload = {
         deductions: cleanDeductions,
         additions: cleanAdditions,
         manualBatches: cleanManualBatches,
-        breakdownMode: preSlipData.breakdownMode || 'DETAILED'
+        breakdownMode: preSlipData.breakdownMode || 'DETAILED',
+        whtRate: slipWhtRate
       };
 
       const updatedAllAdjustments = {
@@ -866,12 +881,38 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       batchName: b.batchName || 'Manual Batch'
     }));
 
+    const baseTotalGross = cleanBaseSubtotalAdj.grossSalary + cleanManualBatches.reduce((s, b) => s + (parseFloat(b.grossAmount) || 0), 0);
+    const isEligibleForWht = baseTotalGross >= 100000;
+    const slipWhtRate = isEligibleForWht
+      ? (preSlipData.whtRate !== undefined ? Number(preSlipData.whtRate) : 5)
+      : 0;
+    const slipWhtAmount = (isEligibleForWht && slipWhtRate > 0)
+      ? Math.round((baseTotalGross * slipWhtRate) / 100)
+      : 0;
+
+    const allRows = [...cleanBaseAdjSubjects, ...manualAdjRows];
+    const adjustedSubjectRows = allRows.map(item => {
+      const rowGross = item.adj?.grossSalary || 0;
+      const rowWht = (isEligibleForWht && slipWhtRate > 0) ? Math.round((rowGross * slipWhtRate) / 100) : 0;
+      const rowNet = Math.max(0, rowGross - rowWht);
+      return {
+        ...item,
+        adj: {
+          ...item.adj,
+          whtRate: slipWhtRate,
+          whtAmount: rowWht,
+          teacherSalary: rowNet
+        }
+      };
+    });
+
     const finalSubtotalAdj = {
       ...cleanBaseSubtotalAdj,
       totalApproved: cleanBaseSubtotalAdj.totalApproved + cleanManualBatches.reduce((s, b) => s + (parseInt(b.studentCount) || 0), 0),
-      grossSalary: cleanBaseSubtotalAdj.grossSalary + cleanManualBatches.reduce((s, b) => s + (parseFloat(b.grossAmount) || 0), 0),
-      whtAmount: cleanBaseSubtotalAdj.whtAmount + cleanManualBatches.reduce((s, b) => s + (parseFloat(b.whtAmount) || 0), 0),
-      teacherSalary: cleanBaseSubtotalAdj.teacherSalary + cleanManualBatches.reduce((s, b) => s + (parseFloat(b.netAmount) || (parseFloat(b.grossAmount) || 0) - (parseFloat(b.whtAmount) || 0)), 0)
+      grossSalary: baseTotalGross,
+      whtRate: slipWhtRate,
+      whtAmount: slipWhtAmount,
+      teacherSalary: Math.max(0, baseTotalGross - slipWhtAmount)
     };
 
     const monthKey = selectedBillingMonth || activeCycle?.monthKey || 'default';
@@ -882,7 +923,8 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       deductions: cleanDeductions,
       additions: cleanAdditions,
       manualBatches: cleanManualBatches,
-      breakdownMode: preSlipData.breakdownMode || 'DETAILED'
+      breakdownMode: preSlipData.breakdownMode || 'DETAILED',
+      whtRate: slipWhtRate
     };
 
     setCustomAdjustments(prev => ({
@@ -903,12 +945,14 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       ...preSlipData,
       baseAdjSubjects: cleanBaseAdjSubjects,
       baseSubtotalAdj: cleanBaseSubtotalAdj,
-      adjSubjects: [...cleanBaseAdjSubjects, ...manualAdjRows],
+      adjSubjects: adjustedSubjectRows,
       subtotalAdj: finalSubtotalAdj,
       deductions: cleanDeductions,
       additions: cleanAdditions,
       manualBatches: cleanManualBatches,
-      breakdownMode: preSlipData.breakdownMode || 'DETAILED'
+      breakdownMode: preSlipData.breakdownMode || 'DETAILED',
+      whtRate: slipWhtRate,
+      whtAmount: slipWhtAmount
     };
 
     setSelectedFinalSlipData(finalData);
@@ -1200,7 +1244,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       setFormPerStudentRateInstallment(cfg.perStudentRateInstallment !== undefined ? cfg.perStudentRateInstallment : defRate);
       setFormPerStudentRateAdjusted(cfg.perStudentRateAdjusted !== undefined ? cfg.perStudentRateAdjusted : defRate);
       setFormFixedAmount(cfg.fixedAmount !== undefined ? cfg.fixedAmount : 100000);
-      setFormWhtRate(cfg.whtRate !== undefined ? cfg.whtRate : 5);
       setFormNote(cfg.note || '');
     } else {
       setFormModel('COMMISSION');
@@ -1213,7 +1256,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       setFormPerStudentRateInstallment(1500);
       setFormPerStudentRateAdjusted(1500);
       setFormFixedAmount(100000);
-      setFormWhtRate(5);
       setFormNote('');
     }
     setFormApplyToAllBatches(false);
@@ -1238,7 +1280,7 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
         perStudentRateInstallment: parseFloat(formPerStudentRateInstallment) || 0,
         perStudentRateAdjusted: parseFloat(formPerStudentRateAdjusted) || 0,
         fixedAmount: parseFloat(formFixedAmount) || 0,
-        whtRate: Math.max(0, parseFloat(formWhtRate) || 0),
+        whtRate: 0,
         batchId: batch.id,
         batchName: batch.name,
         subjectName: subject.name,
@@ -1326,20 +1368,17 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
       }
     }
 
-    const wht = Math.max(0, parseFloat(formWhtRate) || 0);
-    const whtAmt = wht > 0 ? Math.round((gross * wht) / 100) : 0;
-    const net = Math.max(0, gross - whtAmt);
     const institute = Math.max(0, revenue - gross);
 
     return {
       grossSalary: gross,
-      whtRate: wht,
-      whtAmount: whtAmt,
-      netSalary: net,
+      whtRate: 0,
+      whtAmount: 0,
+      netSalary: gross,
       instituteShare: institute,
-      formula: wht > 0 ? `${baseFormula} (WHT ${wht}%: -Rs. ${whtAmt.toLocaleString()})` : baseFormula
+      formula: baseFormula
     };
-  }, [selectedSubjectForSalary, formModel, formCommissionType, formCommissionRate, formPerStudentRate, formPerStudentRateMonthly, formPerStudentRateFull, formPerStudentRateUpgrade, formPerStudentRateInstallment, formPerStudentRateAdjusted, formFixedAmount, formWhtRate]);
+  }, [selectedSubjectForSalary, formModel, formCommissionType, formCommissionRate, formPerStudentRate, formPerStudentRateMonthly, formPerStudentRateFull, formPerStudentRateUpgrade, formPerStudentRateInstallment, formPerStudentRateAdjusted, formFixedAmount]);
 
   // Open Print Modal for a lecturer
   const handlePrintLecturer = (lecturer) => {
@@ -2499,11 +2538,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                                                             <span>{subject.salaryConfig.commissionRate}% Comm</span>
                                                           </>
                                                         )}
-                                                        {subject.salaryConfig.whtRate > 0 && (
-                                                          <span className="px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[9px] font-bold">
-                                                            WHT {subject.salaryConfig.whtRate}%
-                                                          </span>
-                                                        )}
                                                         <Settings size={11} className="text-slate-400" />
                                                       </button>
                                                     ) : (
@@ -2827,11 +2861,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                                                               <span>{subject.salaryConfig.commissionRate}% Comm</span>
                                                             </>
                                                           )}
-                                                          {subject.salaryConfig.whtRate > 0 && (
-                                                            <span className="px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[9px] font-bold">
-                                                              WHT {subject.salaryConfig.whtRate}%
-                                                            </span>
-                                                          )}
                                                           <Settings size={11} className="text-slate-400" />
                                                         </button>
                                                       ) : (
@@ -3147,11 +3176,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                                       <Percent size={12} className="text-emerald-400" />
                                       <span>{s.salaryConfig.commissionRate}% Comm</span>
                                     </>
-                                  )}
-                                  {s.salaryConfig.whtRate > 0 && (
-                                    <span className="px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 text-[9px] font-bold">
-                                      WHT {s.salaryConfig.whtRate}%
-                                    </span>
                                   )}
                                   <Settings size={11} className="text-slate-400" />
                                 </button>
@@ -3781,63 +3805,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                 </div>
               )}
 
-              {/* WITHHOLDING TAX (WHT / AIT) SECTION */}
-              <div className="bg-black/40 p-4 rounded-2xl border border-amber-500/20 space-y-2.5 mt-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                    <Percent size={13} className="text-amber-400" />
-                    <span>Withholding Tax (WHT / AIT) Rate (%)</span>
-                  </label>
-                  <span className="text-[10px] text-amber-400/90 font-bold uppercase tracking-wider">
-                    {parseFloat(formWhtRate) > 0 ? `Deducting ${formWhtRate}% from Gross` : 'No Tax Deducted (0%)'}
-                  </span>
-                </div>
-
-                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type="number"
-                      min="0"
-                      max="100"
-                      step="0.5"
-                      value={formWhtRate}
-                      onChange={(e) => setFormWhtRate(e.target.value)}
-                      className="w-full bg-black/60 border border-white/10 rounded-xl px-3 py-2 text-sm text-white font-bold focus:outline-none focus:border-amber-500"
-                      placeholder="e.g. 5"
-                    />
-                    <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xs">%</span>
-                  </div>
-
-                  {/* Quick Preset Buttons */}
-                  <div className="flex items-center gap-1.5">
-                    {[
-                      { rate: '0', label: '0% (None)' },
-                      { rate: '5', label: '5% (Service)' },
-                      { rate: '10', label: '10%' },
-                      { rate: '14', label: '14%' }
-                    ].map((p) => {
-                      const isSelected = String(formWhtRate) === p.rate;
-                      return (
-                        <button
-                          key={p.rate}
-                          type="button"
-                          onClick={() => setFormWhtRate(p.rate)}
-                          className={`px-2.5 py-2 rounded-xl text-xs font-bold transition-all ${
-                            isSelected
-                              ? 'bg-amber-500 text-slate-950 shadow-md font-black ring-1 ring-amber-300'
-                              : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5'
-                          }`}
-                        >
-                          {p.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-                <p className="text-[11px] text-slate-400">
-                  Under Inland Revenue regulations, Service/Lecturer fee WHT is deducted from gross teacher salary before net payment.
-                </p>
-              </div>
             </div>
 
             {/* LIVE CALCULATION PREVIEW BOX */}
@@ -3849,29 +3816,23 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                 </span>
                 <span className="text-[10px] text-slate-400 font-semibold">{modalLivePreview.formula}</span>
               </div>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-2 border-t border-white/5">
-                <div className="bg-blue-950/30 p-2.5 rounded-xl border border-blue-500/30">
-                  <span className="text-[9px] font-bold uppercase text-blue-400">Teacher Gross</span>
-                  <p className="text-base font-black text-blue-300 mt-0.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-2 border-t border-white/5">
+                <div className="bg-emerald-950/30 p-3 rounded-xl border border-emerald-500/30">
+                  <span className="text-[9px] font-bold uppercase text-emerald-400">Teacher Remuneration</span>
+                  <p className="text-lg font-black text-emerald-300 mt-0.5">
                     Rs. {(modalLivePreview?.grossSalary || 0).toLocaleString()}
                   </p>
-                </div>
-                <div className="bg-amber-950/30 p-2.5 rounded-xl border border-amber-500/30">
-                  <span className="text-[9px] font-bold uppercase text-amber-400">WHT ({modalLivePreview.whtRate}%)</span>
-                  <p className="text-base font-black text-amber-300 mt-0.5">
-                    -Rs. {(modalLivePreview?.whtAmount || 0).toLocaleString()}
+                  <p className="text-[9.5px] text-slate-400 mt-1">
+                    WHT / AIT will be evaluated on the total monthly voucher (≥ Rs. 100,000 threshold).
                   </p>
                 </div>
-                <div className="bg-emerald-950/30 p-2.5 rounded-xl border border-emerald-500/30">
-                  <span className="text-[9px] font-bold uppercase text-emerald-400">Net Teacher Payout</span>
-                  <p className="text-base font-black text-emerald-300 mt-0.5">
-                    Rs. {(modalLivePreview?.netSalary || 0).toLocaleString()}
-                  </p>
-                </div>
-                <div className="bg-purple-950/30 p-2.5 rounded-xl border border-purple-500/30">
+                <div className="bg-purple-950/30 p-3 rounded-xl border border-purple-500/30">
                   <span className="text-[9px] font-bold uppercase text-purple-400">Institute Retained</span>
-                  <p className="text-base font-black text-purple-300 mt-0.5">
+                  <p className="text-lg font-black text-purple-300 mt-0.5">
                     Rs. {(modalLivePreview?.instituteShare || 0).toLocaleString()}
+                  </p>
+                  <p className="text-[9.5px] text-slate-400 mt-1">
+                    Retained institute revenue from this batch.
                   </p>
                 </div>
               </div>
@@ -3973,20 +3934,26 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
               const manualBatches = preSlipData.manualBatches || [];
               const manualBatchesStu = manualBatches.reduce((s, b) => s + (parseInt(b.studentCount) || 0), 0);
               const manualBatchesGross = manualBatches.reduce((s, b) => s + (parseFloat(b.grossAmount) || 0), 0);
-              const manualBatchesWht = manualBatches.reduce((s, b) => s + (parseFloat(b.whtAmount) || 0), 0);
-              const manualBatchesNet = manualBatches.reduce((s, b) => s + (parseFloat(b.netAmount) || ((parseFloat(b.grossAmount) || 0) - (parseFloat(b.whtAmount) || 0))), 0);
 
               const baseTotalApproved = (preSlipData.baseSubtotalAdj?.totalApproved ?? preSlipData.subtotalAdj?.totalApproved ?? 0);
               const baseGrossSalary = (preSlipData.baseSubtotalAdj?.grossSalary ?? preSlipData.subtotalAdj?.grossSalary ?? 0);
-              const baseNetSalary = (preSlipData.baseSubtotalAdj?.teacherSalary ?? preSlipData.subtotalAdj?.teacherSalary ?? 0);
 
               const liveTotalApproved = baseTotalApproved + manualBatchesStu;
               const liveGrossSalary = baseGrossSalary + manualBatchesGross;
-              const liveBaseNetSalary = baseNetSalary + manualBatchesNet;
+              const baseRemuneration = liveGrossSalary;
+
+              // WHT is applicable ONLY if Base Remuneration >= Rs. 100,000. Under 100,000, Section 5 disappears and WHT is 0.
+              const isEligibleForWht = baseRemuneration >= 100000;
+              const currentWhtRate = isEligibleForWht
+                ? (preSlipData.whtRate !== undefined ? Number(preSlipData.whtRate) : 5)
+                : 0;
+              const slipWhtAmount = (isEligibleForWht && currentWhtRate > 0)
+                ? Math.round((baseRemuneration * currentWhtRate) / 100)
+                : 0;
 
               const totalAdditions = (preSlipData.additions || []).reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
               const totalDeductions = (preSlipData.deductions || []).reduce((s, d) => s + (parseFloat(d.amount) || 0), 0);
-              const finalNetPayable = Math.max(0, liveBaseNetSalary + totalAdditions - totalDeductions);
+              const finalNetPayable = Math.max(0, baseRemuneration - slipWhtAmount + totalAdditions - totalDeductions);
 
               return (
                 <div className="p-4 md:p-6 overflow-y-auto space-y-6 flex-1 custom-scrollbar">
@@ -4012,9 +3979,11 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                       </p>
                     </div>
                     <div>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Base Net Salary</p>
+                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        {slipWhtAmount > 0 ? `Net Base (After WHT ${currentWhtRate}%)` : 'Base Remuneration'}
+                      </p>
                       <p className="text-xs font-black text-purple-300 mt-0.5">
-                        Rs. {liveBaseNetSalary.toLocaleString()}
+                        Rs. {(baseRemuneration - slipWhtAmount).toLocaleString()}
                       </p>
                     </div>
                   </div>
@@ -4504,18 +4473,113 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                     </div>
                   </div>
 
+                  {/* 🔥 SECTION 5: WITHHOLDING TAX (WHT / AIT) (අත්හිටුවීමේ බද්ද) 🔥 */}
+                  {/* Under Rs. 100,000, Section 5 disappears completely as requested */}
+                  {isEligibleForWht && (
+                    <div className="bg-amber-950/20 border border-amber-500/30 rounded-2xl p-4 md:p-5 space-y-3.5 animate-fade-in">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/20 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Percent size={16} className="text-amber-400" />
+                          <div>
+                            <h4 className="text-xs font-black uppercase tracking-wider text-amber-300 flex items-center gap-2">
+                              <span>5. Withholding Tax (WHT / AIT) (අත්හිටුවීමේ බද්ද)</span>
+                              <span className="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[9.5px] font-black uppercase">
+                                Eligible (Base Remuneration ≥ Rs. 100,000)
+                              </span>
+                            </h4>
+                            <p className="text-[10.5px] text-slate-400">
+                              Under Inland Revenue regulations, Service/Lecturer fee WHT is applicable when total monthly remuneration is Rs. 100,000 or more.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-xs font-black text-amber-400 block">
+                            {currentWhtRate > 0 ? `WHT (${currentWhtRate}%): -Rs. ${slipWhtAmount.toLocaleString()}` : '0% WHT (No Tax Deducted)'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
+                        <div className="relative flex-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                            WHT Rate (%)
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.5"
+                              value={preSlipData.whtRate !== undefined ? preSlipData.whtRate : 5}
+                              onChange={(e) => setPreSlipData(prev => ({ ...prev, whtRate: e.target.value }))}
+                              className="w-full bg-slate-900/90 border border-amber-500/40 focus:border-amber-400 rounded-xl px-3.5 py-2 text-xs text-white font-bold outline-none"
+                              placeholder="e.g. 5"
+                            />
+                            <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-amber-400 font-bold text-xs">%</span>
+                          </div>
+                        </div>
+
+                        {/* QUICK PRESET BUTTONS */}
+                        <div className="flex-1">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                            Quick Tax Presets
+                          </label>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {[
+                              { rate: 0, label: '0% (None)' },
+                              { rate: 5, label: '5% (Service)' },
+                              { rate: 10, label: '10%' },
+                              { rate: 14, label: '14%' }
+                            ].map((preset) => {
+                              const isSelected = Number(preSlipData.whtRate !== undefined ? preSlipData.whtRate : 5) === preset.rate;
+                              return (
+                                <button
+                                  key={preset.rate}
+                                  type="button"
+                                  onClick={() => setPreSlipData(prev => ({ ...prev, whtRate: preset.rate }))}
+                                  className={`px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                    isSelected
+                                      ? 'bg-amber-500 text-slate-950 shadow-md font-black ring-1 ring-amber-300'
+                                      : 'bg-black/40 hover:bg-white/10 text-slate-300 border border-white/10'
+                                  }`}
+                                >
+                                  {preset.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-2.5 rounded-xl bg-black/40 border border-white/5 flex items-center justify-between text-[11px]">
+                        <span className="text-slate-400">
+                          Base Remuneration: <strong className="text-white">Rs. {baseRemuneration.toLocaleString()}</strong>
+                        </span>
+                        <span className="text-amber-300 font-bold">
+                          {currentWhtRate > 0 ? `Deducting ${currentWhtRate}% = -Rs. ${slipWhtAmount.toLocaleString()}` : '0% WHT (Full payout)'}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
                   {/* LIVE SETTLEMENT CALCULATION BAR */}
                   <div className="bg-gradient-to-r from-slate-900 via-indigo-950/40 to-slate-900 rounded-2xl p-4 md:p-5 border border-purple-500/30 flex flex-wrap items-center justify-between gap-4 shadow-xl">
                     <div className="space-y-1 text-xs">
                       <div className="flex items-center gap-3">
                         <span className="text-slate-400 font-semibold">Base Remuneration (Batches):</span>
-                        <span className="text-white font-bold">Rs. {liveBaseNetSalary.toLocaleString()}</span>
-                        {manualBatchesNet > 0 && (
+                        <span className="text-white font-bold">Rs. {baseRemuneration.toLocaleString()}</span>
+                        {manualBatchesGross > 0 && (
                           <span className="text-[10px] font-bold text-indigo-300">
-                            (incl. +Rs. {manualBatchesNet.toLocaleString()} manual batches)
+                            (incl. +Rs. {manualBatchesGross.toLocaleString()} manual batches)
                           </span>
                         )}
                       </div>
+                      {slipWhtAmount > 0 && (
+                        <div className="flex items-center gap-3 text-amber-400 font-bold">
+                          <span>(-) Withholding Tax (WHT {currentWhtRate}%):</span>
+                          <span>-Rs. {slipWhtAmount.toLocaleString()}</span>
+                        </div>
+                      )}
                       {totalAdditions > 0 && (
                         <div className="flex items-center gap-3 text-emerald-400 font-bold">
                           <span>(+) Allowances & Other Additions:</span>
