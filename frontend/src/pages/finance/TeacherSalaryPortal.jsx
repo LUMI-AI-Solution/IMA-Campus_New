@@ -3934,6 +3934,8 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
               const manualBatches = preSlipData.manualBatches || [];
               const manualBatchesStu = manualBatches.reduce((s, b) => s + (parseInt(b.studentCount) || 0), 0);
               const manualBatchesGross = manualBatches.reduce((s, b) => s + (parseFloat(b.grossAmount) || 0), 0);
+              const manualBatchesWht = manualBatches.reduce((s, b) => s + (parseFloat(b.whtAmount) || 0), 0);
+              const manualBatchesNet = manualBatches.reduce((s, b) => s + (parseFloat(b.netAmount) || ((parseFloat(b.grossAmount) || 0) - (parseFloat(b.whtAmount) || 0))), 0);
 
               const baseTotalApproved = (preSlipData.baseSubtotalAdj?.totalApproved ?? preSlipData.subtotalAdj?.totalApproved ?? 0);
               const baseGrossSalary = (preSlipData.baseSubtotalAdj?.grossSalary ?? preSlipData.subtotalAdj?.grossSalary ?? 0);
