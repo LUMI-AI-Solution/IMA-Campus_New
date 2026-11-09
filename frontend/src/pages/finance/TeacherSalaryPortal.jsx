@@ -4469,7 +4469,7 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                           </span>
                         </div>
                         <p className="text-[10.5px] text-slate-400 leading-relaxed">
-                          Hides payment category breakdowns. Displays only <strong className="text-emerald-300">Total Paid Students</strong>, Gross, WHT, and Net Salary.
+                          Hides payment category breakdowns. Displays only <strong className="text-emerald-300">Total Paid Students</strong>, Gross, and Net Salary.
                         </p>
                       </div>
                     </div>
@@ -4977,7 +4977,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                   const hasUpgrade = !isSimpleMode && (sub.upgradeCount || 0) > 0;
                   const hasInstallment = !isSimpleMode && ((sub.installmentCount || 0) > 0 || (sub.mixCount || 0) > 0);
                   const hasAdjusted = !isSimpleMode && (sub.adjustedCount || 0) > 0;
-                  const hasWht = (sub.whtAmount || 0) > 0;
 
                   return (
                     <div className={`overflow-hidden rounded-xl border mb-5 relative z-10 ${
@@ -5002,7 +5001,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                             <th className={`py-2.5 px-3 text-right font-black ${
                               isLight ? 'text-indigo-950 font-black' : 'text-indigo-300'
                             }`}>Gross (Rs.)</th>
-                            {hasWht && <th className="py-2.5 px-2.5 text-right">WHT</th>}
                             <th className={`py-2.5 px-3 text-right font-black ${
                               isLight ? 'text-emerald-700' : 'text-emerald-400'
                             }`}>Net Salary (Rs.)</th>
@@ -5092,13 +5090,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                               }`}>
                                 Rs. {(adj?.grossSalary || 0).toLocaleString()}
                               </td>
-                              {hasWht && (
-                                <td className={`py-2.5 px-2.5 text-right font-bold ${
-                                  isLight ? 'text-amber-700' : 'text-amber-400'
-                                }`}>
-                                  {(adj?.whtAmount || 0) > 0 ? `-Rs. ${(adj?.whtAmount || 0).toLocaleString()}` : '-'}
-                                </td>
-                              )}
                               <td className={`py-2.5 px-3 text-right font-black ${
                                 isLight ? 'text-emerald-700' : 'text-emerald-400'
                               }`}>
@@ -5161,13 +5152,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                             }`}>
                               Rs. {(sub.grossSalary || 0).toLocaleString()}
                             </td>
-                            {hasWht && (
-                              <td className={`py-2.5 px-2.5 text-right font-bold ${
-                                isLight ? 'text-amber-700' : 'text-amber-400'
-                              }`}>
-                                {(sub.whtAmount || 0) > 0 ? `-Rs. ${(sub.whtAmount || 0).toLocaleString()}` : '-'}
-                              </td>
-                            )}
                             <td className={`py-2.5 px-3 text-right font-black text-sm ${
                               isLight ? 'text-emerald-700' : 'text-emerald-400'
                             }`}>
