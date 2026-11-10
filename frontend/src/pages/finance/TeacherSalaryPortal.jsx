@@ -5001,9 +5001,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                             <th className={`py-2.5 px-3 text-right font-black ${
                               isLight ? 'text-indigo-950 font-black' : 'text-indigo-300'
                             }`}>Gross (Rs.)</th>
-                            <th className={`py-2.5 px-3 text-right font-black ${
-                              isLight ? 'text-emerald-700' : 'text-emerald-400'
-                            }`}>Net Salary (Rs.)</th>
                           </tr>
                         </thead>
                         <tbody className={`divide-y text-xs font-medium ${
@@ -5090,11 +5087,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                               }`}>
                                 Rs. {(adj?.grossSalary || 0).toLocaleString()}
                               </td>
-                              <td className={`py-2.5 px-3 text-right font-black ${
-                                isLight ? 'text-emerald-700' : 'text-emerald-400'
-                              }`}>
-                                Rs. {(adj?.teacherSalary || 0).toLocaleString()}
-                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -5151,11 +5143,6 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
                               isLight ? 'text-indigo-950 font-black' : 'text-indigo-300 font-bold'
                             }`}>
                               Rs. {(sub.grossSalary || 0).toLocaleString()}
-                            </td>
-                            <td className={`py-2.5 px-3 text-right font-black text-sm ${
-                              isLight ? 'text-emerald-700' : 'text-emerald-400'
-                            }`}>
-                              Rs. {(sub.teacherSalary || 0).toLocaleString()}
                             </td>
                           </tr>
                         </tfoot>
