@@ -238,6 +238,75 @@ const getStudentOverdueInstallmentBatchIds = async (studentId) => {
 };
 exports.getStudentOverdueInstallmentBatchIds = getStudentOverdueInstallmentBatchIds;
 
+// Helper to resolve the correct monthly groupId matching subjects classType (Theory=1, Paper=2)
+const resolveTargetMonthlyGroupId = async (batchId, candidateGroupId, subjectIds) => {
+    let resolvedId = candidateGroupId ? parseInt(candidateGroupId) : null;
+    const cleanSubIds = (Array.isArray(subjectIds) ? subjectIds : []).map(Number).filter(Boolean);
+    if (!resolvedId || cleanSubIds.length === 0) return resolvedId;
+
+    const courses = await prisma.course.findMany({
+        where: { id: { in: cleanSubIds } },
+        select: { id: true, courseType: true, group: { select: { classType: true } } }
+    });
+    if (courses.length === 0) return resolvedId;
+
+    const hasPaper = courses.some(c => parseInt(c.courseType || c.group?.classType || 1, 10) === 2);
+    const hasTheory = courses.some(c => parseInt(c.courseType || c.group?.classType || 1, 10) === 1);
+
+    let targetClassType = null;
+    if (hasPaper && !hasTheory) targetClassType = 2;
+    else if (hasTheory && !hasPaper) targetClassType = 1;
+
+    if (!targetClassType) return resolvedId;
+
+    const curGroup = await prisma.group.findUnique({ where: { id: resolvedId } });
+    if (!curGroup) return resolvedId;
+
+    const curClassType = parseInt(curGroup.classType || 1, 10);
+    if (curClassType === targetClassType) {
+        return resolvedId;
+    }
+
+    const bId = parseInt(batchId || curGroup.batchId);
+    if (!bId) return resolvedId;
+
+    const candidateGroups = await prisma.group.findMany({
+        where: {
+            batchId: bId,
+            type: 1,
+            classType: targetClassType
+        }
+    });
+
+    const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+    const curNameLower = (curGroup.name || '').toLowerCase();
+    const detectedMonth = monthNames.find(m => curNameLower.includes(m));
+
+    let matchedGroup = null;
+    // 1. Try to match candidate group with the same calendar month name
+    if (detectedMonth) {
+        matchedGroup = candidateGroups.find(g => (g.name || '').toLowerCase().includes(detectedMonth));
+    }
+    // 2. If no month name match, try matching by itemOrder
+    if (!matchedGroup && curGroup.itemOrder) {
+        matchedGroup = candidateGroups.find(g => g.itemOrder === curGroup.itemOrder);
+    }
+    // 3. Fallback: match by partial name
+    if (!matchedGroup) {
+        const rawCleanName = (curGroup.name || '').replace(/monthly payment\s*[-–_]?\s*/i, '').trim().toLowerCase();
+        if (rawCleanName) {
+            matchedGroup = candidateGroups.find(g => (g.name || '').toLowerCase().includes(rawCleanName));
+        }
+    }
+
+    if (matchedGroup) {
+        return matchedGroup.id;
+    }
+
+    return resolvedId;
+};
+exports.resolveTargetMonthlyGroupId = resolveTargetMonthlyGroupId;
+
 // 1. Dashboard
 exports.getStudentDashboard = async (req, res) => {
     try {
@@ -1125,6 +1194,8 @@ exports.enrollStudent = async (req, res) => {
                 let resolvedUpgGroupId = upg.groupId ? parseInt(upg.groupId) : null;
                 if (parsedPaymentType === 2 || parsedPaymentType === 3) {
                     resolvedUpgGroupId = await resolveTargetFullGroupId(upg.batchId, upg.groupId, upgSubList);
+                } else if (parsedPaymentType === 1) {
+                    resolvedUpgGroupId = await resolveTargetMonthlyGroupId(upg.batchId, upg.groupId, upgSubList);
                 }
 
                 const newPayment = await prisma.payment.create({
@@ -1235,6 +1306,8 @@ exports.enrollStudent = async (req, res) => {
         const parsedSubjectsList = (typeof subjects === 'string' ? JSON.parse(subjects) : (subjects || [])).map(Number).filter(Boolean);
         if (parsedPaymentType === 2 || parsedPaymentType === 3) {
             resolvedEnrollGroupId = await resolveTargetFullGroupId(batchId, groupId, parsedSubjectsList);
+        } else if (parsedPaymentType === 1) {
+            resolvedEnrollGroupId = await resolveTargetMonthlyGroupId(batchId, groupId, parsedSubjectsList);
         }
 
         const newPayment = await prisma.payment.create({
@@ -1308,6 +1381,22 @@ exports.getStudentClassroom = async (req, res) => {
 
         const validBatchIds = [...new Set(effectivePayments.map(p => p.batchId).filter(Boolean))];
         let validGroupIds = [...new Set(effectivePayments.map(p => p.groupId).filter(Boolean))];
+
+        // 🔥 FIX: Auto-resolve any monthly payments whose groupId has mismatched classType compared to paid subjects
+        for (const p of effectivePayments) {
+            if (p.payment_type === 1 && p.groupId && p.subjects) {
+                const cleanSubs = parseSafeSubjectIds(p.subjects);
+                if (cleanSubs.length > 0) {
+                    const correctedGroupId = await resolveTargetMonthlyGroupId(p.batchId, p.groupId, cleanSubs);
+                    if (correctedGroupId && correctedGroupId !== p.groupId) {
+                        p.groupId = correctedGroupId;
+                        if (!validGroupIds.includes(correctedGroupId)) {
+                            validGroupIds.push(correctedGroupId);
+                        }
+                    }
+                }
+            }
+        }
 
         let allowedSubjectIds = [];
         effectivePayments.forEach(p => {
@@ -1980,23 +2069,26 @@ exports.getMyPayments = async (req, res) => {
             const batchMap = {};
             validMonthly.forEach(p => {
                 if (!p.batchId || !p.group) return;
-                if (!batchMap[p.batchId]) {
-                    batchMap[p.batchId] = { batch: p.batch, highestGroup: p.group, subjects: p.subjects };
+                const cType = parseInt(p.group.classType || 1);
+                const key = `${p.batchId}_${cType}`;
+                if (!batchMap[key]) {
+                    batchMap[key] = { batch: p.batch, highestGroup: p.group, subjects: p.subjects, classType: cType };
                 } else {
-                    if (p.group.itemOrder > batchMap[p.batchId].highestGroup.itemOrder) {
-                        batchMap[p.batchId].highestGroup = p.group;
-                        batchMap[p.batchId].subjects = p.subjects;
+                    if (p.group.itemOrder > batchMap[key].highestGroup.itemOrder) {
+                        batchMap[key].highestGroup = p.group;
+                        batchMap[key].subjects = p.subjects;
                     }
                 }
             });
 
-            for (let batchId in batchMap) {
-                const { batch, highestGroup, subjects } = batchMap[batchId];
+            for (let key in batchMap) {
+                const { batch, highestGroup, subjects, classType } = batchMap[key];
                 
                 const nextGroup = await prisma.group.findFirst({
                     where: {
-                        batchId: parseInt(batchId),
+                        batchId: parseInt(batch.id),
                         type: 1, 
+                        classType: classType,
                         itemOrder: { gt: highestGroup.itemOrder }
                     },
                     orderBy: { itemOrder: 'asc' }
@@ -2006,7 +2098,7 @@ exports.getMyPayments = async (req, res) => {
                     const existingPayment = await prisma.payment.findFirst({
                         where: {
                             studentId: parseInt(studentId),
-                            batchId: parseInt(batchId),
+                            batchId: parseInt(batch.id),
                             groupId: nextGroup.id,
                             status: { not: 3 }
                         }
@@ -2023,17 +2115,21 @@ exports.getMyPayments = async (req, res) => {
                             amount = calculateGroupAmount(nextGroup, courses);
                         }
 
+                        const classLabel = classType === 2 ? ' (Paper Class)' : ' (Theory Class)';
+                        const classTypeName = classType === 2 ? 'Paper Class' : 'Theory Class';
                         const nextMonthDueDate = new Date(today.getFullYear(), today.getMonth() + 1, 5);
                         
                         // Push into formattedPayments
                         formattedPayments.push({
                             id: `virtual_${nextGroup.id}`,
-                            courseName: `${batch.business?.name || 'Course'} - ${batch.name || 'Batch'} - ${nextGroup.name}`,
+                            courseName: `${batch.business?.name || 'Course'} - ${batch.name || 'Batch'} - ${nextGroup.name}${classLabel}`,
                             groupName: nextGroup.name,
                             groupId: nextGroup.id,
                             batchId: batch.id,
                             businessId: batch.businessId,
                             subjects: subjects,
+                            classType: classType,
+                            classTypeName: classTypeName,
                             slips: [],
                             amount: amount, 
                             status: 0, // Pending/Due
@@ -2141,12 +2237,18 @@ exports.uploadDueSlip = async (req, res) => {
             const rawStudentId = req.user?.userId || req.user?.id;
             if (!rawStudentId) return res.status(401).json({ error: "Unauthorized" });
 
+            let targetGroupId = parseInt(groupId);
+            const parsedSubs = parseSafeSubjectIds(subjects);
+            if (parsedSubs.length > 0) {
+                targetGroupId = await resolveTargetMonthlyGroupId(batchId, targetGroupId, parsedSubs);
+            }
+
             updatedPayment = await prisma.payment.create({
                 data: {
                     studentId: parseInt(rawStudentId),
                     businessId: parseInt(businessId),
                     batchId: parseInt(batchId),
-                    groupId: parseInt(groupId),
+                    groupId: targetGroupId,
                     amount: parseFloat(amount),
                     subjects: subjects || '[]',
                     payment_type: 1, // Monthly
@@ -2549,12 +2651,19 @@ exports.payDueOnline = async (req, res) => {
             // Only the gateway's server-side confirmation may make this payment approved.
             claim = await payService.claimOnlinePayment(safeMethod, orderId, { studentId, amount });
             const marker = claim.approve ? '' : ` ${payRules.onlineMarker(safeMethod.toLowerCase(), orderId)} Waiting for gateway confirmation (${claim.reason})`;
+
+            let targetGroupId = parseInt(groupId);
+            const parsedSubs = parseSafeSubjectIds(subjects);
+            if (parsedSubs.length > 0) {
+                targetGroupId = await resolveTargetMonthlyGroupId(batchId, targetGroupId, parsedSubs);
+            }
+
             updatedPayment = await prisma.payment.create({
                 data: {
                     studentId: studentId,
                     businessId: parseInt(businessId),
                     batchId: parseInt(batchId),
-                    groupId: parseInt(groupId),
+                    groupId: targetGroupId,
                     amount: parseFloat(amount),
                     subjects: subjects || '[]',
                     payment_type: 1, // Monthly
