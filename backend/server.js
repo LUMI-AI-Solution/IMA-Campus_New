@@ -8,6 +8,11 @@ const admin = require("firebase-admin"); // 🔥 Firebase Admin Import
 dotenv.config();
 const app = express();
 
+// Memory watch (find what makes memory grow) — see src/core/memWatch.js
+const memWatch = require('./src/core/memWatch');
+memWatch.start();
+app.use(memWatch.middleware);
+
 app.use('/api/courier-proxy', createProxyMiddleware({
     target: 'https://www.fdedomestic.com',
     changeOrigin: true,
