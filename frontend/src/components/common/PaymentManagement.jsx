@@ -14,6 +14,12 @@ export default function PaymentManagement({ loggedInUser }) {
     const isManager = loggedInUser?.role?.toUpperCase() === 'MANAGER' || loggedInUser?.role?.toUpperCase() === 'ASS MANAGER' || loggedInUser?.role?.toUpperCase() === 'ASS_MANAGER';
     const hasFullAccess = isAdmin || isManager;
 
+    const roleUpper = String(loggedInUser?.role || '').trim().toUpperCase();
+    const deptUpper = String(loggedInUser?.department || '').trim().toUpperCase();
+    const isCoordinator = ['COORDINATOR', 'CLASS_COORDINATOR', 'CALLER', 'STAFF'].includes(roleUpper) || roleUpper.includes('COORDINATOR') || deptUpper === 'CLASS COORDINATION';
+    const isManagerUser = isManager || roleUpper.includes('MANAGER');
+    const canSendToDelivery = hasFullAccess || isManagerUser || isCoordinator;
+
     const [loading, setLoading] = useState(true);
     const [payments, setPayments] = useState([]);
     const [businesses, setBusinesses] = useState([]);
@@ -1017,7 +1023,7 @@ export default function PaymentManagement({ loggedInUser }) {
             )}
 
             {/* Delivery Hub Button */}
-            {['Free Card', 'Discount', 'Approved'].includes(pay.status) && hasFullAccess && (
+            {['Free Card', 'Discount', 'Approved'].includes(pay.status) && canSendToDelivery && (
                 <div className="mt-6 ml-2">
                     <button
                         disabled={actioningPaymentId === pay.id || !!pay.hasDelivery}
