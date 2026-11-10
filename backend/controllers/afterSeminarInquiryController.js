@@ -1611,7 +1611,9 @@ exports.updateCallCampaign = async (req, res) => {
 exports.startNewCoordination = async (req, res) => {
     try {
         const { businessId, batchId } = req.body;
-        let whereClause = { campaignType: 'AFTER_SEMINAR', enrollmentStatus: 'NON_ENROLLED' };
+        // Bridge leads handed to the call center are NOT the coordinators' leads: a coordinator
+        // starting a new round used to reset the callers' saved outcomes back to PENDING.
+        let whereClause = { campaignType: 'AFTER_SEMINAR', enrollmentStatus: 'NON_ENROLLED', NOT: { source: 'bridge_transfer', isCallCenter: true } };
         if (batchId === 'UNASSIGNED') {
             whereClause.batchId = null;
         } else if (batchId && batchId !== '') {

@@ -1518,6 +1518,16 @@ const getMasterTutesData = async () => {
     try { return JSON.parse(setting.value); } catch(e) { return []; }
 };
 
+// The whole tute list is ONE stored value. Two staff saving at the same moment used to
+// overwrite each other (read → change → write), so a tute someone just added disappeared.
+// Writes now run one at a time, each on a fresh copy of the list.
+let masterTutesQueue = Promise.resolve();
+const withMasterTutesLock = (fn) => {
+    const run = masterTutesQueue.then(fn, fn);
+    masterTutesQueue = run.catch(() => {});
+    return run;
+};
+
 const saveMasterTutesData = async (data) => {
     await prisma.appSetting.upsert({
         where: { key: 'MASTER_TUTES' },
@@ -1535,7 +1545,7 @@ exports.getMasterTutes = async (req, res) => {
     }
 };
 
-exports.saveMasterLecturer = async (req, res) => {
+exports.saveMasterLecturer = async (req, res) => withMasterTutesLock(async () => {
     try {
         const { id, name } = req.body;
         if (!name) return res.status(400).json({ error: "Lecturer name is required" });
@@ -1562,9 +1572,9 @@ exports.saveMasterLecturer = async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: "Failed to save lecturer" });
     }
-};
+});
 
-exports.deleteMasterLecturer = async (req, res) => {
+exports.deleteMasterLecturer = async (req, res) => withMasterTutesLock(async () => {
     try {
         const { id } = req.params;
         let data = await getMasterTutesData();
@@ -1574,9 +1584,9 @@ exports.deleteMasterLecturer = async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: "Failed to delete lecturer" });
     }
-};
+});
 
-exports.saveMasterTute = async (req, res) => {
+exports.saveMasterTute = async (req, res) => withMasterTutesLock(async () => {
     try {
         const { lecturerId, tuteId, name } = req.body;
         if (!lecturerId || !name) return res.status(400).json({ error: "Lecturer ID and Tute name are required" });
@@ -1607,9 +1617,9 @@ exports.saveMasterTute = async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: "Failed to save tute" });
     }
-};
+});
 
-exports.deleteMasterTute = async (req, res) => {
+exports.deleteMasterTute = async (req, res) => withMasterTutesLock(async () => {
     try {
         const { lecturerId, tuteId } = req.params;
         const data = await getMasterTutesData();
@@ -1622,7 +1632,7 @@ exports.deleteMasterTute = async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: "Failed to delete tute" });
     }
-};
+});
 
 exports.updateDeliveryLabel = async (req, res) => {
     try {

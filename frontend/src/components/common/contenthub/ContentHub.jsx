@@ -183,6 +183,16 @@ export default function ContentHub() {
 
   useEffect(() => { fetchInitialData(); }, []);
 
+  // Tutes are added by the delivery team at any time. The list used to load only once when the
+  // Content Hub opened, so new tutes did not show until a full page reload. Reload it every time
+  // the course form opens.
+  useEffect(() => {
+      if (!showCourseModal && !showLecturerModal) return;
+      api.get(`/admin/delivery/master-tutes?t=${Date.now()}`)
+          .then((r) => setMasterTutes(r.data || []))
+          .catch(() => {});
+  }, [showCourseModal, showLecturerModal]);
+
   const refreshBatches = async (bizId) => {
       try {
           const targetBizId = bizId || activeBusiness?.id;
