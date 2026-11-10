@@ -207,6 +207,10 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
 
   // Management Custom Payout Adjustments (Editable Duplicate Sheet)
   const [customAdjustments, setCustomAdjustments] = useState({});
+  // Keys reset to system values since the last save (the server merges, so resets must be sent).
+  const removedAdjKeysRef = React.useRef(new Set());
+  // Keys edited since the last save — only these are sent, so an old copy can't overwrite others' edits.
+  const changedAdjKeysRef = React.useRef(new Set());
   const [savingAdjustments, setSavingAdjustments] = useState(false);
 
   // Marked Batches per Business for Consolidated / Altogether Salary Slip: { [businessId]: { [batchId]: boolean } }
@@ -486,6 +490,8 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
     const isPaperSuffix = (subject.classType === 2 || subject.isPaperClass) ? ':::PAPER' : '';
     const key = `${monthKey}:::${batchId}:::${subject.normalizedSubName || subject.name}${isPaperSuffix}`;
     const num = val === '' ? 0 : Math.max(0, parseInt(val) || 0);
+    changedAdjKeysRef.current.add(key);
+    removedAdjKeysRef.current.delete(key);
 
     setCustomAdjustments(prev => {
       const existing = prev[key] || {
@@ -515,6 +521,8 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
         const isPaperSuffix = (s.classType === 2 || s.isPaperClass) ? ':::PAPER' : '';
         const key = `${monthKey}:::${batch.id}:::${s.normalizedSubName || s.name}${isPaperSuffix}`;
         delete updated[key];
+        removedAdjKeysRef.current.add(key);
+        changedAdjKeysRef.current.delete(key);
       });
       return updated;
     });
@@ -525,10 +533,16 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
     try {
       setSavingAdjustments(true);
       const monthKey = selectedBillingMonth || activeCycle?.monthKey || 'default';
+      const removedKeys = [...removedAdjKeysRef.current].filter(k => !(k in customAdjustments));
+      const changed = {};
+      changedAdjKeysRef.current.forEach(k => { if (customAdjustments[k]) changed[k] = customAdjustments[k]; });
       await api.post('/admin/teacher-salary/adjustments', {
         billingMonth: monthKey,
-        adjustments: customAdjustments
+        adjustments: changed,
+        removedKeys
       });
+      removedAdjKeysRef.current.clear();
+      changedAdjKeysRef.current.clear();
       toast.success("Payout adjustments saved successfully!");
     } catch (err) {
       console.error("Error saving adjustments:", err);
@@ -786,7 +800,7 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
 
       await api.post('/admin/teacher-salary/adjustments', {
         billingMonth: monthKey,
-        adjustments: updatedAllAdjustments
+        adjustments: { [voucherKey]: voucherPayload }  // only this voucher; the server keeps everything else
       });
 
       toast.success("Voucher adjustments (deductions, additions & manual batches) saved!");
@@ -935,10 +949,7 @@ export default function TeacherSalaryPortal({ loggedInUser }) {
     // Non-blocking auto-save to backend
     api.post('/admin/teacher-salary/adjustments', {
       billingMonth: monthKey,
-      adjustments: {
-        ...customAdjustments,
-        [voucherKey]: voucherPayload
-      }
+      adjustments: { [voucherKey]: voucherPayload }  // only this voucher; the server keeps everything else
     }).catch(e => console.warn("Background adjustments save:", e));
 
     const finalData = {

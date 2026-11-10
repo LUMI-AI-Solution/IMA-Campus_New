@@ -949,18 +949,38 @@ exports.getTeacherSalaryAdjustments = async (req, res) => {
  */
 exports.saveTeacherSalaryAdjustments = async (req, res) => {
     try {
-        const { billingMonth, adjustments } = req.body;
+        const { billingMonth, adjustments, removedKeys } = req.body;
         const key = billingMonth ? `TEACHER_SALARY_ADJ_${billingMonth}` : 'TEACHER_SALARY_ADJUSTMENTS';
+
+        // MERGE, never replace. The page used to send its whole in-browser copy, so a page opened
+        // earlier (or with an empty copy) wiped everyone else's manual counts (10 Nov 2026: all
+        // October edits lost). Now only the keys sent are changed; resets come as removedKeys.
+        const existingRow = await prisma.appSetting.findUnique({ where: { key } });
+        let existing = {};
+        try { existing = existingRow?.value ? JSON.parse(existingRow.value) : {}; } catch (e) { existing = {}; }
+        const merged = { ...existing, ...(adjustments && typeof adjustments === 'object' ? adjustments : {}) };
+        for (const k of Array.isArray(removedKeys) ? removedKeys : []) delete merged[k];
+
+        // Keep the previous versions so a mistake can be undone (last 30 saves).
+        if (existingRow?.value) {
+            const histKey = `${key}_HISTORY`;
+            const histRow = await prisma.appSetting.findUnique({ where: { key: histKey } });
+            let hist = [];
+            try { hist = histRow?.value ? JSON.parse(histRow.value) : []; } catch (e) { hist = []; }
+            hist.unshift({ savedAt: new Date().toISOString(), replacedBy: req.user?.id || req.user?.userId || null, value: existing });
+            await prisma.appSetting.upsert({
+                where: { key: histKey },
+                create: { key: histKey, value: JSON.stringify(hist.slice(0, 30)) },
+                update: { value: JSON.stringify(hist.slice(0, 30)) },
+            });
+        }
+
         await prisma.appSetting.upsert({
             where: { key },
-            create: {
-                key,
-                value: JSON.stringify(adjustments || {})
-            },
-            update: {
-                value: JSON.stringify(adjustments || {})
-            }
+            create: { key, value: JSON.stringify(merged) },
+            update: { value: JSON.stringify(merged) },
         });
+        console.log(`[salary-adj] ${key} saved by user=${req.user?.id || req.user?.userId}: sent=${Object.keys(adjustments || {}).length} removed=${(removedKeys || []).length} total=${Object.keys(merged).length} (was ${Object.keys(existing).length})`);
 
         if (billingMonth) {
             await prisma.appSetting.deleteMany({
