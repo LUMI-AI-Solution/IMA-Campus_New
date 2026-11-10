@@ -1193,8 +1193,13 @@ export default function LecturerReports() {
                 - Rs. {(reportData.summary.totalDeductions || 0).toLocaleString()}
               </h3>
               <p className="text-[10px] text-slate-400 mt-0.5">
-                {reportData.deductions?.length || 0} Cash Flow advances
+                {reportData.deductions?.length || 0} Cash Flow records
               </p>
+              {(reportData.summary.totalAdditions || 0) > 0 && (
+                <p className="text-[11px] text-emerald-400 font-bold mt-0.5">
+                  + Rs. {reportData.summary.totalAdditions.toLocaleString()} late payment adjustments
+                </p>
+              )}
             </div>
 
             {/* 6. NET LECTURER PAYOUT */}
@@ -1253,14 +1258,19 @@ export default function LecturerReports() {
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-200">
                     {reportData.deductions.map((d, dIdx) => {
-                      const isInstituteIncome = d.type === 'INCOME' || d.recordType === 'INSTITUTE_INCOME';
+                      const isAddition = Boolean(d.isAddition);
+                      const isInstituteIncome = !isAddition && (d.type === 'INCOME' || d.recordType === 'INSTITUTE_INCOME');
                       return (
                         <tr key={d.id || dIdx} className="hover:bg-slate-800/40 transition-colors">
                           <td className="p-3 font-semibold text-slate-300 whitespace-nowrap">
                             {d.date ? format(new Date(d.date), 'dd MMM yyyy') : '-'}
                           </td>
                           <td className="p-3 whitespace-nowrap">
-                            {isInstituteIncome ? (
+                            {isAddition ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 rounded-lg text-[11px] font-bold">
+                                <ArrowUpRight size={12} /> Addition to Payout
+                              </span>
+                            ) : isInstituteIncome ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 rounded-lg text-[11px] font-bold">
                                 <ArrowUpRight size={12} /> Institute Income (Deduction)
                               </span>
@@ -1280,7 +1290,11 @@ export default function LecturerReports() {
                             </span>
                           </td>
                           <td className="p-3 whitespace-nowrap">
-                            {isInstituteIncome ? (
+                            {isAddition ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-slate-500/15 text-slate-300 border border-slate-500/30">
+                                Owed to lecturer (paid with this payout)
+                              </span>
+                            ) : isInstituteIncome ? (
                               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                                 🟢 + Rs. {(d.amount || 0).toLocaleString()} (Institute Inflow)
                               </span>
@@ -1293,8 +1307,8 @@ export default function LecturerReports() {
                           <td className="p-3 text-slate-300 max-w-xs truncate">
                             {d.description || (isInstituteIncome ? `Deduction for ${reportData?.teacher?.name || 'Lecturer'}` : `Teacher advance for ${reportData?.teacher?.name || 'Lecturer'}`)}
                           </td>
-                          <td className="p-3 text-right font-black text-rose-400 text-sm whitespace-nowrap">
-                            - Rs. {(d.amount || 0).toLocaleString()}
+                          <td className={`p-3 text-right font-black text-sm whitespace-nowrap ${isAddition ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {isAddition ? '+ Rs. ' : '- Rs. '}{(d.amount || 0).toLocaleString()}
                           </td>
                           <td className="p-3 text-center">
                             <button

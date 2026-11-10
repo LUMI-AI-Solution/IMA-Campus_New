@@ -272,9 +272,10 @@ export default function LecturerInvoiceModal({
   const cutPct = teacher.instituteCut || 0;
   const cutAmt = activeClass ? activeClass.instituteCutAmount : summary.instituteCutAmount;
   const totalDeductions = summary.totalDeductions || 0;
+  const totalAdditions = summary.totalAdditions || 0;
   const deductions = reportData.deductions || [];
   const netBeforeDeductions = summary.netTeacherPayoutBeforeDeductions || (grossTotal - cutAmt);
-  const finalPayable = activeClass ? Math.max(0, activeClass.netTeacherPayout - totalDeductions) : summary.netTeacherPayout;
+  const finalPayable = activeClass ? Math.max(0, activeClass.netTeacherPayout + totalAdditions - totalDeductions) : summary.netTeacherPayout;
   const enrolledCount = activeClass ? activeClass.enrolledCount : summary.totalEnrolledStudents;
   const paidCount = activeClass ? (activeClass.regularPaidCount !== undefined ? activeClass.regularPaidCount : activeClass.paidCount) : summary.totalPaidStudents;
   const unpaidCount = enrolledCount - paidCount;
@@ -669,6 +670,16 @@ export default function LecturerInvoiceModal({
                     <td className="p-2.5 text-right text-amber-700">- Rs. {cutAmt.toLocaleString()}</td>
                     <td className="p-2.5 text-right font-bold text-slate-900">Rs. {netBeforeDeductions.toLocaleString()}</td>
                   </tr>
+                  {totalAdditions > 0 && (
+                    <tr className="bg-emerald-50 text-emerald-800 font-bold text-xs border-t border-emerald-200">
+                      <td className="p-2.5 uppercase tracking-wider" colSpan={6}>
+                        Add: Late Payments / Previous Month Adjustments
+                      </td>
+                      <td className="p-2.5 text-right font-black text-emerald-700">
+                        + Rs. {totalAdditions.toLocaleString()}
+                      </td>
+                    </tr>
+                  )}
                   {totalDeductions > 0 && (
                     <tr className="bg-rose-50 text-rose-800 font-bold text-xs border-t border-rose-200">
                       <td className="p-2.5 uppercase tracking-wider" colSpan={6}>
@@ -774,18 +785,19 @@ export default function LecturerInvoiceModal({
                     </thead>
                     <tbody className="divide-y divide-slate-200 text-slate-800 text-[11px]">
                       {deductions.map((d, dIdx) => {
-                        const isIncome = d.type === 'INCOME';
+                        // "+" only for real additions; institute income charges are DEDUCTED from the payout.
+                        const isIncome = Boolean(d.isAddition);
                         return (
                           <tr key={d.id || dIdx}>
                             <td className="p-2 font-medium">{d.date ? new Date(d.date).toLocaleDateString('en-GB') : '-'}</td>
                             <td className="p-2 font-bold">
                               <span className={isIncome ? 'text-emerald-700' : 'text-rose-700'}>
-                                {d.category || (isIncome ? 'Credit / Repayment' : 'Advance')}
+                                {d.category || (isIncome ? 'Late Payment Adjustment' : 'Advance')}
                               </span>
                               <span className={`ml-1.5 text-[9px] px-1.5 py-0.5 rounded font-extrabold uppercase ${
                                 isIncome ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                               }`}>
-                                {isIncome ? 'Credit (+)' : 'Deduct (-)'}
+                                {isIncome ? 'Addition (+)' : 'Deduct (-)'}
                               </span>
                             </td>
                             <td className="p-2 text-slate-600">{d.description || '-'}</td>

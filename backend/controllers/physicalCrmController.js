@@ -2511,6 +2511,10 @@ exports.compareClasses = async (req, res) => {
 };
 
 // --- TEACHER COMPREHENSIVE REPORTS & INVOICE DATA ---
+// Lecturer transactions in these categories are ADDED to the payout (arrears owed to the lecturer).
+const PAYOUT_ADDITION_CATEGORIES = ['late payment adjustment', 'balance brought forward'];
+const isPayoutAddition = (t) => PAYOUT_ADDITION_CATEGORIES.includes(String(t.category || '').trim().toLowerCase());
+
 exports.getTeacherReport = async (req, res) => {
   try {
     const { teacherId } = req.params;
@@ -3022,10 +3026,15 @@ exports.getTeacherReport = async (req, res) => {
     // BOTH Teacher Advances (Cash Outflow) and Institute Income Charges (Deducted from Teacher) reduce teacher payout
     let totalTeacherAdvances = 0;
     let totalInstituteIncomeDeductions = 0;
+    // ADDITIONS: money owed to the lecturer from an earlier month (e.g. late payments that an
+    // earlier statement missed). These categories are ADDED to the payout, everything else deducts.
+    let totalAdditions = 0;
 
     teacherTxns.forEach(d => {
       const amt = Number(d.amount) || 0;
-      if (d.type === 'INCOME') {
+      if (isPayoutAddition(d)) {
+        totalAdditions += amt;
+      } else if (d.type === 'INCOME') {
         totalInstituteIncomeDeductions += amt;
       } else {
         totalTeacherAdvances += amt;
@@ -3033,7 +3042,7 @@ exports.getTeacherReport = async (req, res) => {
     });
 
     const totalDeductions = totalTeacherAdvances + totalInstituteIncomeDeductions;
-    const overallNetPayout = Math.max(0, netPayoutBeforeDeductions - totalDeductions);
+    const overallNetPayout = Math.max(0, netPayoutBeforeDeductions + totalAdditions - totalDeductions);
 
     res.json({
       teacher: {
@@ -3070,6 +3079,7 @@ exports.getTeacherReport = async (req, res) => {
         totalDeductions,
         totalTeacherAdvances,
         totalInstituteIncomeDeductions,
+        totalAdditions,
         netTeacherPayout: overallNetPayout
       },
       lateFeeCollections: validLatePayments.map(p => ({
@@ -3088,7 +3098,8 @@ exports.getTeacherReport = async (req, res) => {
       })),
       deductions: teacherTxns.map(d => ({
         id: d.id,
-        recordType: d.type === 'INCOME' ? 'INSTITUTE_INCOME' : 'TEACHER_ADVANCE',
+        recordType: isPayoutAddition(d) ? 'PAYOUT_ADDITION' : (d.type === 'INCOME' ? 'INSTITUTE_INCOME' : 'TEACHER_ADVANCE'),
+        isAddition: isPayoutAddition(d),
         type: d.type || 'EXPENSE',
         category: d.category,
         amount: d.amount,

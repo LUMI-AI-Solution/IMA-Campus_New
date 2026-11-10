@@ -10,6 +10,9 @@ const DEFAULT_CATEGORIES = [
     { name: 'Teacher Advance', type: 'EXPENSE', isLecturerCategory: true },
     { name: 'Teacher Payout', type: 'EXPENSE', isLecturerCategory: true },
     { name: 'Lecturer Allowance', type: 'EXPENSE', isLecturerCategory: true },
+    { name: 'Late Payment Adjustment', type: 'EXPENSE', isLecturerCategory: true },  // ADDED to the lecturer payout
+    { name: 'Balance Brought Forward', type: 'EXPENSE', isLecturerCategory: true },  // ADDED to the lecturer payout
+    { name: 'Balance Carried Forward', type: 'EXPENSE', isLecturerCategory: true },  // deducted (moved to a later month)
     { name: 'Utility', type: 'EXPENSE', isLecturerCategory: false },
     { name: 'Supplies', type: 'EXPENSE', isLecturerCategory: false },
     { name: 'Refund', type: 'EXPENSE', isLecturerCategory: false },
