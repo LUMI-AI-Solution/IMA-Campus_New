@@ -865,6 +865,8 @@ exports.deleteContentGroup = async (req, res) => {
         const allGroupIds = [folderId, ...subFolders.map(sf => sf.id)];
 
         // Unlink content items from deleted folder(s) so content is not lost
+        const affected = await prisma.content.findMany({ where: { contentGroupId: { in: allGroupIds } }, select: { id: true } });
+        console.log(`[content-folder] folder ${allGroupIds.join(',')} DELETED by user=${req.user?.id || req.user?.userId} -> ${affected.length} items now uncategorized: ${affected.map(a => a.id).slice(0, 200).join(',')}`);
         await prisma.content.updateMany({
             where: { contentGroupId: { in: allGroupIds } },
             data: { contentGroupId: null }
@@ -1185,7 +1187,17 @@ exports.updateContentMassAssign = async (req, res) => {
             updateData.fileName = mcqFileName;
         }
 
+        // Folder-change trail (pm2 log): recordings "moving out of folders" — who, which content, from → to.
+        let folderBefore;
+        if ('contentGroupId' in updateData) {
+            const before = await prisma.content.findUnique({ where: { id: parseInt(content_id) }, select: { contentGroupId: true } }).catch(() => null);
+            folderBefore = before ? before.contentGroupId : undefined;
+        }
+
         const updated = await prisma.content.update({ where: { id: parseInt(content_id) }, data: updateData });
+        if (folderBefore !== undefined && folderBefore !== updated.contentGroupId) {
+            console.log(`[content-folder] content=${updated.id} folder ${folderBefore} -> ${updated.contentGroupId} by user=${req.user?.id || req.user?.userId} via edit`);
+        }
 
         if (type === 'paper' || type === 'sPaper' || type === 'testRanking' || type === 'rankingTest') {
             const { paperType } = req.body;
