@@ -188,6 +188,7 @@ export default function LecturerReports() {
       'Phone': st.phone || '',
       'Active': st.isActive ? 'Active' : 'Inactive',
       'Class': st.className || '',
+      'On Class List': st.leftClass ? 'No (paid, left class)' : 'Yes',
       'Grade': st.grade || '',
       [`Class Fee Status (${formatMonthYear(selectedMonth)})`]: st.feeStatus || '',
       'Class Fee Amount (Rs.)': st.feeStatus === 'FREE_CARD' ? 0 : (Number(st.amount) || 0),
@@ -1737,6 +1738,14 @@ export default function LecturerReports() {
                                       title="Inactive: Less than 2 months of physical attendance recorded"
                                     >
                                       Inactive
+                                    </span>
+                                  )}
+                                  {st.leftClass && (
+                                    <span
+                                      className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 text-[9px] font-bold shrink-0"
+                                      title="Paid for this month but no longer on the class list — still counted in the lecturer payout"
+                                    >
+                                      Left class
                                     </span>
                                   )}
                                 </div>

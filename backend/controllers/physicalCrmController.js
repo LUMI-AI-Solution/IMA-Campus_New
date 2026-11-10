@@ -2552,13 +2552,14 @@ exports.getTeacherReport = async (req, res) => {
       }
     });
 
-    const primaryStudents = await prisma.physicalStudent.findMany({
-      where: {
-        classId: { in: classIds },
-        id: { notIn: enrollments.map(e => e.studentId) }
-      },
+    // A student's "main" class (physicalStudent.classId) counts even if the student is ALSO
+    // enrolled in another class. Before, any enrollment anywhere removed the student from the
+    // main class list, so their fee for that class never reached the lecturer's payout.
+    const enrolledKey = new Set(enrollments.map(e => `${e.studentId}_${e.classId}`));
+    const primaryStudents = (await prisma.physicalStudent.findMany({
+      where: { classId: { in: classIds } },
       include: { school: true, class: true }
-    });
+    })).filter(s => !enrolledKey.has(`${s.id}_${s.classId}`));
 
     // Merge students with their class associations
     const classStudentMap = new Map();
@@ -2825,7 +2826,16 @@ exports.getTeacherReport = async (req, res) => {
     let totalLateFeePaymentsCount = validLatePayments.length;
 
     const classBreakdowns = relevantClasses.map(cls => {
-      const students = classStudentMap.get(cls.id) || [];
+      // Students who PAID this class for this month but are no longer on the class list
+      // (moved / removed later) — the lecturer taught them, so their fee counts. Shown as "left class".
+      const currentStudents = classStudentMap.get(cls.id) || [];
+      const currentIds = new Set(currentStudents.map(st => st.id));
+      const leftPaidStudents = regularFeePayments
+        .filter(p => p.classId === cls.id && p.student && !currentIds.has(p.studentId)
+          && (p.status === 'PAID' || p.status === 'HALF_PAYMENT' || p.status === 'PARTIAL')
+          && ((p.amount || 0) > 0 || p.status === 'PAID'))
+        .map(p => ({ ...p.student, leftClass: true }));
+      const students = [...currentStudents, ...leftPaidStudents];
       const enrolledCount = students.length;
       totalEnrolled += enrolledCount;
 
@@ -2902,6 +2912,7 @@ exports.getTeacherReport = async (req, res) => {
           guardianPhone: st.guardianPhone,
           school: st.school ? st.school.name : null,
           registrationFeeStatus: st.registrationFeeStatus || 'PENDING',
+          leftClass: Boolean(st.leftClass),
           feeStatus: isPaid ? (pay.status === 'HALF_PAYMENT' ? 'HALF_PAYMENT' : (pay.status === 'PARTIAL' ? 'PARTIAL' : 'PAID')) : (isFree ? 'FREE_CARD' : 'PENDING'),
           amount: fee,
           paidDate: pay ? pay.paidDate : null,
