@@ -2,7 +2,7 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = require('../src/core/db');
 
 // GET /api/coordinator-crm/master-todo-stats
-exports.getMasterTodoStats = async (req, res) => {
+const buildMasterTodoStats = async (req, res) => {
     try {
         const userId = parseInt(req.user?.userId || req.user?.id || req.query.loggedUserId);
         const userRole = (req.user?.role || '').toUpperCase().replace(/ /g, '_');
@@ -81,9 +81,12 @@ exports.getMasterTodoStats = async (req, res) => {
             ];
         }
 
+        // A coordinator only needs their OWN numbers — don't scan every coordinator's leads.
+        const assignedFilter = (!isManager && userId) ? userId : { not: null };
+
         // 1. FREE SEMINAR (FREE_SEMINAR campaignType)
         const freeSemLeads = await prisma.lead.findMany({
-            where: { ...leadBaseFilter, campaignType: 'FREE_SEMINAR', callStatus: 'pending', assignedTo: { not: null } },
+            where: { ...leadBaseFilter, campaignType: 'FREE_SEMINAR', callStatus: 'pending', assignedTo: assignedFilter },
             select: { assignedTo: true }
         });
         freeSemLeads.forEach(l => {
@@ -92,7 +95,7 @@ exports.getMasterTodoStats = async (req, res) => {
 
         // 2. OPEN SEMINAR (AFTER_SEMINAR, inquiryType: OPEN_SEMINAR)
         const openSemLeads = await prisma.lead.findMany({
-            where: { ...leadBaseFilter, campaignType: 'AFTER_SEMINAR', inquiryType: 'OPEN_SEMINAR', callStatus: 'pending', assignedTo: { not: null } },
+            where: { ...leadBaseFilter, campaignType: 'AFTER_SEMINAR', inquiryType: 'OPEN_SEMINAR', callStatus: 'pending', assignedTo: assignedFilter },
             select: { assignedTo: true }
         });
         openSemLeads.forEach(l => {
@@ -102,7 +105,7 @@ exports.getMasterTodoStats = async (req, res) => {
         // 3. NEW INQUIRY (AFTER_SEMINAR, inquiryType: NEW_INQ)
         // Need to check RoundProgress
         const newInqLeads = await prisma.lead.findMany({
-            where: { ...leadBaseFilter, campaignType: 'AFTER_SEMINAR', inquiryType: 'NEW_INQ', assignedTo: { not: null } },
+            where: { ...leadBaseFilter, campaignType: 'AFTER_SEMINAR', inquiryType: 'NEW_INQ', assignedTo: assignedFilter },
             select: { 
                 assignedTo: true, 
                 callStatus: true,
@@ -147,7 +150,7 @@ exports.getMasterTodoStats = async (req, res) => {
             where: { 
                 isRead: false, 
                 direction: { in: ['inbound', 'in', 'IN'] }, 
-                lead: { ...leadBaseFilter, assignedTo: { not: null } }
+                lead: { ...leadBaseFilter, assignedTo: assignedFilter }
             },
             select: { lead: { select: { assignedTo: true, id: true } } }
         });
@@ -185,4 +188,33 @@ exports.getMasterTodoStats = async (req, res) => {
         console.error("Master Todo Stats Error:", error);
         res.status(500).json({ error: "Failed to load master todo stats" });
     }
+};
+
+
+// Every coordinator's overview polls this every 30 s and it took ~8 s, so the whole backend slowed
+// down (500+ calls in a day). Same question within 60 s → same answer; identical requests running
+// at the same moment share one build.
+const TODO_CACHE_MS = 60 * 1000;
+const todoCache = new Map(); // key -> { at, status, body } | { pending: Promise }
+exports.getMasterTodoStats = async (req, res) => {
+    const userRole = (req.user?.role || '').toUpperCase().replace(/ /g, '_');
+    const isManager = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN'].includes(userRole);
+    const who = isManager ? 'M' : String(req.user?.userId || req.user?.id || req.query.loggedUserId || '');
+    const key = `${who}|${req.query.businessId || 'ALL'}|${req.query.batchId || 'ALL'}`;
+    const hit = todoCache.get(key);
+    if (hit && hit.at && Date.now() - hit.at < TODO_CACHE_MS) return res.status(hit.status).json(hit.body);
+    if (!hit || !hit.pending) {
+        const captured = { status: 200, body: [] };
+        const fakeRes = { status(c) { captured.status = c; return this; }, json(b) { captured.body = b; return this; } };
+        const pending = buildMasterTodoStats(req, fakeRes).then(() => {
+            if (captured.status === 200) todoCache.set(key, { at: Date.now(), ...captured });
+            else todoCache.delete(key);
+            return captured;
+        }, (e) => { todoCache.delete(key); throw e; });
+        todoCache.set(key, { pending });
+        if (todoCache.size > 500) todoCache.delete(todoCache.keys().next().value);
+    }
+    const entry = todoCache.get(key);
+    const result = entry.pending ? await entry.pending : entry;
+    res.status(result.status).json(result.body);
 };

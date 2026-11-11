@@ -34,7 +34,8 @@ const CoordinatorDailyTodo = ({ staffId, isManager = false, selectedBusiness, se
         };
 
         fetchTodoStats();
-        const interval = setInterval(fetchTodoStats, 30000);
+        // Every 2 minutes, and only while this tab is on screen (was every 30 s on every open tab).
+        const interval = setInterval(() => { if (!document.hidden) fetchTodoStats(); }, 120000);
         return () => clearInterval(interval);
     }, [staffId, isManager, selectedBusiness, selectedBatch]);
 
