@@ -537,7 +537,7 @@ function resolveLeadSource(p, phoneLeadMap) {
 }
 
 // 1. Get All Payments
-exports.getPayments = async (req, res) => {
+const buildPaymentsList = async (req, res) => {
     try {
         const userId = req.user.userId || req.user.id;
         const userRole = req.user.role;
@@ -569,7 +569,13 @@ exports.getPayments = async (req, res) => {
             getPhoneLeadMap(),
             prisma.payment.findMany({
                 where: whereClause,
-                include: { student: true, business: true, batch: true, group: true },
+                // Only the fields the list uses (full user/group rows for ~25k payments used ~300 MB per call)
+                include: {
+                    student: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, optionalPhone: true, walletBalance: true } },
+                    business: { select: { name: true } },
+                    batch: { select: { name: true } },
+                    group: { select: { name: true, classType: true, discount_rules: true } },
+                },
                 orderBy: { created_at: 'desc' }
             })
         ]);
@@ -586,16 +592,10 @@ exports.getPayments = async (req, res) => {
         allCourses.forEach(c => courseMap[c.id] = c);
 
         const allInstallments = await prisma.installment.findMany();
+        const richConfigCache = new Map();
         const today = new Date();
 
         const formattedPayments = await Promise.all(rawPayments.map(async (p) => {
-
-            // 🔥 ALUTH DEBUG කෑල්ල: Shehara ගේ විස්තර හරියටම බලමු
-            if (p.student && (p.student.firstName.includes('Shehara') || p.student.id === 752)) {
-                console.log(`\n👉 [DEBUG] Payment ID: ${p.id} | Student: STU-${p.studentId}`);
-                console.log(`   - DB Real Status: ${p.status} | Payment Type: ${p.payment_type}`);
-                console.log(`   - Valid Until: ${p.valid_until} | Post Pay Days: ${p.post_pay_days}`);
-            }
 
             let currentStatus = 'Pending';
 
@@ -616,11 +616,6 @@ exports.getPayments = async (req, res) => {
             else if (p.status === 2) currentStatus = 'Rejected';
             else if (p.status === 3) currentStatus = 'Non Paid';
             else if (p.status === 4) currentStatus = 'Post Pay';
-
-            // 🔥 Status Check කරාට පස්සේ Current Status එක Print කරමු
-            if (p.student && (p.student.firstName.includes('Shehara') || p.student.id === 752)) {
-                console.log(`   - Mapped Status (Going to Frontend): ${currentStatus}`);
-            }
 
             let systemTotal = 0; let parsedSubjects = []; let totalPhases = 1;
 
@@ -714,9 +709,10 @@ exports.getPayments = async (req, res) => {
 
                     // Apply Bundle Discount if configured in AppSettings (Only for Upgrades!)
                     if (p.batchId && p.remark && p.remark.includes('[UPGRADE]')) {
-                        const richConfigRec = await prisma.appSetting.findUnique({
-                            where: { key: `UPGRADE_RICH_CONFIG_BATCH_${p.batchId}` }
-                        });
+                        if (!richConfigCache.has(p.batchId)) {
+                            richConfigCache.set(p.batchId, prisma.appSetting.findUnique({ where: { key: `UPGRADE_RICH_CONFIG_BATCH_${p.batchId}` } }));
+                        }
+                        const richConfigRec = await richConfigCache.get(p.batchId);
                         if (richConfigRec) {
                             const rich = JSON.parse(richConfigRec.value);
                             if (rich && rich.enableBundle) {
@@ -804,6 +800,26 @@ exports.getPayments = async (req, res) => {
     } catch (error) {
         res.status(500).json([]);
     }
+};
+
+// Several staff opening Payment Management at the same moment used to each build the full list
+// (~4 s and hundreds of MB each). Identical requests that arrive while one is being built now
+// share that one result. No caching after it finishes, so the list is always fresh.
+const paymentsInFlight = new Map();
+exports.getPayments = async (req, res) => {
+    const u = req.user || {};
+    const roleUpper = u.role ? String(u.role).toUpperCase().replace(/ /g, '_') : '';
+    const seesAll = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper) || u.department === 'Finance';
+    // Everyone who sees ALL payments gets the same list, so they can share one build.
+    const key = seesAll ? 'ALL' : `${u.userId || u.id}|${u.businessType}`;
+    if (!paymentsInFlight.has(key)) {
+        let captured = { status: 200, body: [] };
+        const fakeRes = { status(c) { captured.status = c; return this; }, json(b) { captured.body = b; return this; } };
+        const job = buildPaymentsList(req, fakeRes).then(() => captured).finally(() => paymentsInFlight.delete(key));
+        paymentsInFlight.set(key, job);
+    }
+    const result = await paymentsInFlight.get(key);
+    res.status(result.status).json(result.body);
 };
 
 // 2. Action for Standard Payments (Approve/Reject/Trash/SendToDelivery)
