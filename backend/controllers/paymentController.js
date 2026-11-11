@@ -565,6 +565,11 @@ const buildPaymentsList = async (req, res) => {
             whereClause = { businessId: { in: myBizIds } };
         }
 
+        // ?studentId=  → only that student's payments (used to refresh one row after an action
+        // instead of reloading all ~25k payments every time)
+        const onlyStudentId = parseInt(req.query?.studentId, 10);
+        if (onlyStudentId) whereClause = { ...whereClause, studentId: onlyStudentId };
+
         const [phoneLeadMap, rawPayments] = await Promise.all([
             getPhoneLeadMap(),
             prisma.payment.findMany({
@@ -811,7 +816,7 @@ exports.getPayments = async (req, res) => {
     const roleUpper = u.role ? String(u.role).toUpperCase().replace(/ /g, '_') : '';
     const seesAll = ['SYSTEM_ADMIN', 'DIRECTOR'].includes(roleUpper) || u.department === 'Finance';
     // Everyone who sees ALL payments gets the same list, so they can share one build.
-    const key = seesAll ? 'ALL' : `${u.userId || u.id}|${u.businessType}`;
+    const key = `${seesAll ? 'ALL' : `${u.userId || u.id}|${u.businessType}`}|${parseInt(req.query?.studentId, 10) || ''}`;
     if (!paymentsInFlight.has(key)) {
         let captured = { status: 200, body: [] };
         const fakeRes = { status(c) { captured.status = c; return this; }, json(b) { captured.body = b; return this; } };

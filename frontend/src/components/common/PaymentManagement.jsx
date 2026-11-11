@@ -614,8 +614,17 @@ export default function PaymentManagement({ loggedInUser }) {
     };
 
     const refreshAfterAction = async (studentId, targetTab = activeTab) => {
-        const payRes = await axios.get('/admin/payments');
-        setPayments(payRes.data || []);
+        // Reload only this student's payments (the full list is ~25k rows and took 4-6 s each time).
+        const sid = parseInt(studentId, 10);
+        if (sid) {
+            const payRes = await axios.get('/admin/payments', { params: { studentId: sid } });
+            const fresh = Array.isArray(payRes.data) ? payRes.data : [];
+            setPayments(prev => [...prev.filter(p => p.studentId !== sid), ...fresh]
+                .sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.id - a.id));
+        } else {
+            const payRes = await axios.get('/admin/payments');
+            setPayments(payRes.data || []);
+        }
 
         setStudentActionModal(null);
         setAdvancedActionModal(null);
@@ -679,9 +688,16 @@ export default function PaymentManagement({ loggedInUser }) {
             toast.success("Payment details updated successfully!", { id: loadToast });
             setEditModal(null);
             
-            // Refresh payments list
-            const payRes = await axios.get('/admin/payments');
-            setPayments(payRes.data || []);
+            // Refresh only this student's payments
+            const sid = parseInt(editModal.studentId, 10);
+            const payRes = await axios.get('/admin/payments', sid ? { params: { studentId: sid } } : undefined);
+            if (sid) {
+                const fresh = Array.isArray(payRes.data) ? payRes.data : [];
+                setPayments(prev => [...prev.filter(p => p.studentId !== sid), ...fresh]
+                    .sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.id - a.id));
+            } else {
+                setPayments(payRes.data || []);
+            }
         } catch (error) {
             toast.error("Failed to update payment details.", { id: loadToast });
         } finally {
