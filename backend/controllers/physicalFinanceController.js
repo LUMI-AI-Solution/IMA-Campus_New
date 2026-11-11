@@ -167,13 +167,13 @@ const calculateOpeningBalanceForDate = async (targetDateStr) => {
                     lt: targetDateStart
                 }
             },
-            select: { type: true, amount: true, affectsCash: true, isVerified: true }
+            select: { type: true, amount: true, affectsCash: true, isVerified: true, category: true, paymentMethod: true }
         });
 
         let pastNet = 0;
         pastTxns.forEach(t => {
             // Only affect physical cash if affectsCash is true AND isVerified is true
-            if (t.affectsCash !== false && t.isVerified !== false) {
+            if (t.affectsCash !== false && t.isVerified !== false && !isPayoutAdjustment(t)) {
                 if (t.type === 'INCOME') pastNet += t.amount;
                 else if (t.type === 'EXPENSE') pastNet -= t.amount;
             }
@@ -195,12 +195,12 @@ const calculateOpeningBalanceForDate = async (targetDateStr) => {
                     lt: targetDateStart
                 }
             },
-            select: { type: true, amount: true, affectsCash: true, isVerified: true }
+            select: { type: true, amount: true, affectsCash: true, isVerified: true, category: true, paymentMethod: true }
         });
 
         let pastNet = 0;
         pastTxns.forEach(t => {
-            if (t.affectsCash !== false && t.isVerified !== false) {
+            if (t.affectsCash !== false && t.isVerified !== false && !isPayoutAdjustment(t)) {
                 if (t.type === 'INCOME') pastNet += t.amount;
                 else if (t.type === 'EXPENSE') pastNet -= t.amount;
             }
@@ -213,6 +213,13 @@ const calculateOpeningBalanceForDate = async (targetDateStr) => {
         };
     }
 };
+
+// Lecturer payout adjustments (arrears owed to a lecturer / balances moved between months) are
+// NOT money in or out of the drawer or bank on that day. They only change the lecturer's monthly
+// payout statement, so the daily cash flow and the income/expense reports leave them out.
+const PAYOUT_ADJUSTMENT_CATEGORIES = ['late payment adjustment', 'balance brought forward', 'balance carried forward'];
+const isPayoutAdjustment = (t) => t.paymentMethod === 'ADJUSTMENT'
+    || PAYOUT_ADJUSTMENT_CATEGORIES.includes(String(t.category || '').trim().toLowerCase());
 
 // --- TRANSACTIONS CRUD ---
 exports.getTransactions = async (req, res) => {
@@ -253,7 +260,7 @@ exports.getTransactions = async (req, res) => {
                 }
             },
             orderBy: [{ date: 'desc' }, { id: 'desc' }]
-        });
+        }).then(rows => rows.filter(t => !isPayoutAdjustment(t)));
 
         // Calculate accounting vs cash-in-hand totals
         let totalIncome = 0;
@@ -804,7 +811,7 @@ exports.getReports = async (req, res) => {
                 }
             },
             orderBy: { date: 'desc' }
-        });
+        }).then(rows => (category && category !== 'ALL') ? rows : rows.filter(t => !isPayoutAdjustment(t)));
 
         let totalIncome = 0;
         let totalExpense = 0;
