@@ -17,6 +17,7 @@ import {
 } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import { convertSinglishToSinhala } from '../../utils/singlishConverter';
+import { resolveAvatarUrl } from '../../utils/avatarUtils';
 import { io } from 'socket.io-client';
 import englishWords from '../../utils/englishWords.json';
 
@@ -41,7 +42,49 @@ export default function WebInquiries() {
     const [businesses, setBusinesses] = useState([]);
     const [selectedBusiness, setSelectedBusiness] = useState('ALL');
     const [selectedInquiry, setSelectedInquiry] = useState(null);
+    const [activeSessionInquiryId, setActiveSessionInquiryId] = useState(null);
+    const selectedInquiryRef = useRef(null);
     const [messages, setMessages] = useState([]);
+
+    useEffect(() => {
+        selectedInquiryRef.current = selectedInquiry;
+    }, [selectedInquiry]);
+
+    const renderStudentAvatar = (item, sizeClass = "w-10 h-10", textSize = "text-xl", badgeCount = 0) => {
+        const student = item?.student || (item?.firstName ? item : null);
+        const phone = student?.phone || item?.phone;
+        const initial = (student?.firstName || item?.name || 'S').charAt(0).toUpperCase();
+        const avatarCandidate = student?.image || (student?.appChatDp ? (student.appChatDp.startsWith('chat_dps/') ? student.appChatDp : `chat_dps/${student.appChatDp}`) : null);
+        const avatarUrl = resolveAvatarUrl(avatarCandidate, phone, axios.defaults.baseURL);
+
+        return (
+            <div className={`${sizeClass} rounded-full relative shrink-0 shadow-sm flex items-center justify-center bg-slate-700 text-white font-bold select-none border border-slate-700/60 overflow-visible`}>
+                <span className={`absolute inset-0 flex items-center justify-center ${textSize} uppercase pointer-events-none select-none text-slate-300 font-bold`}>
+                    {initial}
+                </span>
+                {avatarUrl ? (
+                    <img 
+                        src={avatarUrl} 
+                        alt={initial}
+                        className="w-full h-full rounded-full object-cover shadow-sm relative z-0"
+                        onError={(e) => {
+                            if (!e.target.dataset.triedDefault) {
+                                e.target.dataset.triedDefault = "true";
+                                e.target.src = resolveAvatarUrl(null, phone, axios.defaults.baseURL);
+                            } else {
+                                e.target.style.display = 'none';
+                            }
+                        }}
+                    />
+                ) : null}
+                {badgeCount > 0 && (
+                    <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black h-4 min-w-[16px] px-1 flex items-center justify-center rounded-full shadow-md z-10 animate-pulse">
+                        {badgeCount}
+                    </span>
+                )}
+            </div>
+        );
+    };
     
     // Chat states
     const [newMessage, setNewMessage] = useState('');
@@ -116,10 +159,16 @@ export default function WebInquiries() {
             socketRef.current = io(BACKEND_URL, { auth: { token }, transports: ['websocket', 'polling'] });
 
             socketRef.current.on('new_web_inquiry_message', (msg) => {
-                setMessages(prev => {
-                    if (prev.find(m => m.id === msg.id)) return prev;
-                    return [...prev, msg];
-                });
+                const currentOpenInq = selectedInquiryRef.current;
+                if (currentOpenInq && currentOpenInq.id === msg.inquiryId) {
+                    setMessages(prev => {
+                        if (prev.find(m => m.id === msg.id)) return prev;
+                        return [...prev, msg];
+                    });
+                    if (msg.direction === 'inbound') {
+                        axios.post('/web-inquiry/mark-read', { inquiryId: msg.inquiryId }).catch(() => {});
+                    }
+                }
                 fetchInquiries(false); 
             });
 
@@ -222,6 +271,12 @@ export default function WebInquiries() {
         setSelectedFile(null);
         setSuggestedQRs([]);
         setNewMessage('');
+        
+        if (inq.unreadCount > 0) {
+            setActiveSessionInquiryId(inq.id);
+        } else {
+            setActiveSessionInquiryId(null);
+        }
         
         loadInquiryMessages(inq.id);
         loadStudentInfo(inq.id);
@@ -378,6 +433,18 @@ export default function WebInquiries() {
     const handleSend = async (e) => {
         if (e) e.preventDefault();
         if ((!newMessage.trim() && !selectedFile) || !selectedInquiry) return;
+
+        // Clear active session pin so the replied chat immediately settles below unread chats
+        setActiveSessionInquiryId(null);
+
+        // Update inquiry in local state: unreadCount = 0, lastMessage updated
+        const sentPreview = newMessage.trim() || (selectedFile ? '[Attachment]' : '');
+        setInquiries(prev => prev.map(i => i.id === selectedInquiry.id ? {
+            ...i,
+            unreadCount: 0,
+            lastMessage: sentPreview.substring(0, 50),
+            lastMessageAt: new Date().toISOString()
+        } : i));
 
         setIsSending(true);
         let mediaUrl = null;
@@ -538,6 +605,12 @@ export default function WebInquiries() {
         return <span className="whitespace-pre-wrap">{text}</span>;
     };
 
+    const totalUnreadInquiries = useMemo(() => {
+        return inquiries
+            .filter(inq => selectedBusiness === 'ALL' || inq.businessId.toString() === selectedBusiness)
+            .reduce((acc, curr) => acc + (curr.unreadCount > 0 ? 1 : 0), 0);
+    }, [inquiries, selectedBusiness]);
+
     const filteredInquiries = useMemo(() => {
         let currentInquiries = inquiries.filter(inq => 
             selectedBusiness === 'ALL' || inq.businessId.toString() === selectedBusiness
@@ -551,12 +624,33 @@ export default function WebInquiries() {
                 return phoneMatch || nameMatch || studentNameMatch;
             });
         }
-        return currentInquiries.sort((a, b) => {
-            const dateA = new Date(a.lastMessageAt || a.createdAt);
-            const dateB = new Date(b.lastMessageAt || b.createdAt);
+
+        // Exact CRM ordering:
+        // 1. Unread chats (unreadCount > 0) come first, newest message on top
+        // 2. Read chats (unreadCount === 0) come next, newest message on top
+        // 3. Active session pin: When coordinator opens an unread chat, keep it pinned at top while reading/replying.
+        //    As soon as replied (or another chat is clicked), it settles below all unread chats.
+        let sorted = [...currentInquiries].sort((a, b) => {
+            const aUnread = (a.unreadCount > 0) ? 1 : 0;
+            const bUnread = (b.unreadCount > 0) ? 1 : 0;
+            if (aUnread !== bUnread) {
+                return bUnread - aUnread;
+            }
+            const dateA = new Date(a.lastMessageAt || a.createdAt).getTime();
+            const dateB = new Date(b.lastMessageAt || b.createdAt).getTime();
             return dateB - dateA;
         });
-    }, [inquiries, searchQuery, selectedBusiness, selectedInquiry]);
+
+        if (activeSessionInquiryId) {
+            const activeInq = sorted.find(i => i.id === activeSessionInquiryId);
+            if (activeInq) {
+                const others = sorted.filter(i => i.id !== activeSessionInquiryId);
+                return [activeInq, ...others];
+            }
+        }
+
+        return sorted;
+    }, [inquiries, searchQuery, selectedBusiness, activeSessionInquiryId]);
 
     const groupedMessages = messages.reduce((acc, msg) => {
         const dateLabel = formatDateLabel(msg.createdAt);
@@ -597,7 +691,14 @@ export default function WebInquiries() {
                 <div className="w-[380px] xl:w-[440px] bg-[#1a2430] rounded-2xl flex flex-col overflow-hidden shrink-0 border border-white/10 shadow-xl relative">
                     <div className="p-5 bg-[#121a24] border-b border-white/5">
                         <div className="flex justify-between items-center mb-5">
-                            <h3 className="text-lg font-black text-slate-200 tracking-wider uppercase flex items-center gap-2">Inquiries</h3>
+                            <h3 className="text-lg font-black text-slate-200 tracking-wider uppercase flex items-center gap-2">
+                                Inquiries
+                                {totalUnreadInquiries > 0 && (
+                                    <span className="bg-red-500 text-white text-[11px] font-black px-2 py-0.5 rounded-full shadow-md">
+                                        {totalUnreadInquiries}
+                                    </span>
+                                )}
+                            </h3>
                         </div>
                         <div className="relative">
                             <FaSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -614,32 +715,34 @@ export default function WebInquiries() {
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-3 bg-[#1a2430]">
                         {filteredInquiries.length === 0 ? ( <div className="text-center text-slate-600 text-sm mt-10 font-medium">No inquiries found.</div> ) : (
                             filteredInquiries.map(inq => {
+                                const isUnread = (inq.unreadCount || 0) > 0;
                                 let overlayClass = 'bg-[#121a24] border-transparent hover:border-white/10';
                                 if (selectedInquiry?.id === inq.id) {
                                     overlayClass = 'bg-[#0f172a] border-blue-500 shadow-md shadow-blue-500/20';
+                                } else if (isUnread) {
+                                    overlayClass = 'bg-[#14232e] border-emerald-500/30 hover:border-emerald-500/60';
                                 }
                                 return (
                                     <div key={inq.id} className={`p-3 rounded-2xl mb-2 transition-all flex gap-3 items-center border ${overlayClass}`}>
                                         <div className="flex-1 min-w-0 flex items-center gap-3 cursor-pointer" onClick={() => handleSelectInquiry(inq)}>
-                                            <div className="w-10 h-10 bg-slate-600 rounded-full flex items-center justify-center text-white font-bold text-xl shrink-0 shadow-sm relative">
-                                                {inq.student?.firstName ? inq.student.firstName.charAt(0).toUpperCase() : 'S'}
-                                                {inq.unreadCount > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black h-4 min-w-[16px] flex items-center justify-center rounded-full shadow-md">{inq.unreadCount}</span>}
-                                            </div>
+                                            {renderStudentAvatar(inq, "w-10 h-10", "text-base", inq.unreadCount)}
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex justify-between items-start mb-1">
                                                     <div className="flex flex-col gap-0.5">
-                                                        <h4 className="font-bold text-[15px] text-slate-200 leading-none">{inq.student?.firstName || inq.student?.name || inq.name || 'Student'} {inq.student?.lastName || ''}</h4>
+                                                        <h4 className={`text-[15px] leading-none ${isUnread ? 'text-white font-black' : 'text-slate-200 font-bold'}`}>
+                                                            {inq.student?.firstName || inq.student?.name || inq.name || 'Student'} {inq.student?.lastName || ''}
+                                                        </h4>
                                                         <span className="text-[10px] text-slate-400 font-semibold mt-0.5">{inq.student?.phone || inq.phone || 'No phone'}</span>
                                                     </div>
                                                     <div className="flex flex-col items-end shrink-0 ml-2 gap-1.5">
                                                         <div className="text-right">
-                                                            <span className="text-[10px] text-emerald-500 font-bold block mb-0.5">{new Date(inq.lastMessageAt || inq.createdAt).toLocaleDateString('en-GB')}</span>
+                                                            <span className={`text-[10px] font-bold block mb-0.5 ${isUnread ? 'text-emerald-400' : 'text-emerald-500'}`}>{new Date(inq.lastMessageAt || inq.createdAt).toLocaleDateString('en-GB')}</span>
                                                             <span className="text-[9px] text-slate-500 block">{new Date(inq.lastMessageAt || inq.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                                                         </div>
                                                     </div>
                                                 </div>
                                                 <div className="flex justify-between items-end mt-1">
-                                                    <p className="text-[11px] font-medium text-slate-500 truncate w-[80%]">{inq.lastMessage || 'No messages'}</p>
+                                                    <p className={`text-[11px] truncate w-[80%] ${isUnread ? 'text-slate-200 font-medium' : 'text-slate-500 font-normal'}`}>{inq.lastMessage || 'No messages'}</p>
                                                 </div>
                                             </div>
                                         </div>
@@ -661,9 +764,7 @@ export default function WebInquiries() {
                                 ) : (
                                     globalSearchResults.map(student => (
                                         <div key={student.id} className="p-3 rounded-2xl mb-2 transition-all flex gap-3 items-center border bg-[#121a24] border-transparent hover:border-blue-500/50 hover:shadow-lg hover:shadow-blue-500/10 cursor-pointer" onClick={() => handleStartGlobalChat(student)}>
-                                            <div className="w-10 h-10 bg-blue-600/20 rounded-full flex items-center justify-center text-blue-400 font-bold text-xl shrink-0 border border-blue-500/20">
-                                                {student.firstName.charAt(0).toUpperCase()}
-                                            </div>
+                                            {renderStudentAvatar(student, "w-10 h-10", "text-base", 0)}
                                             <div className="flex-1 min-w-0">
                                                 <h4 className="font-bold text-[15px] text-slate-200 leading-none">{student.firstName} {student.lastName}</h4>
                                                 <span className="text-[10px] text-slate-400 font-semibold mt-1 block">{student.phone}</span>
@@ -682,9 +783,7 @@ export default function WebInquiries() {
                     <div className={`flex-1 flex flex-col rounded-2xl overflow-hidden shrink-0 border border-white/5 shadow-lg ${isDark ? 'bg-[#0f172a]' : 'bg-[#e5ddd5]'}`}>
                         <div className={`p-4 flex justify-between items-center border-b z-20 ${isDark ? 'bg-[#1e293b] border-slate-700' : 'bg-[#f0f2f5] border-slate-300'}`}>
                             <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 bg-slate-600 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-sm">
-                                    {(selectedInquiry.student?.firstName || selectedInquiry.student?.name || selectedInquiry.name || 'S').charAt(0).toUpperCase()}
-                                </div>
+                                {renderStudentAvatar(studentInfo || selectedInquiry, "w-10 h-10", "text-base", 0)}
                                 <div>
                                     <h3 className={`font-bold ${isDark ? 'text-slate-200' : 'text-slate-800'}`}>{selectedInquiry.student?.firstName || selectedInquiry.student?.name || selectedInquiry.name || 'Student'} {selectedInquiry.student?.lastName || ''}</h3>
                                     <p className={`text-xs font-medium ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{selectedInquiry.student?.phone || selectedInquiry.phone || 'No phone'}</p>
@@ -928,9 +1027,7 @@ export default function WebInquiries() {
                                 <button className="p-2 bg-black/20 group-hover:bg-blue-600/20 rounded-full hover:text-white mb-6 text-slate-500 group-hover:text-blue-400 transition-colors">
                                     <FaChevronLeft size={16} />
                                 </button>
-                                <div className="w-12 h-12 bg-[#2a3942] rounded-full border border-slate-600 flex items-center justify-center text-xl font-bold shadow-md text-slate-300">
-                                    {(selectedInquiry.student?.firstName || selectedInquiry.student?.name || selectedInquiry.name || 'S').charAt(0).toUpperCase()}
-                                </div>
+                                {renderStudentAvatar(studentInfo || selectedInquiry, "w-12 h-12", "text-xl", 0)}
                             </div>
                         ) : (
                             <>
@@ -938,8 +1035,8 @@ export default function WebInquiries() {
                                     <button onClick={() => setIsMinimized(true)} className="absolute top-4 right-4 p-2 bg-black/20 rounded-full hover:bg-black/40 hover:text-white transition-colors text-slate-400">
                                         <FaChevronRight size={14}/>
                                     </button>
-                                    <div className="w-20 h-20 bg-[#2a3942] rounded-full border border-slate-600 flex items-center justify-center text-3xl font-bold mb-3 shadow-md text-slate-300">
-                                        {(selectedInquiry.student?.firstName || selectedInquiry.student?.name || selectedInquiry.name || 'S').charAt(0).toUpperCase()}
+                                    <div className="mb-3">
+                                        {renderStudentAvatar(studentInfo || selectedInquiry, "w-20 h-20", "text-3xl", 0)}
                                     </div>
                                     <h2 className="text-lg font-bold text-center text-slate-200">{selectedInquiry.student?.firstName || selectedInquiry.student?.name || selectedInquiry.name || 'Student'} {selectedInquiry.student?.lastName || ''}</h2>
                                     <div className="flex flex-col items-center gap-1 mt-2 text-xs bg-[#0b141a] px-4 py-2 rounded-xl border border-slate-700 text-emerald-400">

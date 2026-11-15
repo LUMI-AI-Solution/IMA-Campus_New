@@ -470,7 +470,7 @@ const initSocket = (server) => {
                     data: {
                         lastMessage: message ? message.substring(0, 50) : (mediaUrl ? '[Attachment]' : ''),
                         lastMessageAt: new Date(),
-                        unreadCount: { increment: direction === 'inbound' ? 1 : 0 },
+                        unreadCount: direction === 'inbound' ? { increment: 1 } : 0,
                         studentUnreadCount: { increment: direction === 'outbound' ? 1 : 0 }
                     }
                 });

@@ -97,12 +97,35 @@ exports.getInquiries = async (req, res) => {
 
         const inquiries = await prisma.webInquiry.findMany({
             where,
-            orderBy: { lastMessageAt: 'desc' },
+            orderBy: [
+                { lastMessageAt: 'desc' },
+                { createdAt: 'desc' }
+            ],
             include: {
-                student: { select: { image: true, appChatDp: true } },
+                student: { 
+                    select: { 
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        phone: true,
+                        optionalPhone: true,
+                        image: true, 
+                        appChatDp: true 
+                    } 
+                },
                 course: { select: { name: true, code: true } },
                 assignedUser: { select: { firstName: true, lastName: true } }
             }
+        });
+
+        // Ensure unread chats come first, then read chats, each ordered by latest message desc
+        inquiries.sort((a, b) => {
+            const aUnread = (a.unreadCount > 0) ? 1 : 0;
+            const bUnread = (b.unreadCount > 0) ? 1 : 0;
+            if (aUnread !== bUnread) return bUnread - aUnread;
+            const dateA = new Date(a.lastMessageAt || a.createdAt).getTime();
+            const dateB = new Date(b.lastMessageAt || b.createdAt).getTime();
+            return dateB - dateA;
         });
 
         res.json({ success: true, inquiries });
@@ -339,7 +362,17 @@ exports.createOrGetInquiry = async (req, res) => {
                 status: "OPEN"
             },
             include: {
-                student: { select: { image: true, appChatDp: true } },
+                student: { 
+                    select: { 
+                        id: true,
+                        firstName: true,
+                        lastName: true,
+                        phone: true,
+                        optionalPhone: true,
+                        image: true, 
+                        appChatDp: true 
+                    } 
+                },
                 assignedUser: { select: { firstName: true, lastName: true } }
             }
         });
@@ -356,7 +389,17 @@ exports.createOrGetInquiry = async (req, res) => {
                     status: "OPEN"
                 },
                 include: {
-                    student: { select: { image: true, appChatDp: true } },
+                    student: { 
+                        select: { 
+                            id: true,
+                            firstName: true,
+                            lastName: true,
+                            phone: true,
+                            optionalPhone: true,
+                            image: true, 
+                            appChatDp: true 
+                        } 
+                    },
                     assignedUser: { select: { firstName: true, lastName: true } }
                 }
             });
