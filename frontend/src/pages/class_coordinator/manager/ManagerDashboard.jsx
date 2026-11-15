@@ -27,8 +27,8 @@ export default function ManagerDashboard() {
   const [selectedBatch, setSelectedBatch] = useState('ALL');
 
   const [realtimeChatSummary, setRealtimeChatSummary] = useState({
-    afterSeminar: { totalUnread: 0, expiringSoon: 0, expired: 0, active: 0 },
-    freeSeminar: { totalUnread: 0, expiringSoon: 0, expired: 0, active: 0 }
+    afterSeminar: { totalUnread: 0, newUnread: 0, newTotal: 0, expiringSoon: 0, expired: 0, active: 0 },
+    freeSeminar: { totalUnread: 0, newUnread: 0, newTotal: 0, expiringSoon: 0, expired: 0, active: 0 }
   });
   const [realtimeLoading, setRealtimeLoading] = useState(false);
 
@@ -139,8 +139,8 @@ export default function ManagerDashboard() {
       });
       if (res.data?.success) {
         setRealtimeChatSummary({
-          afterSeminar: res.data.afterSeminar || { totalUnread: 0, expiringSoon: 0, expired: 0, active: 0 },
-          freeSeminar: res.data.freeSeminar || { totalUnread: 0, expiringSoon: 0, expired: 0, active: 0 }
+          afterSeminar: res.data.afterSeminar || { totalUnread: 0, newUnread: 0, newTotal: 0, expiringSoon: 0, expired: 0, active: 0 },
+          freeSeminar: res.data.freeSeminar || { totalUnread: 0, newUnread: 0, newTotal: 0, expiringSoon: 0, expired: 0, active: 0 }
         });
       }
     } catch (err) {
@@ -287,13 +287,18 @@ export default function ManagerDashboard() {
 
             {/* Unread Chats Count */}
             <div className="flex items-baseline justify-between pt-1">
-              <div>
+              <div className="flex items-center flex-wrap gap-2">
                 <span className="text-4xl lg:text-5xl font-black text-white tracking-tight drop-shadow-md">
                   {realtimeLoading ? '...' : Number(realtimeChatSummary.afterSeminar.totalUnread || 0).toLocaleString()}
                 </span>
-                <span className="text-xs font-black text-purple-200/80 uppercase tracking-wider ml-3">
+                <span className="text-xs font-black text-purple-200/80 uppercase tracking-wider ml-1">
                   Unread Chats
                 </span>
+                {(realtimeChatSummary.afterSeminar.newUnread > 0 || realtimeChatSummary.afterSeminar.newTotal > 0) && (
+                  <span className="bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm shadow-cyan-500/10 ml-2 animate-pulse">
+                    <FaInbox size={10} /> {realtimeChatSummary.afterSeminar.newUnread} New
+                  </span>
+                )}
               </div>
               <span className="text-[11px] font-bold text-purple-300/80 group-hover:text-white flex items-center gap-1 transition-colors">
                 Open CRM <FaArrowRight size={10} className="group-hover:translate-x-1 transition-transform" />
@@ -301,7 +306,26 @@ export default function ManagerDashboard() {
             </div>
 
             {/* Status Breakdown Pills */}
-            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/5">
+              {/* New (Unassigned) */}
+              <div className={`p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition-colors ${
+                (realtimeChatSummary.afterSeminar.newUnread || 0) > 0
+                  ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 shadow-sm shadow-cyan-500/10'
+                  : 'bg-white/[0.02] border-white/5 text-slate-400'
+              }`}>
+                <span className="text-[9px] font-black uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                  <FaInbox size={9} className="text-cyan-400" /> New (Unassigned)
+                </span>
+                <span className="text-base font-black text-cyan-300">
+                  {realtimeLoading ? '...' : (realtimeChatSummary.afterSeminar.newUnread || 0)}
+                </span>
+                {(realtimeChatSummary.afterSeminar.newTotal || 0) > 0 && (
+                  <span className="text-[8px] font-bold text-slate-400 opacity-70">
+                    Total: {realtimeChatSummary.afterSeminar.newTotal}
+                  </span>
+                )}
+              </div>
+
               {/* Expiring Soon (<4h) */}
               <div className={`p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition-colors ${
                 (realtimeChatSummary.afterSeminar.expiringSoon || 0) > 0
@@ -375,13 +399,18 @@ export default function ManagerDashboard() {
 
             {/* Unread Chats Count */}
             <div className="flex items-baseline justify-between pt-1">
-              <div>
+              <div className="flex items-center flex-wrap gap-2">
                 <span className="text-4xl lg:text-5xl font-black text-white tracking-tight drop-shadow-md">
                   {realtimeLoading ? '...' : Number(realtimeChatSummary.freeSeminar.totalUnread || 0).toLocaleString()}
                 </span>
-                <span className="text-xs font-black text-emerald-200/80 uppercase tracking-wider ml-3">
+                <span className="text-xs font-black text-emerald-200/80 uppercase tracking-wider ml-1">
                   Unread Chats
                 </span>
+                {(realtimeChatSummary.freeSeminar.newUnread > 0 || realtimeChatSummary.freeSeminar.newTotal > 0) && (
+                  <span className="bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-sm shadow-cyan-500/10 ml-2 animate-pulse">
+                    <FaInbox size={10} /> {realtimeChatSummary.freeSeminar.newUnread} New
+                  </span>
+                )}
               </div>
               <span className="text-[11px] font-bold text-emerald-300/80 group-hover:text-white flex items-center gap-1 transition-colors">
                 Open CRM <FaArrowRight size={10} className="group-hover:translate-x-1 transition-transform" />
@@ -389,7 +418,26 @@ export default function ManagerDashboard() {
             </div>
 
             {/* Status Breakdown Pills */}
-            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-white/5">
+              {/* New (Unassigned) */}
+              <div className={`p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition-colors ${
+                (realtimeChatSummary.freeSeminar.newUnread || 0) > 0
+                  ? 'bg-cyan-500/15 border-cyan-500/40 text-cyan-300 shadow-sm shadow-cyan-500/10'
+                  : 'bg-white/[0.02] border-white/5 text-slate-400'
+              }`}>
+                <span className="text-[9px] font-black uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                  <FaInbox size={9} className="text-cyan-400" /> New (Unassigned)
+                </span>
+                <span className="text-base font-black text-cyan-300">
+                  {realtimeLoading ? '...' : (realtimeChatSummary.freeSeminar.newUnread || 0)}
+                </span>
+                {(realtimeChatSummary.freeSeminar.newTotal || 0) > 0 && (
+                  <span className="text-[8px] font-bold text-slate-400 opacity-70">
+                    Total: {realtimeChatSummary.freeSeminar.newTotal}
+                  </span>
+                )}
+              </div>
+
               {/* Expiring Soon (<4h) */}
               <div className={`p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition-colors ${
                 (realtimeChatSummary.freeSeminar.expiringSoon || 0) > 0

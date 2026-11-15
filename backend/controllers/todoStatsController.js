@@ -382,15 +382,18 @@ exports.getRealtimeChatSummary = async (req, res) => {
             }
         }
 
-        const buildFilter = (campaignType) => {
+        const buildFilter = (campaignType, unreadOnly = false) => {
             const filter = {
                 campaignType,
-                unreadCount: { gt: 0 },
                 source: { not: 'system' },
                 isBlocked: false,
                 status: { not: 'BLOCKED' },
                 AND: []
             };
+
+            if (unreadOnly) {
+                filter.unreadCount = { gt: 0 };
+            }
 
             if (hasBatch) {
                 const bId = parseInt(batchId);
@@ -451,18 +454,45 @@ exports.getRealtimeChatSummary = async (req, res) => {
             return filter;
         };
 
-        const [afterSemLeads, freeSemLeads] = await Promise.all([
+        const afterBase = buildFilter('AFTER_SEMINAR', false);
+        const freeBase = buildFilter('FREE_SEMINAR', false);
+
+        const afterNewFilter = {
+            ...afterBase,
+            assignedTo: null,
+            source: { notIn: ['system', 'import', 'bulk_import'] }
+        };
+
+        const freeNewFilter = {
+            ...freeBase,
+            status: { in: ['NEW', 'OPEN'] },
+            assignedTo: null,
+            OR: [{ callCenterRequestStatus: null }, { callCenterRequestStatus: 'REJECTED' }]
+        };
+
+        const [
+            afterSemLeads,
+            afterNewTotal,
+            afterNewUnread,
+            freeSemLeads,
+            freeNewTotal,
+            freeNewUnread
+        ] = await Promise.all([
             prisma.lead.findMany({
-                where: buildFilter('AFTER_SEMINAR'),
+                where: { ...afterBase, unreadCount: { gt: 0 } },
                 select: { id: true, lastMessageAt: true, updatedAt: true, createdAt: true }
             }),
+            prisma.lead.count({ where: afterNewFilter }),
+            prisma.lead.count({ where: { ...afterNewFilter, unreadCount: { gt: 0 } } }),
             prisma.lead.findMany({
-                where: buildFilter('FREE_SEMINAR'),
+                where: { ...freeBase, unreadCount: { gt: 0 } },
                 select: { id: true, lastMessageAt: true, updatedAt: true, createdAt: true }
-            })
+            }),
+            prisma.lead.count({ where: freeNewFilter }),
+            prisma.lead.count({ where: { ...freeNewFilter, unreadCount: { gt: 0 } } })
         ]);
 
-        const calcStats = (leads) => {
+        const calcStats = (leads, newUnread, newTotal) => {
             let expiringSoon = 0;
             let expired = 0;
             let active = 0;
@@ -478,6 +508,8 @@ exports.getRealtimeChatSummary = async (req, res) => {
 
             return {
                 totalUnread: leads.length,
+                newUnread,
+                newTotal,
                 expiringSoon,
                 expired,
                 active
@@ -486,8 +518,8 @@ exports.getRealtimeChatSummary = async (req, res) => {
 
         res.status(200).json({
             success: true,
-            afterSeminar: calcStats(afterSemLeads),
-            freeSeminar: calcStats(freeSemLeads)
+            afterSeminar: calcStats(afterSemLeads, afterNewUnread, afterNewTotal),
+            freeSeminar: calcStats(freeSemLeads, freeNewUnread, freeNewTotal)
         });
     } catch (error) {
         console.error('Realtime Chat Summary Error:', error);
