@@ -1658,7 +1658,7 @@ exports.updateDeliveryLabel = async (req, res) => {
             });
         }
 
-        const labelAddress = [houseNo, street, city, district].filter(Boolean).join(', ');
+        const labelAddress = [houseNo, street, city].filter(Boolean).join(', ');
 
         const updated = await prisma.delivery.update({
             where: { id: deliveryId },

@@ -295,6 +295,12 @@ export default function CourseView({ courseId, onBack }) {
                                             ⏰ Scheduled: {new Date(item.paper.scheduledStartTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                                         </span>
                                     )}
+                                    {timerMode !== 'SCHEDULED' && item.paper?.flexibleStartDate && item.paper?.flexibleEndDate && (
+                                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-500/20 text-blue-300 border border-blue-500/30 flex items-center gap-1">
+                                            <CalendarDays size={11} className="text-blue-400" />
+                                            Window: {new Date(item.paper.flexibleStartDate).toLocaleDateString([], { month: 'short', day: 'numeric' })} - {new Date(item.paper.flexibleEndDate).toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                                        </span>
+                                    )}
                                 </div>
                             )}
 
@@ -305,7 +311,12 @@ export default function CourseView({ courseId, onBack }) {
 
                         <p className="text-[10px] sm:text-xs text-white/70 font-medium flex items-center gap-1.5">
                             <CalendarDays size={14} className="text-red-400 shrink-0"/> 
-                            <span>{item.date ? new Date(item.date).toDateString() : 'No Date'}</span>
+                            <span>
+                                {item.paper?.flexibleStartDate && item.paper?.flexibleEndDate
+                                    ? `${new Date(item.paper.flexibleStartDate).toLocaleDateString([], { month: 'short', day: 'numeric' })} - ${new Date(item.paper.flexibleEndDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}`
+                                    : (item.date ? new Date(item.date).toDateString() : 'No Date')
+                                }
+                            </span>
                         </p>
                     </div>
                 </div>

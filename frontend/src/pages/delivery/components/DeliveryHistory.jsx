@@ -179,6 +179,7 @@ export default function DeliveryHistory({ isReadOnly }) {
     const printLabel = (order) => {
         const baseUrl = window.location.origin; 
         const bgImageUrl = `${baseUrl}/sticker-bg.png`; 
+        const printAddress = order.labelAddress || (order.originalAddress ? [order.originalAddress.houseNo, order.originalAddress.street, order.originalAddress.city].filter(Boolean).join(', ') : '') || order.address || 'No Address Provided';
         const windowPrint = window.open('', '', 'width=850,height=500');
         
         windowPrint.document.write(`
@@ -240,7 +241,7 @@ export default function DeliveryHistory({ isReadOnly }) {
                         <div class="content-wrapper">
                             <div class="details-block">
                                 <div class="text-item">${order.studentName || 'Student'}</div>
-                                <div class="text-item">${order.labelAddress || order.address || 'No Address Provided'}</div>
+                                <div class="text-item">${printAddress}</div>
                                 <div class="text-item">${order.phone || 'No Phone'}</div>
                             </div>
                             <div class="ref-id">REF: ${order.id}</div>

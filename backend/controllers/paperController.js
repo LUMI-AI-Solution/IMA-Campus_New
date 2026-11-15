@@ -3,6 +3,51 @@ const prisma = require('../src/core/db');
 const path = require('path');
 const fs = require('fs');
 
+// Helper to parse scheduled paper start time in Sri Lanka timezone (Asia/Colombo +05:30)
+function parseScheduledTime(timeInput, dateStr) {
+    if (!timeInput) return null;
+    const str = String(timeInput).trim();
+    if (!str || str === 'null' || str === 'undefined') return null;
+
+    if (/Z|[+-]\d{2}:?\d{2}$/i.test(str)) {
+        const d = new Date(str);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    if (str.includes('T') || str.includes(' ')) {
+        const normalized = str.replace(' ', 'T').slice(0, 19);
+        const d = new Date(`${normalized}+05:30`);
+        return isNaN(d.getTime()) ? new Date(str) : d;
+    }
+
+    const dPart = dateStr ? String(dateStr).split('T')[0] : new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Colombo' }).format(new Date());
+    const tPart = str.length === 5 ? `${str}:00` : str;
+    const d = new Date(`${dPart}T${tPart}+05:30`);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+// Helper to parse flexible date window (start and end date) in Asia/Colombo (+05:30)
+function parseDateWindow(dateInput, isEnd = false) {
+    if (!dateInput) return null;
+    const str = String(dateInput).trim();
+    if (!str || str === 'null' || str === 'undefined') return null;
+
+    if (/Z|[+-]\d{2}:?\d{2}$/i.test(str)) {
+        const d = new Date(str);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    if (str.includes('T') || str.includes(' ')) {
+        const normalized = str.replace(' ', 'T').slice(0, 19);
+        const d = new Date(`${normalized}+05:30`);
+        return isNaN(d.getTime()) ? new Date(str) : d;
+    }
+
+    const timeStr = isEnd ? '23:59:59.999' : '00:00:00.000';
+    const d = new Date(`${str}T${timeStr}+05:30`);
+    return isNaN(d.getTime()) ? null : d;
+}
+
 // Helper to check if staff/admin/lecture/guider/marker
 const isStaffOrTeacher = (user) => {
     if (!user) return false;
@@ -201,6 +246,8 @@ exports.getPaperByContentId = async (req, res) => {
                 mcqScheduledStartTime: paper.mcqScheduledStartTime || paper.scheduledStartTime,
                 structuredTimerMode: paper.structuredTimerMode || paper.timerMode || 'FLEXIBLE',
                 structuredScheduledStartTime: paper.structuredScheduledStartTime || paper.scheduledStartTime,
+                flexibleStartDate: paper.flexibleStartDate,
+                flexibleEndDate: paper.flexibleEndDate,
                 breakIntervalMinutes: paper.breakIntervalMinutes !== null && paper.breakIntervalMinutes !== undefined ? paper.breakIntervalMinutes : 15,
                 structuredUploadMinutes: paper.structuredUploadMinutes !== null && paper.structuredUploadMinutes !== undefined ? paper.structuredUploadMinutes : 15,
                 durationMinutes: paper.durationMinutes || content.paperTime || 60,
@@ -270,6 +317,8 @@ exports.savePaperConfig = async (req, res) => {
             mcqScheduledStartTime,
             structuredTimerMode,
             structuredScheduledStartTime,
+            flexibleStartDate,
+            flexibleEndDate,
             breakIntervalMinutes,
             structuredUploadMinutes,
             durationMinutes, 
@@ -293,11 +342,11 @@ exports.savePaperConfig = async (req, res) => {
 
         const parsedContentId = parseInt(contentId);
         const parsedDuration = parseInt(durationMinutes || 60);
-        const parsedStartTime = scheduledStartTime ? new Date(scheduledStartTime) : null;
+        const parsedStartTime = scheduledStartTime ? parseScheduledTime(scheduledStartTime) : null;
         const resolvedMcqTimer = mcqTimerMode || timerMode || 'FLEXIBLE';
         const resolvedStructTimer = structuredTimerMode || timerMode || 'FLEXIBLE';
-        const parsedMcqStartTime = mcqScheduledStartTime ? new Date(mcqScheduledStartTime) : (resolvedMcqTimer === 'SCHEDULED' ? parsedStartTime : null);
-        const parsedStructStartTime = structuredScheduledStartTime ? new Date(structuredScheduledStartTime) : (resolvedStructTimer === 'SCHEDULED' ? parsedStartTime : null);
+        const parsedMcqStartTime = mcqScheduledStartTime ? parseScheduledTime(mcqScheduledStartTime) : (resolvedMcqTimer === 'SCHEDULED' ? parsedStartTime : null);
+        let parsedStructStartTime = structuredScheduledStartTime ? parseScheduledTime(structuredScheduledStartTime) : (resolvedStructTimer === 'SCHEDULED' ? parsedStartTime : null);
         const validPaperType = ['MCQ', 'STRUCTURED', 'BOTH'].includes(paperType) ? paperType : 'MCQ';
 
         let finalDuration = parsedDuration;
@@ -311,6 +360,14 @@ exports.savePaperConfig = async (req, res) => {
         } else if (validPaperType === 'BOTH') {
             finalDuration = finalMcqDuration + finalStructDuration;
         }
+
+        if (validPaperType === 'BOTH' && resolvedStructTimer === 'SCHEDULED' && parsedMcqStartTime && (!structuredScheduledStartTime || structuredScheduledStartTime === scheduledStartTime)) {
+            const breakMins = (breakIntervalMinutes !== undefined && breakIntervalMinutes !== '') ? parseInt(breakIntervalMinutes) : 15;
+            parsedStructStartTime = new Date(parsedMcqStartTime.getTime() + (finalMcqDuration + breakMins) * 60 * 1000);
+        }
+
+        const parsedFlexStart = flexibleStartDate !== undefined ? parseDateWindow(flexibleStartDate, false) : undefined;
+        const parsedFlexEnd = flexibleEndDate !== undefined ? parseDateWindow(flexibleEndDate, true) : undefined;
 
         const parsedCategory = category && ['WEEKLY', 'MONTHLY'].includes(String(category).toUpperCase()) ? String(category).toUpperCase() : 'WEEKLY';
         const parsedHasLeaderboard = hasLeaderboard !== undefined ? (hasLeaderboard === true || hasLeaderboard === 'true' || hasLeaderboard === 1 || hasLeaderboard === '1') : true;
@@ -332,6 +389,8 @@ exports.savePaperConfig = async (req, res) => {
             mcqScheduledStartTime: parsedMcqStartTime,
             structuredTimerMode: resolvedStructTimer,
             structuredScheduledStartTime: parsedStructStartTime,
+            ...(parsedFlexStart !== undefined ? { flexibleStartDate: parsedFlexStart } : {}),
+            ...(parsedFlexEnd !== undefined ? { flexibleEndDate: parsedFlexEnd } : {}),
             breakIntervalMinutes: breakIntervalMinutes !== undefined && breakIntervalMinutes !== '' ? parseInt(breakIntervalMinutes) : 15,
             structuredUploadMinutes: structuredUploadMinutes !== undefined && structuredUploadMinutes !== '' ? parseInt(structuredUploadMinutes) : 15,
             durationMinutes: finalDuration,
@@ -505,6 +564,22 @@ exports.startPaper = async (req, res) => {
 
         if (!paper) return res.status(404).json({ error: "Paper not found" });
 
+        const now = new Date();
+
+        // Check flexible date range restrictions if configured
+        if (paper.flexibleStartDate && now < new Date(paper.flexibleStartDate)) {
+            const startFormatted = new Date(paper.flexibleStartDate).toLocaleDateString('en-GB', { timeZone: 'Asia/Colombo' });
+            return res.status(400).json({
+                error: `This test is not available yet. It will open on ${startFormatted}.`
+            });
+        }
+        if (paper.flexibleEndDate && now > new Date(paper.flexibleEndDate)) {
+            const endFormatted = new Date(paper.flexibleEndDate).toLocaleDateString('en-GB', { timeZone: 'Asia/Colombo' });
+            return res.status(400).json({
+                error: `The exam window for this test has ended on ${endFormatted}. Submissions are closed.`
+            });
+        }
+
         // Check if student already started
         let submission = await prisma.paperSubmission.findUnique({
             where: {
@@ -514,8 +589,6 @@ exports.startPaper = async (req, res) => {
                 }
             }
         });
-
-        const now = new Date();
 
         const isStructuredPaper = paper.paperType === 'STRUCTURED' || section === 'STRUCTURED';
 

@@ -65,6 +65,14 @@ export default function ClassFollowUpReportView({ initialClassId = null, onBack 
     toast.success(`Copied ${label || 'Phone'}: ${phone}`, { icon: '📋' });
   };
 
+  // Format payment month and date helper (e.g. "Sep 16", "Oct 7")
+  const formatPaymentDate = (dateVal) => {
+    if (!dateVal) return null;
+    const d = new Date(dateVal);
+    if (isNaN(d.getTime())) return null;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  };
+
   // Filter students based on UI controls
   const filteredStudents = useMemo(() => {
     if (!reportData || !reportData.students) return [];
@@ -169,7 +177,8 @@ export default function ClassFollowUpReportView({ initialClassId = null, onBack 
         'School',
         ...months.flatMap(m => [
           `${m.label} Fee Status`,
-          `${m.label} Attendance`
+          `${m.label} Attendance`,
+          `${m.label} Paid Date`
         ]),
         'Attendance Rate (%)'
       ];
@@ -178,11 +187,11 @@ export default function ClassFollowUpReportView({ initialClassId = null, onBack 
       const rows = filteredStudents.map((st, idx) => {
         const monthColumns = months.flatMap(m => {
           const mData = st.months?.[m.monthKey];
-          if (!mData) return ['-', '-'];
+          if (!mData) return ['-', '-', '-'];
 
           const isNotEnrolled = mData.status === 'NOT_ENROLLED' || mData.isBeforeEnrollment;
           if (isNotEnrolled) {
-            return ['-', '-'];
+            return ['-', '-', '-'];
           }
 
           let feeStatusStr = mData.status || 'UNPAID';
@@ -192,8 +201,11 @@ export default function ClassFollowUpReportView({ initialClassId = null, onBack 
           else if (mData.status === 'UNPAID') feeStatusStr = 'UNPAID';
 
           const attendanceStr = `${mData.attendedDays || 0}/${mData.scheduledDays || 0} Days`;
+          const paidDateStr = (mData.paidDate && (mData.isPaid || mData.status === 'PARTIAL'))
+            ? formatPaymentDate(mData.paidDate)
+            : '-';
 
-          return [feeStatusStr, attendanceStr];
+          return [feeStatusStr, attendanceStr, paidDateStr];
         });
 
         return [
@@ -800,6 +812,18 @@ export default function ClassFollowUpReportView({ initialClassId = null, onBack 
                                   mData.attendedDays > 0 ? 'text-white/70' : 'text-rose-400/80 font-bold'
                                 }`}>
                                   {mData.attendedDays}/{mData.scheduledDays} Days
+                                </span>
+                              )}
+
+                              {/* Payment Month & Date */}
+                              {mData.paidDate && (isPaid || isPartial) && (
+                                <span 
+                                  className={`text-[10px] font-bold tracking-tight ${
+                                    isPaid ? 'text-emerald-400' : 'text-amber-400'
+                                  }`}
+                                  title={`Paid Date: ${new Date(mData.paidDate).toLocaleDateString()}`}
+                                >
+                                  {formatPaymentDate(mData.paidDate)}
                                 </span>
                               )}
                             </div>

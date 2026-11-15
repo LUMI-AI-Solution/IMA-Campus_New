@@ -199,6 +199,9 @@ function LecturerSearchableSelect({ editData, editMode, setEditData, masterTutes
 
 export default function ContentHubModals({ state, actions }) {
     const [modalTimerMode, setModalTimerMode] = useState('FLEXIBLE');
+    const [modalFlexibleWindowType, setModalFlexibleWindowType] = useState('SINGLE'); // 'SINGLE' | 'RANGE'
+    const [modalFlexibleStartDate, setModalFlexibleStartDate] = useState('');
+    const [modalFlexibleEndDate, setModalFlexibleEndDate] = useState('');
     const [modalPaperType, setModalPaperType] = useState('MCQ'); // 'MCQ' | 'STRUCTURED' | 'BOTH'
     const [modalCategory, setModalCategory] = useState('WEEKLY'); // 'WEEKLY' | 'MONTHLY'
     const [modalWeeklyLeaderboard, setModalWeeklyLeaderboard] = useState(true); // Whether Weekly test publishes to leaderboard
@@ -316,6 +319,17 @@ export default function ContentHubModals({ state, actions }) {
             setModalBreakIntervalMinutes(editData?.paper?.breakIntervalMinutes !== null && editData?.paper?.breakIntervalMinutes !== undefined ? String(editData.paper.breakIntervalMinutes) : '15');
             setModalStructuredUploadMinutes(editData?.paper?.structuredUploadMinutes !== null && editData?.paper?.structuredUploadMinutes !== undefined ? String(editData.paper.structuredUploadMinutes) : '15');
             setModalTimerMode(editData?.paper?.timerMode || 'FLEXIBLE');
+
+            if (editData?.paper?.flexibleStartDate || editData?.paper?.flexibleEndDate) {
+                setModalFlexibleWindowType('RANGE');
+                setModalFlexibleStartDate(editData.paper.flexibleStartDate ? new Date(editData.paper.flexibleStartDate).toISOString().split('T')[0] : '');
+                setModalFlexibleEndDate(editData.paper.flexibleEndDate ? new Date(editData.paper.flexibleEndDate).toISOString().split('T')[0] : '');
+            } else {
+                setModalFlexibleWindowType('SINGLE');
+                setModalFlexibleStartDate('');
+                setModalFlexibleEndDate('');
+            }
+
             const pType = editData?.paper?.paperType || (editData.contentType === 'sPaper' ? 'STRUCTURED' : (editData.contentType === 'paper' ? 'MCQ' : 'MCQ'));
             setModalPaperType(pType);
             const totalMins = editData?.paper?.durationMinutes || editData?.paperTime || 60;
@@ -368,6 +382,9 @@ export default function ContentHubModals({ state, actions }) {
             setModalBreakIntervalMinutes('15');
             setModalStructuredUploadMinutes('15');
             setModalTimerMode('FLEXIBLE');
+            setModalFlexibleWindowType('SINGLE');
+            setModalFlexibleStartDate('');
+            setModalFlexibleEndDate('');
             setModalPaperType('MCQ');
             setModalDurationHours('1');
             setModalDurationMinutes('0');
@@ -1139,11 +1156,128 @@ export default function ContentHubModals({ state, actions }) {
                                                             <input 
                                                                 type="time" 
                                                                 name="scheduledStartTime" 
-                                                                defaultValue={editData?.paper?.scheduledStartTime ? new Date(editData.paper.scheduledStartTime).toTimeString().slice(0, 5) : ''} 
+                                                                defaultValue={editData?.paper?.scheduledStartTime ? new Date(editData.paper.scheduledStartTime).toLocaleTimeString('en-GB', { timeZone: 'Asia/Colombo', hour: '2-digit', minute: '2-digit', hour12: false }) : ''} 
                                                                 required={modalTimerMode === 'SCHEDULED'}
                                                                 className="w-full bg-black/60 border border-amber-500/40 focus:border-amber-400 focus:bg-black/90 rounded-xl p-4 text-white outline-none shadow-inner text-base font-bold cursor-pointer" 
                                                             />
-                                                            <p className="text-xs text-slate-300 italic">Synchronized to the Date selected above in the form.</p>
+                                                            <p className="text-xs text-slate-300 italic">Synchronized to the Date selected above in the form (Asia/Colombo +05:30).</p>
+                                                            <input type="hidden" name="flexibleStartDate" value="" />
+                                                            <input type="hidden" name="flexibleEndDate" value="" />
+                                                        </div>
+                                                    )}
+
+                                                    {/* If Flexible Mode: Choose Single Day vs Custom Date Range */}
+                                                    {modalTimerMode === 'FLEXIBLE' && (
+                                                        <div className="bg-blue-500/10 border border-blue-500/30 rounded-2xl p-5 space-y-4 animate-in fade-in">
+                                                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                                                                <label className="text-xs sm:text-sm font-bold text-blue-300 uppercase tracking-wider flex items-center gap-2">
+                                                                    <CalendarDays size={16} className="text-blue-400" /> Flexible Test Availability Window *
+                                                                </label>
+                                                                <span className="text-xs text-blue-200/70">Allow students to take the exam on a single day or across multiple days</span>
+                                                            </div>
+
+                                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                                                                {/* Option A: Single Day */}
+                                                                <div 
+                                                                    onClick={() => setModalFlexibleWindowType('SINGLE')}
+                                                                    className={`cursor-pointer p-4 rounded-xl border-2 transition-all flex items-start gap-3.5 ${
+                                                                        modalFlexibleWindowType === 'SINGLE'
+                                                                            ? 'bg-blue-500/20 border-blue-400 text-white shadow-md'
+                                                                            : 'bg-black/50 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                                                                    }`}
+                                                                >
+                                                                    <div className="mt-0.5">
+                                                                        <input 
+                                                                            type="radio" 
+                                                                            name="flexibleWindowTypeRadio" 
+                                                                            checked={modalFlexibleWindowType === 'SINGLE'} 
+                                                                            onChange={() => setModalFlexibleWindowType('SINGLE')} 
+                                                                            className="w-4 h-4 accent-blue-400 cursor-pointer" 
+                                                                        />
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <p className="text-xs sm:text-sm font-extrabold text-white">
+                                                                            Single Day (Standard)
+                                                                        </p>
+                                                                        <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                                                                            Test is available on the Date selected above in the form.
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Option B: Custom Date Range (Multi-Day) */}
+                                                                <div 
+                                                                    onClick={() => setModalFlexibleWindowType('RANGE')}
+                                                                    className={`cursor-pointer p-4 rounded-xl border-2 transition-all flex items-start gap-3.5 ${
+                                                                        modalFlexibleWindowType === 'RANGE'
+                                                                            ? 'bg-emerald-500/20 border-emerald-400 text-white shadow-md'
+                                                                            : 'bg-black/50 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                                                                    }`}
+                                                                >
+                                                                    <div className="mt-0.5">
+                                                                        <input 
+                                                                            type="radio" 
+                                                                            name="flexibleWindowTypeRadio" 
+                                                                            checked={modalFlexibleWindowType === 'RANGE'} 
+                                                                            onChange={() => setModalFlexibleWindowType('RANGE')} 
+                                                                            className="w-4 h-4 accent-emerald-400 cursor-pointer" 
+                                                                        />
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <p className="text-xs sm:text-sm font-extrabold text-white">
+                                                                                Date Range (Multiple Days)
+                                                                            </p>
+                                                                            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
+                                                                                Flexible Window
+                                                                            </span>
+                                                                        </div>
+                                                                        <p className="text-xs text-slate-300 mt-1 leading-relaxed">
+                                                                            Specify Start and End dates. Students can take the test flexibly on any day within this range.
+                                                                        </p>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Date pickers when RANGE is selected */}
+                                                            {modalFlexibleWindowType === 'RANGE' ? (
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-blue-500/20">
+                                                                    <div>
+                                                                        <label className="text-xs font-bold text-slate-200 mb-1.5 block uppercase tracking-wider flex items-center gap-1.5">
+                                                                            <Calendar size={13} className="text-emerald-400" /> Start Date *
+                                                                        </label>
+                                                                        <input 
+                                                                            type="date" 
+                                                                            name="flexibleStartDate" 
+                                                                            value={modalFlexibleStartDate} 
+                                                                            onChange={(e) => setModalFlexibleStartDate(e.target.value)} 
+                                                                            required={modalTimerMode === 'FLEXIBLE' && modalFlexibleWindowType === 'RANGE'}
+                                                                            className="w-full bg-black/60 border border-emerald-500/40 focus:border-emerald-400 focus:bg-black/90 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold cursor-pointer" 
+                                                                        />
+                                                                        <p className="text-[10px] text-slate-400 mt-1">First day students can start the exam (from 00:00).</p>
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-xs font-bold text-slate-200 mb-1.5 block uppercase tracking-wider flex items-center gap-1.5">
+                                                                            <Calendar size={13} className="text-rose-400" /> End Date *
+                                                                        </label>
+                                                                        <input 
+                                                                            type="date" 
+                                                                            name="flexibleEndDate" 
+                                                                            value={modalFlexibleEndDate} 
+                                                                            min={modalFlexibleStartDate || undefined}
+                                                                            onChange={(e) => setModalFlexibleEndDate(e.target.value)} 
+                                                                            required={modalTimerMode === 'FLEXIBLE' && modalFlexibleWindowType === 'RANGE'}
+                                                                            className="w-full bg-black/60 border border-rose-500/40 focus:border-rose-400 focus:bg-black/90 rounded-xl p-3.5 text-white outline-none shadow-inner text-sm font-bold cursor-pointer" 
+                                                                        />
+                                                                        <p className="text-[10px] text-slate-400 mt-1">Final deadline for students to complete the test (until 23:59).</p>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <>
+                                                                    <input type="hidden" name="flexibleStartDate" value="" />
+                                                                    <input type="hidden" name="flexibleEndDate" value="" />
+                                                                </>
+                                                            )}
                                                         </div>
                                                     )}
 

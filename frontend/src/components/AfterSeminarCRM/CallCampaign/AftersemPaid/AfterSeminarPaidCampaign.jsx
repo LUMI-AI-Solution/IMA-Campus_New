@@ -112,6 +112,33 @@ const parseAttempts = (raw) => {
     return {};
 };
 
+const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
+    if (!attemptsObj || typeof attemptsObj !== 'object' || !targetMonthName) return {};
+
+    // 1. Direct key match (exact or trimmed)
+    if (attemptsObj[targetMonthName]) return attemptsObj[targetMonthName];
+    const trimmedTarget = String(targetMonthName).trim();
+    if (attemptsObj[trimmedTarget]) return attemptsObj[trimmedTarget];
+
+    // 2. Case-insensitive trimmed match
+    const targetClean = trimmedTarget.toLowerCase();
+    const caseMatch = Object.entries(attemptsObj).find(([k]) => k.trim().toLowerCase() === targetClean);
+    if (caseMatch) return caseMatch[1];
+
+    // 3. Normalized month name keyword match
+    const months = [
+        'january', 'february', 'march', 'april', 'may', 'june',
+        'july', 'august', 'september', 'october', 'november', 'december'
+    ];
+    const targetMonth = months.find(m => targetClean.includes(m));
+    if (targetMonth) {
+        const found = Object.entries(attemptsObj).find(([k]) => k.toLowerCase().includes(targetMonth));
+        if (found) return found[1];
+    }
+
+    return {};
+};
+
     const handleUpdateLocalLead = (leadId, key, value) => {
         setLeads(prev => prev.map(l => l.id === leadId ? { ...l, [key]: value } : l));
     };
@@ -121,11 +148,8 @@ const parseAttempts = (raw) => {
             const leadObj = leads.find(l => l.id === leadId);
             const leadAttempts = parseAttempts(leadObj?.attemptsData);
             const prevLeadDrafts = prev[leadId] || {};
-            const savedMonthAttempts = leadAttempts[monthName] || 
-                leadAttempts[monthName?.trim()] || 
-                Object.entries(leadAttempts).find(([k]) => k.trim().toLowerCase() === monthName?.trim().toLowerCase())?.[1] || 
-                {};
-            const draftMonthAttempts = prevLeadDrafts[monthName] || {};
+            const savedMonthAttempts = getMonthAttemptsForGroup(leadAttempts, monthName);
+            const draftMonthAttempts = prevLeadDrafts[monthName] || getMonthAttemptsForGroup(prevLeadDrafts, monthName) || {};
             const currentAttemptData = draftMonthAttempts[attemptNum] || savedMonthAttempts[attemptNum] || { status: 'pending', method: 'direct', feedback: '' };
 
             return {
@@ -133,6 +157,7 @@ const parseAttempts = (raw) => {
                 [leadId]: {
                     ...prevLeadDrafts,
                     [monthName]: {
+                        ...savedMonthAttempts,
                         ...draftMonthAttempts,
                         [attemptNum]: {
                             ...currentAttemptData,
@@ -174,12 +199,18 @@ const parseAttempts = (raw) => {
                 };
             }
         }
-        if (!allAttemptsData[currentActiveMonth]) {
-            allAttemptsData[currentActiveMonth] = {};
-        }
 
-        const monthAttempts = allAttemptsData[currentActiveMonth] || {};
-        const activeAttemptData = monthAttempts[currentActiveAttempt] || { status: 'pending', method: 'direct', feedback: '' };
+        // Canonical month merge for the active month
+        const currentMonthExisting = getMonthAttemptsForGroup(existingAttempts, currentActiveMonth);
+        const currentMonthDrafts = draftAttempts[currentActiveMonth] || getMonthAttemptsForGroup(draftAttempts, currentActiveMonth) || {};
+        const mergedCurrentMonth = {
+            ...currentMonthExisting,
+            ...(allAttemptsData[currentActiveMonth] || {}),
+            ...currentMonthDrafts
+        };
+        allAttemptsData[currentActiveMonth] = mergedCurrentMonth;
+
+        const activeAttemptData = mergedCurrentMonth[currentActiveAttempt] || { status: 'pending', method: 'direct', feedback: '' };
 
         const finalStatus = activeAttemptData.status || 'pending';
         const finalMethod = activeAttemptData.method || 'direct';
@@ -443,10 +474,7 @@ const parseAttempts = (raw) => {
             let effectiveCallStatus = 'pending';
             if (activeMonthName) {
                 const leadAttempts = parseAttempts(l.attemptsData);
-                const savedMonthAttempts = leadAttempts[activeMonthName] || 
-                    leadAttempts[activeMonthName?.trim()] || 
-                    Object.entries(leadAttempts).find(([k]) => k.trim().toLowerCase() === activeMonthName?.trim().toLowerCase())?.[1] || 
-                    {};
+                const savedMonthAttempts = getMonthAttemptsForGroup(leadAttempts, activeMonthName);
                 let highestStatus = 'pending';
                 for (let i = 4; i >= 1; i--) {
                     if (savedMonthAttempts[i] && savedMonthAttempts[i].status && savedMonthAttempts[i].status !== 'pending') {
@@ -747,11 +775,9 @@ const parseAttempts = (raw) => {
                                     const currentActiveMonth = (selectedGroupName && selectedGroupName !== 'ALL') ? selectedGroupName : (monthlyGroups[0]?.name || 'UNKNOWN');
                                     const currentActiveAttempt = activeAttemptTab[lead.id] || 1;
                                     const leadAttempts = parseAttempts(lead.attemptsData);
-                                    const savedMonthAttempts = leadAttempts[currentActiveMonth] || 
-                                        leadAttempts[currentActiveMonth?.trim()] || 
-                                        Object.entries(leadAttempts).find(([k]) => k.trim().toLowerCase() === currentActiveMonth?.trim().toLowerCase())?.[1] || 
-                                        {};
-                                    const draftMonthAttempts = draftAttemptsData[lead.id]?.[currentActiveMonth] || {};
+                                    const savedMonthAttempts = getMonthAttemptsForGroup(leadAttempts, currentActiveMonth);
+                                    const draftMonthAttempts = draftAttemptsData[lead.id]?.[currentActiveMonth] || 
+                                        getMonthAttemptsForGroup(draftAttemptsData[lead.id], currentActiveMonth) || {};
                                     const monthAttempts = { ...savedMonthAttempts };
                                     for (const aKey in draftMonthAttempts) {
                                         monthAttempts[aKey] = { ...(savedMonthAttempts[aKey] || {}), ...(draftMonthAttempts[aKey] || {}) };

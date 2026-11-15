@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  X, Save, Plus, Trash2, CheckCircle2, Clock, Calendar, 
+  X, Save, Plus, Trash2, CheckCircle2, Clock, Calendar, CalendarDays,
   FileText, CheckCircle, Users, Award, AlertCircle, FileSignature, 
   HelpCircle, Sparkles, ChevronRight, Eye, RefreshCw, UploadCloud, Download,
   Trophy, Layers, Image as ImageIcon, ZoomIn, Loader2, Upload
@@ -26,6 +26,9 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
   const [instructions, setInstructions] = useState('');
   const [category, setCategory] = useState('WEEKLY'); // 'WEEKLY' | 'MONTHLY'
   const [manualParticipantCount, setManualParticipantCount] = useState('');
+  const [flexibleWindowType, setFlexibleWindowType] = useState('SINGLE'); // 'SINGLE' | 'RANGE'
+  const [flexibleStartDate, setFlexibleStartDate] = useState('');
+  const [flexibleEndDate, setFlexibleEndDate] = useState('');
 
   const defaultGradingScale = [
     { grade: 'A', min: 75, max: 100 },
@@ -114,15 +117,36 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
     if (!dateInput) return '';
     const d = new Date(dateInput);
     if (isNaN(d.getTime())) return '';
-    const tzOffset = d.getTimezoneOffset() * 60000;
-    return (new Date(d.getTime() - tzOffset)).toISOString().slice(0, 16);
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Colombo',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false
+    });
+    return formatter.format(d).replace(', ', 'T');
   };
 
   const toUTCISOString = (localDatetimeStr) => {
     if (!localDatetimeStr) return null;
-    const d = new Date(localDatetimeStr);
-    if (isNaN(d.getTime())) return null;
-    return d.toISOString();
+    const str = String(localDatetimeStr).trim();
+    if (!str) return null;
+    if (/Z|[+-]\d{2}:?\d{2}$/i.test(str)) {
+      const d = new Date(str);
+      return isNaN(d.getTime()) ? null : d.toISOString();
+    }
+    const normalized = str.includes('T') ? str.slice(0, 19) : `${str}T00:00:00`;
+    const d = new Date(`${normalized}+05:30`);
+    return isNaN(d.getTime()) ? null : d.toISOString();
+  };
+
+  const toLocalDateOnlyString = (dateInput) => {
+    if (!dateInput) return '';
+    const d = new Date(dateInput);
+    if (isNaN(d.getTime())) return '';
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Colombo' }).format(d);
   };
 
   // Upload Master Essay PDF handler
@@ -181,6 +205,15 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
         setMcqScheduledStartTime(toLocalDatetimeInputValue(p.mcqScheduledStartTime || p.scheduledStartTime));
         setStructuredTimerMode(p.structuredTimerMode || p.timerMode || 'FLEXIBLE');
         setStructuredScheduledStartTime(toLocalDatetimeInputValue(p.structuredScheduledStartTime || p.scheduledStartTime));
+        if (p.flexibleStartDate || p.flexibleEndDate) {
+          setFlexibleWindowType('RANGE');
+          setFlexibleStartDate(toLocalDateOnlyString(p.flexibleStartDate));
+          setFlexibleEndDate(toLocalDateOnlyString(p.flexibleEndDate));
+        } else {
+          setFlexibleWindowType('SINGLE');
+          setFlexibleStartDate('');
+          setFlexibleEndDate('');
+        }
         setBreakIntervalMinutes(p.breakIntervalMinutes !== null && p.breakIntervalMinutes !== undefined ? p.breakIntervalMinutes : 15);
         setStructuredUploadMinutes(p.structuredUploadMinutes !== null && p.structuredUploadMinutes !== undefined ? p.structuredUploadMinutes : 15);
         setCategory(p.category || 'WEEKLY');
@@ -323,14 +356,13 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
       toast.error("Please set MCQ Scheduled Start Time first.");
       return;
     }
-    const mcqStart = new Date(mcqScheduledStartTime);
+    const normalized = mcqScheduledStartTime.includes('T') ? mcqScheduledStartTime.slice(0, 19) : `${mcqScheduledStartTime}T00:00:00`;
+    const mcqStart = new Date(`${normalized}+05:30`);
     const mcqMins = (parseInt(mcqDurationHours || 0) * 60) + parseInt(mcqDurationMinutes || 0);
     const breakMins = parseInt(breakIntervalMinutes || 15);
     const structStart = new Date(mcqStart.getTime() + (mcqMins + breakMins) * 60 * 1000);
     
-    // Format to YYYY-MM-DDTHH:mm
-    const tzOffset = structStart.getTimezoneOffset() * 60000;
-    const localISOTime = (new Date(structStart.getTime() - tzOffset)).toISOString().slice(0, 16);
+    const localISOTime = toLocalDatetimeInputValue(structStart);
     setStructuredScheduledStartTime(localISOTime);
     toast.success(`Structured start set to ${localISOTime.replace('T', ' ')} (MCQ + ${breakMins}m break)`);
   };
@@ -361,6 +393,8 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
         mcqScheduledStartTime: mcqTimerMode === 'SCHEDULED' ? toUTCISOString(mcqScheduledStartTime) : null,
         structuredTimerMode,
         structuredScheduledStartTime: structuredTimerMode === 'SCHEDULED' ? toUTCISOString(structuredScheduledStartTime) : null,
+        flexibleStartDate: flexibleWindowType === 'RANGE' && flexibleStartDate ? flexibleStartDate : null,
+        flexibleEndDate: flexibleWindowType === 'RANGE' && flexibleEndDate ? flexibleEndDate : null,
         breakIntervalMinutes: parseInt(breakIntervalMinutes || 15),
         structuredUploadMinutes: parseInt(structuredUploadMinutes || 15),
         durationMinutes: calculatedMins,
@@ -1702,6 +1736,113 @@ export default function PaperBuilderModal({ content, isOpen, onClose, onUpdated,
                           </p>
                         </div>
                       </div>
+                    </div>
+                  )}
+
+                  {/* 3. FLEXIBLE TEST AVAILABILITY WINDOW (When paper has flexible start) */}
+                  {((paperType === 'BOTH' && (mcqTimerMode === 'FLEXIBLE' || structuredTimerMode === 'FLEXIBLE')) ||
+                    (paperType === 'MCQ' && mcqTimerMode === 'FLEXIBLE') ||
+                    (paperType === 'STRUCTURED' && structuredTimerMode === 'FLEXIBLE')) && (
+                    <div className="bg-blue-500/10 border border-blue-500/30 rounded-2xl p-5 space-y-4 animate-in fade-in">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                        <label className="text-xs sm:text-sm font-bold text-blue-300 uppercase tracking-wider flex items-center gap-2">
+                          <CalendarDays size={16} className="text-blue-400" /> Flexible Test Availability Window *
+                        </label>
+                        <span className="text-xs text-blue-200/70">Allow students to take the exam on a single day or across multiple days</span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                        {/* Option A: Single Day */}
+                        <div 
+                          onClick={() => setFlexibleWindowType('SINGLE')}
+                          className={`cursor-pointer p-4 rounded-xl border-2 transition-all flex items-start gap-3.5 ${
+                            flexibleWindowType === 'SINGLE'
+                              ? 'bg-blue-500/20 border-blue-400 text-white shadow-md'
+                              : 'bg-black/50 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                          }`}
+                        >
+                          <div className="mt-0.5">
+                            <input 
+                              type="radio" 
+                              name="flexibleWindowTypeSetting" 
+                              checked={flexibleWindowType === 'SINGLE'} 
+                              onChange={() => setFlexibleWindowType('SINGLE')}
+                              className="accent-blue-500 w-4 h-4" 
+                            />
+                          </div>
+                          <div>
+                            <div className="text-sm font-extrabold text-white flex items-center gap-2">
+                              Single Day Only
+                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-blue-500/30 text-blue-300">Default</span>
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                              Students can take the exam anytime on the scheduled class day.
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* Option B: Date Range (Multiple Days) */}
+                        <div 
+                          onClick={() => setFlexibleWindowType('RANGE')}
+                          className={`cursor-pointer p-4 rounded-xl border-2 transition-all flex items-start gap-3.5 ${
+                            flexibleWindowType === 'RANGE'
+                              ? 'bg-blue-500/20 border-blue-400 text-white shadow-md'
+                              : 'bg-black/50 border-white/10 text-slate-400 hover:text-white hover:border-white/20'
+                          }`}
+                        >
+                          <div className="mt-0.5">
+                            <input 
+                              type="radio" 
+                              name="flexibleWindowTypeSetting" 
+                              checked={flexibleWindowType === 'RANGE'} 
+                              onChange={() => setFlexibleWindowType('RANGE')}
+                              className="accent-blue-500 w-4 h-4" 
+                            />
+                          </div>
+                          <div>
+                            <div className="text-sm font-extrabold text-white flex items-center gap-2">
+                              Date Range (Multiple Days)
+                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/30 text-emerald-300">New Option</span>
+                            </div>
+                            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                              Set Start and End dates so students can take the exam on any day within that window.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Date Pickers when RANGE is selected */}
+                      {flexibleWindowType === 'RANGE' && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-blue-500/20">
+                          <div>
+                            <label className="text-xs font-bold text-slate-200 mb-1.5 block uppercase tracking-wider flex items-center gap-1.5">
+                              <Calendar size={13} className="text-emerald-400" /> Start Date *
+                            </label>
+                            <input 
+                              type="date" 
+                              value={flexibleStartDate} 
+                              onChange={(e) => setFlexibleStartDate(e.target.value)} 
+                              required={flexibleWindowType === 'RANGE'}
+                              className="w-full bg-black/60 border border-emerald-500/40 focus:border-emerald-400 focus:bg-black/90 rounded-xl p-3 text-white outline-none shadow-inner text-sm font-bold cursor-pointer" 
+                            />
+                            <p className="text-[10px] text-slate-400 mt-1">First day students can start the exam (from 00:00).</p>
+                          </div>
+                          <div>
+                            <label className="text-xs font-bold text-slate-200 mb-1.5 block uppercase tracking-wider flex items-center gap-1.5">
+                              <Calendar size={13} className="text-rose-400" /> End Date *
+                            </label>
+                            <input 
+                              type="date" 
+                              value={flexibleEndDate} 
+                              min={flexibleStartDate || undefined}
+                              onChange={(e) => setFlexibleEndDate(e.target.value)} 
+                              required={flexibleWindowType === 'RANGE'}
+                              className="w-full bg-black/60 border border-rose-500/40 focus:border-rose-400 focus:bg-black/90 rounded-xl p-3 text-white outline-none shadow-inner text-sm font-bold cursor-pointer" 
+                            />
+                            <p className="text-[10px] text-slate-400 mt-1">Final deadline for students to complete the test (until 23:59).</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
 

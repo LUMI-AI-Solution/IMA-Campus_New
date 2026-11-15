@@ -4,6 +4,51 @@ const admin = require("firebase-admin");
 const axios = require('axios');
 const { getScopedBusinessId } = require('../utils/scopeUtils');
 
+// Helper to parse scheduled paper start time in Sri Lanka timezone (Asia/Colombo +05:30)
+function parseScheduledTime(timeInput, dateStr) {
+    if (!timeInput) return null;
+    const str = String(timeInput).trim();
+    if (!str || str === 'null' || str === 'undefined') return null;
+
+    if (/Z|[+-]\d{2}:?\d{2}$/i.test(str)) {
+        const d = new Date(str);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    if (str.includes('T') || str.includes(' ')) {
+        const normalized = str.replace(' ', 'T').slice(0, 19);
+        const d = new Date(`${normalized}+05:30`);
+        return isNaN(d.getTime()) ? new Date(str) : d;
+    }
+
+    const dPart = dateStr ? String(dateStr).split('T')[0] : new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Colombo' }).format(new Date());
+    const tPart = str.length === 5 ? `${str}:00` : str;
+    const d = new Date(`${dPart}T${tPart}+05:30`);
+    return isNaN(d.getTime()) ? null : d;
+}
+
+// Helper to parse flexible date window (start and end date) in Asia/Colombo (+05:30)
+function parseDateWindow(dateInput, isEnd = false) {
+    if (!dateInput) return null;
+    const str = String(dateInput).trim();
+    if (!str || str === 'null' || str === 'undefined') return null;
+
+    if (/Z|[+-]\d{2}:?\d{2}$/i.test(str)) {
+        const d = new Date(str);
+        return isNaN(d.getTime()) ? null : d;
+    }
+
+    if (str.includes('T') || str.includes(' ')) {
+        const normalized = str.replace(' ', 'T').slice(0, 19);
+        const d = new Date(`${normalized}+05:30`);
+        return isNaN(d.getTime()) ? new Date(str) : d;
+    }
+
+    const timeStr = isEnd ? '23:59:59.999' : '00:00:00.000';
+    const d = new Date(`${str}T${timeStr}+05:30`);
+    return isNaN(d.getTime()) ? null : d;
+}
+
 // 🔥 පරණ Hardcoded Keys අයින් කළා. දැන් කෙලින්ම ගන්නේ .env ෆයිල් එකෙන් 🔥
 
 const getZoomDirectMp4Link = async (meetingId) => {
@@ -884,7 +929,7 @@ exports.deleteContentGroup = async (req, res) => {
 // ================= CONTENT & MASS ASSIGN =================
 exports.addContentMassAssign = async (req, res) => {
     try {
-        const { type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, autoDeleteHours, paperTime, questionCount, isFree, selectedCourses, batch_id, itemOrder, youtubeLink, vimeoLink, selectedBatches, paperType, category, paperCategory, manualParticipantCount, timerMode, scheduledStartTime, mcqTimerMode, mcqScheduledStartTime, structuredTimerMode, structuredScheduledStartTime, breakIntervalMinutes, structuredUploadMinutes, passMarks, instructions, gradingScale, mcqDurationMinutes, structuredDurationMinutes, totalMarks, totalMcqMarks, totalStructuredMarks } = req.body;
+        const { type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, autoDeleteHours, paperTime, questionCount, isFree, selectedCourses, batch_id, itemOrder, youtubeLink, vimeoLink, selectedBatches, paperType, category, paperCategory, manualParticipantCount, timerMode, scheduledStartTime, mcqTimerMode, mcqScheduledStartTime, structuredTimerMode, structuredScheduledStartTime, breakIntervalMinutes, structuredUploadMinutes, passMarks, instructions, gradingScale, mcqDurationMinutes, structuredDurationMinutes, totalMarks, totalMcqMarks, totalStructuredMarks, flexibleStartDate, flexibleEndDate } = req.body;
         
         let uploadedFiles = [];
         let thumbnail = null;
@@ -977,13 +1022,7 @@ exports.addContentMassAssign = async (req, res) => {
             if (type === 'paper' || type === 'sPaper' || type === 'testRanking' || type === 'rankingTest') {
                 let finalScheduledTime = null;
                 if (timerMode === 'SCHEDULED' && scheduledStartTime) {
-                    const schedStr = String(scheduledStartTime).trim();
-                    if (schedStr.includes('T') || schedStr.includes('-') || schedStr.includes('/')) {
-                        finalScheduledTime = new Date(schedStr);
-                    } else {
-                        let dStr = date ? String(date).split('T')[0] : new Date().toISOString().split('T')[0];
-                        finalScheduledTime = new Date(`${dStr}T${schedStr}:00`);
-                    }
+                    finalScheduledTime = parseScheduledTime(scheduledStartTime, date);
                 }
 
                 const resolvedPaperType = paperType || (type === 'sPaper' ? 'STRUCTURED' : 'MCQ');
@@ -1007,10 +1046,18 @@ exports.addContentMassAssign = async (req, res) => {
 
                 const resolvedMcqTimer = mcqTimerMode || timerMode || 'FLEXIBLE';
                 const resolvedStructTimer = structuredTimerMode || timerMode || 'FLEXIBLE';
-                const parsedMcqStartTime = mcqScheduledStartTime ? new Date(mcqScheduledStartTime) : finalScheduledTime;
-                const parsedStructStartTime = structuredScheduledStartTime ? new Date(structuredScheduledStartTime) : finalScheduledTime;
                 const parsedBreakInterval = breakIntervalMinutes !== undefined && breakIntervalMinutes !== '' ? parseInt(breakIntervalMinutes) : 15;
                 const parsedUploadMins = structuredUploadMinutes !== undefined && structuredUploadMinutes !== '' ? parseInt(structuredUploadMinutes) : 15;
+
+                const parsedMcqStartTime = mcqScheduledStartTime ? parseScheduledTime(mcqScheduledStartTime, date) : (resolvedMcqTimer === 'SCHEDULED' ? finalScheduledTime : null);
+                let parsedStructStartTime = structuredScheduledStartTime ? parseScheduledTime(structuredScheduledStartTime, date) : (resolvedStructTimer === 'SCHEDULED' ? finalScheduledTime : null);
+                if (resolvedPaperType === 'BOTH' && resolvedStructTimer === 'SCHEDULED' && parsedMcqStartTime && (!structuredScheduledStartTime || structuredScheduledStartTime === scheduledStartTime)) {
+                    parsedStructStartTime = new Date(parsedMcqStartTime.getTime() + (parsedMcqDur + parsedBreakInterval) * 60 * 1000);
+                }
+
+                const parsedFlexStart = parseDateWindow(flexibleStartDate, false);
+                const parsedFlexEnd = parseDateWindow(flexibleEndDate, true);
+
                 const parsedCategory = (category || paperCategory) && ['WEEKLY', 'MONTHLY'].includes(String(category || paperCategory).toUpperCase())
                     ? String(category || paperCategory).toUpperCase()
                     : 'WEEKLY';
@@ -1049,6 +1096,8 @@ exports.addContentMassAssign = async (req, res) => {
                         mcqScheduledStartTime: parsedMcqStartTime,
                         structuredTimerMode: resolvedStructTimer,
                         structuredScheduledStartTime: parsedStructStartTime,
+                        flexibleStartDate: parsedFlexStart,
+                        flexibleEndDate: parsedFlexEnd,
                         breakIntervalMinutes: parsedBreakInterval,
                         structuredUploadMinutes: parsedUploadMins,
                         mcqPaperFile: resolvedMcqPaper,
@@ -1074,6 +1123,8 @@ exports.addContentMassAssign = async (req, res) => {
                         mcqScheduledStartTime: parsedMcqStartTime,
                         structuredTimerMode: resolvedStructTimer,
                         structuredScheduledStartTime: parsedStructStartTime,
+                        flexibleStartDate: parsedFlexStart,
+                        flexibleEndDate: parsedFlexEnd,
                         breakIntervalMinutes: parsedBreakInterval,
                         structuredUploadMinutes: parsedUploadMins,
                         ...(resolvedMcqPaper ? { mcqPaperFile: resolvedMcqPaper } : {}),
@@ -1113,7 +1164,7 @@ exports.addContentMassAssign = async (req, res) => {
 
 exports.updateContentMassAssign = async (req, res) => {
     try {
-        const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, autoDeleteHours, paperTime, questionCount, isFree, itemOrder, selectedCourses, selectedBatches, youtubeLink, vimeoLink, paperType, category, paperCategory, manualParticipantCount, timerMode, scheduledStartTime, mcqTimerMode, mcqScheduledStartTime, structuredTimerMode, structuredScheduledStartTime, breakIntervalMinutes, structuredUploadMinutes, passMarks, instructions, gradingScale, mcqDurationMinutes, structuredDurationMinutes, totalMarks, totalMcqMarks, totalStructuredMarks } = req.body;
+        const { content_id, type, contentGroupId, title, link, zoomMeetingId, date, startTime, endTime, autoDeleteHours, paperTime, questionCount, isFree, itemOrder, selectedCourses, selectedBatches, youtubeLink, vimeoLink, paperType, category, paperCategory, manualParticipantCount, timerMode, scheduledStartTime, mcqTimerMode, mcqScheduledStartTime, structuredTimerMode, structuredScheduledStartTime, breakIntervalMinutes, structuredUploadMinutes, passMarks, instructions, gradingScale, mcqDurationMinutes, structuredDurationMinutes, totalMarks, totalMcqMarks, totalStructuredMarks, flexibleStartDate, flexibleEndDate } = req.body;
         
         const sanitizedMeetingId = zoomMeetingId ? zoomMeetingId.replace(/\s+/g, '') : null;
 
@@ -1203,13 +1254,7 @@ exports.updateContentMassAssign = async (req, res) => {
             const { paperType } = req.body;
             let finalScheduledTime = null;
             if (timerMode === 'SCHEDULED' && scheduledStartTime) {
-                const schedStr = String(scheduledStartTime).trim();
-                if (schedStr.includes('T') || schedStr.includes('-') || schedStr.includes('/')) {
-                    finalScheduledTime = new Date(schedStr);
-                } else {
-                    let dStr = date ? String(date).split('T')[0] : new Date().toISOString().split('T')[0];
-                    finalScheduledTime = new Date(`${dStr}T${schedStr}:00`);
-                }
+                finalScheduledTime = parseScheduledTime(scheduledStartTime, date);
             }
 
             const resolvedPaperType = paperType || (type === 'sPaper' ? 'STRUCTURED' : (type === 'paper' ? 'MCQ' : undefined));
@@ -1240,10 +1285,19 @@ exports.updateContentMassAssign = async (req, res) => {
 
             const resolvedMcqTimer = mcqTimerMode || timerMode || 'FLEXIBLE';
             const resolvedStructTimer = structuredTimerMode || timerMode || 'FLEXIBLE';
-            const parsedMcqStartTime = mcqScheduledStartTime ? new Date(mcqScheduledStartTime) : finalScheduledTime;
-            const parsedStructStartTime = structuredScheduledStartTime ? new Date(structuredScheduledStartTime) : finalScheduledTime;
             const parsedBreakInterval = breakIntervalMinutes !== undefined && breakIntervalMinutes !== '' ? parseInt(breakIntervalMinutes) : 15;
             const parsedUploadMins = structuredUploadMinutes !== undefined && structuredUploadMinutes !== '' ? parseInt(structuredUploadMinutes) : 15;
+
+            const parsedMcqStartTime = mcqScheduledStartTime ? parseScheduledTime(mcqScheduledStartTime, date) : (resolvedMcqTimer === 'SCHEDULED' ? finalScheduledTime : null);
+            let parsedStructStartTime = structuredScheduledStartTime ? parseScheduledTime(structuredScheduledStartTime, date) : (resolvedStructTimer === 'SCHEDULED' ? finalScheduledTime : null);
+            if (resolvedPaperType === 'BOTH' && resolvedStructTimer === 'SCHEDULED' && parsedMcqStartTime && (!structuredScheduledStartTime || structuredScheduledStartTime === scheduledStartTime)) {
+                const mcqDurForStruct = parsedMcqDur !== undefined ? parsedMcqDur : 30;
+                parsedStructStartTime = new Date(parsedMcqStartTime.getTime() + (mcqDurForStruct + parsedBreakInterval) * 60 * 1000);
+            }
+
+            const parsedFlexStart = flexibleStartDate !== undefined ? parseDateWindow(flexibleStartDate, false) : undefined;
+            const parsedFlexEnd = flexibleEndDate !== undefined ? parseDateWindow(flexibleEndDate, true) : undefined;
+
             const parsedCategory = (category || paperCategory) && ['WEEKLY', 'MONTHLY'].includes(String(category || paperCategory).toUpperCase())
                 ? String(category || paperCategory).toUpperCase()
                 : 'WEEKLY';
@@ -1279,6 +1333,8 @@ exports.updateContentMassAssign = async (req, res) => {
                     mcqScheduledStartTime: parsedMcqStartTime,
                     structuredTimerMode: resolvedStructTimer,
                     structuredScheduledStartTime: parsedStructStartTime,
+                    flexibleStartDate: parsedFlexStart || null,
+                    flexibleEndDate: parsedFlexEnd || null,
                     breakIntervalMinutes: parsedBreakInterval,
                     structuredUploadMinutes: parsedUploadMins,
                     passMarks: parsedPassMarks !== undefined ? parsedPassMarks : 40,
@@ -1304,6 +1360,8 @@ exports.updateContentMassAssign = async (req, res) => {
                     ...(parsedMcqStartTime ? { mcqScheduledStartTime: parsedMcqStartTime } : {}),
                     ...(structuredTimerMode ? { structuredTimerMode } : {}),
                     ...(parsedStructStartTime ? { structuredScheduledStartTime: parsedStructStartTime } : {}),
+                    ...(parsedFlexStart !== undefined ? { flexibleStartDate: parsedFlexStart } : {}),
+                    ...(parsedFlexEnd !== undefined ? { flexibleEndDate: parsedFlexEnd } : {}),
                     ...(breakIntervalMinutes !== undefined ? { breakIntervalMinutes: parsedBreakInterval } : {}),
                     ...(structuredUploadMinutes !== undefined ? { structuredUploadMinutes: parsedUploadMins } : {}),
                     ...(parsedPassMarks !== undefined ? { passMarks: parsedPassMarks } : {}),

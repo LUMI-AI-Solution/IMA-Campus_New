@@ -209,6 +209,12 @@ export default function ContentHubViews({ state, actions }) {
                         <span>⏰ Starts: {new Date(startTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                     </div>
                 )}
+
+                {!isScheduled && content?.paper?.flexibleStartDate && content?.paper?.flexibleEndDate && (
+                    <div className="text-[10px] text-blue-300/90 font-medium flex items-center gap-1 truncate">
+                        <span>📆 Window: {new Date(content.paper.flexibleStartDate).toLocaleDateString([], { month: 'short', day: 'numeric' })} - {new Date(content.paper.flexibleEndDate).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                    </div>
+                )}
             </div>
         );
     };

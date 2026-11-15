@@ -1386,6 +1386,8 @@ model Paper {
   mcqScheduledStartTime     DateTime?
   structuredTimerMode       String            @default("FLEXIBLE") // "SCHEDULED" or "FLEXIBLE"
   structuredScheduledStartTime DateTime?
+  flexibleStartDate         DateTime?
+  flexibleEndDate           DateTime?
   breakIntervalMinutes      Int?              @default(15)
   structuredUploadMinutes   Int?              @default(15)
   durationMinutes           Int               @default(60)

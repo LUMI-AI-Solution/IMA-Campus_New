@@ -894,9 +894,40 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
 
                 {/* Title & Instructions */}
                 <div className="space-y-1.5 max-w-md">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full inline-block">
-                    Ready to Start
-                  </span>
+                  {(() => {
+                    const flexStart = paperData?.paper?.flexibleStartDate ? new Date(paperData.paper.flexibleStartDate) : null;
+                    const flexEnd = paperData?.paper?.flexibleEndDate ? new Date(paperData.paper.flexibleEndDate) : null;
+                    const cNow = new Date();
+                    const isBefore = flexStart && cNow < flexStart;
+                    const isAfter = flexEnd && cNow > flexEnd;
+
+                    if (isBefore) {
+                      return (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full inline-block">
+                          ⏳ Opens on {flexStart.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      );
+                    }
+                    if (isAfter) {
+                      return (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2.5 py-0.5 rounded-full inline-block">
+                          🔒 Exam Window Closed
+                        </span>
+                      );
+                    }
+                    if (flexStart || flexEnd) {
+                      return (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full inline-block">
+                          ✨ Open Window: {flexStart ? flexStart.toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''} - {flexEnd ? flexEnd.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+                        </span>
+                      );
+                    }
+                    return (
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 rounded-full inline-block">
+                        Ready to Start
+                      </span>
+                    );
+                  })()}
                   <h1 className="text-base sm:text-2xl font-black text-white leading-snug">
                     {content.title}
                   </h1>
@@ -955,12 +986,42 @@ export default function StudentPaperPortal({ content, isOpen, onClose, onComplet
 
                 {/* Start Exam CTA Button */}
                 <div className="w-full max-w-md pt-1">
-                  <button
-                    onClick={handleStartExam}
-                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm uppercase tracking-wider py-3.5 rounded-xl shadow-lg shadow-emerald-600/20 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <Play size={16} fill="currentColor" /> Start Exam Now
-                  </button>
+                  {(() => {
+                    const flexStart = paperData?.paper?.flexibleStartDate ? new Date(paperData.paper.flexibleStartDate) : null;
+                    const flexEnd = paperData?.paper?.flexibleEndDate ? new Date(paperData.paper.flexibleEndDate) : null;
+                    const cNow = new Date();
+                    const isBefore = flexStart && cNow < flexStart;
+                    const isAfter = flexEnd && cNow > flexEnd;
+
+                    if (isBefore) {
+                      return (
+                        <button
+                          disabled
+                          className="w-full bg-slate-800 text-slate-500 cursor-not-allowed font-bold text-xs sm:text-sm uppercase tracking-wider py-3.5 rounded-xl border border-white/10 flex items-center justify-center gap-2"
+                        >
+                          Exam Opens on {flexStart.toLocaleDateString([], { month: 'short', day: 'numeric' })}
+                        </button>
+                      );
+                    }
+                    if (isAfter) {
+                      return (
+                        <button
+                          disabled
+                          className="w-full bg-slate-800 text-slate-500 cursor-not-allowed font-bold text-xs sm:text-sm uppercase tracking-wider py-3.5 rounded-xl border border-white/10 flex items-center justify-center gap-2"
+                        >
+                          Exam Window Closed
+                        </button>
+                      );
+                    }
+                    return (
+                      <button
+                        onClick={handleStartExam}
+                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs sm:text-sm uppercase tracking-wider py-3.5 rounded-xl shadow-lg shadow-emerald-600/20 transition-all hover:scale-[1.01] active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        <Play size={16} fill="currentColor" /> Start Exam Now
+                      </button>
+                    );
+                  })()}
                 </div>
               </div>
             )}

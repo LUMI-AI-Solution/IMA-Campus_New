@@ -544,7 +544,7 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
     const [tempStreet, setTempStreet] = useState(order.originalAddress?.street || '');
     const [tempCity, setTempCity] = useState(order.originalAddress?.city || '');
     const [tempDistrict, setTempDistrict] = useState(order.originalAddress?.district || '');
-    const tempAddress = [tempHouseNo, tempStreet, tempCity, tempDistrict].filter(Boolean).join(', ') || order.labelAddress || order.address;
+    const tempAddress = [tempHouseNo, tempStreet, tempCity].filter(Boolean).join(', ') || order.labelAddress || (order.originalAddress ? [order.originalAddress.houseNo, order.originalAddress.street, order.originalAddress.city].filter(Boolean).join(', ') : '') || 'No Address Provided';
     const [tempPhone, setTempPhone] = useState(order.phone);
 
     const [packRemark, setPackRemark] = useState(() => {

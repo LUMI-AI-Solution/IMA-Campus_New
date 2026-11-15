@@ -498,7 +498,7 @@ exports.getRetentionCampaignData = async (req, res) => {
             include: { 
                 assignedUser: { select: { firstName: true, lastName: true, businessType: true } },
                 batch: { select: { name: true } },
-                roundProgress: { where: { campaignCategory: 'PAID' } }
+                roundProgress: { where: { campaignCategory: 'PAID' }, orderBy: { roundNum: 'asc' } }
             }
         });
 
@@ -535,26 +535,26 @@ exports.getRetentionCampaignData = async (req, res) => {
             if (!existing) return current;
             if (existing.id === current.id) return existing;
 
-            // 1. AFTER_SEMINAR lead ALWAYS takes strict precedence over FREE_SEMINAR / other campaign types
+            // 1. Lead with paid call progress / feedback / attempts beats one without
+            const existingHasPaidActivity = (existing.paidCallStatus && existing.paidCallStatus !== 'pending') || (existing.paidFeedback && existing.paidFeedback.trim() !== '') || (existing.paidCallAttempt && existing.paidCallAttempt > 1);
+            const currentHasPaidActivity = (current.paidCallStatus && current.paidCallStatus !== 'pending') || (current.paidFeedback && current.paidFeedback.trim() !== '') || (current.paidCallAttempt && current.paidCallAttempt > 1);
+
+            if (existingHasPaidActivity && !currentHasPaidActivity) return existing;
+            if (!existingHasPaidActivity && currentHasPaidActivity) return current;
+
+            // 2. AFTER_SEMINAR lead takes precedence over FREE_SEMINAR / other campaign types if both have equal activity
             const existingIsAfterSem = existing.campaignType === 'AFTER_SEMINAR';
             const currentIsAfterSem = current.campaignType === 'AFTER_SEMINAR';
             if (existingIsAfterSem && !currentIsAfterSem) return existing;
             if (!existingIsAfterSem && currentIsAfterSem) return current;
 
-            // 2. An assigned lead ALWAYS beats an unassigned lead
+            // 3. An assigned lead beats an unassigned lead
             if (existing.assignedTo && !current.assignedTo) return existing;
             if (!existing.assignedTo && current.assignedTo) return current;
 
-            // 3. Lead with paid call progress / feedback / attempts beats one without
-            const existingHasPaidActivity = (existing.paidCallStatus && existing.paidCallStatus !== 'pending') || existing.paidFeedback || (existing.paidCallAttempt && existing.paidCallAttempt > 1);
-            const currentHasPaidActivity = (current.paidCallStatus && current.paidCallStatus !== 'pending') || current.paidFeedback || (current.paidCallAttempt && current.paidCallAttempt > 1);
-
-            if (existingHasPaidActivity && !currentHasPaidActivity) return existing;
-            if (!existingHasPaidActivity && currentHasPaidActivity) return current;
-
             // 4. Lead with general call activity beats one without
-            const existingHasAnyCall = (existing.callStatus && existing.callStatus !== 'pending') || existing.feedback;
-            const currentHasAnyCall = (current.callStatus && current.callStatus !== 'pending') || current.feedback;
+            const existingHasAnyCall = (existing.callStatus && existing.callStatus !== 'pending') || (existing.feedback && existing.feedback.trim() !== '');
+            const currentHasAnyCall = (current.callStatus && current.callStatus !== 'pending') || (current.feedback && current.feedback.trim() !== '');
 
             if (existingHasAnyCall && !currentHasAnyCall) return existing;
             if (!existingHasAnyCall && currentHasAnyCall) return current;
@@ -589,7 +589,21 @@ exports.getRetentionCampaignData = async (req, res) => {
                     }
                 }
                 const best = pickBestLead(existing, l);
-                uniqueLeadsMap.set(last9, { ...best, attemptsData: mergedAttempts });
+
+                // Preserve active paid call status and feedback across merged records
+                const effectivePaidStatus = (best.paidCallStatus && best.paidCallStatus !== 'pending')
+                    ? best.paidCallStatus
+                    : (existing.paidCallStatus && existing.paidCallStatus !== 'pending') ? existing.paidCallStatus : (l.paidCallStatus || 'pending');
+                const effectivePaidFeedback = (best.paidFeedback && best.paidFeedback.trim() !== '')
+                    ? best.paidFeedback
+                    : (existing.paidFeedback && existing.paidFeedback.trim() !== '') ? existing.paidFeedback : (l.paidFeedback || '');
+
+                uniqueLeadsMap.set(last9, { 
+                    ...best, 
+                    paidCallStatus: effectivePaidStatus,
+                    paidFeedback: effectivePaidFeedback,
+                    attemptsData: mergedAttempts 
+                });
             }
         });
         const deduplicatedActiveLeads = Array.from(uniqueLeadsMap.values());

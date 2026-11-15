@@ -1333,30 +1333,37 @@ exports.updateCallCampaign = async (req, res) => {
             // We just save the status and remark for the specific month/round. No auto-promotion.
             finalCallStatus = actualStatus;
             nextPhase = currentPhase;
-            nextRound = currentRound;
+
+            // Check if there is an existing PAID progress record for this lead to avoid creating conflicting rounds
+            const existingPaidProg = await prisma.leadRoundProgress.findFirst({
+                where: { leadId: lead.id, campaignCategory: 'PAID' },
+                orderBy: { roundNum: 'desc' }
+            });
+            const targetRoundNum = existingPaidProg ? existingPaidProg.roundNum : currentRound;
+            nextRound = targetRoundNum;
             
             await prisma.leadRoundProgress.upsert({
                 where: {
-                    leadId_roundNum_campaignCategory: { leadId: lead.id, roundNum: currentRound, campaignCategory: 'PAID' }
+                    leadId_roundNum_campaignCategory: { leadId: lead.id, roundNum: targetRoundNum, campaignCategory: 'PAID' }
                 },
                 update: {
                     phase: currentPhase,
                     callStatus: actualStatus,
                     callMethod: method || lead[methodField] || 'direct',
                     callAttempt: callAttempt || lead[attemptField] || 1,
-                    feedback: feedback || lead[feedbackField] || '',
-                    attemptsData: attemptsData ? JSON.stringify(attemptsData) : undefined
+                    feedback: feedback !== undefined ? feedback : (lead[feedbackField] || ''),
+                    attemptsData: attemptsData ? (typeof attemptsData === 'string' ? attemptsData : JSON.stringify(attemptsData)) : undefined
                 },
                 create: {
                     leadId: lead.id,
-                    roundNum: currentRound,
+                    roundNum: targetRoundNum,
                     campaignCategory: 'PAID',
                     phase: currentPhase,
                     callStatus: actualStatus,
                     callMethod: method || lead[methodField] || 'direct',
                     callAttempt: callAttempt || lead[attemptField] || 1,
-                    feedback: feedback || lead[feedbackField] || '',
-                    attemptsData: attemptsData ? JSON.stringify(attemptsData) : undefined
+                    feedback: feedback !== undefined ? feedback : (lead[feedbackField] || ''),
+                    attemptsData: attemptsData ? (typeof attemptsData === 'string' ? attemptsData : JSON.stringify(attemptsData)) : undefined
                 }
             });
         } else if (campaignContext === 'BRIDGE' || (category === 'BRIDGE' && campaignContext !== 'OPEN_SEMINAR' && campaignContext !== 'NEW_INQ')) {
@@ -1431,7 +1438,7 @@ exports.updateCallCampaign = async (req, res) => {
             }
         }
 
-        if (campaignContext !== 'PAID' && campaignContext !== 'BRIDGE' && category !== 'BRIDGE') {
+        if (campaignContext !== 'PAID' && category !== 'PAID' && campaignContext !== 'BRIDGE' && category !== 'BRIDGE') {
             await prisma.leadRoundProgress.upsert({
                 where: {
                     leadId_roundNum_campaignCategory: { leadId: lead.id, roundNum: currentRound, campaignCategory: category }
@@ -1456,7 +1463,7 @@ exports.updateCallCampaign = async (req, res) => {
             });
         }
 
-        if (promoteToRound2 && campaignContext !== 'PAID' && campaignContext !== 'BRIDGE' && category !== 'BRIDGE') {
+        if (promoteToRound2 && campaignContext !== 'PAID' && category !== 'PAID' && campaignContext !== 'BRIDGE' && category !== 'BRIDGE') {
             nextRound = 2;
             nextPhase = 1;
             finalCallStatus = 'pending';
