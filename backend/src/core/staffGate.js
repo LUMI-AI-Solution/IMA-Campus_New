@@ -70,6 +70,7 @@ function staffGate(authenticate) {
         verify(req, res, () => {
             const role = String(req.user?.role || '').trim().toUpperCase();
             if (role === 'STUDENT') {
+                console.warn(`[staffGate 403] blocked ${req.method} ${req.originalUrl} by user=${req.user?.id} role=${req.user?.role}`);
                 return res.status(403).json({ error: 'FORBIDDEN', message: 'Staff account required' });
             }
             next();

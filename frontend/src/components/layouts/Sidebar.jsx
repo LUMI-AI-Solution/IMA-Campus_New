@@ -786,6 +786,7 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
             {renderSectionBlock('Management', (
               <>
                 <NavLink to="/manager/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className={getIconColorClass('blue')} /> {isSidebarOpen && <span className="truncate text-sm">Branch Overview</span>}</NavLink>
+                <NavLink to="/coordinator/dashboard?mode=OVERVIEW" className={() => getQueryNavLinkClass('OVERVIEW')}><LayoutDashboard size={18} className={getIconColorClass('purple')} /> {isSidebarOpen && <span className="truncate text-sm">Coordinator Overview</span>}</NavLink>
                 <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className={getIconColorClass('indigo')} /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
               </>
             ), true)}
@@ -922,9 +923,7 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
           <>
             {renderSectionBlock('Workspace', (
               <>
-                {(!isSystemAdmin && !isManager) && (
-                  <NavLink to="/coordinator/dashboard?mode=OVERVIEW" className={() => getQueryNavLinkClass('OVERVIEW')}><LayoutDashboard size={18} className={getIconColorClass('blue')} /> {isSidebarOpen && <span className="truncate text-sm">Overview</span>}</NavLink>
-                )}
+                <NavLink to="/coordinator/dashboard?mode=OVERVIEW" className={() => getQueryNavLinkClass('OVERVIEW')}><LayoutDashboard size={18} className={getIconColorClass('blue')} /> {isSidebarOpen && <span className="truncate text-sm">{isManager || isSystemAdmin ? 'Coordinator Overview' : 'Overview'}</span>}</NavLink>
                 <NavLink to="/workspace/timetable" className={getNavLinkClass}><CalendarDays size={18} className={getIconColorClass('blue')} /> {isSidebarOpen && <span className="truncate text-sm">Class Timetable</span>}</NavLink>
                 <NavLink to="/workspace/tasks" className={getNavLinkClass}><CheckSquare size={18} className={getIconColorClass('emerald')} /> {isSidebarOpen && <span className="truncate text-sm">Task Center</span>}</NavLink>
                 <NavLink to="/workspace/roster" className={getNavLinkClass}><CalendarCheck size={18} className={getIconColorClass('pink')} />{isSidebarOpen && <span className="truncate text-sm">My Roster</span>}</NavLink>
