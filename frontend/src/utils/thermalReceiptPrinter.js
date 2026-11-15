@@ -19,7 +19,6 @@ export function generateThermalReceiptHtml(data = {}) {
     instituteTagline = 'Higher Education Center',
     instituteContact = 'Hotline: 0716909030 | www.imacampus.online',
     receiptNo = `REC-${Date.now().toString().slice(-6)}`,
-    date = new Date(),
     cashierName = 'Cashier / Staff',
     studentId = '-',
     studentName = 'Student',
@@ -45,9 +44,37 @@ export function generateThermalReceiptHtml(data = {}) {
 
   const displayTotal = totalAmount !== null && totalAmount !== undefined ? totalAmount : (data.amount || 0);
 
-  const formattedDate = date instanceof Date 
-    ? date.toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })
-    : String(date);
+  // Parse Actual Date (when bill/payment occurred) and Print Date (current printout time)
+  const rawActual = data.actualDate || data.paidDate || data.paymentDate || data.date || data.createdAt || null;
+  const actualDateObj = rawActual ? (rawActual instanceof Date ? rawActual : new Date(rawActual)) : new Date();
+  const safeActualDate = isNaN(actualDateObj.getTime()) ? new Date() : actualDateObj;
+
+  const rawPrint = data.printDate || new Date();
+  const printDateObj = rawPrint instanceof Date ? rawPrint : new Date(rawPrint);
+  const safePrintDate = isNaN(printDateObj.getTime()) ? new Date() : printDateObj;
+
+  const formattedActualDate = safeActualDate.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  }).toUpperCase();
+
+  const formattedPrintDate = safePrintDate.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  }).toUpperCase();
+
+  const isReprint = Boolean(
+    data.isReprint ||
+    (safeActualDate.toDateString() !== safePrintDate.toDateString())
+  );
 
   const formattedTotal = Number(displayTotal).toLocaleString('en-US', {
     minimumFractionDigits: 2,
@@ -150,9 +177,18 @@ export function generateThermalReceiptHtml(data = {}) {
           <span>${isExpense ? 'Voucher No:' : 'Receipt No:'}</span>
           <span class="bold">${escapeHtml(receiptNo)}</span>
         </div>
+        ${isReprint ? `
+        <div class="row" style="margin: 2px 0;">
+          <span class="bold" style="font-size: 9px; border: 1px solid #000; padding: 1px 4px; letter-spacing: 0.5px;">* REPRINT *</span>
+          <span style="font-size: 8.5px; color: #333;">Copy of Original</span>
+        </div>` : ''}
         <div class="row">
-          <span>Date & Time:</span>
-          <span>${escapeHtml(formattedDate)}</span>
+          <span>Actual Date:</span>
+          <span class="bold">${escapeHtml(formattedActualDate)}</span>
+        </div>
+        <div class="row">
+          <span>Print Date:</span>
+          <span>${escapeHtml(formattedPrintDate)}</span>
         </div>
         <div class="row">
           <span>${isExpense ? 'Issued By:' : 'Cashier:'}</span>

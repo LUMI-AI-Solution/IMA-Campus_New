@@ -111,6 +111,9 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
     const sName = student.studentName || `${student.firstName || ''} ${student.lastName || ''}`.trim() || 'Student';
     const clsName = payment.class?.name || 'Class Fee';
     const amountVal = payment.amount || 0;
+    const actualPaidDate = payment.paidDate ? new Date(payment.paidDate) : (payment.createdAt ? new Date(payment.createdAt) : new Date());
+    const printDate = new Date();
+    const isReprint = Boolean(actualPaidDate.toDateString() !== printDate.toDateString());
 
     printThermalReceipt({
       receiptNo: `REC-${payment.id || Date.now().toString().slice(-6)}`,
@@ -123,7 +126,10 @@ export default function StudentDetailModal({ studentId, isOpen, onClose }) {
       cardType: payment.status === 'FREE_CARD' ? 'FREE CARD' : (payment.status === 'HALF_PAYMENT' ? 'HALF CARD' : 'FULL CARD'),
       amount: amountVal,
       paymentMethod: payment.paymentMethod || 'CASH',
-      paidDate: payment.paidDate || new Date(),
+      paidDate: actualPaidDate,
+      actualDate: actualPaidDate,
+      printDate,
+      isReprint,
       status: payment.status || 'PAID ✓',
       notes: 'Reprinted receipt from Student History Report.',
       items: [

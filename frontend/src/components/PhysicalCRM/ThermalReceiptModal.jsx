@@ -21,7 +21,12 @@ export default function ThermalReceiptModal({
   if (!isOpen || !receiptData) return null;
 
   const handleDirectPrint = async () => {
-    const success = await printThermalReceipt(receiptData);
+    const success = await printThermalReceipt({
+      ...receiptData,
+      actualDate: safeActualDate,
+      printDate: safePrintDate,
+      isReprint
+    });
     if (success) {
       toast.success('Sent to 80mm receipt printer!', { icon: '🖨️' });
     }
@@ -36,17 +41,43 @@ export default function ThermalReceiptModal({
     month = '',
     cardType = 'FULL',
     paymentMethod = 'CASH',
-    paidDate = new Date(),
     cashierName = 'Cashier / Staff',
     amount = 0
   } = receiptData;
 
   const displayAmount = receiptData.displayAmount || receiptData.totalAmount || receiptData.amount || amount || 0;
 
-  const dateObj = paidDate ? new Date(paidDate) : new Date();
-  const dateStr = isNaN(dateObj.getTime()) 
-    ? new Date().toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true })
-    : dateObj.toLocaleString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: true });
+  // Resolve Actual Date (payment/transaction date) and Print Date
+  const rawActual = receiptData.actualDate || receiptData.paidDate || receiptData.paymentDate || receiptData.date || receiptData.createdAt || null;
+  const actualDateObj = rawActual ? (rawActual instanceof Date ? rawActual : new Date(rawActual)) : new Date();
+  const safeActualDate = isNaN(actualDateObj.getTime()) ? new Date() : actualDateObj;
+
+  const rawPrint = receiptData.printDate || new Date();
+  const printDateObj = rawPrint instanceof Date ? rawPrint : new Date(rawPrint);
+  const safePrintDate = isNaN(printDateObj.getTime()) ? new Date() : printDateObj;
+
+  const formattedActualDate = safeActualDate.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  }).toUpperCase();
+
+  const formattedPrintDate = safePrintDate.toLocaleString('en-GB', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  }).toUpperCase();
+
+  const isReprint = Boolean(
+    receiptData.isReprint ||
+    (safeActualDate.toDateString() !== safePrintDate.toDateString())
+  );
 
   let activeCashier = cashierName;
   if (!activeCashier || activeCashier.includes('Cashier') || activeCashier.includes('Staff') || activeCashier.includes('Manager')) {
@@ -104,9 +135,19 @@ export default function ThermalReceiptModal({
                 <span className="text-neutral-600">{isExpense ? 'Voucher No:' : 'Receipt No:'}</span>
                 <span className="font-bold">{receiptNo}</span>
               </div>
+              {isReprint && (
+                <div className="flex justify-between items-center py-0.5">
+                  <span className="text-[9px] font-black border border-black px-1 uppercase tracking-wider bg-neutral-100">* REPRINT *</span>
+                  <span className="text-[8.5px] text-neutral-500">Copy of Original</span>
+                </div>
+              )}
               <div className="flex justify-between">
-                <span className="text-neutral-600">Date:</span>
-                <span>{dateStr}</span>
+                <span className="text-neutral-600">Actual Date:</span>
+                <span className="font-bold">{formattedActualDate}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-600">Print Date:</span>
+                <span className="text-neutral-700">{formattedPrintDate}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-neutral-600">{isExpense ? 'Issued By:' : 'Cashier:'}</span>

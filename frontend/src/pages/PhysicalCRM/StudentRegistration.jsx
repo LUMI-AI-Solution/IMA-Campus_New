@@ -219,6 +219,8 @@ export default function StudentRegistration() {
           amount: regFeeVal,
           paymentMethod: 'CASH',
           paidDate: new Date(),
+          actualDate: new Date(),
+          printDate: new Date(),
           items: [
             {
               description: 'Campus Admission & Registration Fee',

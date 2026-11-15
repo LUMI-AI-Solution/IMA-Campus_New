@@ -1749,6 +1749,8 @@ exports.toggleStudentFeePayment = async (req, res) => {
         dueAmount,
         paymentMethod: paymentMethod || 'CASH',
         paidDate: payment.paidDate || new Date(),
+        actualDate: payment.paidDate || new Date(),
+        printDate: new Date(),
         status: finalStatus,
         items: [
           {
@@ -2012,6 +2014,8 @@ exports.bulkStudentFeePayment = async (req, res) => {
       dueAmount: totalDueAmount,
       paymentMethod: paymentMethod || 'CASH',
       paidDate: new Date(),
+      actualDate: new Date(),
+      printDate: new Date(),
       status: overallStatus,
       items: receiptItems,
       notes: `Keep this receipt for entrance & card verification (${receiptItems.length} classes).`

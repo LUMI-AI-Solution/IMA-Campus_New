@@ -510,7 +510,9 @@ export default function AttendancePortal() {
 
                 const receiptObj = res.receiptData ? {
                     ...res.receiptData,
-                    cashierName: getCurrentCashierName()
+                    cashierName: getCurrentCashierName(),
+                    actualDate: res.receiptData.paidDate || new Date(),
+                    printDate: new Date()
                 } : {
                     receiptNo: res.transaction ? `REC-${res.transaction.id}` : `CF-${Date.now().toString().slice(-6)}`,
                     studentId: studentData.studentId,
@@ -522,7 +524,9 @@ export default function AttendancePortal() {
                     amount: res.paidAmount !== undefined ? res.paidAmount : res.payment?.amount || 0,
                     expectedFee: res.expectedFee || (targetCls?.monthlyFee || 0),
                     dueAmount: res.dueAmount || 0,
-                    paidDate: new Date(),
+                    paidDate: res.payment?.paidDate || res.payment?.createdAt || new Date(),
+                    actualDate: res.payment?.paidDate || res.payment?.createdAt || new Date(),
+                    printDate: new Date(),
                     status: res.status,
                     cashierName: getCurrentCashierName(),
                     items: [
@@ -587,7 +591,9 @@ export default function AttendancePortal() {
             if (res.receiptData) {
                 const receiptPayload = {
                     ...res.receiptData,
-                    cashierName: getCurrentCashierName()
+                    cashierName: getCurrentCashierName(),
+                    actualDate: res.receiptData.paidDate || new Date(),
+                    printDate: new Date()
                 };
                 setCurrentReceiptData(receiptPayload);
                 setReceiptModalOpen(true);
@@ -613,6 +619,10 @@ export default function AttendancePortal() {
         const paidVal = pRecord?.amount !== undefined ? pRecord.amount : fullFee;
         const dueVal = Math.max(0, fullFee - paidVal);
 
+        const actualPaidDate = pRecord?.paidDate ? new Date(pRecord.paidDate) : (pRecord?.createdAt ? new Date(pRecord.createdAt) : new Date());
+        const printDate = new Date();
+        const isReprint = Boolean(actualPaidDate.toDateString() !== printDate.toDateString());
+
         const receiptObj = {
             receiptNo: pRecord?.id ? `CF-${pRecord.id}` : `REC-${Date.now().toString().slice(-6)}`,
             studentId: studentData.studentId,
@@ -624,7 +634,10 @@ export default function AttendancePortal() {
             amount: paidVal,
             expectedFee: fullFee,
             dueAmount: dueVal,
-            paidDate: pRecord?.paidDate ? new Date(pRecord.paidDate) : new Date(),
+            paidDate: actualPaidDate,
+            actualDate: actualPaidDate,
+            printDate,
+            isReprint,
             status: pRecord?.status || 'PAID',
             cashierName: getCurrentCashierName(),
             items: [
@@ -708,7 +721,9 @@ export default function AttendancePortal() {
             if (res.receiptData) {
                 const receiptPayload = {
                     ...res.receiptData,
-                    cashierName: getCurrentCashierName()
+                    cashierName: getCurrentCashierName(),
+                    actualDate: res.receiptData.paidDate || new Date(),
+                    printDate: new Date()
                 };
                 setCurrentReceiptData(receiptPayload);
                 setReceiptModalOpen(true);
@@ -813,7 +828,9 @@ export default function AttendancePortal() {
             if (res.receiptData) {
                 const receiptPayload = {
                     ...res.receiptData,
-                    cashierName: getCurrentCashierName()
+                    cashierName: getCurrentCashierName(),
+                    actualDate: res.receiptData.paidDate || new Date(),
+                    printDate: new Date()
                 };
                 setCurrentReceiptData(receiptPayload);
                 setReceiptModalOpen(true);
@@ -881,6 +898,21 @@ export default function AttendancePortal() {
             return;
         }
 
+        // Find most recent actual paid date among the paid classes for this month
+        let actualPaidDate = null;
+        studentEnrolledClasses.forEach(cls => {
+            const pRecord = feePayments.find(p => p.classId === cls.id && p.month === activeMonthStr);
+            if (pRecord?.paidDate || pRecord?.createdAt) {
+                const pDate = new Date(pRecord.paidDate || pRecord.createdAt);
+                if (!actualPaidDate || pDate > actualPaidDate) {
+                    actualPaidDate = pDate;
+                }
+            }
+        });
+        const printDate = new Date();
+        const effectiveActualDate = actualPaidDate || printDate;
+        const isReprint = Boolean(actualPaidDate && actualPaidDate.toDateString() !== printDate.toDateString());
+
         const sName = studentData.studentName || `${studentData.firstName || ''} ${studentData.lastName || ''}`.trim() || 'Student';
         const receiptObj = {
             receiptNo: `REC-M${studentData.id}-${activeMonthStr.replace('-', '')}`,
@@ -895,7 +927,10 @@ export default function AttendancePortal() {
             expectedFee: totalExpected,
             dueAmount: totalDue,
             paymentMethod: 'CASH',
-            paidDate: new Date(),
+            paidDate: effectiveActualDate,
+            actualDate: effectiveActualDate,
+            printDate,
+            isReprint,
             status: totalDue === 0 ? 'PAID ✓' : 'PARTIAL',
             cashierName: getCurrentCashierName(),
             items: paidItems,
@@ -1003,6 +1038,8 @@ export default function AttendancePortal() {
                     expectedFee: regFeeVal,
                     dueAmount: 0,
                     paidDate: new Date(),
+                    actualDate: new Date(),
+                    printDate: new Date(),
                     status: 'PAID',
                     cashierName: getCurrentCashierName(),
                     items: [

@@ -549,11 +549,19 @@ export default function CashFlowPortal() {
             ? `${tx.category} - ${tx.description}` 
             : `${tx.category} ${isExpense ? 'Expense' : 'Payment'}`;
 
+        const txDate = tx.date ? new Date(tx.date) : (tx.createdAt ? new Date(tx.createdAt) : new Date());
+        const printDate = new Date();
+        const isReprint = Boolean(txDate.toDateString() !== printDate.toDateString());
+
         const receiptObj = {
             isExpense,
             type: tx.type || (isExpense ? 'EXPENSE' : 'INCOME'),
             receiptNo,
-            date: new Date(tx.date || tx.createdAt || Date.now()),
+            date: txDate,
+            actualDate: txDate,
+            paidDate: txDate,
+            printDate,
+            isReprint,
             studentId: tx.student?.studentId || '-',
             studentName: tx.student?.studentName || `${tx.student?.firstName || ''} ${tx.student?.lastName || ''}`.trim() || (isExpense ? null : 'Student'),
             className: descText,
