@@ -80,6 +80,7 @@ router.post('/v2-daily-logs', verifyToken, coordinatorOverviewV2Controller.saveC
 // Master Todo Stats
 router.get('/master-todo-stats', verifyToken, todoStatsController.getMasterTodoStats);
 router.get('/after-seminar-chat-summary', verifyToken, todoStatsController.getAfterSeminarChatSummary);
+router.get('/realtime-chat-summary', verifyToken, todoStatsController.getRealtimeChatSummary);
 
 // Quick Reply Routes
 router.get('/quick-replies', verifyToken, quickReplyController.getQuickReplies);

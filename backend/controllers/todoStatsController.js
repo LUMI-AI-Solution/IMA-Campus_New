@@ -358,3 +358,106 @@ exports.getAfterSeminarChatSummary = async (req, res) => {
         res.status(500).json({ error: 'Failed to load After Seminar chat summary' });
     }
 };
+
+// GET /api/coordinator-crm/realtime-chat-summary
+exports.getRealtimeChatSummary = async (req, res) => {
+    try {
+        const { businessId, batchId, businessIds } = req.query;
+        const now = new Date();
+
+        const hasBatch = batchId && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null';
+        const hasBiz = businessId && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null';
+
+        const andConditions = [];
+
+        if (hasBatch) {
+            const bId = parseInt(batchId);
+            andConditions.push({
+                OR: [
+                    { batchId: bId },
+                    { phone: { endsWith: `_BATCH_${bId}` } },
+                    { phone: { contains: `_BATCH_${bId}_` } }
+                ]
+            });
+        }
+
+        if (hasBiz) {
+            const bizId = parseInt(businessId);
+            andConditions.push({
+                OR: [
+                    { batch: { businessId: bizId } },
+                    { phone: { endsWith: `_BIZ_${bizId}` } },
+                    { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+                    { phone: { contains: `_BIZ_${bizId}_` } }
+                ]
+            });
+        } else if (businessIds) {
+            const ids = String(businessIds).split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id) && id > 0);
+            if (ids.length > 0) {
+                const bizOrs = [];
+                ids.forEach(bizId => {
+                    bizOrs.push(
+                        { batch: { businessId: bizId } },
+                        { phone: { endsWith: `_BIZ_${bizId}` } },
+                        { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+                        { phone: { contains: `_BIZ_${bizId}_` } }
+                    );
+                });
+                andConditions.push({ OR: bizOrs });
+            }
+        }
+
+        const buildFilter = (campaignType) => {
+            const filter = {
+                campaignType,
+                unreadCount: { gt: 0 }
+            };
+            if (andConditions.length > 0) {
+                filter.AND = andConditions;
+            }
+            return filter;
+        };
+
+        const [afterSemLeads, freeSemLeads] = await Promise.all([
+            prisma.lead.findMany({
+                where: buildFilter('AFTER_SEMINAR'),
+                select: { id: true, lastMessageAt: true, updatedAt: true, createdAt: true }
+            }),
+            prisma.lead.findMany({
+                where: buildFilter('FREE_SEMINAR'),
+                select: { id: true, lastMessageAt: true, updatedAt: true, createdAt: true }
+            })
+        ]);
+
+        const calcStats = (leads) => {
+            let expiringSoon = 0;
+            let expired = 0;
+            let active = 0;
+
+            for (const l of leads) {
+                const msgDate = l.lastMessageAt || l.updatedAt || l.createdAt;
+                const hoursPassed = (now.getTime() - new Date(msgDate).getTime()) / (1000 * 60 * 60);
+
+                if (hoursPassed >= 24) expired++;
+                else if (hoursPassed >= 20) expiringSoon++;
+                else active++;
+            }
+
+            return {
+                totalUnread: leads.length,
+                expiringSoon,
+                expired,
+                active
+            };
+        };
+
+        res.status(200).json({
+            success: true,
+            afterSeminar: calcStats(afterSemLeads),
+            freeSeminar: calcStats(freeSemLeads)
+        });
+    } catch (error) {
+        console.error('Realtime Chat Summary Error:', error);
+        res.status(500).json({ error: 'Failed to load realtime chat summary' });
+    }
+};

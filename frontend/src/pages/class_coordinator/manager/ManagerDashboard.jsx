@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import axios from '../../../api/axios';
 import { 
   FaUsers, FaBookOpen, FaFilter, FaMoneyBillWave, FaSpinner, FaCircle,
   FaCalendarCheck, FaClock, FaChalkboardTeacher, FaComments, FaCalendarAlt, FaReplyAll, FaChartLine,
-  FaTruck, FaExclamationCircle, FaUserClock, FaChartPie, FaCheckCircle, FaInbox, FaBox
+  FaTruck, FaExclamationCircle, FaUserClock, FaChartPie, FaCheckCircle, FaInbox, FaBox,
+  FaWhatsapp, FaExclamationTriangle, FaArrowRight, FaExternalLinkAlt
 } from 'react-icons/fa';
 import { 
   BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend 
@@ -14,6 +15,7 @@ import DelegateSocialMediaTaskModal from '../../../components/common/DelegateSoc
 import WhatsAppMetaMonitor from '../../../components/WhatsAppMetaMonitor/WhatsAppMetaMonitor';
 
 export default function ManagerDashboard() {
+  const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(false);
@@ -23,6 +25,12 @@ export default function ManagerDashboard() {
   const [batches, setBatches] = useState([]);
   const [selectedBusiness, setSelectedBusiness] = useState('');
   const [selectedBatch, setSelectedBatch] = useState('ALL');
+
+  const [realtimeChatSummary, setRealtimeChatSummary] = useState({
+    afterSeminar: { totalUnread: 0, expiringSoon: 0, expired: 0, active: 0 },
+    freeSeminar: { totalUnread: 0, expiringSoon: 0, expired: 0, active: 0 }
+  });
+  const [realtimeLoading, setRealtimeLoading] = useState(false);
 
   const [stats, setStats] = useState({
     activeStudentsCount: 0,
@@ -101,9 +109,46 @@ export default function ManagerDashboard() {
   }, [batches, selectedBusiness, displayBusinesses]);
 
   useEffect(() => {
-    if (selectedBusiness) fetchManagerStats();
-    else setLoading(false);
+    if (selectedBusiness) {
+      fetchManagerStats();
+      fetchRealtimeChatSummary();
+    } else {
+      setLoading(false);
+    }
   }, [selectedBusiness, selectedBatch]);
+
+  // Periodic refresh for live chat summary (every 30 seconds)
+  useEffect(() => {
+    if (!selectedBusiness) return;
+    const interval = setInterval(() => {
+      fetchRealtimeChatSummary(true);
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [selectedBusiness, selectedBatch, displayBusinesses]);
+
+  const fetchRealtimeChatSummary = async (isBackground = false) => {
+    if (!isBackground) setRealtimeLoading(true);
+    try {
+      const bizIds = selectedBusiness === 'ALL' ? displayBusinesses.map(b => b.id).join(',') : undefined;
+      const res = await axios.get('/coordinator-crm/realtime-chat-summary', {
+        params: {
+          businessId: selectedBusiness,
+          batchId: selectedBatch || 'ALL',
+          businessIds: bizIds
+        }
+      });
+      if (res.data?.success) {
+        setRealtimeChatSummary({
+          afterSeminar: res.data.afterSeminar || { totalUnread: 0, expiringSoon: 0, expired: 0, active: 0 },
+          freeSeminar: res.data.freeSeminar || { totalUnread: 0, expiringSoon: 0, expired: 0, active: 0 }
+        });
+      }
+    } catch (err) {
+      console.error('Error loading realtime chat summary:', err);
+    } finally {
+      if (!isBackground) setRealtimeLoading(false);
+    }
+  };
 
   const fetchManagerStats = async () => {
     setStatsLoading(true);
@@ -202,6 +247,187 @@ export default function ManagerDashboard() {
         onClose={() => setIsDelegateModalOpen(false)} 
         loggedInUser={user} 
       />
+
+      {/* 🔹 Realtime Overview: 1st Tile (After Seminar CRM) & 2nd Tile (Free Seminar CRM) */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        
+        {/* 🎯 1ST TILE: AFTER SEMINAR CRM 🎯 */}
+        <div 
+          onClick={() => navigate('/workspace/after-seminar-crm')}
+          className="relative overflow-hidden rounded-[2rem] p-6 bg-gradient-to-br from-[#1e1435]/90 via-[#16132b]/80 to-[#0e1726]/90 border border-purple-500/30 hover:border-purple-400/60 shadow-[0_8px_30px_rgb(0,0,0,0.25)] hover:shadow-[0_12px_40px_rgba(168,85,247,0.2)] transition-all duration-300 cursor-pointer group hover:-translate-y-1"
+        >
+          {/* Subtle Ambient Glow */}
+          <div className="absolute -top-12 -right-12 w-44 h-44 bg-purple-600/15 rounded-full blur-3xl pointer-events-none group-hover:bg-purple-600/25 transition-all"></div>
+          
+          <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
+            {/* Header row */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-[#25D366]/15 border border-[#25D366]/30 flex items-center justify-center text-[#25D366] shadow-lg shadow-[#25D366]/10 group-hover:scale-105 transition-transform">
+                  <FaWhatsapp size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white tracking-wide flex items-center gap-2">
+                    AFTER SEMINAR CRM
+                  </h3>
+                  <p className="text-[10px] font-bold text-purple-300/70 uppercase tracking-widest">
+                    Post-Seminar Conversions
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-black tracking-widest uppercase border border-emerald-500/20 px-3 py-1 rounded-full flex items-center gap-1.5 shadow-sm">
+                  <FaCircle className="text-[6px] animate-pulse text-emerald-400" /> Live
+                </span>
+                <span className="text-purple-400/60 group-hover:text-purple-300 text-xs transition-colors">
+                  <FaExternalLinkAlt size={12} />
+                </span>
+              </div>
+            </div>
+
+            {/* Unread Chats Count */}
+            <div className="flex items-baseline justify-between pt-1">
+              <div>
+                <span className="text-4xl lg:text-5xl font-black text-white tracking-tight drop-shadow-md">
+                  {realtimeLoading ? '...' : Number(realtimeChatSummary.afterSeminar.totalUnread || 0).toLocaleString()}
+                </span>
+                <span className="text-xs font-black text-purple-200/80 uppercase tracking-wider ml-3">
+                  Unread Chats
+                </span>
+              </div>
+              <span className="text-[11px] font-bold text-purple-300/80 group-hover:text-white flex items-center gap-1 transition-colors">
+                Open CRM <FaArrowRight size={10} className="group-hover:translate-x-1 transition-transform" />
+              </span>
+            </div>
+
+            {/* Status Breakdown Pills */}
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5">
+              {/* Expiring Soon (<4h) */}
+              <div className={`p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition-colors ${
+                (realtimeChatSummary.afterSeminar.expiringSoon || 0) > 0
+                  ? 'bg-amber-500/15 border-amber-500/30 text-amber-300 shadow-sm shadow-amber-500/10 animate-pulse'
+                  : 'bg-white/[0.02] border-white/5 text-slate-400'
+              }`}>
+                <span className="text-[9px] font-black uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                  <FaClock size={9} className="text-amber-400" /> Expiring &lt;4h
+                </span>
+                <span className="text-base font-black text-amber-300">
+                  {realtimeLoading ? '...' : (realtimeChatSummary.afterSeminar.expiringSoon || 0)}
+                </span>
+              </div>
+
+              {/* Expired (>=24h) */}
+              <div className="p-2.5 rounded-xl border bg-white/[0.02] border-white/5 flex flex-col items-center justify-center text-center">
+                <span className="text-[9px] font-black uppercase tracking-wider text-rose-300/80 flex items-center gap-1 mb-0.5">
+                  <FaExclamationTriangle size={9} className="text-rose-400" /> Expired &ge;24h
+                </span>
+                <span className="text-base font-black text-rose-300">
+                  {realtimeLoading ? '...' : (realtimeChatSummary.afterSeminar.expired || 0)}
+                </span>
+              </div>
+
+              {/* Active (<20h) */}
+              <div className="p-2.5 rounded-xl border bg-white/[0.02] border-white/5 flex flex-col items-center justify-center text-center">
+                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-300/80 flex items-center gap-1 mb-0.5">
+                  <FaCheckCircle size={9} className="text-emerald-400" /> Active &lt;20h
+                </span>
+                <span className="text-base font-black text-emerald-300">
+                  {realtimeLoading ? '...' : (realtimeChatSummary.afterSeminar.active || 0)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 🎯 2ND TILE: FREE SEMINAR CRM 🎯 */}
+        <div 
+          onClick={() => navigate('/workspace/crm')}
+          className="relative overflow-hidden rounded-[2rem] p-6 bg-gradient-to-br from-[#0e2a22]/90 via-[#0d221d]/80 to-[#0e1726]/90 border border-emerald-500/30 hover:border-emerald-400/60 shadow-[0_8px_30px_rgb(0,0,0,0.25)] hover:shadow-[0_12px_40px_rgba(16,185,129,0.2)] transition-all duration-300 cursor-pointer group hover:-translate-y-1"
+        >
+          {/* Subtle Ambient Glow */}
+          <div className="absolute -top-12 -right-12 w-44 h-44 bg-emerald-600/15 rounded-full blur-3xl pointer-events-none group-hover:bg-emerald-600/25 transition-all"></div>
+          
+          <div className="relative z-10 flex flex-col justify-between h-full space-y-4">
+            {/* Header row */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-[#25D366]/15 border border-[#25D366]/30 flex items-center justify-center text-[#25D366] shadow-lg shadow-[#25D366]/10 group-hover:scale-105 transition-transform">
+                  <FaWhatsapp size={22} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-white tracking-wide flex items-center gap-2">
+                    FREE SEMINAR CRM
+                  </h3>
+                  <p className="text-[10px] font-bold text-emerald-300/70 uppercase tracking-widest">
+                    Inbound Leads & Registrations
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="bg-emerald-500/10 text-emerald-400 text-[10px] font-black tracking-widest uppercase border border-emerald-500/20 px-3 py-1 rounded-full flex items-center gap-1.5 shadow-sm">
+                  <FaCircle className="text-[6px] animate-pulse text-emerald-400" /> Live
+                </span>
+                <span className="text-emerald-400/60 group-hover:text-emerald-300 text-xs transition-colors">
+                  <FaExternalLinkAlt size={12} />
+                </span>
+              </div>
+            </div>
+
+            {/* Unread Chats Count */}
+            <div className="flex items-baseline justify-between pt-1">
+              <div>
+                <span className="text-4xl lg:text-5xl font-black text-white tracking-tight drop-shadow-md">
+                  {realtimeLoading ? '...' : Number(realtimeChatSummary.freeSeminar.totalUnread || 0).toLocaleString()}
+                </span>
+                <span className="text-xs font-black text-emerald-200/80 uppercase tracking-wider ml-3">
+                  Unread Chats
+                </span>
+              </div>
+              <span className="text-[11px] font-bold text-emerald-300/80 group-hover:text-white flex items-center gap-1 transition-colors">
+                Open CRM <FaArrowRight size={10} className="group-hover:translate-x-1 transition-transform" />
+              </span>
+            </div>
+
+            {/* Status Breakdown Pills */}
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5">
+              {/* Expiring Soon (<4h) */}
+              <div className={`p-2.5 rounded-xl border flex flex-col items-center justify-center text-center transition-colors ${
+                (realtimeChatSummary.freeSeminar.expiringSoon || 0) > 0
+                  ? 'bg-amber-500/15 border-amber-500/30 text-amber-300 shadow-sm shadow-amber-500/10 animate-pulse'
+                  : 'bg-white/[0.02] border-white/5 text-slate-400'
+              }`}>
+                <span className="text-[9px] font-black uppercase tracking-wider flex items-center gap-1 mb-0.5">
+                  <FaClock size={9} className="text-amber-400" /> Expiring &lt;4h
+                </span>
+                <span className="text-base font-black text-amber-300">
+                  {realtimeLoading ? '...' : (realtimeChatSummary.freeSeminar.expiringSoon || 0)}
+                </span>
+              </div>
+
+              {/* Expired (>=24h) */}
+              <div className="p-2.5 rounded-xl border bg-white/[0.02] border-white/5 flex flex-col items-center justify-center text-center">
+                <span className="text-[9px] font-black uppercase tracking-wider text-rose-300/80 flex items-center gap-1 mb-0.5">
+                  <FaExclamationTriangle size={9} className="text-rose-400" /> Expired &ge;24h
+                </span>
+                <span className="text-base font-black text-rose-300">
+                  {realtimeLoading ? '...' : (realtimeChatSummary.freeSeminar.expired || 0)}
+                </span>
+              </div>
+
+              {/* Active (<20h) */}
+              <div className="p-2.5 rounded-xl border bg-white/[0.02] border-white/5 flex flex-col items-center justify-center text-center">
+                <span className="text-[9px] font-black uppercase tracking-wider text-emerald-300/80 flex items-center gap-1 mb-0.5">
+                  <FaCheckCircle size={9} className="text-emerald-400" /> Active &lt;20h
+                </span>
+                <span className="text-base font-black text-emerald-300">
+                  {realtimeLoading ? '...' : (realtimeChatSummary.freeSeminar.active || 0)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
 
       {statsLoading ? (
         <div className="flex flex-col justify-center items-center h-[300px] text-brand-accent font-sans font-black gap-4 bg-white/50 dark:bg-white/[0.02] rounded-[2rem] border border-white/5 backdrop-blur-md">

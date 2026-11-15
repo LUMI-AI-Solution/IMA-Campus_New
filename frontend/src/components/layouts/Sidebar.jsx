@@ -785,7 +785,7 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
           <>
             {renderSectionBlock('Management', (
               <>
-                <NavLink to="/manager/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className={getIconColorClass('blue')} /> {isSidebarOpen && <span className="truncate text-sm">Branch Overview</span>}</NavLink>
+                <NavLink to="/manager/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className={getIconColorClass('blue')} /> {isSidebarOpen && <span className="truncate text-sm">Realtime Overview</span>}</NavLink>
                 <NavLink to="/coordinator/dashboard?mode=OVERVIEW" className={() => getQueryNavLinkClass('OVERVIEW')}><LayoutDashboard size={18} className={getIconColorClass('purple')} /> {isSidebarOpen && <span className="truncate text-sm">Coordinator Overview</span>}</NavLink>
                 <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className={getIconColorClass('indigo')} /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
               </>
