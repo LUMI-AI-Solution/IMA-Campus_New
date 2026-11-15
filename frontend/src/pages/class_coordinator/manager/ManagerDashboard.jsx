@@ -95,7 +95,10 @@ export default function ManagerDashboard() {
 
   useEffect(() => {
     if (displayBusinesses.length > 0 && !selectedBusiness) {
-      setSelectedBusiness(String(displayBusinesses[0].id));
+      const initialBiz = String(displayBusinesses[0].id);
+      setSelectedBusiness(initialBiz);
+      localStorage.setItem('activeBusinessId', initialBiz);
+      window.dispatchEvent(new CustomEvent('business_changed', { detail: { businessId: initialBiz } }));
     }
   }, [displayBusinesses, selectedBusiness]);
 
@@ -206,7 +209,12 @@ export default function ManagerDashboard() {
             {(isAdmin || (isManager && displayBusinesses.length > 1)) && (
               <select
                 value={selectedBusiness}
-                onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch('ALL'); }}
+                onChange={(e) => { 
+                  setSelectedBusiness(e.target.value); 
+                  setSelectedBatch('ALL'); 
+                  if (e.target.value !== 'ALL') localStorage.setItem('activeBusinessId', e.target.value);
+                  window.dispatchEvent(new CustomEvent('business_changed', { detail: { businessId: e.target.value } }));
+                }}
                 className="bg-transparent text-gray-800 dark:text-slate-300 text-xs font-bold rounded-xl px-2 outline-none cursor-pointer"
               >
                 {displayBusinesses.length > 1 && (

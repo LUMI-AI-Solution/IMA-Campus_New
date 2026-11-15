@@ -146,7 +146,13 @@ export default function WebInquiries() {
             .then(res => {
                 setBusinesses(res.data);
                 if (res.data.length > 0) {
-                    setSelectedBusiness(res.data[0].id.toString());
+                    const savedBiz = localStorage.getItem('lumi_selectedBusiness') || localStorage.getItem('activeBusinessId');
+                    const match = res.data.find(b => String(b.id) === String(savedBiz));
+                    const chosenBiz = match ? String(match.id) : (savedBiz === 'ALL' ? 'ALL' : res.data[0].id.toString());
+                    setSelectedBusiness(chosenBiz);
+                    localStorage.setItem('lumi_selectedBusiness', chosenBiz);
+                    if (chosenBiz !== 'ALL') localStorage.setItem('activeBusinessId', chosenBiz);
+                    window.dispatchEvent(new CustomEvent('business_changed', { detail: { businessId: chosenBiz } }));
                 }
             })
             .catch(err => console.error("Error fetching businesses", err));
@@ -675,7 +681,13 @@ export default function WebInquiries() {
                 <div className="flex items-center gap-3 w-full xl:w-auto overflow-x-auto justify-end">
                     <select 
                         value={selectedBusiness}
-                        onChange={(e) => setSelectedBusiness(e.target.value)}
+                        onChange={(e) => {
+                            const val = e.target.value;
+                            setSelectedBusiness(val);
+                            localStorage.setItem('lumi_selectedBusiness', val);
+                            if (val !== 'ALL') localStorage.setItem('activeBusinessId', val);
+                            window.dispatchEvent(new CustomEvent('business_changed', { detail: { businessId: val } }));
+                        }}
                         className="bg-[#1a2430] border border-white/10 text-slate-300 text-sm rounded-lg px-3 py-2 outline-none focus:border-emerald-600"
                     >
                         <option value="ALL">All Businesses</option>

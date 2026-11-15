@@ -14,6 +14,7 @@ export default function GlobalToolsMenu({ loggedInUser }) {
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [activeWidget, setActiveWidget] = useState(null);
     const [unreadWebInq, setUnreadWebInq] = useState(0);
+    const [currentWebInqBizName, setCurrentWebInqBizName] = useState('');
     const [activeCallPerms, setActiveCallPerms] = useState(0);
     const [dueRemindersCount, setDueRemindersCount] = useState(0);
     const [isLumiAiActive, setIsLumiAiActive] = useState(false);
@@ -130,19 +131,71 @@ export default function GlobalToolsMenu({ loggedInUser }) {
         const fetchUnread = async () => {
             try {
                 const bizRes = await axios.get('/business/my-businesses');
-                const myBizIds = bizRes.data.map(b => b.id);
-                
-                const res = await axios.get('/web-inquiry');
-                const total = res.data.inquiries.reduce((acc, inq) => {
-                    if (myBizIds.includes(inq.businessId)) {
-                        return acc + (inq.unreadCount || 0);
+                const myBusinesses = bizRes.data || [];
+                const myBizIds = myBusinesses.map(b => b.id);
+                if (myBizIds.length === 0) {
+                    setUnreadWebInq(0);
+                    return;
+                }
+
+                // Determine active / relevant business
+                const lumiBiz = localStorage.getItem('lumi_selectedBusiness');
+                const activeBiz = localStorage.getItem('activeBusinessId');
+                const afterBiz = localStorage.getItem('afterSem_selectedBusiness');
+                const freeBiz = localStorage.getItem('freeSem_selectedBusiness');
+                const callBiz = localStorage.getItem('callCamp_selectedBusiness');
+
+                let targetBizId = null;
+
+                if (lumiBiz && lumiBiz !== 'ALL' && myBizIds.includes(parseInt(lumiBiz))) {
+                    targetBizId = parseInt(lumiBiz);
+                } else if (activeBiz && activeBiz !== 'ALL' && myBizIds.includes(parseInt(activeBiz))) {
+                    targetBizId = parseInt(activeBiz);
+                } else if (afterBiz && afterBiz !== 'ALL' && myBizIds.includes(parseInt(afterBiz))) {
+                    targetBizId = parseInt(afterBiz);
+                } else if (freeBiz && freeBiz !== 'ALL' && myBizIds.includes(parseInt(freeBiz))) {
+                    targetBizId = parseInt(freeBiz);
+                } else if (callBiz && callBiz !== 'ALL' && myBizIds.includes(parseInt(callBiz))) {
+                    targetBizId = parseInt(callBiz);
+                } else if (loggedInUser?.businessId && myBizIds.includes(parseInt(loggedInUser.businessId))) {
+                    targetBizId = parseInt(loggedInUser.businessId);
+                } else if (loggedInUser?.businessType) {
+                    const userBizList = String(loggedInUser.businessType).split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+                    const matched = myBusinesses.find(b => 
+                        userBizList.some(ub => ub === String(b.id) || ub === b.name.toLowerCase().trim() || b.name.toLowerCase().trim().includes(ub) || ub.includes(b.name.toLowerCase().trim()))
+                    );
+                    if (matched) targetBizId = matched.id;
+                }
+
+                // If not explicitly targeted and user has only 1 or multiple, pick the first
+                if (!targetBizId && myBusinesses.length > 0) {
+                    targetBizId = myBusinesses[0].id;
+                }
+
+                const params = targetBizId ? { businessId: targetBizId } : {};
+                const res = await axios.get('/web-inquiry', { params });
+                const inquiries = res.data?.inquiries || [];
+
+                // Count UNREAD CHATS (conversations with unreadCount > 0) for the relevant business
+                const totalUnreadChats = inquiries.reduce((acc, inq) => {
+                    if (targetBizId) {
+                        return (inq.businessId === targetBizId && (inq.unreadCount > 0)) ? acc + 1 : acc;
                     }
-                    return acc;
+                    return (myBizIds.includes(inq.businessId) && (inq.unreadCount > 0)) ? acc + 1 : acc;
                 }, 0);
-                setUnreadWebInq(total);
-            } catch (err) {}
+
+                const targetBizObj = myBusinesses.find(b => b.id === targetBizId);
+                setCurrentWebInqBizName(targetBizObj ? targetBizObj.name : '');
+                setUnreadWebInq(totalUnreadChats);
+            } catch (err) {
+                console.error("Error fetching unread web inquiries:", err);
+            }
         };
+
         fetchUnread();
+
+        window.addEventListener('business_changed', fetchUnread);
+        window.addEventListener('storage', fetchUnread);
 
         const token = localStorage.getItem('token');
         const socket = io(axios.defaults.baseURL ? axios.defaults.baseURL.replace('/api', '') : '', { auth: { token } });
@@ -170,7 +223,11 @@ export default function GlobalToolsMenu({ loggedInUser }) {
             }
         });
 
-        return () => socket.disconnect();
+        return () => {
+            window.removeEventListener('business_changed', fetchUnread);
+            window.removeEventListener('storage', fetchUnread);
+            socket.disconnect();
+        };
     }, [loggedInUser, isStudent, showWebInqWidget]);
 
     if (!loggedInUser) return null;
@@ -245,7 +302,7 @@ export default function GlobalToolsMenu({ loggedInUser }) {
                         <button 
                             onClick={() => navigate('/workspace/web-inquiries')}
                             className="bg-blue-600 hover:bg-blue-500 text-white w-14 h-14 rounded-full flex justify-center items-center shadow-lg shadow-blue-500/30 transition-transform hover:scale-110 relative border-2 border-white/20 animate-pulse z-[9999]"
-                            title="Web Inquiries"
+                            title={`LUMI Chat - ${currentWebInqBizName || 'Relevant Business'}: ${unreadWebInq} unread chat${unreadWebInq > 1 ? 's' : ''}`}
                         >
                             <MessageCircle size={24} />
                             <span className="absolute -top-2 -right-2 bg-red-600 text-white text-[11px] font-bold w-6 h-6 rounded-full flex items-center justify-center animate-bounce shadow-md">

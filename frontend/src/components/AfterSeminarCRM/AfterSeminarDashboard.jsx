@@ -219,7 +219,12 @@ export default function AfterSeminarDashboard() {
             
             <select
               value={selectedBusiness}
-              onChange={(e) => { setSelectedBusiness(e.target.value); setSelectedBatch(''); }}
+              onChange={(e) => { 
+                setSelectedBusiness(e.target.value); 
+                setSelectedBatch(''); 
+                if (e.target.value) localStorage.setItem('activeBusinessId', e.target.value);
+                window.dispatchEvent(new CustomEvent('business_changed', { detail: { businessId: e.target.value } }));
+              }}
               className="bg-transparent text-slate-200 text-xs font-bold outline-none cursor-pointer hover:text-white border-0 py-1 max-w-[130px] sm:max-w-[150px] truncate"
             >
               {displayBusinesses.length > 1 && <option value="" className="bg-slate-900">Select Business (All)</option>}
