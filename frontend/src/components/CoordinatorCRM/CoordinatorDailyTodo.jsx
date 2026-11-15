@@ -76,20 +76,18 @@ const CoordinatorDailyTodo = ({ staffId, isManager = false, selectedBusiness, se
         );
     }
 
-    if (todoData.length === 0) {
-        return (
-            <div className="relative overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-12 text-center border border-slate-700/50 shadow-2xl">
-                <div className="absolute inset-0 bg-[url('/grid.svg')] opacity-10"></div>
-                <div className="relative z-10 flex flex-col items-center">
-                    <div className="w-24 h-24 bg-emerald-500/10 rounded-full flex items-center justify-center mb-6 shadow-[0_0_50px_rgba(16,185,129,0.2)]">
-                        <CheckCircle size={48} className="text-emerald-500 drop-shadow-[0_0_10px_rgba(16,185,129,0.8)]" />
-                    </div>
-                    <h3 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 mb-3 tracking-tight">You're All Caught Up!</h3>
-                    <p className="text-slate-400 text-lg">No pending calls or unread chats right now. Take a break! 🚀</p>
-                </div>
-            </div>
-        );
-    }
+    const storedUser = JSON.parse(localStorage.getItem('user') || '{}');
+    const displayTodoData = todoData.length > 0 ? todoData : [{
+        id: staffId || storedUser?.id || 1,
+        name: storedUser?.firstName ? `${storedUser.firstName} ${storedUser.lastName || ''}`.trim() : 'Coordinator',
+        freeSemPending: 0,
+        openSemPending: 0,
+        newInqR1Pending: 0,
+        newInqR2Pending: 0,
+        newInqR1NoAnswer: 0,
+        newInqR2NoAnswer: 0,
+        unreadChats: 0
+    }];
 
     const filteredCoordinators = (afterSemSummary.coordinators || []).filter(c => {
         if (!breakdownSearch) return true;
@@ -166,7 +164,7 @@ const CoordinatorDailyTodo = ({ staffId, isManager = false, selectedBusiness, se
             )}
             
             <div className={`grid gap-8 ${isManager ? 'grid-cols-1 xl:grid-cols-2' : 'grid-cols-1'}`}>
-                {todoData.map(coord => {
+                {displayTodoData.map(coord => {
                     const totalPending = coord.freeSemPending + coord.openSemPending + coord.newInqR1Pending + coord.newInqR2Pending + coord.newInqR1NoAnswer + coord.newInqR2NoAnswer + coord.unreadChats;
                     
                     return (

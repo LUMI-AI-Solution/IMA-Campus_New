@@ -20,8 +20,11 @@ const buildMasterTodoStats = async (req, res) => {
         const hasBiz = businessId && businessId !== '' && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null';
 
         if (hasBiz && isManager) {
-            const bizIdStr = String(businessId);
-            userWhere.businessType = { contains: bizIdStr };
+            const biz = await prisma.business.findUnique({ where: { id: parseInt(businessId) } });
+            userWhere.OR = [
+                { businessType: { contains: String(businessId) } },
+                ...(biz?.name ? [{ businessType: { contains: biz.name } }] : [])
+            ];
         }
 
         const coordinators = await prisma.user.findMany({
@@ -181,6 +184,30 @@ const buildMasterTodoStats = async (req, res) => {
             c.newInqR2NoAnswer > 0 ||
             c.unreadChats > 0
         );
+
+        // If results is empty, do NOT return empty array []!
+        // Return coordinators so their cards and tiles stay visible.
+        if (results.length === 0 && coordinators.length > 0) {
+            results = coordinators.map(c => statsMap[c.id]);
+        } else if (results.length === 0 && userId) {
+            const fallbackUser = await prisma.user.findUnique({
+                where: { id: userId },
+                select: { id: true, firstName: true, lastName: true }
+            });
+            if (fallbackUser) {
+                results = [{
+                    id: fallbackUser.id,
+                    name: `${fallbackUser.firstName} ${fallbackUser.lastName || ''}`.trim(),
+                    freeSemPending: 0,
+                    openSemPending: 0,
+                    newInqR1Pending: 0,
+                    newInqR2Pending: 0,
+                    newInqR1NoAnswer: 0,
+                    newInqR2NoAnswer: 0,
+                    unreadChats: 0
+                }];
+            }
+        }
 
         res.status(200).json(results);
 
