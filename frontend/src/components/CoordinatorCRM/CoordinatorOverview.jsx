@@ -69,7 +69,12 @@ export default function CoordinatorOverview({ loggedInUser, setActiveMode, selec
                 <h3 className="text-lg font-black text-white uppercase tracking-wider mb-4 flex items-center gap-2">
                     <FaCheckCircle className="text-emerald-400" /> My Daily To-Do
                 </h3>
-                <CoordinatorDailyTodo staffId={loggedInUser?.id} />
+                <CoordinatorDailyTodo 
+                    staffId={loggedInUser?.id} 
+                    isManager={true} 
+                    selectedBusiness={selectedBusiness} 
+                    selectedBatch={selectedBatch} 
+                />
             </div>
 
             {/* 🔥 Row 1: Unread WhatsApp Notifications 🔥 */}

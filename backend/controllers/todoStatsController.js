@@ -218,3 +218,116 @@ exports.getMasterTodoStats = async (req, res) => {
     const result = entry.pending ? await entry.pending : entry;
     res.status(result.status).json(result.body);
 };
+
+// GET /api/coordinator-crm/after-seminar-chat-summary
+exports.getAfterSeminarChatSummary = async (req, res) => {
+    try {
+        const { businessId, batchId } = req.query;
+        const now = new Date();
+
+        const hasBatch = batchId && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null';
+        const hasBiz = businessId && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null';
+
+        let leadFilter = {
+            campaignType: 'AFTER_SEMINAR',
+            unreadCount: { gt: 0 }
+        };
+
+        const andConditions = [];
+
+        if (hasBatch) {
+            const bId = parseInt(batchId);
+            andConditions.push({
+                OR: [
+                    { batchId: bId },
+                    { phone: { endsWith: `_BATCH_${bId}` } },
+                    { phone: { contains: `_BATCH_${bId}_` } }
+                ]
+            });
+        }
+
+        if (hasBiz) {
+            const bizId = parseInt(businessId);
+            andConditions.push({
+                OR: [
+                    { batch: { businessId: bizId } },
+                    { phone: { endsWith: `_BIZ_${bizId}` } },
+                    { phone: { endsWith: `_BIZ_${bizId}_AS` } },
+                    { phone: { contains: `_BIZ_${bizId}_` } }
+                ]
+            });
+        }
+
+        if (andConditions.length > 0) {
+            leadFilter.AND = andConditions;
+        }
+
+        const unreadLeads = await prisma.lead.findMany({
+            where: leadFilter,
+            select: {
+                id: true,
+                phone: true,
+                name: true,
+                assignedTo: true,
+                assignedUser: { select: { id: true, firstName: true, lastName: true, image: true } },
+                lastMessageAt: true,
+                updatedAt: true,
+                createdAt: true
+            }
+        });
+
+        let totalUnread = unreadLeads.length;
+        let expiringSoon = 0;
+        let expired = 0;
+        let active = 0;
+
+        const coordMap = {};
+
+        for (const l of unreadLeads) {
+            const msgDate = l.lastMessageAt || l.updatedAt || l.createdAt;
+            const hoursPassed = (now.getTime() - new Date(msgDate).getTime()) / (1000 * 60 * 60);
+
+            const isExpiring = hoursPassed >= 20 && hoursPassed < 24;
+            const isPast24h = hoursPassed >= 24;
+
+            if (isPast24h) expired++;
+            else if (isExpiring) expiringSoon++;
+            else active++;
+
+            const cId = l.assignedTo || 0;
+            const cName = l.assignedUser ? `${l.assignedUser.firstName} ${l.assignedUser.lastName || ''}`.trim() : (cId === 0 ? 'Unassigned Leads' : `Staff #${cId}`);
+            const cImage = l.assignedUser?.image || null;
+
+            if (!coordMap[cId]) {
+                coordMap[cId] = {
+                    id: cId,
+                    name: cName,
+                    image: cImage,
+                    unreadCount: 0,
+                    expiringSoon: 0,
+                    expired: 0,
+                    active: 0
+                };
+            }
+
+            coordMap[cId].unreadCount++;
+            if (isPast24h) coordMap[cId].expired++;
+            else if (isExpiring) coordMap[cId].expiringSoon++;
+            else coordMap[cId].active++;
+        }
+
+        const coordinators = Object.values(coordMap).sort((a, b) => b.unreadCount - a.unreadCount);
+
+        res.status(200).json({
+            success: true,
+            totalUnread,
+            expiringSoon,
+            expired,
+            active,
+            coordinators
+        });
+    } catch (error) {
+        console.error('After Seminar Chat Summary Error:', error);
+        res.status(500).json({ error: 'Failed to load After Seminar chat summary' });
+    }
+};
