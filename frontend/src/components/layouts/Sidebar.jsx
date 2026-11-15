@@ -739,6 +739,16 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
           </>
         )}
 
+        {isGeneralManager && (
+          renderSectionBlock('Management', (
+            <>
+              <NavLink to="/manager/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className={getIconColorClass('blue')} /> {isSidebarOpen && <span className="truncate text-sm">Realtime Overview</span>}</NavLink>
+              <NavLink to="/coordinator/dashboard?mode=OVERVIEW" className={() => getQueryNavLinkClass('OVERVIEW')}><LayoutDashboard size={18} className={getIconColorClass('purple')} /> {isSidebarOpen && <span className="truncate text-sm">Coordinator Overview</span>}</NavLink>
+              <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className={getIconColorClass('indigo')} /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
+            </>
+          ), true)
+        )}
+
         {(isHeadManager && !isSystemAdmin) && (
           renderSectionBlock('Team Management', (
             <>
@@ -783,14 +793,6 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
 
         {isGeneralManager && (
           <>
-            {renderSectionBlock('Management', (
-              <>
-                <NavLink to="/manager/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className={getIconColorClass('blue')} /> {isSidebarOpen && <span className="truncate text-sm">Realtime Overview</span>}</NavLink>
-                <NavLink to="/coordinator/dashboard?mode=OVERVIEW" className={() => getQueryNavLinkClass('OVERVIEW')}><LayoutDashboard size={18} className={getIconColorClass('purple')} /> {isSidebarOpen && <span className="truncate text-sm">Coordinator Overview</span>}</NavLink>
-                <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className={getIconColorClass('indigo')} /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
-              </>
-            ), true)}
-
             {renderSectionBlock('Academic & AI', (
               <>
                 <NavLink to="/admin/stats-hub" className={getNavLinkClass}><Sparkles size={18} className={getIconColorClass('cyan')} /> {isSidebarOpen && <span className="truncate text-sm">LUMI AI Analyser</span>}</NavLink>
