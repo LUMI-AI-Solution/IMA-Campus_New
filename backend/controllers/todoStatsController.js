@@ -368,53 +368,86 @@ exports.getRealtimeChatSummary = async (req, res) => {
         const hasBatch = batchId && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null';
         const hasBiz = businessId && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null';
 
-        const andConditions = [];
-
-        if (hasBatch) {
-            const bId = parseInt(batchId);
-            andConditions.push({
-                OR: [
-                    { batchId: bId },
-                    { phone: { endsWith: `_BATCH_${bId}` } },
-                    { phone: { contains: `_BATCH_${bId}_` } }
-                ]
-            });
-        }
-
+        // Resolve batch IDs belonging to business(es) to ensure exact matching
+        let bizBatchesIds = [];
         if (hasBiz) {
             const bizId = parseInt(businessId);
-            andConditions.push({
-                OR: [
-                    { batch: { businessId: bizId } },
-                    { phone: { endsWith: `_BIZ_${bizId}` } },
-                    { phone: { endsWith: `_BIZ_${bizId}_AS` } },
-                    { phone: { contains: `_BIZ_${bizId}_` } }
-                ]
-            });
+            const batches = await prisma.batch.findMany({ where: { businessId: bizId }, select: { id: true } });
+            bizBatchesIds = batches.map(b => b.id);
         } else if (businessIds) {
             const ids = String(businessIds).split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id) && id > 0);
             if (ids.length > 0) {
-                const bizOrs = [];
-                ids.forEach(bizId => {
-                    bizOrs.push(
-                        { batch: { businessId: bizId } },
-                        { phone: { endsWith: `_BIZ_${bizId}` } },
-                        { phone: { endsWith: `_BIZ_${bizId}_AS` } },
-                        { phone: { contains: `_BIZ_${bizId}_` } }
-                    );
-                });
-                andConditions.push({ OR: bizOrs });
+                const batches = await prisma.batch.findMany({ where: { businessId: { in: ids } }, select: { id: true } });
+                bizBatchesIds = batches.map(b => b.id);
             }
         }
 
         const buildFilter = (campaignType) => {
             const filter = {
                 campaignType,
-                unreadCount: { gt: 0 }
+                unreadCount: { gt: 0 },
+                source: { not: 'system' },
+                isBlocked: false,
+                status: { not: 'BLOCKED' },
+                AND: []
             };
-            if (andConditions.length > 0) {
-                filter.AND = andConditions;
+
+            if (hasBatch) {
+                const bId = parseInt(batchId);
+                filter.AND.push({
+                    OR: [
+                        { batchId: bId },
+                        { phone: { endsWith: `_BATCH_${bId}` } },
+                        { phone: { contains: `_BATCH_${bId}_` } }
+                    ]
+                });
             }
+
+            if (hasBiz) {
+                const bizId = parseInt(businessId);
+                const bizOrs = [
+                    { phone: { endsWith: `BIZ_${bizId}` } },
+                    { phone: { endsWith: `BIZ_${bizId}_AS` } },
+                    { phone: { contains: `BIZ_${bizId}_BATCH_` } },
+                    { phone: { contains: `BIZ_${bizId}_ROUND_` } },
+                    { phone: { contains: `BIZ_${bizId}_HISTORY_ROUND_` } }
+                ];
+                if (bizBatchesIds.length > 0) {
+                    bizOrs.unshift({ batchId: { in: bizBatchesIds } });
+                }
+                filter.AND.push({ OR: bizOrs });
+            } else if (businessIds) {
+                const ids = String(businessIds).split(',').map(id => parseInt(id.trim())).filter(id => !isNaN(id) && id > 0);
+                if (ids.length > 0) {
+                    const bizOrs = [];
+                    ids.forEach(bizId => {
+                        bizOrs.push(
+                            { phone: { endsWith: `BIZ_${bizId}` } },
+                            { phone: { endsWith: `BIZ_${bizId}_AS` } },
+                            { phone: { contains: `BIZ_${bizId}_BATCH_` } },
+                            { phone: { contains: `BIZ_${bizId}_ROUND_` } },
+                            { phone: { contains: `BIZ_${bizId}_HISTORY_ROUND_` } }
+                        );
+                    });
+                    if (bizBatchesIds.length > 0) {
+                        bizOrs.unshift({ batchId: { in: bizBatchesIds } });
+                    }
+                    filter.AND.push({ OR: bizOrs });
+                }
+            }
+
+            // Exclude cold bridge transfers for AFTER_SEMINAR (strictly matches AfterSeminarCRM ContactSidebar)
+            if (campaignType === 'AFTER_SEMINAR') {
+                filter.AND.push({
+                    NOT: {
+                        AND: [
+                            { source: 'bridge_transfer' },
+                            { lastMessage: null }
+                        ]
+                    }
+                });
+            }
+
             return filter;
         };
 
