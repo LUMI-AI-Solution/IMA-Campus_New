@@ -95,8 +95,10 @@ exports.getInquiries = async (req, res) => {
             ];
         }
 
+        const limit = req.query.limit ? parseInt(req.query.limit) : 300;
         const inquiries = await prisma.webInquiry.findMany({
             where,
+            take: limit,
             orderBy: [
                 { lastMessageAt: 'desc' },
                 { createdAt: 'desc' }
@@ -141,6 +143,12 @@ exports.getMessages = async (req, res) => {
         const { inquiryId } = req.params;
         const parsedInquiryId = parseInt(inquiryId);
         if (isNaN(parsedInquiryId)) return res.status(400).json({ success: false, error: "Invalid inquiry ID" });
+
+        // Reset unread count directly in getMessages so no separate mark-read call is needed
+        prisma.webInquiry.update({
+            where: { id: parsedInquiryId },
+            data: { unreadCount: 0 }
+        }).catch(() => {});
 
         const messages = await prisma.webInquiryMessage.findMany({
             where: { inquiryId: parsedInquiryId },
@@ -203,12 +211,6 @@ exports.markAsRead = async (req, res) => {
             data: { unreadCount: 0 }
         });
 
-        const { getIo } = require('./chatController');
-        const io = getIo();
-        if (io) {
-            io.emit('web_inquiry_notification');
-        }
-
         res.json({ success: true });
     } catch (error) {
         console.error("Error in markAsRead:", error);
@@ -258,6 +260,7 @@ exports.getStudentInfo = async (req, res) => {
                 appChatDp: true,
                 payments: {
                     where: { status: { in: [0, 1, 4] } },
+                    take: 5,
                     include: {
                         business: { select: { id: true, name: true, logo: true } },
                         batch: { select: { id: true, name: true } },

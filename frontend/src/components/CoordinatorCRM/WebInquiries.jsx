@@ -40,11 +40,15 @@ const formatDateLabel = (dateString) => {
 export default function WebInquiries() {
     const [inquiries, setInquiries] = useState([]);
     const [businesses, setBusinesses] = useState([]);
-    const [selectedBusiness, setSelectedBusiness] = useState('ALL');
+    const [selectedBusiness, setSelectedBusiness] = useState(() => {
+        return localStorage.getItem('lumi_selectedBusiness') || localStorage.getItem('activeBusinessId') || 'ALL';
+    });
     const [selectedInquiry, setSelectedInquiry] = useState(null);
     const [activeSessionInquiryId, setActiveSessionInquiryId] = useState(null);
     const selectedInquiryRef = useRef(null);
+    const activeInquiryIdRef = useRef(null);
     const [messages, setMessages] = useState([]);
+    const [loadingMessages, setLoadingMessages] = useState(false);
 
     useEffect(() => {
         selectedInquiryRef.current = selectedInquiry;
@@ -139,7 +143,6 @@ export default function WebInquiries() {
     const reactionEmojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
     useEffect(() => {
-        fetchInquiries();
         fetchQuickReplies();
         
         axios.get('/business/my-businesses')
@@ -171,11 +174,21 @@ export default function WebInquiries() {
                         if (prev.find(m => m.id === msg.id)) return prev;
                         return [...prev, msg];
                     });
-                    if (msg.direction === 'inbound') {
-                        axios.post('/web-inquiry/mark-read', { inquiryId: msg.inquiryId }).catch(() => {});
-                    }
                 }
-                fetchInquiries(false); 
+                // Fast local state update for inquiries list without heavy database re-fetch
+                setInquiries(prev => {
+                    const exists = prev.some(i => i.id === msg.inquiryId);
+                    if (!exists) {
+                        fetchInquiries(false);
+                        return prev;
+                    }
+                    return prev.map(i => i.id === msg.inquiryId ? {
+                        ...i,
+                        lastMessage: msg.message ? msg.message.substring(0, 50) : (msg.mediaUrl ? '[Attachment]' : i.lastMessage),
+                        lastMessageAt: msg.createdAt || new Date().toISOString(),
+                        unreadCount: (currentOpenInq && currentOpenInq.id === msg.inquiryId) ? 0 : (msg.direction === 'inbound' ? (i.unreadCount || 0) + 1 : 0)
+                    } : i);
+                });
             });
 
             socketRef.current.on('web_inquiry_message_updated', (data) => {
@@ -194,6 +207,7 @@ export default function WebInquiries() {
     }, []);
 
     useEffect(() => {
+        fetchInquiries(false, selectedBusiness);
         if (selectedInquiry && selectedBusiness !== 'ALL') {
             if (selectedInquiry.businessId.toString() !== selectedBusiness) {
                 setSelectedInquiry(null);
@@ -234,10 +248,15 @@ export default function WebInquiries() {
         isUserScrolledUp.current = scrollHeight - (scrollTop + clientHeight) > 100;
     };
 
-    const fetchInquiries = async (showLoading = true) => {
+    const fetchInquiries = async (showLoading = true, targetBiz = null) => {
         try {
-            const res = await axios.get('/web-inquiry');
-            setInquiries(res.data.inquiries);
+            const biz = targetBiz !== null ? targetBiz : selectedBusiness;
+            const params = {};
+            if (biz && biz !== 'ALL') {
+                params.businessId = biz;
+            }
+            const res = await axios.get('/web-inquiry', { params });
+            setInquiries(res.data.inquiries || []);
         } catch (error) {
             if (showLoading) toast.error("Failed to load inquiries");
         }
@@ -253,31 +272,43 @@ export default function WebInquiries() {
     const loadInquiryMessages = async (inqId) => {
         try {
             const res = await axios.get(`/web-inquiry/${inqId}/messages`);
-            setMessages(res.data.messages);
-            await axios.post('/web-inquiry/mark-read', { inquiryId: inqId });
-            setInquiries(prev => prev.map(i => i.id === inqId ? { ...i, unreadCount: 0 } : i));
+            if (activeInquiryIdRef.current === inqId) {
+                setMessages(res.data.messages || []);
+                setLoadingMessages(false);
+            }
         } catch (error) {
-            toast.error("Failed to load messages");
+            if (activeInquiryIdRef.current === inqId) {
+                setLoadingMessages(false);
+                toast.error("Failed to load messages");
+            }
         }
     };
 
     const loadStudentInfo = async (inqId) => {
         try {
             const res = await axios.get(`/web-inquiry/${inqId}/student-info`);
-            setStudentInfo(res.data.student);
+            if (activeInquiryIdRef.current === inqId) {
+                setStudentInfo(res.data.student);
+            }
         } catch (error) {
             console.error(error);
         }
     };
 
     const handleSelectInquiry = (inq) => {
+        activeInquiryIdRef.current = inq.id;
         setSelectedInquiry(inq);
+        setMessages([]); // Immediately clear old messages to prevent showing previous chat
+        setLoadingMessages(true);
         setStudentInfo(null);
         setReplyingTo(null);
         setSelectedFile(null);
         setSuggestedQRs([]);
         setNewMessage('');
         
+        // Zero unread count instantly in local state
+        setInquiries(prev => prev.map(i => i.id === inq.id ? { ...i, unreadCount: 0 } : i));
+
         if (inq.unreadCount > 0) {
             setActiveSessionInquiryId(inq.id);
         } else {
@@ -814,7 +845,18 @@ export default function WebInquiries() {
                         </div>
 
                         <div className={`flex-1 overflow-y-auto p-4 custom-scrollbar relative ${isDark ? "bg-[#0b141a]" : "bg-[#efeae2]"}`} ref={scrollRef} onScroll={handleScroll}>
-                            <div className="relative z-10 flex flex-col">
+                            {loadingMessages ? (
+                                <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-400 min-h-[300px]">
+                                    <div className="w-8 h-8 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                                    <p className="text-xs font-semibold tracking-wide uppercase opacity-75">Loading conversation...</p>
+                                </div>
+                            ) : Object.keys(groupedMessages).length === 0 ? (
+                                <div className="h-full flex flex-col items-center justify-center gap-2 text-slate-400 opacity-60 min-h-[300px]">
+                                    <MessageCircle size={36} />
+                                    <p className="text-xs font-semibold">No messages yet. Send a message to start the conversation.</p>
+                                </div>
+                            ) : (
+                                <div className="relative z-10 flex flex-col">
                                 {Object.keys(groupedMessages).map(dateLabel => (
                                     <React.Fragment key={dateLabel}>
                                         <div className="flex justify-center my-6">
@@ -891,6 +933,7 @@ export default function WebInquiries() {
                                     </React.Fragment>
                                 ))}
                             </div>
+                            )}
                         </div>
 
                         <div className={`flex flex-col border-t z-20 ${isDark ? 'bg-[#1e293b] border-slate-700' : 'bg-[#f0f2f5] border-slate-300'}`}>
