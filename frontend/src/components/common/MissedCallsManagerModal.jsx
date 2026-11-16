@@ -104,9 +104,8 @@ export default function MissedCallsManagerModal({ isOpen, onClose, defaultBusine
     const getStaffForBusiness = (bizIdOrName) => {
         if (!staffList || staffList.length === 0) return [];
         if (!bizIdOrName || bizIdOrName === 'ALL') return staffList;
-        const matching = staffList.filter(s => matchesBusiness(s, bizIdOrName));
-        const nonMatching = staffList.filter(s => !matchesBusiness(s, bizIdOrName));
-        return [...matching, ...nonMatching];
+        // Only staff of the call's own department (other departments can't take it).
+        return staffList.filter(s => matchesBusiness(s, bizIdOrName));
     };
 
     const renderCampaignBadge = (source) => {
@@ -280,7 +279,7 @@ export default function MissedCallsManagerModal({ isOpen, onClose, defaultBusine
             toast.success("Task assigned successfully!");
             fetchDailyTasks();
         } catch (err) {
-            toast.error("Failed to assign task");
+            toast.error(err.response?.data?.error || "Failed to assign task");
         }
     };
 

@@ -205,15 +205,18 @@ exports.getDailyMissedCalls = async (req, res) => {
                 continue;
             }
 
-            if (!groupedMissed.has(phoneSuffix)) {
-                groupedMissed.set(phoneSuffix, {
+            // One task per number PER DEPARTMENT: the same number calling Art and Commerce gives
+            // two separate tasks (isolated like chats), each handled by its own department.
+            const groupKey = `${phoneSuffix}|${effectiveBiz}`;
+            if (!groupedMissed.has(groupKey)) {
+                groupedMissed.set(groupKey, {
                     latestCall: call,
                     count: 1,
                     businessId: effectiveBiz,
                     leadInfo
                 });
             } else {
-                const item = groupedMissed.get(phoneSuffix);
+                const item = groupedMissed.get(groupKey);
                 item.count++;
                 if (new Date(call.createdAt) > new Date(item.latestCall.createdAt)) {
                     item.latestCall = call;
@@ -222,16 +225,18 @@ exports.getDailyMissedCalls = async (req, res) => {
         }
 
         // Sync or fetch from MissedCallTask table
-        for (const [phoneSuffix, data] of groupedMissed.entries()) {
+        for (const [groupKey, data] of groupedMissed.entries()) {
+            const phoneSuffix = groupKey.split('|')[0];
             const call = data.latestCall;
             const bId = data.businessId || (parsedTargetBiz || 1);
             const cleanPhone = String(call.leadPhone || '').split('_')[0].replace(/[^0-9]/g, '');
 
-            // Find existing task for this phone on targetDate regardless of businessId to prevent duplicates and heal wrong business assignments
+            // Existing task for this phone + date + DEPARTMENT (each department keeps its own task)
             const existingTask = await prisma.missedCallTask.findFirst({
                 where: {
                     phone: { contains: phoneSuffix },
-                    taskDate: targetDate
+                    taskDate: targetDate,
+                    businessId: bId
                 }
             });
 
@@ -267,7 +272,6 @@ exports.getDailyMissedCalls = async (req, res) => {
                 await prisma.missedCallTask.update({
                     where: { id: existingTask.id },
                     data: {
-                        businessId: bId, // Auto-heals if previously wrongly saved under another business!
                         studentName: studentName || existingTask.studentName,
                         batchId: isLeadFromSameBiz ? batchId : existingTask.batchId,
                         source: (existingTask.source && existingTask.source !== 'CRM') ? existingTask.source : source,
@@ -343,9 +347,36 @@ exports.distributeMissedCallTasks = async (req, res) => {
         const managerId = req.user?.id || req.user?.userId;
         const now = new Date();
         const updatedTasks = [];
+        const skipped = [];
+
+        // A missed call can only be given to staff of the SAME department the call came to.
+        const staffIds = [...new Set(normalizedAssignments.map(a => parseInt(a.staffId)).filter(Boolean))];
+        const taskIdsAll = [...new Set(normalizedAssignments.map(a => parseInt(a.taskId)).filter(Boolean))];
+        const [staffRows, taskRows, bizRows] = await Promise.all([
+            prisma.user.findMany({ where: { id: { in: staffIds } }, select: { id: true, role: true, businessType: true } }),
+            prisma.missedCallTask.findMany({ where: { id: { in: taskIdsAll } }, select: { id: true, businessId: true } }),
+            prisma.business.findMany({ select: { id: true, name: true } }),
+        ]);
+        const staffById = new Map(staffRows.map(u => [u.id, u]));
+        const taskBiz = new Map(taskRows.map(t => [t.id, t.businessId]));
+        const bizName = new Map(bizRows.map(b => [b.id, String(b.name || '').toLowerCase().trim()]));
+        const staffInBusiness = (u, bizId) => {
+            if (!u || !bizId) return false;
+            const role = String(u.role || '').toUpperCase().replace(/ /g, '_');
+            if (role === 'SYSTEM_ADMIN' || role === 'DIRECTOR') return true;
+            const sb = String(u.businessType || '').toLowerCase().trim();
+            if (!sb || sb === 'all') return true;
+            const name = bizName.get(bizId) || '';
+            const tokens = sb.split(/[,;|]/).map(x => x.trim()).filter(Boolean);
+            return tokens.includes(String(bizId)) || (name && (tokens.includes(name) || sb.includes(name)));
+        };
 
         for (const item of normalizedAssignments) {
             if (!item.taskId || !item.staffId) continue;
+            if (!staffInBusiness(staffById.get(parseInt(item.staffId)), taskBiz.get(parseInt(item.taskId)))) {
+                skipped.push(parseInt(item.taskId));
+                continue;
+            }
 
             const updated = await prisma.missedCallTask.update({
                 where: { id: parseInt(item.taskId) },
@@ -397,10 +428,16 @@ exports.distributeMissedCallTasks = async (req, res) => {
             console.error("Socket error on missed call task distribute:", sockErr);
         }
 
+        if (updatedTasks.length === 0 && skipped.length > 0) {
+            return res.status(400).json({ error: `Missed calls can only be assigned to staff of the same department. ${skipped.length} task(s) not assigned.`, skipped });
+        }
         res.status(200).json({
             success: true,
-            message: `Successfully distributed ${updatedTasks.length} task(s)`,
-            count: updatedTasks.length
+            message: skipped.length
+                ? `Distributed ${updatedTasks.length} task(s). ${skipped.length} skipped — the staff member is not in that call's department.`
+                : `Successfully distributed ${updatedTasks.length} task(s)`,
+            count: updatedTasks.length,
+            skipped
         });
     } catch (error) {
         console.error("Distribute missed calls error:", error);
