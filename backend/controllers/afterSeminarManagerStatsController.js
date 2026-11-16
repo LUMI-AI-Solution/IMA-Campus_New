@@ -290,14 +290,6 @@ const computeVerifiedMissingStudents = async (businessId, batchId) => {
 // ==========================================
 // 1. OVERALL PROGRESS STATS (INTEGRATED WITH OPEN SEMINAR & NEW INQUIRIES)
 // ==========================================
-const isCallCenterUser = (u) => {
-    if (!u) return false;
-    const role = String(u.role || '').toUpperCase().replace(/[ -]/g, '_');
-    const dept = String(u.department || '').toUpperCase().replace(/[ -]/g, '_');
-    return role.includes('CALL_CENTER') || role.includes('CALLER') || role.includes('TELECALLER') || dept.includes('CALL_CENTER');
-};
-const isCallCenterLead = (l) => l.isCallCenter === true || isCallCenterUser(l.assignedUser);
-
 exports.getManagerDashboardStats = async (req, res) => {
     try {
         const { businessId, batchId, startDate, endDate } = req.query;
@@ -626,14 +618,11 @@ exports.getNewInquiryStats = async (req, res) => {
 
         let leads = await prisma.lead.findMany({
             where: whereClause,
-            include: { assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true, department: true, image: true, appChatDp: true } } }
+            include: { assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true, image: true, appChatDp: true } } }
         });
 
         // 🔥 FIX: Bridge Transfers අනිවාර්යයෙන්ම අයින් කරන්න
         leads = leads.filter(l => l.source !== 'bridge_transfer');
-        // Call center leads (handed to the call center, or owned by a call center agent) are the call
-        // center's work — they belong in the Bridge / Call Center stats, not in coordinator performance.
-        leads = leads.filter(l => !isCallCenterLead(l));
 
         const verifiedPhones = await getVerifiedPhones(businessId, batchId);
         const primaryEnrolledLeadIds = await getPrimaryEnrolledLeadIds(businessId, batchId, verifiedPhones);
@@ -844,14 +833,11 @@ exports.getOpenSeminarStats = async (req, res) => {
 
         let leads = await prisma.lead.findMany({
             where: whereClause,
-            include: { assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true, department: true, image: true, appChatDp: true } } }
+            include: { assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true, image: true, appChatDp: true } } }
         });
 
         // Bridge Transfers අනිවාර්යයෙන්ම අයින් කරන්න
         leads = leads.filter(l => l.source !== 'bridge_transfer');
-        // Call center leads (handed to the call center, or owned by a call center agent) are the call
-        // center's work — they belong in the Bridge / Call Center stats, not in coordinator performance.
-        leads = leads.filter(l => !isCallCenterLead(l));
 
         const verifiedPhones = await getVerifiedPhones(businessId, batchId);
         const primaryEnrolledLeadIds = await getPrimaryEnrolledLeadIds(businessId, batchId, verifiedPhones);
