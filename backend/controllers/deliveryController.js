@@ -197,6 +197,90 @@ exports.getPendingDeliveries = async (req, res) => {
             }
         });
 
+        // 🔥 Real-time stock & demand calculation for all pending/hold deliveries
+        const [allTuteStocks, allActiveItems] = await Promise.all([
+            prisma.tuteStock.findMany({
+                include: {
+                    course: { select: { id: true, lecturerName: true } }
+                }
+            }),
+            prisma.deliveryItem.findMany({
+                where: {
+                    delivery: {
+                        status: { in: ['Pending', 'Hold'] },
+                        payment: { status: 1 }
+                    }
+                },
+                select: {
+                    deliveryId: true,
+                    courseId: true,
+                    tuteName: true,
+                    quantity: true,
+                    delivery: { select: { status: true } }
+                }
+            })
+        ]);
+
+        const stockByLecAndName = new Map();
+        const stockByCourseAndName = new Map();
+        const stockByName = new Map();
+
+        for (const s of allTuteStocks) {
+            const norm = (s.tuteName || '').trim().toLowerCase().replace(/[^a-z0-9\u0D80-\u0DFF]/g, '');
+            const lecNorm = (s.course?.lecturerName || '').trim().toLowerCase();
+            
+            if (lecNorm && norm) {
+                stockByLecAndName.set(`${lecNorm}__${norm}`, s);
+            }
+            if (s.courseId && norm) {
+                stockByCourseAndName.set(`${s.courseId}__${norm}`, s);
+            }
+            if (norm && !stockByName.has(norm)) {
+                stockByName.set(norm, s);
+            }
+        }
+
+        const findStock = (tuteName, courseId, lecturerName) => {
+            const norm = (tuteName || '').trim().toLowerCase().replace(/[^a-z0-9\u0D80-\u0DFF]/g, '');
+            const lecNorm = (lecturerName || '').trim().toLowerCase();
+
+            if (lecNorm && norm) {
+                const match = stockByLecAndName.get(`${lecNorm}__${norm}`);
+                if (match) return match;
+            }
+            if (courseId && norm) {
+                const match = stockByCourseAndName.get(`${courseId}__${norm}`);
+                if (match) return match;
+            }
+            if (norm) {
+                const match = stockByName.get(norm);
+                if (match) return match;
+            }
+            return null;
+        };
+
+        const stockDemandMap = new Map();
+        for (const it of allActiveItems) {
+            const s = findStock(it.tuteName, it.courseId);
+            if (s) {
+                if (!stockDemandMap.has(s.id)) {
+                    stockDemandMap.set(s.id, {
+                        stockId: s.id,
+                        availableStock: s.availableQuantity,
+                        orderIds: new Set(),
+                        pendingOrderIds: new Set(),
+                        holdOrderIds: new Set(),
+                        totalQty: 0
+                    });
+                }
+                const entry = stockDemandMap.get(s.id);
+                entry.orderIds.add(it.deliveryId);
+                if (it.delivery?.status === 'Pending') entry.pendingOrderIds.add(it.deliveryId);
+                if (it.delivery?.status === 'Hold') entry.holdOrderIds.add(it.deliveryId);
+                entry.totalQty += (it.quantity || 1);
+            }
+        }
+
         const tagOf = await require('../src/modules/delivery/classTag').classTagger(prisma, deliveries);
         const formatted = deliveries.map(d => {
             const std = d.payment?.student || {};
@@ -225,8 +309,9 @@ exports.getPendingDeliveries = async (req, res) => {
                 }
             }
 
-            // 🔥 Check for duplicate tutes already delivered to this student previously
+            // 🔥 Check for duplicate tutes and stock/demand shortages
             let hasDuplicate = false;
+            let hasShortage = false;
             const duplicateWarnings = [];
             const enrichedItems = itemsWithDetails.map(item => {
                 const normName = (item.tuteName || '').toLowerCase().replace(/[^a-z0-9\u0D80-\u0DFF]/g, '');
@@ -234,12 +319,30 @@ exports.getPendingDeliveries = async (req, res) => {
                     p.delivery.studentId === String(std.id) &&
                     (p.tuteName || '').toLowerCase().replace(/[^a-z0-9\u0D80-\u0DFF]/g, '') === normName
                 );
+
+                // Real-time stock & demand matching
+                const stockItem = findStock(item.tuteName, item.courseId, item.lecturerName);
+                const demand = stockItem ? stockDemandMap.get(stockItem.id) : null;
+                const availableStock = stockItem ? stockItem.availableQuantity : 0;
+                const pendingOrdersCount = demand ? demand.orderIds.size : 0;
+                const pendingOnlyCount = demand ? demand.pendingOrderIds.size : 0;
+                const holdOnlyCount = demand ? demand.holdOrderIds.size : 0;
+                const itemHasShortage = availableStock < pendingOrdersCount || availableStock <= 0;
+                const shortageQty = Math.max(0, pendingOrdersCount - availableStock);
+
+                if (itemHasShortage) {
+                    hasShortage = true;
+                }
+
+                let isDuplicate = false;
+                let warningInfo = null;
+
                 if (priorDup) {
                     hasDuplicate = true;
                     const dateStr = priorDup.delivery.packedAt 
                         ? new Date(priorDup.delivery.packedAt).toLocaleDateString('en-GB')
                         : new Date(priorDup.delivery.createdAt).toLocaleDateString('en-GB');
-                    const warningInfo = {
+                    warningInfo = {
                         orderId: priorDup.delivery.id,
                         status: priorDup.delivery.status,
                         date: dateStr,
@@ -247,15 +350,20 @@ exports.getPendingDeliveries = async (req, res) => {
                         tuteName: item.tuteName
                     };
                     duplicateWarnings.push(warningInfo);
-                    return {
-                        ...item,
-                        isDuplicate: true,
-                        duplicateDetails: warningInfo
-                    };
+                    isDuplicate = true;
                 }
+
                 return {
                     ...item,
-                    isDuplicate: false
+                    stockId: stockItem ? stockItem.id : null,
+                    availableStock,
+                    pendingOrdersCount,
+                    pendingOnlyCount,
+                    holdOnlyCount,
+                    isShortage: itemHasShortage,
+                    shortageQty,
+                    isDuplicate,
+                    duplicateDetails: warningInfo
                 };
             });
 
@@ -290,6 +398,7 @@ exports.getPendingDeliveries = async (req, res) => {
                 classTag: tagOf(d),
                 items: enrichedItems,
                 hasDuplicate,
+                hasShortage,
                 duplicateWarnings,
                 lastDelivery: lastDeliveryInfo
             };
@@ -308,72 +417,124 @@ exports.packDelivery = async (req, res) => {
         const { deliveryId, trackingNumber, packRemark } = req.body;
 
         await prisma.$transaction(async (tx) => {
-            const updatedDelivery = await tx.delivery.update({
+            const delivery = await tx.delivery.findUnique({
+                where: { id: parseInt(deliveryId) },
+                include: { items: true, payment: true }
+            });
+
+            if (!delivery) {
+                const err = new Error("Delivery order not found");
+                err.status = 404;
+                throw err;
+            }
+
+            const courseIds = delivery.items.map(i => i.courseId).filter(Boolean);
+            const courses = await tx.course.findMany({ 
+                where: { id: { in: courseIds } },
+                include: { group: true }
+            });
+            const allGroups = await tx.group.findMany({ where: { batchId: delivery.payment?.batchId } });
+            
+            const expandedItems = delivery.items.flatMap(item => resolveTutesForDeliveryItem(item, delivery, courses, allGroups));
+
+            // 1. Pre-validate stock for all items before making any modifications
+            const itemsToDeduct = [];
+
+            for (const item of expandedItems) {
+                const actualTuteName = (item.tuteName || '').trim();
+                const reqQty = parseInt(item.quantity || 1);
+                const currentCourse = courses.find(c => c.id === parseInt(item.courseId));
+                const lecturerName = (item.lecturerName || currentCourse?.lecturerName || '').trim();
+                const groupType = currentCourse?.group?.type || (allGroups.find(g => g.id === currentCourse?.groupId)?.type);
+
+                // 1. Try finding canonical stock by lecturer and tuteName
+                let stockItem = null;
+                if (lecturerName && actualTuteName) {
+                    stockItem = await tx.tuteStock.findFirst({
+                        where: {
+                            tuteName: actualTuteName,
+                            course: {
+                                lecturerName: lecturerName,
+                                ...(groupType ? { group: { type: groupType } } : {})
+                            }
+                        }
+                    });
+                    if (!stockItem) {
+                        stockItem = await tx.tuteStock.findFirst({
+                            where: {
+                                tuteName: actualTuteName,
+                                course: { lecturerName: lecturerName }
+                            }
+                        });
+                    }
+                }
+
+                // 2. Fallback: match by courseId and tuteName
+                if (!stockItem && actualTuteName) {
+                    stockItem = await tx.tuteStock.findFirst({
+                        where: { courseId: parseInt(item.courseId), tuteName: actualTuteName }
+                    });
+                }
+
+                // 3. Fallback: match by tuteName globally
+                if (!stockItem && actualTuteName) {
+                    stockItem = await tx.tuteStock.findFirst({
+                        where: { tuteName: actualTuteName }
+                    });
+                }
+
+                const avail = stockItem ? stockItem.availableQuantity : 0;
+
+                // STRICT STOCK CHECK: Cannot pack if stock is 0 or less than required quantity
+                if (!stockItem || avail < reqQty || avail <= 0) {
+                    const err = new Error(
+                        `Cannot pack order: Insufficient stock for "${actualTuteName}" (Available: ${avail}, Required: ${reqQty}). Please update stock before packing.`
+                    );
+                    err.status = 400;
+                    throw err;
+                }
+
+                itemsToDeduct.push({ stockItem, reqQty });
+            }
+
+            // 2. Deduct stock for all items
+            for (const { stockItem, reqQty } of itemsToDeduct) {
+                const newQty = stockItem.availableQuantity - reqQty;
+
+                await tx.tuteStock.update({
+                    where: { id: stockItem.id },
+                    data: { availableQuantity: newQty }
+                });
+
+                await tx.tuteStockHistory.create({
+                    data: {
+                        stockId: stockItem.id,
+                        courseId: stockItem.courseId,
+                        tuteName: stockItem.tuteName,
+                        action: "REDUCED",
+                        oldQuantity: stockItem.availableQuantity,
+                        newQuantity: newQty,
+                        reason: `Order ORD-${delivery.id} Packed`
+                    }
+                });
+            }
+
+            // 3. Mark delivery as Packed
+            await tx.delivery.update({
                 where: { id: parseInt(deliveryId) },
                 data: { 
                     status: 'Packed', 
                     trackingNumber: trackingNumber,
                     packRemark: packRemark,
                     packedAt: new Date()
-                },
-                include: { items: true, payment: true }
+                }
             });
-
-            const courseIds = updatedDelivery.items.map(i => i.courseId).filter(Boolean);
-            const courses = await tx.course.findMany({ where: { id: { in: courseIds } } });
-            const allGroups = await tx.group.findMany({ where: { batchId: updatedDelivery.payment?.batchId } });
-            
-            const expandedItems = updatedDelivery.items.flatMap(item => resolveTutesForDeliveryItem(item, updatedDelivery, courses, allGroups));
-
-            for (const item of expandedItems) {
-                const actualTuteName = item.tuteName;
-                const gpCover = item.tuteCover;
-
-                let stockItem = await tx.tuteStock.findFirst({
-                    where: { courseId: parseInt(item.courseId), tuteName: actualTuteName }
-                });
-
-                if (!stockItem && actualTuteName) {
-                    // If completely missing, auto-create it with 0 balance
-                    stockItem = await tx.tuteStock.create({
-                        data: {
-                            courseId: parseInt(item.courseId),
-                            tuteName: actualTuteName,
-                            tuteImage: gpCover,
-                            availableQuantity: 0
-                        }
-                    });
-                }
-
-                if (stockItem) {
-                    const newQty = stockItem.availableQuantity - parseInt(item.quantity || 1);
-                    
-                    await tx.tuteStock.update({
-                        where: { id: stockItem.id },
-                        data: { availableQuantity: newQty }
-                    });
-
-                    await tx.tuteStockHistory.create({
-                        data: {
-                            stockId: stockItem.id, 
-                            courseId: stockItem.courseId, 
-                            tuteName: stockItem.tuteName,
-                            action: "REDUCED", 
-                            oldQuantity: stockItem.availableQuantity, 
-                            newQuantity: newQty, 
-                            reason: `Order ORD-${updatedDelivery.id} Packed`
-                        }
-                    });
-                } else {
-                    console.log(`⚠️ Stock Item Not Found & Could Not Auto-Create for CourseID: ${item.courseId}, Tute: ${actualTuteName}`);
-                }
-            }
         });
 
         res.status(200).json({ message: "Packed and Stock Deducted Successfully!" });
     } catch (error) {
         console.error("Pack Delivery Error:", error);
-        res.status(500).json({ error: "Failed to pack delivery" });
+        res.status(error.status || 500).json({ error: error.message || "Failed to pack delivery" });
     }
 };
 
@@ -437,12 +598,31 @@ exports.addCustomTute = async (req, res) => {
             return res.status(400).json({ error: "Please select a Subject to link this Extra Tute." });
         }
 
+        const trimmedName = (tuteName || '').trim();
+        const course = await prisma.course.findUnique({ where: { id: parseInt(courseId) }, include: { group: true } });
+        const lecName = course?.lecturerName?.trim();
+        const groupType = course?.group?.type;
+
+        const existingStock = await prisma.tuteStock.findFirst({
+            where: {
+                tuteName: trimmedName,
+                OR: [
+                    { courseId: parseInt(courseId) },
+                    ...(lecName ? [{ course: { lecturerName: lecName, ...(groupType ? { group: { type: groupType } } : {}) } }] : [])
+                ]
+            }
+        });
+
+        if (existingStock) {
+            return res.status(200).json(existingStock);
+        }
+
         const newStock = await prisma.tuteStock.create({
             data: {
                 courseId: parseInt(courseId),
-                tuteName: tuteName,
+                tuteName: trimmedName,
                 tuteImage: tuteCover,
-                availableQuantity: 0
+                availableQuantity: 100
             }
         });
         res.status(201).json(newStock);
@@ -675,9 +855,143 @@ exports.getGlobalStock = async (req, res) => {
             include: { course: { include: { group: { include: { batch: { include: { business: true } } } } } } },
             orderBy: { availableQuantity: 'asc' }
         });
+
+        // Compute comprehensive delivered and to-send counts for each stock item and lecturer
+        const [deliveredItems, toSendItems] = await Promise.all([
+            prisma.deliveryItem.findMany({
+                where: {
+                    delivery: {
+                        status: { in: ['Packed', 'On the way', 'Received', 'Delivered', 'Not Received'] }
+                    }
+                },
+                select: {
+                    courseId: true,
+                    tuteName: true,
+                    quantity: true,
+                    course: {
+                        select: {
+                            lecturerName: true,
+                            group: { select: { type: true } }
+                        }
+                    }
+                }
+            }),
+            prisma.deliveryItem.findMany({
+                where: {
+                    delivery: {
+                        status: { in: ['Pending', 'Hold'] },
+                        payment: { status: 1 }
+                    }
+                },
+                select: {
+                    courseId: true,
+                    tuteName: true,
+                    quantity: true,
+                    course: {
+                        select: {
+                            lecturerName: true,
+                            group: { select: { type: true } }
+                        }
+                    }
+                }
+            })
+        ]);
+
+        const normalizeTute = (name) => (name || '').toLowerCase().replace(/\[.*?\]/g, '').replace(/\s+/g, ' ').trim();
+        const normalizeLec = (s) => (s || '').replace(/[\u2013\u2014\u2212]/g, '-').replace(/\s+/g, ' ').trim().toLowerCase();
+
+        const stockMap = {};
+        const courseStockMap = {};
+        const lecGroupStockMap = {};
+        const lecturerDeliveredMap = {};
+        const lecturerToSendMap = {};
+
+        stocks.forEach(s => {
+            s.totalDelivered = 0;
+            s.totalToSend = 0;
+            const lecName = s.course?.lecturerName?.trim() || "General / Unassigned";
+            const normLec = normalizeLec(lecName);
+            const isMonthly = s.course?.group?.type === 1;
+            const gType = isMonthly ? "monthly" : "full";
+            const normT = normalizeTute(s.tuteName);
+
+            const key = `${normLec}:::${gType}:::${normT}`;
+            if (!stockMap[key]) stockMap[key] = [];
+            stockMap[key].push(s);
+
+            if (s.courseId) {
+                if (!courseStockMap[s.courseId]) courseStockMap[s.courseId] = [];
+                courseStockMap[s.courseId].push(s);
+            }
+
+            const lgKey = `${normLec}:::${gType}`;
+            if (!lecGroupStockMap[lgKey]) lecGroupStockMap[lgKey] = [];
+            lecGroupStockMap[lgKey].push(s);
+        });
+
+        const matchAndAccumulate = (items, mapToUpdate, fieldName) => {
+            items.forEach(d => {
+                const lecName = d.course?.lecturerName ? d.course.lecturerName.trim() : "General / Unassigned";
+                const normLec = normalizeLec(lecName);
+                const isMonthly = d.course?.group?.type === 1;
+                const gType = isMonthly ? "monthly" : "full";
+                const normT = normalizeTute(d.tuteName);
+                const qty = d.quantity || 1;
+
+                if (!mapToUpdate[normLec]) {
+                    mapToUpdate[normLec] = { total: 0, monthly: 0, full: 0 };
+                }
+                mapToUpdate[normLec].total += qty;
+                if (isMonthly) {
+                    mapToUpdate[normLec].monthly += qty;
+                } else {
+                    mapToUpdate[normLec].full += qty;
+                }
+
+                let targetKey = `${normLec}:::${gType}:::${normT}`;
+                let targets = stockMap[targetKey];
+
+                if (!targets) {
+                    if (stockMap[`${normLec}:::${gType}:::${normT} full`]) {
+                        targets = stockMap[`${normLec}:::${gType}:::${normT} full`];
+                    } else if (normT.endsWith(" full") && stockMap[`${normLec}:::${gType}:::${normT.replace(/\s+full$/, "")}`]) {
+                        targets = stockMap[`${normLec}:::${gType}:::${normT.replace(/\s+full$/, "")}`];
+                    } else {
+                        const prefix = `${normLec}:::${gType}:::`;
+                        const candidateKeys = Object.keys(stockMap).filter(k => k.startsWith(prefix));
+                        const foundKey = candidateKeys.find(k => {
+                            const tName = k.slice(prefix.length);
+                            return tName === normT || tName.startsWith(normT) || normT.startsWith(tName);
+                        });
+                        if (foundKey) targets = stockMap[foundKey];
+                    }
+                }
+
+                if (!targets && d.courseId && courseStockMap[d.courseId]) {
+                    targets = courseStockMap[d.courseId];
+                }
+
+                if (!targets && lecGroupStockMap[`${normLec}:::${gType}`]) {
+                    targets = lecGroupStockMap[`${normLec}:::${gType}`];
+                }
+
+                if (targets && targets.length > 0) {
+                    targets[0][fieldName] = (targets[0][fieldName] || 0) + qty;
+                }
+            });
+        };
+
+        matchAndAccumulate(deliveredItems, lecturerDeliveredMap, 'totalDelivered');
+        matchAndAccumulate(toSendItems, lecturerToSendMap, 'totalToSend');
+
         const masterData = await getMasterTutesData();
         const safeJson = (data) => JSON.parse(JSON.stringify(data, (k, v) => typeof v === 'bigint' ? v.toString() : v));
-        res.status(200).json({ stocks: safeJson(stocks), masterData: safeJson(masterData) });
+        res.status(200).json({ 
+            stocks: safeJson(stocks), 
+            masterData: safeJson(masterData),
+            lecturerDeliveredMap: safeJson(lecturerDeliveredMap),
+            lecturerToSendMap: safeJson(lecturerToSendMap)
+        });
     } catch (error) { res.status(500).json({ error: "Failed to fetch global stock" }); }
 };
 
@@ -722,58 +1036,26 @@ exports.getBatchStock = async (req, res) => {
         });
 
         let allCourseIds = [];
-        let requiredTutes = [];
-
         groups.forEach(g => {
             g.courses.forEach(c => {
                 allCourseIds.push(c.id);
-
-                let gpPrices = [];
-                try { gpPrices = typeof c.groupPrices === 'string' ? JSON.parse(c.groupPrices) : (c.groupPrices || []); } catch(e){}
-
-                const gpData = gpPrices.find(p => parseInt(p.groupId) === g.id);
-
-                let tName = c.name + " - Tute";
-                let tCover = 'default-tute.png';
-
-                if (gpData) {
-                    if (gpData.tuteName && gpData.tuteName.trim() !== '') tName = gpData.tuteName;
-                    if (gpData.tuteCover) tCover = gpData.tuteCover;
-                }
-
-                requiredTutes.push({
-                    courseId: c.id,
-                    tuteName: tName,
-                    tuteImage: tCover
-                });
             });
         });
 
-        if (requiredTutes.length > 0) {
-            for (const rt of requiredTutes) {
-                const exists = await prisma.tuteStock.findFirst({
-                    where: { courseId: rt.courseId, tuteName: rt.tuteName }
-                });
-
-                if (!exists) {
-                    await prisma.tuteStock.create({
-                        data: {
-                            courseId: rt.courseId,
-                            tuteName: rt.tuteName,
-                            tuteImage: rt.tuteImage,
-                            availableQuantity: 0
-                        }
-                    });
-                }
-            }
-        }
-
+        // Auto-creation of TuteStock on batch access is completely disabled.
+        // New batches must only allocate from existing inventory managed in TuteStock.
         if (allCourseIds.length === 0) {
             return res.status(200).json([]);
         }
 
+        const batchLecturers = [...new Set(groups.flatMap(g => g.courses.map(c => c.lecturerName)).filter(Boolean))];
         const allStocks = await prisma.tuteStock.findMany({
-            where: { courseId: { in: allCourseIds.map(id => Number(id)) } },
+            where: {
+                OR: [
+                    { courseId: { in: allCourseIds.map(id => Number(id)) } },
+                    ...(batchLecturers.length > 0 ? [{ course: { lecturerName: { in: batchLecturers } } }] : [])
+                ]
+            },
             include: { 
                 course: { 
                     include: { group: true }
@@ -1538,9 +1820,70 @@ const saveMasterTutesData = async (data) => {
 
 exports.getMasterTutes = async (req, res) => {
     try {
-        const data = await getMasterTutesData();
-        res.status(200).json(data);
+        const masterData = await getMasterTutesData();
+
+        // Fetch all current stocks with available quantities from tuteStock
+        const stocks = await prisma.tuteStock.findMany({
+            include: { course: true },
+            orderBy: [{ itemOrder: 'asc' }, { id: 'asc' }]
+        });
+
+        // Lecturer Map: name -> { id, name, image, tutes: Map }
+        const lecMap = new Map();
+        (masterData || []).forEach(l => {
+            if (!lecMap.has(l.name)) {
+                lecMap.set(l.name, {
+                    id: l.id,
+                    name: l.name,
+                    image: l.image,
+                    tutes: new Map()
+                });
+            }
+            (l.tutes || []).forEach(t => {
+                lecMap.get(l.name).tutes.set(t.name, {
+                    id: t.id,
+                    name: t.name,
+                    image: t.image,
+                    availableQuantity: null
+                });
+            });
+        });
+
+        // Enrich with physical stocks from TuteStock table
+        stocks.forEach(s => {
+            const lecName = s.course?.lecturerName?.trim();
+            if (!lecName) return;
+            if (!lecMap.has(lecName)) {
+                lecMap.set(lecName, {
+                    id: Date.now() + "_" + Math.random(),
+                    name: lecName,
+                    image: null,
+                    tutes: new Map()
+                });
+            }
+            const lec = lecMap.get(lecName);
+            if (!lec.tutes.has(s.tuteName)) {
+                lec.tutes.set(s.tuteName, {
+                    id: s.id,
+                    name: s.tuteName,
+                    image: s.tuteImage,
+                    availableQuantity: s.availableQuantity
+                });
+            } else {
+                const existing = lec.tutes.get(s.tuteName);
+                existing.availableQuantity = (existing.availableQuantity ?? 0) + (s.availableQuantity ?? 0);
+                if (!existing.image && s.tuteImage) existing.image = s.tuteImage;
+            }
+        });
+
+        const merged = Array.from(lecMap.values()).map(l => ({
+            ...l,
+            tutes: Array.from(l.tutes.values())
+        }));
+
+        res.status(200).json(merged);
     } catch (error) {
+        console.error("Failed to fetch master tutes:", error);
         res.status(500).json({ error: "Failed to fetch master tutes" });
     }
 };
@@ -1706,13 +2049,40 @@ exports.createTuteStock = async (req, res) => {
             if (req.files['tuteImage2'] && req.files['tuteImage2'][0]) tuteImage2 = req.files['tuteImage2'][0].filename;
         }
 
-        const newStock = await prisma.tuteStock.create({
-            data: {
-                courseId: parseInt(courseId),
-                tuteName,
-                tuteImage, tuteImage2, itemOrder: parseInt(itemOrder || 1)
+        const trimmedName = (tuteName || '').trim();
+        const resolvedGroupType = paymentGroup === 'Monthly' ? 1 : paymentGroup ? 2 : undefined;
+
+        // Prevent duplicate tute types across batch months
+        const existingMaterial = await prisma.tuteStock.findFirst({
+            where: {
+                tuteName: trimmedName,
+                OR: [
+                    { courseId: parseInt(courseId) },
+                    ...(actualLecturer ? [{ course: { lecturerName: actualLecturer, ...(resolvedGroupType ? { group: { type: resolvedGroupType } } : {}) } }] : [])
+                ]
             }
         });
+
+        let newStock;
+        if (existingMaterial) {
+            newStock = await prisma.tuteStock.update({
+                where: { id: existingMaterial.id },
+                data: {
+                    ...(tuteImage && tuteImage !== 'default-tute.png' ? { tuteImage } : {}),
+                    ...(tuteImage2 ? { tuteImage2 } : {}),
+                    itemOrder: parseInt(itemOrder || existingMaterial.itemOrder || 1)
+                }
+            });
+        } else {
+            newStock = await prisma.tuteStock.create({
+                data: {
+                    courseId: parseInt(courseId),
+                    tuteName: trimmedName,
+                    tuteImage, tuteImage2, itemOrder: parseInt(itemOrder || 1),
+                    availableQuantity: 100
+                }
+            });
+        }
 
         // Sync with MASTER_TUTES for Content Hub
         let masterData = await getMasterTutesData();
@@ -1994,7 +2364,7 @@ exports.getManagerLecturerTuteStock = async (req, res) => {
         // 4. Fetch Master Tutes data for lecturer images & details
         const masterData = await getMasterTutesData();
 
-        // 5. Fetch all packed delivery items count per course and tuteName
+        // 5. Fetch all packed delivery items count and to-send items count per course and tuteName
         let delItemWhere = {
             delivery: {
                 status: { in: ['Packed', 'On the way', 'Received', 'Delivered', 'Not Received'] }
@@ -2010,20 +2380,42 @@ exports.getManagerLecturerTuteStock = async (req, res) => {
             delItemWhere.delivery.updatedAt = { gte: start, lte: end };
         }
 
-        const deliveredItems = await prisma.deliveryItem.findMany({
-            where: delItemWhere,
-            select: {
-                courseId: true,
-                tuteName: true,
-                quantity: true,
-                course: {
-                    select: {
-                        lecturerName: true,
-                        group: { select: { type: true } }
+        const [deliveredItems, toSendItems] = await Promise.all([
+            prisma.deliveryItem.findMany({
+                where: delItemWhere,
+                select: {
+                    courseId: true,
+                    tuteName: true,
+                    quantity: true,
+                    course: {
+                        select: {
+                            lecturerName: true,
+                            group: { select: { type: true } }
+                        }
                     }
                 }
-            }
-        });
+            }),
+            prisma.deliveryItem.findMany({
+                where: {
+                    delivery: {
+                        status: { in: ['Pending', 'Hold'] },
+                        payment: { status: 1 },
+                        ...(targetBizIds ? { businessId: { in: targetBizIds } } : {})
+                    }
+                },
+                select: {
+                    courseId: true,
+                    tuteName: true,
+                    quantity: true,
+                    course: {
+                        select: {
+                            lecturerName: true,
+                            group: { select: { type: true } }
+                        }
+                    }
+                }
+            })
+        ]);
 
         // 6. Build global Lecturer Image Map from MasterData & Course groupPrices
         const normalizeLec = (s) => (s || '').replace(/[\u2013\u2014\u2212]/g, '-').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -2083,7 +2475,10 @@ exports.getManagerLecturerTuteStock = async (req, res) => {
                     fullTypes: {},
                     totalDelivered: 0,
                     monthlyDelivered: 0,
-                    fullDelivered: 0
+                    fullDelivered: 0,
+                    totalToSend: 0,
+                    monthlyToSend: 0,
+                    fullToSend: 0
                 };
             } else if (!lecturerMap[lecName].image && lecImage) {
                 lecturerMap[lecName].image = lecImage;
@@ -2125,6 +2520,7 @@ exports.getManagerLecturerTuteStock = async (req, res) => {
                             availableQuantity: stock.availableQuantity || 0,
                             itemOrder: stock.itemOrder || 1,
                             totalDelivered: 0,
+                            totalToSend: 0,
                             updatedAt: stock.updatedAt
                         };
                     } else {
@@ -2141,42 +2537,47 @@ exports.getManagerLecturerTuteStock = async (req, res) => {
             }
         });
 
-        // 8. Associate delivered counts by lecturer and normalized tute name
-        deliveredItems.forEach(d => {
-            let lecName = d.course?.lecturerName ? d.course.lecturerName.trim() : 'General / Unassigned';
-            if (!lecName || lecName === 'null') lecName = 'General / Unassigned';
-            if (!lecturerMap[lecName]) return;
+        // 8. Associate delivered and to-send counts by lecturer and normalized tute name
+        const matchAndAccumulateLec = (items, totalKey, monthlyKey, fullKey, tuteKey) => {
+            items.forEach(d => {
+                let lecName = d.course?.lecturerName ? d.course.lecturerName.trim() : 'General / Unassigned';
+                if (!lecName || lecName === 'null') lecName = 'General / Unassigned';
+                if (!lecturerMap[lecName]) return;
 
-            const isMonthly = d.course?.group?.type === 1;
-            const qty = d.quantity || 1;
-            const norm = normalizeTute(d.tuteName);
-            const targetTypes = isMonthly ? lecturerMap[lecName].monthlyTypes : lecturerMap[lecName].fullTypes;
+                const isMonthly = d.course?.group?.type === 1;
+                const qty = d.quantity || 1;
+                const norm = normalizeTute(d.tuteName);
+                const targetTypes = isMonthly ? lecturerMap[lecName].monthlyTypes : lecturerMap[lecName].fullTypes;
 
-            lecturerMap[lecName].totalDelivered += qty;
-            if (isMonthly) {
-                lecturerMap[lecName].monthlyDelivered += qty;
-            } else {
-                lecturerMap[lecName].fullDelivered += qty;
-            }
-
-            // Smart tute matching (exact, variations with/without 'Full', or prefix match)
-            let matchedTute = targetTypes[norm];
-            if (!matchedTute) {
-                if (targetTypes[norm + ' full']) {
-                    matchedTute = targetTypes[norm + ' full'];
-                } else if (norm.endsWith(' full') && targetTypes[norm.replace(/\s+full$/, '')]) {
-                    matchedTute = targetTypes[norm.replace(/\s+full$/, '')];
+                lecturerMap[lecName][totalKey] += qty;
+                if (isMonthly) {
+                    lecturerMap[lecName][monthlyKey] += qty;
                 } else {
-                    const keys = Object.keys(targetTypes);
-                    const foundKey = keys.find(k => k === norm || k.startsWith(norm) || norm.startsWith(k));
-                    if (foundKey) matchedTute = targetTypes[foundKey];
+                    lecturerMap[lecName][fullKey] += qty;
                 }
-            }
 
-            if (matchedTute) {
-                matchedTute.totalDelivered += qty;
-            }
-        });
+                // Smart tute matching (exact, variations with/without 'Full', or prefix match)
+                let matchedTute = targetTypes[norm];
+                if (!matchedTute) {
+                    if (targetTypes[norm + ' full']) {
+                        matchedTute = targetTypes[norm + ' full'];
+                    } else if (norm.endsWith(' full') && targetTypes[norm.replace(/\s+full$/, '')]) {
+                        matchedTute = targetTypes[norm.replace(/\s+full$/, '')];
+                    } else {
+                        const keys = Object.keys(targetTypes);
+                        const foundKey = keys.find(k => k === norm || k.startsWith(norm) || norm.startsWith(k));
+                        if (foundKey) matchedTute = targetTypes[foundKey];
+                    }
+                }
+
+                if (matchedTute) {
+                    matchedTute[tuteKey] += qty;
+                }
+            });
+        };
+
+        matchAndAccumulateLec(deliveredItems, 'totalDelivered', 'monthlyDelivered', 'fullDelivered', 'totalDelivered');
+        matchAndAccumulateLec(toSendItems, 'totalToSend', 'monthlyToSend', 'fullToSend', 'totalToSend');
 
         const isFilterMonthly = paymentType && paymentType.toLowerCase() === 'monthly';
         const isFilterFull = paymentType && (paymentType.toLowerCase().includes('full'));
@@ -2209,22 +2610,26 @@ exports.getManagerLecturerTuteStock = async (req, res) => {
             let activeTutes = [];
             let activeStock = 0;
             let activeDelivered = 0;
+            let activeToSend = 0;
             let activeTypesCount = 0;
 
             if (isFilterMonthly) {
                 activeTutes = monthlyTutes;
                 activeStock = monthlyStock;
                 activeDelivered = lec.monthlyDelivered;
+                activeToSend = lec.monthlyToSend;
                 activeTypesCount = monthlyTutes.length;
             } else if (isFilterFull) {
                 activeTutes = fullTutes;
                 activeStock = fullStock;
                 activeDelivered = lec.fullDelivered;
+                activeToSend = lec.fullToSend;
                 activeTypesCount = fullTutes.length;
             } else {
                 activeTutes = [...fullTutes, ...monthlyTutes];
                 activeStock = fullStock + monthlyStock;
                 activeDelivered = lec.totalDelivered;
+                activeToSend = lec.totalToSend;
                 activeTypesCount = fullTutes.length + monthlyTutes.length;
             }
 
@@ -2240,6 +2645,7 @@ exports.getManagerLecturerTuteStock = async (req, res) => {
                 batches: Array.from(lec.batches.entries()).map(([id, name]) => ({ id, name })),
                 totalStock: activeStock,
                 totalDelivered: activeDelivered,
+                totalToSend: activeToSend,
                 lowStockCount,
                 hazardCount,
                 hasHazard,
@@ -2250,6 +2656,8 @@ exports.getManagerLecturerTuteStock = async (req, res) => {
                 fullTypesCount: fullTutes.length,
                 monthlyDelivered: lec.monthlyDelivered,
                 fullDelivered: lec.fullDelivered,
+                monthlyToSend: lec.monthlyToSend,
+                fullToSend: lec.fullToSend,
                 monthlyTutes,
                 fullTutes,
                 tutes: activeTutes
@@ -2279,6 +2687,7 @@ exports.getManagerLecturerTuteStock = async (req, res) => {
                 totalAvailableStock: lecturersList.reduce((acc, l) => acc + l.totalStock, 0),
                 totalStockAvailable: lecturersList.reduce((acc, l) => acc + l.totalStock, 0),
                 totalDelivered: lecturersList.reduce((acc, l) => acc + l.totalDelivered, 0),
+                totalToSend: lecturersList.reduce((acc, l) => acc + (l.totalToSend || 0), 0),
                 totalMonthlyStock: lecturersList.reduce((acc, l) => acc + (l.monthlyStock || 0), 0),
                 totalFullStock: lecturersList.reduce((acc, l) => acc + (l.fullStock || 0), 0),
                 totalLowStockAlerts: lecturersList.reduce((acc, l) => acc + (l.lowStockCount || 0), 0),

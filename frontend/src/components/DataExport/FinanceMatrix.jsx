@@ -208,6 +208,44 @@ export default function FinanceMatrix({ loggedInUser }) {
         return breakdown;
     };
 
+    const getSubjectChannelBreakdown = (subjectName) => {
+        let openSemCount = 0;
+        let afterSemCount = 0;
+        let otherCount = 0;
+        if (!activeMonth) return { openSemCount, afterSemCount, otherCount };
+        processedData.forEach(stu => {
+            const val = stu.matrixValues?.[activeMonth.id]?.[subjectName];
+            if (val && val.total > 0) {
+                if (stu.leadSource === 'OPEN_SEMINAR') openSemCount++;
+                else if (stu.leadSource === 'AFTER_SEMINAR') afterSemCount++;
+                else otherCount++;
+            }
+        });
+        return { openSemCount, afterSemCount, otherCount };
+    };
+
+    const getOverallActiveMonthChannelBreakdown = () => {
+        let openSemCount = 0;
+        let afterSemCount = 0;
+        let otherCount = 0;
+        if (!activeMonth) return { openSemCount, afterSemCount, otherCount };
+        processedData.forEach(stu => {
+            let stuMonthTotal = 0;
+            if (stu.matrixValues?.[activeMonth.id]) {
+                subjects.forEach(sub => {
+                    const v = stu.matrixValues[activeMonth.id][sub];
+                    if (v && v.total > 0) stuMonthTotal += v.total;
+                });
+            }
+            if (stuMonthTotal > 0) {
+                if (stu.leadSource === 'OPEN_SEMINAR') openSemCount++;
+                else if (stu.leadSource === 'AFTER_SEMINAR') afterSemCount++;
+                else otherCount++;
+            }
+        });
+        return { openSemCount, afterSemCount, otherCount };
+    };
+
     const getOverallActiveMonthBreakdown = () => {
         const breakdown = {};
         if (!activeMonth) return breakdown;
@@ -456,6 +494,18 @@ export default function FinanceMatrix({ loggedInUser }) {
                   return `<td class="td-num" style="font-size: 9.5pt; font-weight: 900; color: #0F172A; text-align: center;">${subTotalStudents} Students</td>`;
               }).join('')}
               <td class="td-num" style="font-weight: 900; color: #0F172A; text-align: right;">${processedData.length} Students (${Object.values(overallBreakdown).reduce((sum, item) => sum + item.count, 0)} Paid)</td>
+              <td class="td-num" style="color: #64748B;">-</td>
+            </tr>
+            <tr style="background-color: #F8FAFC; font-weight: bold; font-size: 8.5pt;">
+              <td colspan="8" style="text-align: right; padding-right: 15px; color: #475569;">SEMINAR BREAKDOWN (OPEN / AFTER):</td>
+              ${subjects.map(sub => {
+                  const ch = getSubjectChannelBreakdown(sub);
+                  return `<td class="td-num" style="font-size: 8.5pt; color: #1E293B; text-align: center;">Open: ${ch.openSemCount} | After: ${ch.afterSemCount}${ch.otherCount > 0 ? ` | Other: ${ch.otherCount}` : ''}</td>`;
+              }).join('')}
+              ${(() => {
+                  const och = getOverallActiveMonthChannelBreakdown();
+                  return `<td class="td-num" style="font-size: 8.5pt; color: #1E293B; text-align: right;">Open: ${och.openSemCount} | After: ${och.afterSemCount}${och.otherCount > 0 ? ` | Other: ${och.otherCount}` : ''}</td>`;
+              })()}
               <td class="td-num" style="color: #64748B;">-</td>
             </tr>
 
@@ -1265,6 +1315,26 @@ export default function FinanceMatrix({ loggedInUser }) {
                                                                     <span>Unpaid / Other Months: <strong className="text-amber-400/90">{unpaidOrLaterCount}</strong></span>
                                                                 </div>
                                                             )}
+                                                            {(() => {
+                                                                const channelStats = getOverallActiveMonthChannelBreakdown();
+                                                                return (
+                                                                    <div className="mt-1.5 pt-1.5 border-t border-slate-700/80 flex flex-wrap items-center gap-1.5 text-[10px] font-bold tracking-normal normal-case">
+                                                                        <span className="px-2 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30 flex items-center gap-1 font-semibold" title="Opening Seminar Paid Students">
+                                                                            <span className="opacity-80">Open Sem:</span>
+                                                                            <strong className="text-blue-100 font-black">{channelStats.openSemCount}</strong>
+                                                                        </span>
+                                                                        <span className="px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30 flex items-center gap-1 font-semibold" title="After Seminar Paid Students">
+                                                                            <span className="opacity-80">After Sem:</span>
+                                                                            <strong className="text-purple-100 font-black">{channelStats.afterSemCount}</strong>
+                                                                        </span>
+                                                                        {channelStats.otherCount > 0 && (
+                                                                            <span className="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[9px]" title="Direct / Other Inquiries">
+                                                                                Other: {channelStats.otherCount}
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                );
+                                                            })()}
                                                         </div>
                                                         </div>
                                                     );
@@ -1307,6 +1377,24 @@ export default function FinanceMatrix({ loggedInUser }) {
                                                                 {subTotalStudents}
                                                             </span>
                                                         </div>
+                                                        {(() => {
+                                                            const subChannel = getSubjectChannelBreakdown(sub);
+                                                            return (
+                                                                <div className="mt-1.5 pt-1.5 border-t border-slate-800/80 flex flex-wrap items-center justify-center gap-1 text-[9px] font-bold">
+                                                                    <span className="px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 border border-blue-500/30" title="Opening Seminar Paid">
+                                                                        Open: <strong className="text-blue-100 font-black">{subChannel.openSemCount}</strong>
+                                                                    </span>
+                                                                    <span className="px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30" title="After Seminar Paid">
+                                                                        After: <strong className="text-purple-100 font-black">{subChannel.afterSemCount}</strong>
+                                                                    </span>
+                                                                    {subChannel.otherCount > 0 && (
+                                                                        <span className="px-1 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[8.5px]" title="Direct / Other">
+                                                                            Other: {subChannel.otherCount}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                            );
+                                                        })()}
                                                     </div>
                                                 </td>
                                             );

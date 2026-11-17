@@ -2157,6 +2157,104 @@ exports.getMyPayments = async (req, res) => {
     }
 };
 
+// 7.1. Payment Receipt for Approved Payments (On-demand, No DB storage)
+exports.getPaymentReceipt = async (req, res) => {
+    try {
+        const studentId = req.user?.userId || req.user?.id;
+        const paymentId = parseInt(req.params.paymentId);
+
+        if (isNaN(paymentId)) {
+            return res.status(400).json({ error: 'Valid payment ID is required' });
+        }
+
+        const payment = await prisma.payment.findUnique({
+            where: { id: paymentId },
+            include: {
+                student: {
+                    select: { id: true, firstName: true, lastName: true, phone: true, nic: true, district: true, city: true }
+                },
+                business: {
+                    select: { id: true, name: true }
+                },
+                batch: {
+                    select: { id: true, name: true }
+                },
+                group: {
+                    select: { id: true, name: true, classType: true }
+                }
+            }
+        });
+
+        if (!payment) {
+            return res.status(404).json({ error: 'Payment record not found' });
+        }
+
+        const isOwner = payment.studentId === parseInt(studentId);
+        const isStaffOrAdmin = ['Admin', 'Staff', 'Manager', 'SUPERADMIN'].includes(req.user?.role);
+        if (!isOwner && !isStaffOrAdmin) {
+            return res.status(403).json({ error: 'Unauthorized to view this receipt' });
+        }
+
+        if (payment.status !== 1 && payment.status !== 4) {
+            return res.status(400).json({ error: 'Receipts can only be generated for approved payments' });
+        }
+
+        let subjectsList = [];
+        if (payment.subjects) {
+            const subjectIds = parseSafeSubjectIds(payment.subjects);
+            if (subjectIds.length > 0) {
+                const courses = await prisma.course.findMany({
+                    where: { id: { in: subjectIds } },
+                    select: { id: true, name: true, courseType: true, price: true, lecturerName: true }
+                });
+                subjectsList = courses;
+            }
+        }
+
+        return res.json({
+            success: true,
+            receipt: {
+                receiptNo: `IMA-REC-${payment.id}`,
+                paymentId: payment.id,
+                issuedDate: payment.updatedAt || payment.created_at,
+                createdDate: payment.created_at,
+                amount: parseFloat(payment.amount || 0),
+                method: payment.method || 'Slip',
+                paymentType: payment.payment_type === 2 ? `Installment (Phase ${payment.installment_no || 1})` : 'Monthly Full Payment',
+                isInstallment: payment.payment_type === 2,
+                installmentNo: payment.installment_no,
+                status: 'APPROVED',
+                student: {
+                    name: `${payment.student?.firstName || ''} ${payment.student?.lastName || ''}`.trim() || 'Student',
+                    phone: payment.student?.phone || '',
+                    nic: payment.student?.nic || '',
+                    district: payment.student?.district || '',
+                    city: payment.student?.city || ''
+                },
+                academic: {
+                    businessName: payment.business?.name || 'IMA Campus Course',
+                    batchName: payment.batch?.name || 'Academic Batch',
+                    groupName: payment.group?.name || 'Class Fee',
+                    classType: payment.group?.classType === 2 ? 'Paper Class' : 'Theory Class'
+                },
+                subjects: subjectsList.map((s, idx) => ({
+                    index: idx + 1,
+                    id: s.id,
+                    name: s.name,
+                    lecturerName: s.lecturerName || '',
+                    classType: s.courseType === 2 ? 'Paper Class' : 'Theory Class',
+                    price: parseFloat(s.price || 0)
+                })),
+                excessAmount: payment.excessAmount || 0,
+                arrearsAmount: payment.arrearsAmount || 0
+            }
+        });
+    } catch (error) {
+        console.error('Error fetching payment receipt:', error);
+        return res.status(500).json({ error: 'Failed to generate receipt details' });
+    }
+};
+
 // 8. Profile
 exports.updateProfile = async (req, res) => {
     try {

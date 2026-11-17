@@ -2614,7 +2614,7 @@ export default function ContentHubModals({ state, actions }) {
                                                                         }}
                                                                         className="w-full bg-black/60 border border-orange-500/30 rounded-xl p-3 pr-10 text-sm text-white font-bold outline-none focus:border-orange-500 shadow-inner transition-all cursor-pointer"
                                                                     >
-                                                                        <option value="" disabled className="bg-slate-800 text-slate-400">Select Tute</option>
+                                                                        <option value="" disabled className="bg-slate-800 text-slate-400">Select Existing Tute Stock</option>
                                                                         {(() => {
                                                                             const currentVal = tuteItem.name;
                                                                             const currLecName = editData?.lecturerName || document.querySelector('select[name="lecturerName"]')?.value;
@@ -2625,15 +2625,20 @@ export default function ContentHubModals({ state, actions }) {
 
                                                                             if (currentVal && (!lecData || !lecData.tutes?.some(t => t.name === currentVal))) {
                                                                                 hasLegacy = true;
-                                                                                options.push(<option key="legacy" value={currentVal} className="bg-slate-800 text-yellow-400">{currentVal} (Legacy)</option>);
+                                                                                options.push(<option key="legacy" value={currentVal} className="bg-slate-800 text-yellow-400">{currentVal} (Legacy / Custom)</option>);
                                                                             }
 
                                                                             if (!lecData || !lecData.tutes || lecData.tutes.length === 0) {
-                                                                                if (!hasLegacy) options.push(<option key="empty" value="" disabled className="bg-slate-800 text-red-400">No tutes found for selected lecturer</option>);
+                                                                                if (!hasLegacy) options.push(<option key="empty" value="" disabled className="bg-slate-800 text-red-400">No tutes found for selected lecturer in inventory</option>);
                                                                             } else {
-                                                                                options.push(...lecData.tutes.map((t, idx) => (
-                                                                                    <option key={idx} value={t.name} className="bg-slate-800 text-white">{t.name}</option>
-                                                                                )));
+                                                                                options.push(...lecData.tutes.map((t, idx) => {
+                                                                                    const stockText = t.availableQuantity !== null && t.availableQuantity !== undefined ? ` (Stock: ${t.availableQuantity} pcs)` : '';
+                                                                                    return (
+                                                                                        <option key={idx} value={t.name} className="bg-slate-800 text-white">
+                                                                                            {t.name}{stockText}
+                                                                                        </option>
+                                                                                    );
+                                                                                }));
                                                                             }
                                                                             return options;
                                                                         })()}

@@ -476,11 +476,11 @@ export default function LecturerTuteStockCalendar({ loggedInUser }) {
           {/* Quick Refresh & Role Badge */}
           <div className="flex items-center gap-3 w-full lg:w-auto justify-between lg:justify-end">
             <a
-              href="/delivery/dashboard?tab=reports"
-              className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-pink-500/10 hover:bg-pink-500/20 border border-pink-500/20 text-xs font-black text-pink-600 dark:text-pink-400 transition-all shadow-sm active:scale-95"
+              href="/delivery/dashboard?tab=stock"
+              className="flex items-center gap-2 px-3.5 py-2.5 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-xs font-black text-amber-600 dark:text-amber-400 transition-all shadow-sm active:scale-95"
             >
-              <BarChart3 size={14} />
-              <span>Stock Reports 📊</span>
+              <Box size={14} />
+              <span>Tute Stock 📦</span>
             </a>
             <button
               onClick={handleRefresh}
@@ -603,7 +603,7 @@ export default function LecturerTuteStockCalendar({ loggedInUser }) {
       </div>
 
       {/* 🔹 Top KPI Summary Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4 mb-6">
         
         {/* Total Available Stock */}
         <div className="bg-white/70 dark:bg-white/[0.03] backdrop-blur-xl p-4 rounded-3xl border border-gray-200 dark:border-white/10 shadow-sm hover:shadow-md transition-all">
@@ -617,6 +617,20 @@ export default function LecturerTuteStockCalendar({ loggedInUser }) {
             {stockData.summary.totalStockAvailable.toLocaleString()}
           </p>
           <span className="text-[10px] text-gray-500 dark:text-slate-400 font-bold mt-1 block">In Dep. Warehouses</span>
+        </div>
+
+        {/* Orders To Send */}
+        <div className="bg-white/70 dark:bg-white/[0.03] backdrop-blur-xl p-4 rounded-3xl border border-gray-200 dark:border-white/10 shadow-sm hover:shadow-md transition-all">
+          <div className="flex justify-between items-start mb-2">
+            <span className="text-[10px] font-black uppercase tracking-wider text-gray-500 dark:text-slate-400">To Send</span>
+            <div className="p-2 bg-amber-500/10 text-amber-500 rounded-xl">
+              <Truck size={16} />
+            </div>
+          </div>
+          <p className="text-2xl font-black text-amber-600 dark:text-amber-400 truncate">
+            {(stockData.summary.totalToSend || 0).toLocaleString()}
+          </p>
+          <span className="text-[10px] text-gray-500 dark:text-slate-400 font-bold mt-1 block">Awaiting Packing</span>
         </div>
 
         {/* Low Stock Alerts */}
@@ -1004,6 +1018,18 @@ export default function LecturerTuteStockCalendar({ loggedInUser }) {
                       {/* Stock Summary Badges & Collapse Indicator */}
                       <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
                         <div className="flex items-center gap-2">
+                          <div className={`px-3.5 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 border transition-all ${
+                            (lec.totalStock < (lec.totalToSend || 0))
+                              ? 'bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/35 font-black animate-pulse'
+                              : (lec.totalToSend || 0) > 0
+                              ? 'bg-amber-500/10 border-amber-500/25 text-amber-600 dark:text-amber-400'
+                              : 'bg-gray-100 dark:bg-white/5 border-gray-200 dark:border-white/10 text-gray-500'
+                          }`}
+                          title={`Approved orders waiting to be sent: ${lec.totalToSend || 0} pcs${(lec.totalStock < (lec.totalToSend || 0)) ? ` (Shortage: Needs ${(lec.totalToSend || 0) - lec.totalStock} more pcs!)` : ''}`}
+                          >
+                            <Truck size={13} className="shrink-0" />
+                            {(lec.totalToSend || 0).toLocaleString()} to Send
+                          </div>
                           <div className="px-3.5 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-black">
                             {lec.totalStock} in Stock
                           </div>
@@ -1070,19 +1096,34 @@ export default function LecturerTuteStockCalendar({ loggedInUser }) {
                                 </div>
 
                                 {/* Stock Quantity Ribbon */}
-                                <div className="mt-4 pt-3 border-t border-gray-100 dark:border-white/5 flex items-center justify-between">
+                                <div className="mt-4 pt-3 border-t border-gray-100 dark:border-white/5 grid grid-cols-3 items-center gap-1">
                                   <div>
                                     <span className="text-[9px] font-black uppercase tracking-wider text-gray-400 block">Available</span>
-                                    <span className={`text-base font-black ${
+                                    <span className={`text-sm md:text-base font-black truncate block ${
                                       isDepleted ? 'text-red-500' : isLow ? 'text-amber-500' : 'text-emerald-500'
                                     }`}>
                                       {tute.availableQuantity} units
                                     </span>
                                   </div>
 
+                                  <div className="text-center px-1">
+                                    <span className="text-[9px] font-black uppercase tracking-wider text-gray-400 block">To Send</span>
+                                    <span className={`text-sm md:text-base font-black truncate block ${
+                                      (tute.totalToSend ?? 0) > tute.availableQuantity
+                                        ? 'text-rose-500 font-black animate-pulse'
+                                        : (tute.totalToSend ?? 0) > 0
+                                        ? 'text-amber-500 dark:text-amber-400'
+                                        : 'text-gray-400'
+                                    }`}
+                                    title={`Orders waiting to be sent: ${tute.totalToSend || 0} pcs${(tute.totalToSend ?? 0) > tute.availableQuantity ? ` (Shortage: Needs ${(tute.totalToSend ?? 0) - tute.availableQuantity} pcs!)` : ''}`}
+                                    >
+                                      {(tute.totalToSend || 0).toLocaleString()}
+                                    </span>
+                                  </div>
+
                                   <div className="text-right">
                                     <span className="text-[9px] font-black uppercase tracking-wider text-gray-400 block">Packed/Sent</span>
-                                    <span className="text-xs font-black text-blue-500">
+                                    <span className="text-xs md:text-sm font-black text-blue-500 truncate block">
                                       {tute.totalDelivered}
                                     </span>
                                   </div>

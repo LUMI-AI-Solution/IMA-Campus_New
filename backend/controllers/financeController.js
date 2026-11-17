@@ -285,6 +285,7 @@ exports.getFinanceMatrix = async (req, res) => {
                         lastName: true, 
                         phone: true, 
                         whatsapp: true, 
+                        optionalPhone: true,
                         nic: true,
                         addressHouseNo: true,
                         addressStreet: true,
@@ -377,6 +378,80 @@ exports.getFinanceMatrix = async (req, res) => {
             }
 
             return false;
+        };
+
+        const isCallCenterUser = (u) => {
+            if (!u) return false;
+            const role = String(u.role || '').toUpperCase().replace(/[ -]/g, '_');
+            const dept = String(u.department || '').toUpperCase().replace(/[ -]/g, '_');
+            return role.includes('CALL_CENTER') || role.includes('CALLER') || role.includes('TELECALLER') || dept.includes('CALL_CENTER');
+        };
+
+        // Pre-fetch batch leads to classify student acquisition channels (Open Seminar vs After Seminar vs Direct)
+        const rawBatchLeads = await prisma.lead.findMany({
+            where: {
+                campaignType: 'AFTER_SEMINAR',
+                source: { notIn: ['bridge_transfer', 'system'] },
+                inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL', 'NEW_INQ'] },
+                OR: [
+                    { batchId: parsedBatchId },
+                    { phone: { contains: `_BATCH_${parsedBatchId}` } }
+                ]
+            },
+            select: {
+                id: true,
+                phone: true,
+                campaignType: true,
+                inquiryType: true,
+                createdAt: true,
+                batchId: true,
+                assignedUser: { select: { id: true, role: true, department: true } }
+            }
+        });
+
+        const batchLeads = rawBatchLeads.filter(l => !isCallCenterUser(l.assignedUser));
+
+        const phoneLeadMap = new Map();
+        batchLeads.forEach(l => {
+            const raw = l.phone.split('_')[0].replace(/[^0-9]/g, '');
+            if (raw.length >= 9) {
+                const p9 = raw.slice(-9);
+                if (!phoneLeadMap.has(p9)) phoneLeadMap.set(p9, []);
+                phoneLeadMap.get(p9).push(l);
+            }
+            if (raw.length >= 7) {
+                const p7 = raw.slice(-7);
+                if (!phoneLeadMap.has(p7)) phoneLeadMap.set(p7, []);
+                phoneLeadMap.get(p7).push(l);
+            }
+        });
+
+        const resolveStudentChannel = (student) => {
+            if (!student) return 'DIRECT';
+            const phs = [student.phone, student.whatsapp, student.optionalPhone].filter(Boolean);
+            let matched = [];
+            for (const ph of phs) {
+                const c = String(ph).replace(/[^0-9]/g, '');
+                if (c.length >= 9) {
+                    const ml = phoneLeadMap.get(c.slice(-9));
+                    if (ml) matched.push(...ml);
+                } else if (c.length >= 7) {
+                    const ml = phoneLeadMap.get(c.slice(-7));
+                    if (ml) matched.push(...ml);
+                }
+            }
+            if (matched.length === 0) return 'DIRECT';
+
+            const uniqueMatched = Array.from(new Map(matched.map(l => [l.id, l])).values());
+            uniqueMatched.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            const best = uniqueMatched[0];
+            if (best.inquiryType === 'OPEN_SEMINAR' || best.inquiryType === 'NORMAL') {
+                return 'OPEN_SEMINAR';
+            }
+            if (best.inquiryType === 'NEW_INQ') {
+                return 'AFTER_SEMINAR';
+            }
+            return 'DIRECT';
         };
 
         payments.forEach(p => {
@@ -487,6 +562,7 @@ exports.getFinanceMatrix = async (req, res) => {
                     whatsapp: p.student.whatsapp || '',
                     address: fullAddress || '-',
                     birthYear: birthYear,
+                    leadSource: resolveStudentChannel(p.student),
                     paymentTypes: new Set(),
                     matrixValues: {},
                     totalPaid: 0.0,

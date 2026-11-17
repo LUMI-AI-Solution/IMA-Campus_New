@@ -3,16 +3,16 @@ import { ReactTransliterate } from 'react-transliterate';
 import 'react-transliterate/dist/index.css';
 import { createPortal } from 'react-dom';
 import axios from '../../api/axios';
-import { 
-    Search, CheckCircle, MessageCircle, Send, Paperclip, Phone, ShieldAlert, FileText, Reply, X, 
+import {
+    Search, CheckCircle, MessageCircle, Send, Paperclip, Phone, ShieldAlert, FileText, Reply, X,
     Image as ImageIcon, File, Video, Music, Smile, Mic, StopCircle
 } from 'lucide-react';
-import { 
-    FaSearch, FaUserCircle, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope, 
-    FaUserMinus, FaClock, FaPaperPlane, FaPaperclip, FaSun, FaMoon, FaMicrophone, 
-    FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic, 
-    FaSmile, FaStop, FaPhoneAlt, FaChevronDown, FaCheckCircle, FaTimesCircle, 
-    FaUserSecret, FaKey, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, 
+import {
+    FaSearch, FaUserCircle, FaCheckSquare, FaEnvelopeOpenText, FaEnvelope,
+    FaUserMinus, FaClock, FaPaperPlane, FaPaperclip, FaSun, FaMoon, FaMicrophone,
+    FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic,
+    FaSmile, FaStop, FaPhoneAlt, FaChevronDown, FaCheckCircle, FaTimesCircle,
+    FaUserSecret, FaKey, FaMapMarkerAlt, FaGraduationCap, FaCreditCard,
     FaArrowsAlt, FaChevronRight, FaChevronLeft, FaGoogle
 } from 'react-icons/fa';
 import toast from 'react-hot-toast';
@@ -67,8 +67,8 @@ export default function WebInquiries() {
                     {initial}
                 </span>
                 {avatarUrl ? (
-                    <img 
-                        src={avatarUrl} 
+                    <img
+                        src={avatarUrl}
                         alt={initial}
                         className="w-full h-full rounded-full object-cover shadow-sm relative z-0"
                         onError={(e) => {
@@ -89,16 +89,16 @@ export default function WebInquiries() {
             </div>
         );
     };
-    
+
     // Chat states
     const [newMessage, setNewMessage] = useState('');
     const [selectedFile, setSelectedFile] = useState(null);
     const [isSending, setIsSending] = useState(false);
     const [replyingTo, setReplyingTo] = useState(null);
     const [enableSinhala, setEnableSinhala] = useState(false);
-  const [enableGoogleSinhala, setEnableGoogleSinhala] = useState(false);
+    const [enableGoogleSinhala, setEnableGoogleSinhala] = useState(false);
     const [chatTheme, setChatTheme] = useState('dark');
-    
+
     // Quick Replies
     const [showQuickReplies, setShowQuickReplies] = useState(false);
     const [suggestedQRs, setSuggestedQRs] = useState([]);
@@ -138,13 +138,13 @@ export default function WebInquiries() {
     const isUserScrolledUp = useRef(false);
     const socketRef = useRef(null);
     const user = JSON.parse(localStorage.getItem('user')) || {};
-    
+
     const isDark = chatTheme === 'dark';
     const reactionEmojis = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
     useEffect(() => {
         fetchQuickReplies();
-        
+
         axios.get('/business/my-businesses')
             .then(res => {
                 setBusinesses(res.data);
@@ -236,9 +236,9 @@ export default function WebInquiries() {
         return () => clearTimeout(delayDebounceFn);
     }, [searchQuery]);
 
-    useEffect(() => { 
+    useEffect(() => {
         if (scrollRef.current && !isUserScrolledUp.current) {
-            scrollRef.current.scrollTop = scrollRef.current.scrollHeight; 
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
     }, [messages, localReactions]);
 
@@ -266,7 +266,7 @@ export default function WebInquiries() {
         try {
             const res = await axios.get('/coordinator-crm/quick-replies');
             setQuickReplies(res.data || []);
-        } catch(e) {}
+        } catch (e) { }
     };
 
     const loadInquiryMessages = async (inqId) => {
@@ -305,7 +305,7 @@ export default function WebInquiries() {
         setSelectedFile(null);
         setSuggestedQRs([]);
         setNewMessage('');
-        
+
         // Zero unread count instantly in local state
         setInquiries(prev => prev.map(i => i.id === inq.id ? { ...i, unreadCount: 0 } : i));
 
@@ -314,10 +314,10 @@ export default function WebInquiries() {
         } else {
             setActiveSessionInquiryId(null);
         }
-        
+
         loadInquiryMessages(inq.id);
         loadStudentInfo(inq.id);
-        
+
         if (socketRef.current) {
             socketRef.current.emit('join_web_inquiry_room', { inquiryId: inq.id });
         }
@@ -331,13 +331,13 @@ export default function WebInquiries() {
                 businessId: selectedBusiness === 'ALL' ? (businesses[0]?.id || 1) : selectedBusiness
             });
             toast.dismiss();
-            
+
             // Check if inquiry already exists in our local state
             const existing = inquiries.find(i => i.id === res.data.inquiry.id);
             if (!existing) {
                 setInquiries(prev => [res.data.inquiry, ...prev]);
             }
-            
+
             handleSelectInquiry(res.data.inquiry);
             setSearchQuery(''); // Clear search to show normal list
         } catch (error) {
@@ -368,8 +368,8 @@ export default function WebInquiries() {
             const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
             let options = {};
             if (MediaRecorder.isTypeSupported('audio/webm')) options = { mimeType: 'audio/webm' };
-            else if (MediaRecorder.isTypeSupported('audio/mp4')) options = { mimeType: 'audio/mp4' }; 
-            
+            else if (MediaRecorder.isTypeSupported('audio/mp4')) options = { mimeType: 'audio/mp4' };
+
             const recorder = new MediaRecorder(stream, options);
             audioChunks.current = [];
 
@@ -382,7 +382,7 @@ export default function WebInquiries() {
                 const ext = currentMimeType.includes('mp4') ? 'mp4' : 'webm';
                 const audioBlob = new Blob(audioChunks.current, { type: currentMimeType });
                 const audioFile = new File([audioBlob], `Voice_Note_${Date.now()}.${ext}`, { type: currentMimeType });
-                setSelectedFile(audioFile); 
+                setSelectedFile(audioFile);
             };
 
             recorder.start(1000);
@@ -415,7 +415,7 @@ export default function WebInquiries() {
     const handleInputChange = (e) => {
         let val = e.target.value;
         const isAddingSpace = val.endsWith(' ') && val.length > newMessage.length;
-        
+
         setNewMessage(val);
 
         if (val.includes('/')) {
@@ -526,13 +526,13 @@ export default function WebInquiries() {
     };
 
     const handleReaction = async (msg, emoji) => {
-        if(socketRef.current) socketRef.current.emit('react_web_inquiry_message', { messageId: msg.id, inquiryId: selectedInquiry.id, emoji });
+        if (socketRef.current) socketRef.current.emit('react_web_inquiry_message', { messageId: msg.id, inquiryId: selectedInquiry.id, emoji });
     };
 
     // Right Panel Options
     const handleGhostLogin = async () => {
-        if(!studentInfo) return;
-        if(!window.confirm(`Are you sure you want to log in as ${studentInfo.firstName}?`)) return;
+        if (!studentInfo) return;
+        if (!window.confirm(`Are you sure you want to log in as ${studentInfo.firstName}?`)) return;
         try {
             toast.loading("Initiating Ghost Login...", { id: "ghost" });
             const res = await axios.post('/admin/ghost-login', { studentId: studentInfo.id });
@@ -543,7 +543,7 @@ export default function WebInquiries() {
 
                 localStorage.setItem('token', res.data.token);
                 localStorage.setItem('user', JSON.stringify(res.data.user));
-                
+
                 setIframePos({ x: window.innerWidth / 2 - 450, y: window.innerHeight / 2 - 300 });
                 setGhostIframe('/student/dashboard');
                 toast.success("Ghost Login Active!", { id: "ghost" });
@@ -598,7 +598,7 @@ export default function WebInquiries() {
     const copyToClipboard = () => {
         navigator.clipboard.writeText(lastResetPassword);
         toast.success("Password Copied!");
-        setTimeout(() => { setShowResetModal(false); setLastResetPassword(null); setNewPassword(''); }, 1000); 
+        setTimeout(() => { setShowResetModal(false); setLastResetPassword(null); setNewPassword(''); }, 1000);
     };
 
     const getPaymentOption = (payment) => {
@@ -609,26 +609,26 @@ export default function WebInquiries() {
 
     const renderMedia = (msg) => {
         if (!msg.mediaUrl) return null;
-        const url = msg.mediaUrl.startsWith('http') ? msg.mediaUrl : `${BACKEND_URL}/storage/images/chat_uploads/${msg.mediaUrl}`; 
-        
+        const url = msg.mediaUrl.startsWith('http') ? msg.mediaUrl : `${BACKEND_URL}/storage/images/chat_uploads/${msg.mediaUrl}`;
+
         if (msg.mediaType?.includes('webp') || msg.mediaUrl.endsWith('.webp')) {
             return <img src={url} alt="sticker" className="max-w-[130px] w-full bg-transparent drop-shadow-md mb-1" />;
         }
         if (msg.mediaType?.includes('image')) return <img src={url} alt="img" className="max-w-[300px] w-full rounded-lg mb-2 object-cover border border-black/10" />;
         if (msg.mediaType?.includes('video')) return <video src={url} controls className="max-w-[300px] w-full rounded-lg mb-2" />;
-        
+
         if (msg.mediaType?.includes('audio') || msg.mediaUrl.endsWith('.mp3') || msg.mediaUrl.endsWith('.ogg')) {
             return (
-               <div className="bg-black/20 p-2 rounded-xl mb-2 flex items-center shadow-inner min-w-[250px]">
-                   <audio src={url} controls className="w-full h-10 custom-audio-player outline-none" />
-               </div>
+                <div className="bg-black/20 p-2 rounded-xl mb-2 flex items-center shadow-inner min-w-[250px]">
+                    <audio src={url} controls className="w-full h-10 custom-audio-player outline-none" />
+                </div>
             );
         }
-        
-        if (msg.mediaType?.includes('pdf') || msg.mediaUrl.endsWith('.pdf')) 
+
+        if (msg.mediaType?.includes('pdf') || msg.mediaUrl.endsWith('.pdf'))
             return <iframe src={url} className="w-[300px] h-[350px] rounded-lg mb-2 bg-white shadow-inner" title="PDF"></iframe>;
-        
-        return <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-3 bg-black/10 rounded-lg mb-2 text-xs font-bold hover:underline"><FaFilePdf className="text-red-500 text-lg"/> View Document</a>;
+
+        return <a href={url} target="_blank" rel="noreferrer" className="flex items-center gap-2 p-3 bg-black/10 rounded-lg mb-2 text-xs font-bold hover:underline"><FaFilePdf className="text-red-500 text-lg" /> View Document</a>;
     };
 
     const renderMessageText = (msg) => {
@@ -636,7 +636,7 @@ export default function WebInquiries() {
         if (!text) return null;
 
         if (msg.mediaUrl && ["IMAGE Message", "AUDIO Message", "VIDEO Message", "DOCUMENT Message"].includes(text)) {
-            return null; 
+            return null;
         }
 
         return <span className="whitespace-pre-wrap">{text}</span>;
@@ -649,7 +649,7 @@ export default function WebInquiries() {
     }, [inquiries, selectedBusiness]);
 
     const filteredInquiries = useMemo(() => {
-        let currentInquiries = inquiries.filter(inq => 
+        let currentInquiries = inquiries.filter(inq =>
             selectedBusiness === 'ALL' || inq.businessId.toString() === selectedBusiness
         );
         if (searchQuery) {
@@ -710,7 +710,7 @@ export default function WebInquiries() {
                     </div>
                 </div>
                 <div className="flex items-center gap-3 w-full xl:w-auto overflow-x-auto justify-end">
-                    <select 
+                    <select
                         value={selectedBusiness}
                         onChange={(e) => {
                             const val = e.target.value;
@@ -729,7 +729,7 @@ export default function WebInquiries() {
 
             {/* Main CRM Workspace */}
             <div className="flex-1 flex gap-4 h-[calc(100%-6rem)] overflow-hidden">
-                
+
                 {/* 1. Sidebar */}
                 <div className="w-[380px] xl:w-[440px] bg-[#1a2430] rounded-2xl flex flex-col overflow-hidden shrink-0 border border-white/10 shadow-xl relative">
                     <div className="p-5 bg-[#121a24] border-b border-white/5">
@@ -745,18 +745,18 @@ export default function WebInquiries() {
                         </div>
                         <div className="relative">
                             <FaSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-                            <input 
-                                type="text" 
+                            <input
+                                type="text"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Search by number or name..." 
-                                className="w-full bg-[#0f172a] border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-base text-slate-200 focus:outline-none focus:border-emerald-600 placeholder-slate-600 shadow-inner" 
+                                placeholder="Search by number or name..."
+                                className="w-full bg-[#0f172a] border border-slate-700 rounded-xl py-2.5 pl-10 pr-4 text-base text-slate-200 focus:outline-none focus:border-emerald-600 placeholder-slate-600 shadow-inner"
                             />
                         </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto custom-scrollbar p-3 bg-[#1a2430]">
-                        {filteredInquiries.length === 0 ? ( <div className="text-center text-slate-600 text-sm mt-10 font-medium">No inquiries found.</div> ) : (
+                        {filteredInquiries.length === 0 ? (<div className="text-center text-slate-600 text-sm mt-10 font-medium">No inquiries found.</div>) : (
                             filteredInquiries.map(inq => {
                                 const isUnread = (inq.unreadCount || 0) > 0;
                                 let overlayClass = 'bg-[#121a24] border-transparent hover:border-white/10';
@@ -780,7 +780,7 @@ export default function WebInquiries() {
                                                     <div className="flex flex-col items-end shrink-0 ml-2 gap-1.5">
                                                         <div className="text-right">
                                                             <span className={`text-[10px] font-bold block mb-0.5 ${isUnread ? 'text-emerald-400' : 'text-emerald-500'}`}>{new Date(inq.lastMessageAt || inq.createdAt).toLocaleDateString('en-GB')}</span>
-                                                            <span className="text-[9px] text-slate-500 block">{new Date(inq.lastMessageAt || inq.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                                            <span className="text-[9px] text-slate-500 block">{new Date(inq.lastMessageAt || inq.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -793,7 +793,7 @@ export default function WebInquiries() {
                                 );
                             })
                         )}
-                        
+
                         {/* Global Search Results Section */}
                         {searchQuery.trim().length >= 3 && (
                             <div className="mt-4 pt-4 border-t border-white/10">
@@ -835,11 +835,11 @@ export default function WebInquiries() {
                             <div className="flex items-center gap-3">
                                 {selectedInquiry.status !== 'RESOLVED' && (
                                     <button onClick={handleResolve} className={`text-xs font-bold px-4 py-2 rounded-xl flex items-center gap-2 transition-all shadow-md ${isDark ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600 hover:bg-emerald-700 text-white'}`}>
-                                        <FaCheckCircle/> Resolve
+                                        <FaCheckCircle /> Resolve
                                     </button>
                                 )}
                                 <button onClick={() => setChatTheme(isDark ? 'light' : 'dark')} className={`p-2.5 rounded-full transition-colors shadow-inner ${isDark ? 'bg-[#0f172a] text-yellow-500' : 'bg-white text-slate-600'}`}>
-                                    {isDark ? <FaSun size={14}/> : <FaMoon size={14}/>}
+                                    {isDark ? <FaSun size={14} /> : <FaMoon size={14} />}
                                 </button>
                             </div>
                         </div>
@@ -857,82 +857,81 @@ export default function WebInquiries() {
                                 </div>
                             ) : (
                                 <div className="relative z-10 flex flex-col">
-                                {Object.keys(groupedMessages).map(dateLabel => (
-                                    <React.Fragment key={dateLabel}>
-                                        <div className="flex justify-center my-6">
-                                            <span className={`text-[10px] font-bold px-4 py-1.5 rounded-xl uppercase tracking-widest shadow-sm ${isDark ? 'bg-[#1e293b] text-slate-400 border border-slate-700' : 'bg-white text-slate-500 border border-slate-200'}`}>
-                                                {dateLabel}
-                                            </span>
-                                        </div>
-                                        {groupedMessages[dateLabel].map((msg, idx) => {
-                                            const isOutbound = msg.direction === 'outbound';
-                                            const isSticker = (msg.mediaUrl && msg.mediaUrl.endsWith('.webp')) || msg.mediaType?.includes('webp');
+                                    {Object.keys(groupedMessages).map(dateLabel => (
+                                        <React.Fragment key={dateLabel}>
+                                            <div className="flex justify-center my-6">
+                                                <span className={`text-[10px] font-bold px-4 py-1.5 rounded-xl uppercase tracking-widest shadow-sm ${isDark ? 'bg-[#1e293b] text-slate-400 border border-slate-700' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                                                    {dateLabel}
+                                                </span>
+                                            </div>
+                                            {groupedMessages[dateLabel].map((msg, idx) => {
+                                                const isOutbound = msg.direction === 'outbound';
+                                                const isSticker = (msg.mediaUrl && msg.mediaUrl.endsWith('.webp')) || msg.mediaType?.includes('webp');
 
-                                            return (
-                                                <div key={idx} className={`flex flex-col mb-4 group w-full`}>
-                                                    <div className={`flex items-center gap-2 ${isOutbound ? 'ml-auto justify-end' : 'mr-auto justify-start'} max-w-[95%]`}>
-                                                        {!isOutbound && (
-                                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all items-center relative">
-                                                                <button onClick={() => setActiveReactionMsgId(activeReactionMsgId === msg.id ? null : msg.id)} className="p-1.5 text-slate-400 hover:text-yellow-500 bg-white/10 rounded-full transition-colors">
-                                                                    <FaSmile size={12}/>
-                                                                </button>
-                                                                {activeReactionMsgId === msg.id && (
-                                                                    <div className="absolute bottom-full left-0 mb-2 z-50 bg-[#1e293b] px-3 py-2 rounded-full shadow-2xl flex gap-2 border border-slate-600 animate-fade-in">
-                                                                        {reactionEmojis.map(e => (
-                                                                            <button key={e} onClick={() => { handleReaction(msg, e); setActiveReactionMsgId(null); }} className="hover:scale-125 transition-transform text-base">{e}</button>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-                                                                <button onClick={()=>setReplyingTo(msg)} className="p-1.5 text-slate-400 hover:text-blue-500 bg-white/10 rounded-full"><FaReply size={12}/></button>
+                                                return (
+                                                    <div key={idx} className={`flex flex-col mb-4 group w-full`}>
+                                                        <div className={`flex items-center gap-2 ${isOutbound ? 'ml-auto justify-end' : 'mr-auto justify-start'} max-w-[95%]`}>
+                                                            {!isOutbound && (
+                                                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all items-center relative">
+                                                                    <button onClick={() => setActiveReactionMsgId(activeReactionMsgId === msg.id ? null : msg.id)} className="p-1.5 text-slate-400 hover:text-yellow-500 bg-white/10 rounded-full transition-colors">
+                                                                        <FaSmile size={12} />
+                                                                    </button>
+                                                                    {activeReactionMsgId === msg.id && (
+                                                                        <div className="absolute bottom-full left-0 mb-2 z-50 bg-[#1e293b] px-3 py-2 rounded-full shadow-2xl flex gap-2 border border-slate-600 animate-fade-in">
+                                                                            {reactionEmojis.map(e => (
+                                                                                <button key={e} onClick={() => { handleReaction(msg, e); setActiveReactionMsgId(null); }} className="hover:scale-125 transition-transform text-base">{e}</button>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+                                                                    <button onClick={() => setReplyingTo(msg)} className="p-1.5 text-slate-400 hover:text-blue-500 bg-white/10 rounded-full"><FaReply size={12} /></button>
+                                                                </div>
+                                                            )}
+                                                            <div className="relative">
+                                                                <div onDoubleClick={() => setReplyingTo(msg)} className={`px-4 py-3 text-[15px] cursor-pointer ${isSticker ? 'bg-transparent shadow-none p-0' :
+                                                                        isOutbound
+                                                                            ? (isDark ? 'bg-[#005c4b] text-white rounded-2xl rounded-tr-none shadow-md' : 'bg-[#d9fdd3] text-slate-800 rounded-2xl rounded-tr-none shadow-md border border-[#d9fdd3]')
+                                                                            : (isDark ? 'bg-[#1e293b] text-slate-200 rounded-2xl rounded-tl-none shadow-md border border-slate-700' : 'bg-white text-slate-800 rounded-2xl rounded-tl-none shadow-md border border-slate-200')
+                                                                    }`}>
+                                                                    {msg.replyTo && (
+                                                                        <div className="bg-black/10 dark:bg-black/30 border-l-4 border-emerald-500 rounded p-2.5 mb-1.5 shadow-sm w-full relative overflow-hidden">
+                                                                            <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold block mb-0.5">{msg.replyTo.senderName || 'Student'}</span>
+                                                                            <span className="text-[13px] text-slate-700 dark:text-slate-300 line-clamp-2 italic">{msg.replyTo.message || '[Attachment]'}</span>
+                                                                        </div>
+                                                                    )}
+                                                                    {msg.senderName && (
+                                                                        <div className={`text-[10px] font-black mb-1.5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{msg.senderName}</div>
+                                                                    )}
+                                                                    {renderMedia(msg)}
+                                                                    {!isSticker && renderMessageText(msg)}
+
+                                                                    {msg.reactions && Object.keys(msg.reactions).length > 0 && (
+                                                                        <div className="flex gap-1 mt-1 bg-black/20 px-2 py-0.5 rounded-full w-fit border border-white/5">
+                                                                            {Object.values(msg.reactions).map((emoji, i) => (
+                                                                                <span key={i} className="text-[11px]">{emoji}</span>
+                                                                            ))}
+                                                                        </div>
+                                                                    )}
+
+                                                                    {!isSticker && (
+                                                                        <span className={`text-[10px] float-right mt-2 ml-6 font-medium flex items-center gap-1 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
+                                                                            {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                                                            {isOutbound && <FaCheckCircle size={10} className={msg.isRead ? 'text-[#53bdeb]' : 'text-current'} />}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                             </div>
-                                                        )}
-                                                        <div className="relative">
-                                                            <div onDoubleClick={() => setReplyingTo(msg)} className={`px-4 py-3 text-[15px] cursor-pointer ${
-                                                                isSticker ? 'bg-transparent shadow-none p-0' : 
-                                                                isOutbound 
-                                                                    ? (isDark ? 'bg-[#005c4b] text-white rounded-2xl rounded-tr-none shadow-md' : 'bg-[#d9fdd3] text-slate-800 rounded-2xl rounded-tr-none shadow-md border border-[#d9fdd3]')
-                                                                    : (isDark ? 'bg-[#1e293b] text-slate-200 rounded-2xl rounded-tl-none shadow-md border border-slate-700' : 'bg-white text-slate-800 rounded-2xl rounded-tl-none shadow-md border border-slate-200')
-                                                            }`}>
-                                                                {msg.replyTo && (
-                                                                    <div className="bg-black/10 dark:bg-black/30 border-l-4 border-emerald-500 rounded p-2.5 mb-1.5 shadow-sm w-full relative overflow-hidden">
-                                                                        <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold block mb-0.5">{msg.replyTo.senderName || 'Student'}</span>
-                                                                        <span className="text-[13px] text-slate-700 dark:text-slate-300 line-clamp-2 italic">{msg.replyTo.message || '[Attachment]'}</span>
-                                                                    </div>
-                                                                )}
-                                                                {msg.senderName && (
-                                                                    <div className={`text-[10px] font-black mb-1.5 ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}>{msg.senderName}</div>
-                                                                )}
-                                                                {renderMedia(msg)}
-                                                                {!isSticker && renderMessageText(msg)}
-
-                                                                {msg.reactions && Object.keys(msg.reactions).length > 0 && (
-                                                                    <div className="flex gap-1 mt-1 bg-black/20 px-2 py-0.5 rounded-full w-fit border border-white/5">
-                                                                        {Object.values(msg.reactions).map((emoji, i) => (
-                                                                            <span key={i} className="text-[11px]">{emoji}</span>
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-
-                                                                {!isSticker && (
-                                                                    <span className={`text-[10px] float-right mt-2 ml-6 font-medium flex items-center gap-1 ${isDark ? 'text-white/60' : 'text-slate-500'}`}>
-                                                                        {new Date(msg.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                                                        {isOutbound && <FaCheckCircle size={10} className={msg.isRead ? 'text-[#53bdeb]' : 'text-current'} />}
-                                                                    </span>
-                                                                )}
-                                                            </div>
+                                                            {isOutbound && (
+                                                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all items-center">
+                                                                    <button onClick={() => setReplyingTo(msg)} className="p-1.5 text-slate-400 hover:text-blue-500 bg-white/10 rounded-full"><FaReply size={12} /></button>
+                                                                </div>
+                                                            )}
                                                         </div>
-                                                        {isOutbound && (
-                                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all items-center">
-                                                                <button onClick={()=>setReplyingTo(msg)} className="p-1.5 text-slate-400 hover:text-blue-500 bg-white/10 rounded-full"><FaReply size={12}/></button>
-                                                            </div>
-                                                        )}
                                                     </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </React.Fragment>
-                                ))}
-                            </div>
+                                                );
+                                            })}
+                                        </React.Fragment>
+                                    ))}
+                                </div>
                             )}
                         </div>
 
@@ -941,7 +940,7 @@ export default function WebInquiries() {
                                 <div className="bg-[#0f172a] border-t border-slate-700 p-3 flex gap-2 overflow-x-auto custom-scrollbar shadow-lg">
                                     {suggestedQRs.map((qr, i) => (
                                         <button key={i} onClick={() => applyQuickReply(qr)} className="shrink-0 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-xs font-bold transition-colors">
-                                            /{qr.name} {qr.attachment && <FaPaperclip className="inline ml-1"/>}
+                                            /{qr.name} {qr.attachment && <FaPaperclip className="inline ml-1" />}
                                         </button>
                                     ))}
                                 </div>
@@ -953,39 +952,39 @@ export default function WebInquiries() {
                                         <p className={`text-xs font-black ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>Replying to {replyingTo.direction === 'outbound' ? 'Yourself' : selectedInquiry.student?.firstName}</p>
                                         <p className={`text-[13px] truncate mt-0.5 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>{replyingTo.message || 'Media Attachment'}</p>
                                     </div>
-                                    <button onClick={()=>setReplyingTo(null)} className="text-slate-400 hover:text-red-500 p-2 bg-black/10 rounded-lg"><FaTimes size={14}/></button>
+                                    <button onClick={() => setReplyingTo(null)} className="text-slate-400 hover:text-red-500 p-2 bg-black/10 rounded-lg"><FaTimes size={14} /></button>
                                 </div>
                             )}
 
                             {selectedFile && (
                                 <div className={`px-5 py-4 flex items-center gap-4 border-b ${isDark ? 'bg-[#0f172a] border-slate-700' : 'bg-white border-slate-200'}`}>
                                     <div className="w-14 h-14 bg-slate-800 rounded-xl flex items-center justify-center text-slate-300 shadow-md">
-                                        {selectedFile.type.includes('image') ? <FaImage size={24}/> : selectedFile.type.includes('video') ? <FaVideo size={24}/> : selectedFile.type.includes('audio') ? <FaMusic size={24}/> : <FaFilePdf size={24}/>}
+                                        {selectedFile.type.includes('image') ? <FaImage size={24} /> : selectedFile.type.includes('video') ? <FaVideo size={24} /> : selectedFile.type.includes('audio') ? <FaMusic size={24} /> : <FaFilePdf size={24} />}
                                     </div>
                                     <div className="flex-1 min-w-0">
                                         <p className="text-sm font-bold text-emerald-500 truncate">{selectedFile.name}</p>
                                     </div>
-                                    <button onClick={()=>setSelectedFile(null)} className="text-slate-400 hover:text-red-500 p-2.5 bg-red-500/10 rounded-xl transition-colors"><FaTimes size={16}/></button>
+                                    <button onClick={() => setSelectedFile(null)} className="text-slate-400 hover:text-red-500 p-2.5 bg-red-500/10 rounded-xl transition-colors"><FaTimes size={16} /></button>
                                 </div>
                             )}
 
                             <div className="p-3.5 flex items-end gap-3">
                                 <button type="button" onClick={() => { setEnableSinhala(!enableSinhala); setEnableGoogleSinhala(false); }} title="Toggle Offline Sinhala" className={`p-3.5 rounded-xl transition-colors font-black text-sm ${enableSinhala ? (isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-600') : (isDark ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200')}`}>අ</button>
-                <button type="button" onClick={() => { setEnableGoogleSinhala(!enableGoogleSinhala); setEnableSinhala(false); }} title="Toggle Google Sinhala" className={`p-3.5 rounded-xl transition-colors text-sm ${enableGoogleSinhala ? (isDark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600') : (isDark ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200')}`}><FaGoogle size={14}/></button>
+                                <button type="button" onClick={() => { setEnableGoogleSinhala(!enableGoogleSinhala); setEnableSinhala(false); }} title="Toggle Google Sinhala" className={`p-3.5 rounded-xl transition-colors text-sm ${enableGoogleSinhala ? (isDark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-100 text-blue-600') : (isDark ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200')}`}><FaGoogle size={14} /></button>
                                 <label className={`cursor-pointer p-3.5 rounded-xl transition-colors ${isDark ? 'text-slate-400 hover:bg-white/10' : 'text-slate-500 hover:bg-slate-200'}`}>
-                                    <FaPaperclip size={18}/>
-                                    <input type="file" className="hidden" onChange={(e)=>setSelectedFile(e.target.files[0])}/>
+                                    <FaPaperclip size={18} />
+                                    <input type="file" className="hidden" onChange={(e) => setSelectedFile(e.target.files[0])} />
                                 </label>
-                                
+
                                 {isRecording ? (
-                    <div className={`flex-1 flex items-center gap-4 px-5 py-3.5 rounded-2xl border border-red-500/50 bg-red-500/10`}>
-                        <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                        <span className="text-red-400 font-bold text-sm flex-1">{formatTime(recordingDuration)}</span>
-                        <button onClick={stopRecording} className="p-2 text-red-400 hover:text-white hover:bg-red-500 rounded-full transition-colors"><FaStop/></button>
-                    </div>
-                ) : enableGoogleSinhala ? (
-                    <div className="flex-1 flex relative">
-                        <style>{`
+                                    <div className={`flex-1 flex items-center gap-4 px-5 py-3.5 rounded-2xl border border-red-500/50 bg-red-500/10`}>
+                                        <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
+                                        <span className="text-red-400 font-bold text-sm flex-1">{formatTime(recordingDuration)}</span>
+                                        <button onClick={stopRecording} className="p-2 text-red-400 hover:text-white hover:bg-red-500 rounded-full transition-colors"><FaStop /></button>
+                                    </div>
+                                ) : enableGoogleSinhala ? (
+                                    <div className="flex-1 flex relative">
+                                        <style>{`
                             .google-sinhala-container > ul {
                                 background-color: ${isDark ? '#1e293b' : '#ffffff'} !important;
                                 border: 1px solid ${isDark ? '#334155' : '#e2e8f0'} !important;
@@ -1012,36 +1011,36 @@ export default function WebInquiries() {
                                 color: ${isDark ? '#ffffff' : '#1d4ed8'} !important;
                             }
                         `}</style>
-                        <ReactTransliterate
-                            value={newMessage}
-                            onChangeText={(text) => {
-                                const fakeEvent = { target: { value: text } };
-                                handleInputChange(fakeEvent);
-                            }}
-                            lang="si"
-                            maxOptions={5}
-                            containerClassName="google-sinhala-container flex-1 flex w-full relative"
-                            activeItemStyles={{}}
-                            containerStyles={{}}
-                            renderComponent={(props) => (
-                                <textarea 
-                                    {...props} 
-                                    rows={Math.min(4, newMessage.split('\n').length)} 
-                                    className={`flex-1 w-full px-5 py-3.5 rounded-2xl border focus:outline-none resize-none overflow-y-auto custom-scrollbar text-[15px] shadow-inner ${isDark ? 'bg-[#0f172a] text-white border-slate-700 focus:border-emerald-600 placeholder-slate-500' : 'bg-white text-slate-800 border-slate-300 focus:border-emerald-500 placeholder-slate-400'}`} 
-                                />
-                            )}
-                            onKeyDown={handleKeyDown}
-                            placeholder="Type with Google Sinhala..."
-                        />
-                    </div>
-                ) : (
-                    <textarea value={newMessage} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder="Type a message or / for quick replies..." rows={Math.min(4, newMessage.split('\n').length)} className={`flex-1 px-5 py-3.5 rounded-2xl border focus:outline-none resize-none overflow-y-auto custom-scrollbar text-[15px] shadow-inner ${isDark ? 'bg-[#0f172a] text-white border-slate-700 focus:border-emerald-600 placeholder-slate-500' : 'bg-white text-slate-800 border-slate-300 focus:border-emerald-500 placeholder-slate-400'}`} />
-                )}
+                                        <ReactTransliterate
+                                            value={newMessage}
+                                            onChangeText={(text) => {
+                                                const fakeEvent = { target: { value: text } };
+                                                handleInputChange(fakeEvent);
+                                            }}
+                                            lang="si"
+                                            maxOptions={5}
+                                            containerClassName="google-sinhala-container flex-1 flex w-full relative"
+                                            activeItemStyles={{}}
+                                            containerStyles={{}}
+                                            renderComponent={(props) => (
+                                                <textarea
+                                                    {...props}
+                                                    rows={Math.min(4, newMessage.split('\n').length)}
+                                                    className={`flex-1 w-full px-5 py-3.5 rounded-2xl border focus:outline-none resize-none overflow-y-auto custom-scrollbar text-[15px] shadow-inner ${isDark ? 'bg-[#0f172a] text-white border-slate-700 focus:border-emerald-600 placeholder-slate-500' : 'bg-white text-slate-800 border-slate-300 focus:border-emerald-500 placeholder-slate-400'}`}
+                                                />
+                                            )}
+                                            onKeyDown={handleKeyDown}
+                                            placeholder="Type with Google Sinhala..."
+                                        />
+                                    </div>
+                                ) : (
+                                    <textarea value={newMessage} onChange={handleInputChange} onKeyDown={handleKeyDown} placeholder="Type a message or / for quick replies..." rows={Math.min(4, newMessage.split('\n').length)} className={`flex-1 px-5 py-3.5 rounded-2xl border focus:outline-none resize-none overflow-y-auto custom-scrollbar text-[15px] shadow-inner ${isDark ? 'bg-[#0f172a] text-white border-slate-700 focus:border-emerald-600 placeholder-slate-500' : 'bg-white text-slate-800 border-slate-300 focus:border-emerald-500 placeholder-slate-400'}`} />
+                                )}
 
                                 {!newMessage.trim() && !selectedFile ? (
-                                    <button type="button" onClick={startRecording} className="p-4 bg-emerald-600/20 text-emerald-500 rounded-full hover:bg-emerald-600 hover:text-white transition-colors shadow-md"><FaMicrophone size={18}/></button>
+                                    <button type="button" onClick={startRecording} className="p-4 bg-emerald-600/20 text-emerald-500 rounded-full hover:bg-emerald-600 hover:text-white transition-colors shadow-md"><FaMicrophone size={18} /></button>
                                 ) : (
-                                    <button onClick={(e) => handleSend(e)} disabled={isSending} className="p-4 bg-emerald-600 text-white rounded-full hover:bg-emerald-500 transition-colors shadow-xl disabled:opacity-50"><FaPaperPlane size={18} className={isSending ? 'animate-pulse' : ''}/></button>
+                                    <button onClick={(e) => handleSend(e)} disabled={isSending} className="p-4 bg-emerald-600 text-white rounded-full hover:bg-emerald-500 transition-colors shadow-xl disabled:opacity-50"><FaPaperPlane size={18} className={isSending ? 'animate-pulse' : ''} /></button>
                                 )}
                             </div>
                         </div>
@@ -1052,7 +1051,7 @@ export default function WebInquiries() {
                         <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 to-purple-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
                         <div className="absolute -top-24 -right-24 w-48 h-48 bg-blue-500/10 rounded-full blur-3xl animate-pulse"></div>
                         <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-purple-500/10 rounded-full blur-3xl animate-pulse delay-75"></div>
-                        
+
                         <div className="relative z-10 flex flex-col items-center">
                             <MessageCircle className="text-6xl text-slate-600 mb-6 opacity-50 group-hover:scale-110 group-hover:text-blue-400 transition-all duration-500" />
                             <h2 className="text-xl font-semibold text-slate-300 tracking-wide">Select an inquiry to start</h2>
@@ -1088,7 +1087,7 @@ export default function WebInquiries() {
                             <>
                                 <div className="bg-[#1a2430] p-6 flex flex-col items-center justify-center border-b border-white/5 relative">
                                     <button onClick={() => setIsMinimized(true)} className="absolute top-4 right-4 p-2 bg-black/20 rounded-full hover:bg-black/40 hover:text-white transition-colors text-slate-400">
-                                        <FaChevronRight size={14}/>
+                                        <FaChevronRight size={14} />
                                     </button>
                                     <div className="mb-3">
                                         {renderStudentAvatar(studentInfo || selectedInquiry, "w-20 h-20", "text-3xl", 0)}
@@ -1105,7 +1104,7 @@ export default function WebInquiries() {
                                 <div className="flex-1 overflow-y-auto p-4 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] bg-[#23303f]">
                                     <div className="bg-[#1a2430] p-4 rounded-xl border border-white/5 shadow-sm">
                                         <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-4">System Records</h3>
-                                        
+
                                         {!studentInfo ? (
                                             <div className="animate-pulse flex flex-col gap-2">
                                                 <div className="h-4 bg-slate-700 rounded w-3/4"></div>
@@ -1114,7 +1113,7 @@ export default function WebInquiries() {
                                         ) : (
                                             <div className="space-y-4">
                                                 <div className="flex items-center gap-2 text-emerald-500 font-bold bg-emerald-900/20 p-2.5 rounded-lg border border-emerald-900/50 text-xs">
-                                                    <FaCheckCircle size={14}/> Registered Student
+                                                    <FaCheckCircle size={14} /> Registered Student
                                                 </div>
 
                                                 <div className="space-y-2.5">
@@ -1122,17 +1121,17 @@ export default function WebInquiries() {
                                                         <span className="text-slate-500 block mb-0.5">Full Name & ID</span>
                                                         <span className="text-slate-200 font-semibold">{studentInfo.firstName || studentInfo.name || selectedInquiry.name || 'Student'} {studentInfo.lastName || ''} (ID: {studentInfo.id})</span>
                                                     </div>
-                                                    
+
                                                     {studentInfo.payments && studentInfo.payments.length > 0 ? (
                                                         studentInfo.payments.map((p, i) => (
                                                             <div key={i} className="mt-4">
                                                                 <div className="text-xs mt-3 pt-3 border-t border-slate-700">
-                                                                    <span className="text-slate-500 block mb-0.5"><FaGraduationCap className="inline mr-1"/> Enrollment</span>
+                                                                    <span className="text-slate-500 block mb-0.5"><FaGraduationCap className="inline mr-1" /> Enrollment</span>
                                                                     <span className="text-blue-300 font-bold block">{p.business?.name}</span>
                                                                     <span className="text-slate-400 block">{p.batch?.name}</span>
                                                                 </div>
                                                                 <div className="text-xs mt-3">
-                                                                    <span className="text-slate-500 block mb-0.5"><FaCreditCard className="inline mr-1"/> Payment Option</span>
+                                                                    <span className="text-slate-500 block mb-0.5"><FaCreditCard className="inline mr-1" /> Payment Option</span>
                                                                     <span className="text-emerald-400 font-semibold">{getPaymentOption(p)}</span>
                                                                 </div>
                                                             </div>
@@ -1144,10 +1143,10 @@ export default function WebInquiries() {
 
                                                 <div className="pt-4 mt-2 border-t border-slate-700 space-y-2">
                                                     <button onClick={handleGhostLogin} className="w-full bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/30 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition-all">
-                                                        <FaUserSecret size={14}/> Ghost Login
+                                                        <FaUserSecret size={14} /> Ghost Login
                                                     </button>
                                                     <button onClick={() => setShowResetModal(true)} className="w-full bg-amber-500/10 hover:bg-amber-500 text-amber-500 hover:text-white border border-amber-500/30 font-bold py-2 rounded-xl text-xs flex items-center justify-center gap-2 transition-all">
-                                                        <FaKey size={12}/> Reset Password
+                                                        <FaKey size={12} /> Reset Password
                                                     </button>
                                                 </div>
                                             </div>
@@ -1165,8 +1164,8 @@ export default function WebInquiries() {
                 <div className="absolute inset-0 z-50 bg-[#0f172a]/95 backdrop-blur-sm flex items-center justify-center p-4">
                     <div className="bg-[#1e293b] border border-slate-700 rounded-2xl p-5 w-full max-w-sm shadow-2xl">
                         <div className="flex justify-between items-center mb-4">
-                            <h3 className="text-sm font-bold text-amber-500 flex items-center gap-2"><FaKey/> Reset Password</h3>
-                            <button onClick={()=>{setShowResetModal(false); setLastResetPassword(null); setNewPassword('');}} className="text-slate-500 hover:text-white"><FaTimes/></button>
+                            <h3 className="text-sm font-bold text-amber-500 flex items-center gap-2"><FaKey /> Reset Password</h3>
+                            <button onClick={() => { setShowResetModal(false); setLastResetPassword(null); setNewPassword(''); }} className="text-slate-500 hover:text-white"><FaTimes /></button>
                         </div>
                         {lastResetPassword ? (
                             <div className="animate-in zoom-in duration-300">
@@ -1181,7 +1180,7 @@ export default function WebInquiries() {
                             </div>
                         ) : (
                             <form onSubmit={handleResetPassword}>
-                                <input type="text" value={newPassword} onChange={e=>setNewPassword(e.target.value)} placeholder="Enter new password" required className="w-full bg-[#0f172a] border border-slate-700 text-white rounded-lg p-3 mb-4 text-sm outline-none focus:border-amber-500" />
+                                <input type="text" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Enter new password" required className="w-full bg-[#0f172a] border border-slate-700 text-white rounded-lg p-3 mb-4 text-sm outline-none focus:border-amber-500" />
                                 <button type="submit" className="w-full bg-amber-600 hover:bg-amber-500 text-white font-bold py-2.5 rounded-lg text-sm shadow-lg">Confirm Reset</button>
                             </form>
                         )}
@@ -1191,7 +1190,7 @@ export default function WebInquiries() {
 
             {ghostIframe && createPortal(
                 <div className="fixed inset-0 z-[99999] pointer-events-none">
-                    <div 
+                    <div
                         className="absolute pointer-events-auto bg-white flex flex-col shadow-[0_10px_50px_rgba(0,0,0,0.5)] border border-slate-600 rounded-2xl overflow-hidden"
                         style={{
                             left: `${iframePos.x}px`,
@@ -1203,7 +1202,7 @@ export default function WebInquiries() {
                             minHeight: '300px'
                         }}
                     >
-                        <div 
+                        <div
                             onMouseDown={handleDragStart}
                             className="w-full bg-[#1e293b] border-b border-slate-700 px-4 py-3 flex justify-between items-center z-10 shrink-0 cursor-move"
                         >
@@ -1216,9 +1215,9 @@ export default function WebInquiries() {
                                     <p className="text-emerald-400 text-[9px] font-bold uppercase tracking-widest">Student View</p>
                                 </div>
                             </div>
-                            <button 
-                                onMouseDown={(e) => e.stopPropagation()} 
-                                onClick={closeGhostLogin} 
+                            <button
+                                onMouseDown={(e) => e.stopPropagation()}
+                                onClick={closeGhostLogin}
                                 className="flex items-center gap-2 bg-red-500/20 hover:bg-red-500 text-red-400 hover:text-white px-3 py-1.5 rounded-lg font-bold transition-all text-xs uppercase tracking-widest"
                             >
                                 <FaTimes size={12} /> Close

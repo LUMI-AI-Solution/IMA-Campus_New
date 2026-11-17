@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, MapPin, Phone, Package, Filter, Calendar, Save, Trash2, Box, Eye, Check, Clock, AlertTriangle, ArrowLeft, Loader2, ArrowRight, UserCheck, X, History, ChevronDown, ChevronUp, CheckCircle2, MessageSquare, Settings, Layers, Edit2, Printer, ScanBarcode, BookOpen } from 'lucide-react';
+import { Search, MapPin, Phone, Package, Truck, Filter, Calendar, Save, Trash2, Box, Eye, Check, Clock, AlertTriangle, ArrowLeft, Loader2, ArrowRight, UserCheck, X, History, ChevronDown, ChevronUp, CheckCircle2, MessageSquare, Settings, Layers, Edit2, Printer, ScanBarcode, BookOpen } from 'lucide-react';
 import axios from '../../../api/axios';
 import toast from 'react-hot-toast';
 import { ClassTagBadge, ClassTagFilter, matchesClassTag } from './ClassTag';
@@ -692,7 +692,7 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
             localStorage.removeItem(`draft_pack_remark_${order.id}`);
             onRefresh(); 
         } catch (error) {
-            toast.error("Failed to update status.");
+            toast.error(error.response?.data?.error || "Failed to update status.");
         } finally {
             setIsProcessing(false);
         }
@@ -841,6 +841,11 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
                                             <AlertTriangle size={12} className="text-white"/> DUPLICATE ALERT
                                         </span>
                                     )}
+                                    {order.hasShortage && (
+                                        <span className="text-[11px] font-black text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-500/20 px-3 py-1.5 rounded-lg border border-rose-300 dark:border-rose-500/40 uppercase tracking-widest shadow-sm flex items-center gap-1.5">
+                                            <AlertTriangle size={12} className="text-rose-600 dark:text-rose-400"/> STOCK SHORTAGE
+                                        </span>
+                                    )}
                                     {order.status === 'Hold' ? (
                                         <span className="text-[11px] font-black text-orange-700 dark:text-orange-300 bg-orange-100 dark:bg-orange-500/20 px-3 py-1.5 rounded-lg border border-orange-200 dark:border-orange-500/30 uppercase tracking-widest shadow-sm flex items-center gap-1">
                                             <AlertTriangle size={12}/> ON HOLD
@@ -927,41 +932,97 @@ function OrderCard({ order, onRefresh, isReadOnly }) {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {order.items?.filter((item, index, self) => 
                         index === self.findIndex((t) => t.tuteName === item.tuteName)
-                    ).map((item, i) => (
-                        <div key={i} className={`flex items-center justify-between p-3.5 rounded-2xl shadow-sm transition-colors group ${item.isDuplicate ? 'bg-rose-100/80 dark:bg-rose-950/40 border-2 border-rose-400 dark:border-rose-500/60 shadow-rose-500/10' : 'bg-white/60 dark:bg-black/20 backdrop-blur-md border border-gray-200 dark:border-white/5 hover:bg-white/80 dark:hover:bg-white/5'}`}>
-                            <div className="flex items-center gap-4 min-w-0 flex-1">
-                                
-                                <div className="shrink-0 w-12 h-16 bg-gray-100 dark:bg-black/40 border border-gray-200 dark:border-white/10 rounded-lg flex items-center justify-center overflow-hidden shadow-sm relative z-10 hover:z-50 transition-all duration-300 hover:scale-[2.5] hover:translate-x-4 hover:-translate-y-2 origin-left cursor-zoom-in">
-                                    <DeliveryItemImage coverName={item.tuteImage} />
-                                </div>
+                    ).map((item, i) => {
+                        const hasShortage = Boolean(item.isShortage);
+                        const isNoStock = (item.availableStock ?? 0) <= 0;
 
-                                <div className="flex-1 min-w-0">
-                                    <h5 className="text-[14px] font-black text-gray-900 dark:text-white truncate tracking-wide flex items-center gap-2 mb-1.5 transition-colors">
-                                        <BookOpen size={14} className={item.isDuplicate ? "text-rose-600 dark:text-rose-400 shrink-0" : "text-brand-accent shrink-0"}/>{item.tuteName}
-                                    </h5>
-                                    <p className="text-[11px] font-bold text-gray-700 dark:text-slate-300 truncate bg-gray-200/80 dark:bg-white/10 inline-block px-2.5 py-0.5 rounded shadow-sm transition-colors">{item.courseName}</p>
-                                    <p className="text-[10px] font-black text-brand-accent dark:text-brand-accent uppercase tracking-widest truncate mt-1.5 transition-colors">{item.lecturerName}</p>
+                        return (
+                            <div key={i} className={`flex items-center justify-between p-3.5 rounded-2xl shadow-sm transition-colors group ${
+                                item.isDuplicate 
+                                    ? 'bg-rose-100/80 dark:bg-rose-950/40 border-2 border-rose-400 dark:border-rose-500/60 shadow-rose-500/10' 
+                                    : hasShortage
+                                        ? 'bg-rose-50/60 dark:bg-rose-950/20 backdrop-blur-md border-2 border-rose-400/80 dark:border-rose-500/60 shadow-sm shadow-rose-500/10'
+                                        : 'bg-white/60 dark:bg-black/20 backdrop-blur-md border border-gray-200 dark:border-white/5 hover:bg-white/80 dark:hover:bg-white/5'
+                            }`}>
+                                <div className="flex items-center gap-4 min-w-0 flex-1">
+                                    
+                                    <div className="shrink-0 w-12 h-16 bg-gray-100 dark:bg-black/40 border border-gray-200 dark:border-white/10 rounded-lg flex items-center justify-center overflow-hidden shadow-sm relative z-10 hover:z-50 transition-all duration-300 hover:scale-[2.5] hover:translate-x-4 hover:-translate-y-2 origin-left cursor-zoom-in">
+                                        <DeliveryItemImage coverName={item.tuteImage} />
+                                    </div>
 
-                                    {item.isDuplicate && item.duplicateDetails && (
-                                        <div className="mt-2 text-[11px] font-black text-rose-800 dark:text-rose-200 bg-rose-200/80 dark:bg-rose-900/40 px-2.5 py-1 rounded-lg border border-rose-400 dark:border-rose-500/40 flex items-center gap-1.5 shadow-sm">
-                                            <AlertTriangle size={13} className="shrink-0 text-rose-600 dark:text-rose-300"/>
-                                            <span>Already Delivered in <strong>ORD-{item.duplicateDetails.orderId}</strong> ({item.duplicateDetails.groupName}) on {item.duplicateDetails.date}</span>
+                                    <div className="flex-1 min-w-0">
+                                        <h5 className="text-[14px] font-black text-gray-900 dark:text-white truncate tracking-wide flex items-center gap-2 mb-1.5 transition-colors">
+                                            <BookOpen size={14} className={item.isDuplicate ? "text-rose-600 dark:text-rose-400 shrink-0" : (hasShortage ? "text-rose-500 shrink-0" : "text-brand-accent shrink-0")}/>
+                                            {item.tuteName}
+                                        </h5>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <p className="text-[11px] font-bold text-gray-700 dark:text-slate-300 truncate bg-gray-200/80 dark:bg-white/10 inline-block px-2.5 py-0.5 rounded shadow-sm transition-colors">{item.courseName}</p>
+                                            <p className="text-[10px] font-black text-brand-accent dark:text-brand-accent uppercase tracking-widest truncate transition-colors">{item.lecturerName}</p>
                                         </div>
-                                    )}
+
+                                        {/* Stock & To Send Badges directly under lecturer info */}
+                                        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                                            <span 
+                                                className={`text-[10px] font-black px-2 py-0.5 rounded-md border flex items-center gap-1 shadow-xs transition-colors ${
+                                                    (hasShortage || isNoStock)
+                                                        ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-500/40'
+                                                        : 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-500/30'
+                                                }`}
+                                                title={`Physical Available Stock: ${item.availableStock ?? 0} pcs`}
+                                            >
+                                                <Package size={11} className="shrink-0" />
+                                                Stock: {item.availableStock ?? 0}
+                                            </span>
+                                            <span 
+                                                className="text-[10px] font-black px-2 py-0.5 rounded-md border bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-500/30 flex items-center gap-1 shadow-xs transition-colors"
+                                                title={`Confirmed orders waiting to be sent: ${item.pendingOrdersCount ?? 0}`}
+                                            >
+                                                <Truck size={11} className="shrink-0" />
+                                                To Send: {item.pendingOrdersCount ?? 0}
+                                            </span>
+                                            {hasShortage && (
+                                                <span 
+                                                    className="text-[9.5px] font-black px-2 py-0.5 rounded-md border bg-rose-600 text-white border-rose-700 flex items-center gap-1 uppercase tracking-tight shadow-sm animate-pulse"
+                                                    title={`Orders demand exceeds current stock! Short by ${item.shortageQty ?? 0} pcs`}
+                                                >
+                                                    <AlertTriangle size={11} className="shrink-0 text-white"/>
+                                                    {isNoStock ? 'No Stock' : `Short: -${item.shortageQty}`}
+                                                </span>
+                                            )}
+                                        </div>
+
+                                        {item.isDuplicate && item.duplicateDetails && (
+                                            <div className="mt-2 text-[11px] font-black text-rose-800 dark:text-rose-200 bg-rose-200/80 dark:bg-rose-900/40 px-2.5 py-1 rounded-lg border border-rose-400 dark:border-rose-500/40 flex items-center gap-1.5 shadow-sm">
+                                                <AlertTriangle size={13} className="shrink-0 text-rose-600 dark:text-rose-300"/>
+                                                <span>Already Delivered in <strong>ORD-{item.duplicateDetails.orderId}</strong> ({item.duplicateDetails.groupName}) on {item.duplicateDetails.date}</span>
+                                            </div>
+                                        )}
+
+                                        {hasShortage && !item.isDuplicate && (
+                                            <div className="mt-2 text-[11px] font-black text-rose-800 dark:text-rose-200 bg-rose-100/90 dark:bg-rose-950/60 px-2.5 py-1 rounded-lg border border-rose-300 dark:border-rose-500/40 flex items-center gap-1.5 shadow-sm">
+                                                <AlertTriangle size={13} className="shrink-0 text-rose-600 dark:text-rose-400"/>
+                                                <span>
+                                                    {isNoStock 
+                                                        ? `⚠️ Out of Stock! (0 pcs available, ${item.pendingOrdersCount ?? 0} orders waiting)` 
+                                                        : `⚠️ Low Stock Warning: Available ${item.availableStock ?? 0} pcs < Orders to Send ${item.pendingOrdersCount ?? 0} (Short: -${item.shortageQty ?? 0} pcs)`}
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="shrink-0 pl-3 border-l border-gray-200 dark:border-white/10 ml-3 flex flex-col items-center justify-center transition-colors">
+                                    <img 
+                                        src={getLecImgUrl(item.lecturerImage)} 
+                                        onError={(e) => { e.target.onerror = null; e.target.src = '/logo.png'; }} 
+                                        className="w-10 h-10 rounded-full object-cover border-2 border-white dark:border-brand-darkCard bg-gray-100 dark:bg-black/40 shadow-md transition-colors" 
+                                        alt="Lecturer"
+                                        title={item.lecturerName}
+                                    />
                                 </div>
                             </div>
-
-                            <div className="shrink-0 pl-3 border-l border-gray-200 dark:border-white/10 ml-3 transition-colors">
-                                <img 
-                                    src={getLecImgUrl(item.lecturerImage)} 
-                                    onError={(e) => { e.target.onerror = null; e.target.src = '/logo.png'; }} 
-                                    className="w-10 h-10 rounded-full object-cover border-2 border-white dark:border-brand-darkCard bg-gray-100 dark:bg-black/40 shadow-md transition-colors" 
-                                    alt="Lecturer"
-                                    title={item.lecturerName}
-                                />
-                            </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
                 
                 {order.lastDelivery ? (

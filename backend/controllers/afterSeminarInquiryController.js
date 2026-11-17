@@ -610,7 +610,8 @@ exports.getLeads = async (req, res) => {
 
         const approvedPayments = regUserIds.length > 0 ? await prisma.payment.findMany({
             where: {
-                status: { in: [1, 4] },
+                status: 1,
+                amount: { gt: 0 },
                 batchId: { not: null },
                 studentId: { in: regUserIds }
             },
@@ -621,7 +622,7 @@ exports.getLeads = async (req, res) => {
             }
         }) : [];
 
-        // Map: `${batchId}_${suffix7}` -> payment_type
+        // Map: `${batchId}_${suffix}` -> payment_type
         const approvedBatchPaymentMap = new Map();
         approvedPayments.forEach(p => {
             if (!p.studentId || !p.batchId) return;
@@ -629,6 +630,9 @@ exports.getLeads = async (req, res) => {
             pPhones.forEach(raw => {
                 if (!raw) return;
                 const cleaned = raw.replace(/[^0-9]/g, '');
+                if (cleaned.length >= 9) {
+                    approvedBatchPaymentMap.set(`${p.batchId}_${cleaned.slice(-9)}`, p.payment_type);
+                }
                 if (cleaned.length >= 7) {
                     approvedBatchPaymentMap.set(`${p.batchId}_${cleaned.slice(-7)}`, p.payment_type);
                 }
@@ -746,12 +750,14 @@ exports.getLeads = async (req, res) => {
                 else leads[i].needs10DayCall = false;
             }
 
-            // Real-time batch-level payment verification
-            if (l.batchId && l.phone) {
+            // Real-time batch-level payment verification (Only truly approved payments for THIS batch)
+            const effectiveBatchId = l.batchId || (l.phone && l.phone.includes('_BATCH_') ? parseInt(l.phone.split('_BATCH_')[1]?.split('_')[0]) : null) || (batchId && batchId !== 'ALL' && batchId !== 'UNASSIGNED' ? parseInt(batchId) : null);
+            if (effectiveBatchId && l.phone) {
                 const rawP = l.phone.split('_')[0].replace(/[^0-9]/g, '');
                 if (rawP.length >= 7) {
+                    const suffix9 = rawP.slice(-9);
                     const suffix7 = rawP.slice(-7);
-                    const approvedPType = approvedBatchPaymentMap.get(`${l.batchId}_${suffix7}`);
+                    const approvedPType = approvedBatchPaymentMap.get(`${effectiveBatchId}_${suffix9}`) || approvedBatchPaymentMap.get(`${effectiveBatchId}_${suffix7}`);
                     if (approvedPType) {
                         const actualIntention = approvedPType === 3 ? 'FULL' : approvedPType === 2 ? 'INSTALLMENT' : 'MONTHLY';
                         leads[i].enrollmentStatus = 'ENROLLED';
@@ -760,6 +766,9 @@ exports.getLeads = async (req, res) => {
                         if (l.enrollmentStatus !== 'ENROLLED') {
                             leadsNeedingEnrollmentDbUpdate.push(l.id);
                         }
+                    } else if (leads[i].enrollmentStatus === 'ENROLLED' || leads[i].enrollmentStatus === 'PAID') {
+                        // Truly paid only: if they have no approved payment for THIS batch, they are NOT enrolled in this batch!
+                        leads[i].enrollmentStatus = 'NON_ENROLLED';
                     }
                 }
             }
@@ -1523,7 +1532,8 @@ exports.updateCallCampaign = async (req, res) => {
                 const approvedPay = await prisma.payment.findFirst({
                     where: {
                         batchId: lead.batchId,
-                        status: { in: [1, 4] },
+                        status: 1,
+                        amount: { gt: 0 },
                         OR: [
                             { student: { phone: { contains: suffix7 } } },
                             { student: { whatsapp: { contains: suffix7 } } },

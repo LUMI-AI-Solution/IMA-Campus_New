@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import axios from '../../../api/axios';
-import { Loader2, CheckCircle, Clock, Wallet, CalendarDays, AlertTriangle, UploadCloud, X, Camera, MonitorPlay, Paperclip, Info } from 'lucide-react';
+import { Loader2, CheckCircle, Clock, Wallet, CalendarDays, AlertTriangle, UploadCloud, X, Camera, MonitorPlay, Paperclip, Info, Download } from 'lucide-react';
 import toast from 'react-hot-toast';
+import jsPDF from 'jspdf';
+import { toPng } from 'html-to-image';
+import PaymentReceiptTemplate from '../../../components/student/PaymentReceiptTemplate';
 
 import correctCdmImg from '../../../assets/correct-cdm.jpg';
 import wrongCdmImg from '../../../assets/wrong-cdm.jpg';
@@ -23,6 +26,10 @@ export default function PaymentHistory({ isActive = true }) {
     const [paycorpIframeUrl, setPaycorpIframeUrl] = useState(null);
     const [agreedToTerms, setAgreedToTerms] = useState(false);
     const activePayingModalRef = React.useRef(null);
+
+    const [downloadingBillId, setDownloadingBillId] = useState(null);
+    const [activeReceiptData, setActiveReceiptData] = useState(null);
+    const receiptRef = React.useRef(null);
 
     const backendBaseUrl = axios.defaults.baseURL.replace('/api', '');
 
@@ -213,6 +220,87 @@ export default function PaymentHistory({ isActive = true }) {
             newWindow.document.close();
         } else {
             toast.error("Popup blocked! Please allow popups for this site.");
+        }
+    };
+
+    // 📥 On-demand Instant PDF Receipt Download (Zero DB/Memory Storage)
+    const handleDownloadBill = async (p) => {
+        if (!p || !p.id || downloadingBillId) return;
+        setDownloadingBillId(p.id);
+        const toastId = toast.loading("Generating Official PDF Bill...");
+        try {
+            let res;
+            try {
+                res = await axios.get(`/student/payment-receipt/${p.id}`);
+            } catch (fetchErr) {
+                console.error("Receipt API fetch error:", fetchErr);
+                toast.error("Could not fetch receipt details. Please try again.", { id: toastId });
+                setDownloadingBillId(null);
+                return;
+            }
+
+            if (!res?.data?.receipt) {
+                toast.error("Receipt data not found for this payment.", { id: toastId });
+                setDownloadingBillId(null);
+                return;
+            }
+
+            setActiveReceiptData(res.data.receipt);
+
+            // Allow DOM to mount offscreen and fonts/images to settle
+            await new Promise((resolve) => setTimeout(resolve, 200));
+
+            if (!receiptRef.current) {
+                toast.error("Receipt rendering element not found.", { id: toastId });
+                setDownloadingBillId(null);
+                setActiveReceiptData(null);
+                return;
+            }
+
+            const imgData = await toPng(receiptRef.current, {
+                quality: 1,
+                pixelRatio: 2.2,
+                backgroundColor: '#ffffff',
+                cacheBust: true
+            });
+
+            const pdf = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: 'a4',
+                compress: true
+            });
+
+            const pageWidth = 210;
+            const pageHeight = 297;
+            const margin = 10;
+            const printableWidth = pageWidth - (margin * 2);
+            const printableHeight = pageHeight - (margin * 2);
+
+            const img = new Image();
+            img.src = imgData;
+            await new Promise((resolve) => { img.onload = resolve; });
+
+            const imgRatio = img.height / img.width;
+            const renderWidth = printableWidth;
+            const renderHeight = printableWidth * imgRatio;
+
+            if (renderHeight <= printableHeight) {
+                const offsetY = margin + Math.max(0, (printableHeight - renderHeight) / 4);
+                pdf.addImage(imgData, 'PNG', margin, offsetY, renderWidth, renderHeight, undefined, 'FAST');
+            } else {
+                pdf.addImage(imgData, 'PNG', margin, margin, renderWidth, renderHeight, undefined, 'FAST');
+            }
+
+            const filename = `${res.data.receipt.receiptNo || `IMA-REC-${p.id}`}.pdf`;
+            pdf.save(filename);
+            toast.success("Receipt PDF downloaded successfully!", { id: toastId });
+        } catch (err) {
+            console.error("Download bill error:", err);
+            toast.error("Failed to generate PDF. Please try again.", { id: toastId });
+        } finally {
+            setDownloadingBillId(null);
+            setActiveReceiptData(null);
         }
     };
 
@@ -430,6 +518,26 @@ export default function PaymentHistory({ isActive = true }) {
                                             {p.slips && p.slips.length > 0 && (
                                                 <button onClick={() => openSlipsInNewTab(p.slips)} className="text-[10px] font-extrabold text-blue-400 hover:text-white bg-blue-500/10 hover:bg-blue-600 border border-blue-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors">
                                                     View Slip
+                                                </button>
+                                            )}
+                                            {p.displayStatus === 'Approved' && (
+                                                <button 
+                                                    onClick={() => handleDownloadBill(p)} 
+                                                    disabled={downloadingBillId === p.id}
+                                                    className="text-[10px] font-extrabold text-emerald-400 hover:text-white bg-emerald-500/10 hover:bg-emerald-600 border border-emerald-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+                                                    title="Download Official Payment Receipt (PDF)"
+                                                >
+                                                    {downloadingBillId === p.id ? (
+                                                        <>
+                                                            <Loader2 size={11} className="animate-spin" />
+                                                            <span>Generating...</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Download size={11} />
+                                                            <span>Download Bill</span>
+                                                        </>
+                                                    )}
                                                 </button>
                                             )}
                                         </div>
@@ -685,6 +793,13 @@ export default function PaymentHistory({ isActive = true }) {
                     </div>
                 </div>,
                 document.body
+            )}
+
+            {/* Offscreen Payment Receipt Container for On-Demand PDF Generation (Zero memory leak, unmounts immediately) */}
+            {activeReceiptData && (
+                <div style={{ position: 'fixed', left: '-9999px', top: 0, zIndex: -100, pointerEvents: 'none' }}>
+                    <PaymentReceiptTemplate ref={receiptRef} data={activeReceiptData} />
+                </div>
             )}
         </div>
     );

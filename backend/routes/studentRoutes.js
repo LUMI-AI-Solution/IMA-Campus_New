@@ -47,6 +47,7 @@ router.post('/pay-due-online', verifyToken, requirePayingStudent, studentControl
 router.get('/classroom', verifyToken, studentController.getStudentClassroom);
 router.get('/module/:id', verifyToken, guardCourseParam('id'), studentController.getCourseModules);
 router.get('/my-payments', verifyToken, studentController.getMyPayments);
+router.get('/payment-receipt/:paymentId', verifyToken, studentController.getPaymentReceipt);
 
 router.get('/getVideoStream/:videoId', verifyToken, studentController.getVideoStream);
 

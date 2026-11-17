@@ -705,10 +705,6 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
                   <Truck size={18} className={getIconColorClass('blue')} /> 
                   {isSidebarOpen && <span className="truncate text-sm">Delivery Hub</span>}
                 </NavLink>
-                <NavLink to="/delivery/dashboard?tab=reports" className={getNavLinkClass}>
-                  <BarChart size={18} className={getIconColorClass('pink')} /> 
-                  {isSidebarOpen && <span className="truncate text-sm">Stock Reports</span>}
-                </NavLink>
               </>
             ))}
 
@@ -743,7 +739,6 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
           renderSectionBlock('Management', (
             <>
               <NavLink to="/manager/dashboard" className={getNavLinkClass}><LayoutDashboard size={18} className={getIconColorClass('blue')} /> {isSidebarOpen && <span className="truncate text-sm">Realtime Overview</span>}</NavLink>
-              <NavLink to="/coordinator/dashboard?mode=OVERVIEW" className={() => getQueryNavLinkClass('OVERVIEW')}><LayoutDashboard size={18} className={getIconColorClass('purple')} /> {isSidebarOpen && <span className="truncate text-sm">Coordinator Overview</span>}</NavLink>
               <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className={getIconColorClass('indigo')} /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
             </>
           ), true)
@@ -786,7 +781,6 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
               <NavLink to="/delivery/dashboard?tab=history" className={() => getTabLinkClass('history')}><History size={18} className={getIconColorClass('purple')} /> {isSidebarOpen && <span className="truncate text-sm">History</span>}</NavLink>
               <NavLink to="/delivery/dashboard?tab=payment_details" className={() => getTabLinkClass('payment_details')}><Wallet size={18} className={getIconColorClass('indigo')} /> {isSidebarOpen && <span className="truncate text-sm">Payment Details</span>}</NavLink>
               <NavLink to="/delivery/dashboard?tab=stock" className={() => getTabLinkClass('stock')}><Archive size={18} className={getIconColorClass('slate')} /> {isSidebarOpen && <span className="truncate text-sm">Tute Stock</span>}</NavLink>
-              <NavLink to="/delivery/dashboard?tab=reports" className={() => getTabLinkClass('reports')}><BarChart size={18} className={getIconColorClass('pink')} /> {isSidebarOpen && <span className="truncate text-sm">Stock Reports</span>}</NavLink>
             </>
           ), true)
         )}
@@ -822,8 +816,6 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
                 <NavLink to="/delivery/dashboard?tab=pending" onClick={() => window.dispatchEvent(new CustomEvent('reset-pending-holds'))} className={() => getTabLinkClass('pending')}><Clock size={18} className={getIconColorClass('orange')} /> {isSidebarOpen && <span className="truncate text-sm">Pending & Holds</span>}</NavLink>
                 <NavLink to="/delivery/dashboard?tab=delivered" className={() => getTabLinkClass('delivered')}><CheckCircle size={18} className={getIconColorClass('emerald')} /> {isSidebarOpen && <span className="truncate text-sm">Delivered</span>}</NavLink>
                 <NavLink to="/delivery/dashboard?tab=history" className={() => getTabLinkClass('history')}><Activity size={18} className={getIconColorClass('purple')} /> {isSidebarOpen && <span className="truncate text-sm">Delivery History</span>}</NavLink>
-                <NavLink to="/delivery/dashboard?tab=payment_details" className={() => getTabLinkClass('payment_details')}><Wallet size={18} className={getIconColorClass('indigo')} /> {isSidebarOpen && <span className="truncate text-sm">Payment Details</span>}</NavLink>
-                <NavLink to="/delivery/dashboard?tab=reports" className={getNavLinkClass}><BarChart size={18} className={getIconColorClass('pink')} /> {isSidebarOpen && <span className="truncate text-sm">Stock Reports 📊</span>}</NavLink>
               </>
             ))}
           </>
@@ -989,7 +981,6 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
               <>
                 <NavLink to="/workspace/after-seminar-crm" className={getNavLinkClass}><HeadphonesIcon size={18} className={getIconColorClass('pink')} /> {isSidebarOpen && <span className="truncate text-sm">After Seminar CRM</span>}</NavLink>
                 <NavLink to="/admin/content-hub" className={getNavLinkClass}><MonitorPlay size={18} className={getIconColorClass('purple')} /> {isSidebarOpen && <span className="truncate text-sm">Content Hub</span>}</NavLink>
-                <NavLink to="/admin/payments" className={getNavLinkClass}><Wallet size={18} className={getIconColorClass('emerald')} /> {isSidebarOpen && <span className="truncate text-sm">Payment Management</span>}</NavLink>
               </>
             ))}
 

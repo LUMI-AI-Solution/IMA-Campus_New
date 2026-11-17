@@ -17,10 +17,10 @@ const getActiveStaffIds = async (businessId, batchId) => {
 
 // Helper: Get verified student phone numbers (last 9 digits) for a business/batch
 const getVerifiedPhones = async (businessId, batchId) => {
-    const paymentWhere = { status: { in: [1, 4] } };
-    if (batchId && batchId !== 'ALL') {
+    const paymentWhere = { status: 1, amount: { gt: 0 } };
+    if (batchId && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null') {
         paymentWhere.batchId = parseInt(batchId);
-    } else if (businessId && businessId !== 'ALL') {
+    } else if (businessId && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null') {
         paymentWhere.businessId = parseInt(businessId);
     }
 
@@ -29,75 +29,32 @@ const getVerifiedPhones = async (businessId, batchId) => {
         include: { student: true, group: true }
     });
 
-    const verifiedStudentNics = [];
-    const verifiedStudentPhones = [];
-    verifiedPayments.forEach(p => {
-        if (p.student) {
-            if (p.student.nic) verifiedStudentNics.push(p.student.nic.trim());
-            if (p.student.phone) verifiedStudentPhones.push(p.student.phone);
-            if (p.student.whatsapp) verifiedStudentPhones.push(p.student.whatsapp);
-            if (p.student.optionalPhone) verifiedStudentPhones.push(p.student.optionalPhone);
-        }
-    });
-
-    const relatedStudents = await prisma.user.findMany({
-        where: {
-            role: { in: ['Student', 'USER', 'user', 'student', 'STUDENT'] },
-            OR: [
-                { nic: { in: verifiedStudentNics.filter(Boolean) } },
-                { phone: { in: verifiedStudentPhones.filter(Boolean) } },
-                { whatsapp: { in: verifiedStudentPhones.filter(Boolean) } },
-                { optionalPhone: { in: verifiedStudentPhones.filter(Boolean) } }
-            ]
-        }
-    });
-
-    const studentIdToRelatedPhonesMap = {};
-    verifiedPayments.forEach(p => {
-        if (!p.student) return;
-        const stu = p.student;
-        const sid = stu.id;
-
-        const matches = relatedStudents.filter(other => {
-            if (other.id === sid) return true;
-            if (stu.nic && other.nic && stu.nic.trim() === other.nic.trim()) return true;
-            const stuNumSet = new Set([stu.phone, stu.whatsapp, stu.optionalPhone].filter(Boolean));
-            const otherNumSet = new Set([other.phone, other.whatsapp, other.optionalPhone].filter(Boolean));
-            for (let num of stuNumSet) {
-                if (otherNumSet.has(num)) return true;
-            }
-            return false;
-        });
-
-        const phoneSuffixes = new Set();
-        matches.forEach(m => {
-            [m.phone, m.whatsapp, m.optionalPhone].forEach(ph => {
-                if (!ph) return;
-                const cleanPh = ph.replace(/[^0-9]/g, '');
-                if (cleanPh.length >= 7) {
-                    phoneSuffixes.add(cleanPh.slice(-7));
-                }
-            });
-        });
-
-        studentIdToRelatedPhonesMap[stu.id] = phoneSuffixes;
-    });
-
     const verifiedPhones = new Set();
     const phoneSuffixToStudentId = {};
     const phoneSuffixToPaymentType = {};
     verifiedPayments.forEach(p => {
         if (p.student) {
+            const stu = p.student;
             const isFull = p.payment_type === 3 || (p.group?.name && p.group.name.toUpperCase().includes('FULL'));
             const isUpgrade = p.payment_type === 4 || (p.group?.name && p.group.name.toUpperCase().includes('UPGRADE'));
             const isInstallment = p.payment_type === 2 || (p.group?.name && p.group.name.toUpperCase().includes('INSTALLMENT'));
             const typeStr = isFull ? 'FULL' : (isUpgrade ? 'UPGRADE' : (isInstallment ? 'INSTALLMENT' : 'MONTHLY'));
 
-            const relatedSuffixes = studentIdToRelatedPhonesMap[p.student.id] || new Set();
-            relatedSuffixes.forEach(suffix => {
-                verifiedPhones.add(suffix);
-                phoneSuffixToStudentId[suffix] = p.student.id;
-                phoneSuffixToPaymentType[suffix] = typeStr;
+            [stu.phone, stu.whatsapp, stu.optionalPhone].forEach(ph => {
+                if (!ph) return;
+                const cleanPh = ph.replace(/[^0-9]/g, '');
+                if (cleanPh.length >= 9) {
+                    const s9 = cleanPh.slice(-9);
+                    verifiedPhones.add(s9);
+                    phoneSuffixToStudentId[s9] = stu.id;
+                    phoneSuffixToPaymentType[s9] = typeStr;
+                }
+                if (cleanPh.length >= 7) {
+                    const s7 = cleanPh.slice(-7);
+                    verifiedPhones.add(s7);
+                    phoneSuffixToStudentId[s7] = stu.id;
+                    phoneSuffixToPaymentType[s7] = typeStr;
+                }
             });
         }
     });
@@ -108,20 +65,42 @@ const getVerifiedPhones = async (businessId, batchId) => {
 };
 
 
+// ==========================================
+// BUSINESS & STAFF SCOPING HELPERS
+// ==========================================
+const isCallCenterUser = (u) => {
+    if (!u) return false;
+    const role = String(u.role || '').toUpperCase().replace(/[ -]/g, '_');
+    const dept = String(u.department || '').toUpperCase().replace(/[ -]/g, '_');
+    return role.includes('CALL_CENTER') || role.includes('CALLER') || role.includes('TELECALLER') || dept.includes('CALL_CENTER');
+};
+
 // 🔥 Helper: Get primary enrolled lead IDs to prevent duplicates across campaigns 🔥
 const getPrimaryEnrolledLeadIds = async (businessId, batchId, verifiedPhones) => {
-    const whereClause = buildStatsWhereClause(businessId, batchId, null, null, { campaignType: { in: ['AFTER_SEMINAR', 'FREE_SEMINAR'] } });
+    const whereClause = buildStatsWhereClause(businessId, batchId, null, null, {
+        campaignType: 'AFTER_SEMINAR',
+        source: { notIn: ['bridge_transfer', 'system'] },
+        inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL', 'NEW_INQ'] }
+    });
     const allLeads = await prisma.lead.findMany({
         where: whereClause,
-        select: { id: true, phone: true, createdAt: true }
+        select: {
+            id: true,
+            phone: true,
+            createdAt: true,
+            assignedUser: { select: { id: true, role: true, department: true } }
+        }
     });
+
+    const coordinatorLeads = allLeads.filter(l => !isCallCenterUser(l.assignedUser));
 
     const phoneSuffixToStudentId = verifiedPhones.studentIdMap || {};
     const studentToLeads = {};
-    allLeads.forEach(l => {
+    coordinatorLeads.forEach(l => {
         const cleanPhone = l.phone ? l.phone.split('_')[0].replace(/[^0-9]/g, '') : '';
-        if (cleanPhone.length >= 7 && verifiedPhones.has(cleanPhone.slice(-7))) {
-            const studentId = phoneSuffixToStudentId[cleanPhone.slice(-7)];
+        const suf = cleanPhone.length >= 9 ? cleanPhone.slice(-9) : (cleanPhone.length >= 7 ? cleanPhone.slice(-7) : null);
+        if (suf && verifiedPhones.has(suf)) {
+            const studentId = phoneSuffixToStudentId[suf];
             if (studentId) {
                 if (!studentToLeads[studentId]) studentToLeads[studentId] = [];
                 studentToLeads[studentId].push(l);
@@ -131,7 +110,7 @@ const getPrimaryEnrolledLeadIds = async (businessId, batchId, verifiedPhones) =>
 
     const primaryLeadIds = new Set();
     Object.values(studentToLeads).forEach(group => {
-        group.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)); // Latest lead gets the enrollment
+        group.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)); // Latest genuine coordinator lead gets the enrollment
         primaryLeadIds.add(group[0].id);
     });
 
@@ -239,7 +218,7 @@ const computeVerifiedMissingStudents = async (businessId, batchId) => {
     }
 
     const payments = await prisma.payment.findMany({
-        where: { batchId: { in: batchIdsToFetch }, status: { in: [1, 4] } },
+        where: { batchId: { in: batchIdsToFetch }, status: 1, amount: { gt: 0 } },
         select: {
             id: true, payment_type: true, groupId: true, businessId: true, batchId: true, amount: true,
             student: { select: { id: true, firstName: true, lastName: true, phone: true, whatsapp: true, optionalPhone: true, nic: true } },
@@ -248,13 +227,26 @@ const computeVerifiedMissingStudents = async (businessId, batchId) => {
     });
 
     const crmWhereClauseOverall = buildStatsWhereClause(businessId, batchId, null, null, {
-        campaignType: 'AFTER_SEMINAR', source: { not: 'system' }
+        campaignType: 'AFTER_SEMINAR',
+        source: { notIn: ['bridge_transfer', 'system'] },
+        inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL', 'NEW_INQ'] }
     });
     const allCrmLeads = await prisma.lead.findMany({
         where: crmWhereClauseOverall,
-        select: { phone: true }
+        select: {
+            id: true,
+            phone: true,
+            assignedUser: { select: { id: true, role: true, department: true } }
+        }
     });
-    const crmLeadPhones = new Set(allCrmLeads.map(l => getLast9Digits(l.phone)));
+    const coordLeads = allCrmLeads.filter(l => !isCallCenterUser(l.assignedUser));
+
+    const phoneLeadSet = new Set();
+    coordLeads.forEach(l => {
+        const raw = l.phone.split('_')[0].replace(/[^0-9]/g, '');
+        if (raw.length >= 9) phoneLeadSet.add(raw.slice(-9));
+        if (raw.length >= 7) phoneLeadSet.add(raw.slice(-7));
+    });
 
     const paymentStudentsMap = new Map();
     payments.forEach(p => { 
@@ -263,13 +255,19 @@ const computeVerifiedMissingStudents = async (businessId, batchId) => {
 
     let notInCrmStudents = [];
     paymentStudentsMap.forEach(student => {
-        const studentPhoneLast9 = getLast9Digits(student.phone);
-        const studentWaLast9 = getLast9Digits(student.whatsapp);
-        const studentOpLast9 = getLast9Digits(student.optionalPhone);
-
-        const isMatchedInCrm = (studentPhoneLast9 && crmLeadPhones.has(studentPhoneLast9)) ||
-                               (studentWaLast9 && crmLeadPhones.has(studentWaLast9)) ||
-                               (studentOpLast9 && crmLeadPhones.has(studentOpLast9));
+        const phs = [student.phone, student.whatsapp, student.optionalPhone].filter(Boolean);
+        let isMatchedInCrm = false;
+        for (const ph of phs) {
+            const clean = String(ph).replace(/[^0-9]/g, '');
+            if (clean.length >= 9 && phoneLeadSet.has(clean.slice(-9))) {
+                isMatchedInCrm = true;
+                break;
+            }
+            if (clean.length >= 7 && phoneLeadSet.has(clean.slice(-7))) {
+                isMatchedInCrm = true;
+                break;
+            }
+        }
 
         if (!isMatchedInCrm) {
             notInCrmStudents.push({
@@ -288,6 +286,37 @@ const computeVerifiedMissingStudents = async (businessId, batchId) => {
 };
 
 // ==========================================
+// BUSINESS & STAFF SCOPING HELPERS
+// ==========================================
+
+const resolveTargetBizName = async (businessId, batchId) => {
+    try {
+        if (businessId && businessId !== 'ALL' && !isNaN(parseInt(businessId))) {
+            const b = await prisma.business.findUnique({
+                where: { id: parseInt(businessId) },
+                select: { id: true, name: true }
+            });
+            if (b) return String(b.name || '').toLowerCase().trim();
+        } else if (batchId && batchId !== 'ALL' && !isNaN(parseInt(batchId))) {
+            const bt = await prisma.batch.findUnique({
+                where: { id: parseInt(batchId) },
+                select: { businessId: true, business: { select: { name: true } } }
+            });
+            if (bt?.business) return String(bt.business.name || '').toLowerCase().trim();
+        }
+    } catch (e) {
+        console.error("resolveTargetBizName error:", e);
+    }
+    return '';
+};
+
+const isStaffInBusiness = (u, targetBizId, targetBizName) => {
+    if (!u) return false;
+    if (isCallCenterUser(u)) return false;
+    return true; // Any non-call-center coordinator assigned to batch leads is valid
+};
+
+// ==========================================
 // 1. OVERALL PROGRESS STATS (INTEGRATED WITH OPEN SEMINAR & NEW INQUIRIES)
 // ==========================================
 exports.getManagerDashboardStats = async (req, res) => {
@@ -295,7 +324,7 @@ exports.getManagerDashboardStats = async (req, res) => {
         const { businessId, batchId, startDate, endDate } = req.query;
 
         let courseWhere = {};
-        const paymentWhere = { status: { in: [1, 4] } };
+        const paymentWhere = { status: 1, amount: { gt: 0 } };
         if (batchId && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null') {
             paymentWhere.batchId = parseInt(batchId);
             const batchGroups = await prisma.group.findMany({ where: { batchId: parseInt(batchId) }, select: { id: true } });
@@ -611,6 +640,7 @@ exports.updateBatchGoals = async (req, res) => {
 exports.getNewInquiryStats = async (req, res) => {
     try {
         const { businessId, batchId, startDate, endDate } = req.query;
+        const targetBizName = await resolveTargetBizName(businessId, batchId);
 
         const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, {
             campaignType: 'AFTER_SEMINAR', inquiryType: 'NEW_INQ'
@@ -618,7 +648,7 @@ exports.getNewInquiryStats = async (req, res) => {
 
         let leads = await prisma.lead.findMany({
             where: whereClause,
-            include: { assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true, image: true, appChatDp: true } } }
+            include: { assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true, department: true, image: true, appChatDp: true } } }
         });
 
         // 🔥 FIX: Bridge Transfers අනිවාර්යයෙන්ම අයින් කරන්න
@@ -628,10 +658,10 @@ exports.getNewInquiryStats = async (req, res) => {
         const primaryEnrolledLeadIds = await getPrimaryEnrolledLeadIds(businessId, batchId, verifiedPhones);
         const activeStaffIds = await getActiveStaffIds(businessId, batchId);
 
-        // 🔥 AUTO-SYNC VERIFIED PAID LEADS TO 'ENROLLED' IN DB 🔥
+        // 🔥 AUTO-SYNC VERIFIED PAID LEADS TO 'ENROLLED' IN DB & DEMOTE UNVERIFIED 🔥
         if (primaryEnrolledLeadIds && primaryEnrolledLeadIds.size > 0) {
             const unsyncedIds = leads
-                .filter(l => primaryEnrolledLeadIds.has(l.id) && l.enrollmentStatus !== 'ENROLLED' && l.enrollmentStatus !== 'PAID')
+                .filter(l => primaryEnrolledLeadIds.has(l.id) && l.enrollmentStatus !== 'ENROLLED')
                 .map(l => l.id);
             if (unsyncedIds.length > 0) {
                 try {
@@ -647,6 +677,26 @@ exports.getNewInquiryStats = async (req, res) => {
                 } catch (syncErr) {
                     console.error("Auto-syncing lead enrollment status error:", syncErr);
                 }
+            }
+        }
+
+        // Demote leads marked enrolled who have no approved payment in this batch
+        const unverifiedIds = leads
+            .filter(l => !primaryEnrolledLeadIds.has(l.id) && (l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID'))
+            .map(l => l.id);
+        if (unverifiedIds.length > 0) {
+            try {
+                await prisma.lead.updateMany({
+                    where: { id: { in: unverifiedIds } },
+                    data: { enrollmentStatus: 'NON_ENROLLED' }
+                });
+                leads.forEach(l => {
+                    if (unverifiedIds.includes(l.id)) {
+                        l.enrollmentStatus = 'NON_ENROLLED';
+                    }
+                });
+            } catch (demoteErr) {
+                console.error("Demoting unverified leads error:", demoteErr);
             }
         }
 
@@ -670,7 +720,7 @@ exports.getNewInquiryStats = async (req, res) => {
             const isNoAnswer = l.newInqCallStatus === 'no_answer';
             const isReject = l.newInqCallStatus === 'reject';
 
-            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id) || l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'));
+            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
             const isEnrolled = isReallyEnrolled;
 
             const isDirectPaid = isEnrolled && isPending;
@@ -690,6 +740,11 @@ exports.getNewInquiryStats = async (req, res) => {
 
             const isAssignedToRealStaff = l.assignedTo && l.assignedUser && !['STUDENT', 'Student', 'USER', 'user'].includes(l.assignedUser.role);
             if (isAssignedToRealStaff) {
+                // Only coordinators belonging to this business (and not call center agents)
+                if (!isStaffInBusiness(l.assignedUser, businessId, targetBizName)) {
+                    return;
+                }
+
                 totalAssigned++;
                 if (isEnrolled) totalEnrolled++;
                 if (isContacted) totalContacted++;
@@ -765,7 +820,7 @@ exports.getNewInquiryStats = async (req, res) => {
                     name: l.name || 'Unknown',
                     phase: l.newInqPhase || 1,
                     status: l.newInqCallStatus || 'pending',
-                    enrolled: l.enrollmentStatus || 'NON_ENROLLED',
+                    enrolled: isEnrolled ? 'ENROLLED' : 'NON_ENROLLED',
                     remark: l.newInqFeedback || 'No Remark'
                 };
 
@@ -797,7 +852,7 @@ exports.getNewInquiryStats = async (req, res) => {
             round: l.newInqRound || 1,
             phase: l.newInqPhase || 1,
             callStatus: l.newInqCallStatus || 'pending',
-            enrollmentStatus: l.enrollmentStatus || 'NON_ENROLLED',
+            enrollmentStatus: primaryEnrolledLeadIds.has(l.id) ? 'ENROLLED' : 'NON_ENROLLED',
             paymentPlan: l.paymentIntention || 'NOT_DECIDED',
             remark: l.newInqFeedback || 'No Remark'
         }));
@@ -825,6 +880,7 @@ exports.getNewInquiryStats = async (req, res) => {
 exports.getOpenSeminarStats = async (req, res) => {
     try {
         const { businessId, batchId, startDate, endDate } = req.query;
+        const targetBizName = await resolveTargetBizName(businessId, batchId);
 
         // 🔥 FIX: Reverted to purely OPEN_SEMINAR and NORMAL. 
         const whereClause = buildStatsWhereClause(businessId, batchId, startDate, endDate, {
@@ -833,7 +889,7 @@ exports.getOpenSeminarStats = async (req, res) => {
 
         let leads = await prisma.lead.findMany({
             where: whereClause,
-            include: { assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true, image: true, appChatDp: true } } }
+            include: { assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true, department: true, image: true, appChatDp: true } } }
         });
 
         // Bridge Transfers අනිවාර්යයෙන්ම අයින් කරන්න
@@ -843,10 +899,10 @@ exports.getOpenSeminarStats = async (req, res) => {
         const primaryEnrolledLeadIds = await getPrimaryEnrolledLeadIds(businessId, batchId, verifiedPhones);
         const activeStaffIds = await getActiveStaffIds(businessId, batchId);
 
-        // 🔥 AUTO-SYNC VERIFIED PAID LEADS TO 'ENROLLED' IN DB 🔥
+        // 🔥 AUTO-SYNC VERIFIED PAID LEADS TO 'ENROLLED' IN DB & DEMOTE UNVERIFIED 🔥
         if (primaryEnrolledLeadIds && primaryEnrolledLeadIds.size > 0) {
             const unsyncedIds = leads
-                .filter(l => primaryEnrolledLeadIds.has(l.id) && l.enrollmentStatus !== 'ENROLLED' && l.enrollmentStatus !== 'PAID')
+                .filter(l => primaryEnrolledLeadIds.has(l.id) && l.enrollmentStatus !== 'ENROLLED')
                 .map(l => l.id);
             if (unsyncedIds.length > 0) {
                 try {
@@ -865,6 +921,26 @@ exports.getOpenSeminarStats = async (req, res) => {
             }
         }
 
+        // Demote leads marked enrolled who have no approved payment in this batch
+        const unverifiedIds = leads
+            .filter(l => !primaryEnrolledLeadIds.has(l.id) && (l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID'))
+            .map(l => l.id);
+        if (unverifiedIds.length > 0) {
+            try {
+                await prisma.lead.updateMany({
+                    where: { id: { in: unverifiedIds } },
+                    data: { enrollmentStatus: 'NON_ENROLLED' }
+                });
+                leads.forEach(l => {
+                    if (unverifiedIds.includes(l.id)) {
+                        l.enrollmentStatus = 'NON_ENROLLED';
+                    }
+                });
+            } catch (demoteErr) {
+                console.error("Demoting unverified open sem leads error:", demoteErr);
+            }
+        }
+
         let totalOpenSem = leads.length;
         let totalAssigned = 0;
         let totalContacted = 0;
@@ -879,7 +955,7 @@ exports.getOpenSeminarStats = async (req, res) => {
         leads.forEach(l => {
             const isPending = l.openSemCallStatus === 'pending' || !l.openSemCallStatus;
 
-            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id) || l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'));
+            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
             const isEnrolled = isReallyEnrolled;
 
             const isDirectPaid = isEnrolled && isPending;
@@ -899,6 +975,11 @@ exports.getOpenSeminarStats = async (req, res) => {
 
             const isAssignedToRealStaff = l.assignedTo && l.assignedUser && !['STUDENT', 'Student', 'USER', 'user'].includes(l.assignedUser.role);
             if (isAssignedToRealStaff) {
+                // Only coordinators belonging to this business (and not call center agents)
+                if (!isStaffInBusiness(l.assignedUser, businessId, targetBizName)) {
+                    return;
+                }
+
                 totalAssigned++;
                 if (isEnrolled) totalEnrolled++;
                 if (isContacted) totalContacted++;
@@ -983,7 +1064,7 @@ exports.getOpenSeminarStats = async (req, res) => {
                     name: l.name || 'Unknown',
                     phase: l.openSemPhase || 1,
                     status: l.openSemCallStatus || 'pending',
-                    enrolled: l.enrollmentStatus,
+                    enrolled: isEnrolled ? 'ENROLLED' : 'NON_ENROLLED',
                     remark: l.openSemFeedback || 'No Remark'
                 };
 
@@ -1007,7 +1088,7 @@ exports.getOpenSeminarStats = async (req, res) => {
             }
         });
 
-        // 🔥 අලුතෙන් එකතු කරපු කෑල්ල: Export එකට ඕන කරන මුළු Lead Data එකම හදනවා 🔥
+        // 🔥 Export Raw Lead Data 🔥
         const rawLeadsForExport = leads.map(l => ({
             id: l.id,
             phone: l.phone ? l.phone.split('_')[0] : '', // Clean Phone
@@ -1016,7 +1097,7 @@ exports.getOpenSeminarStats = async (req, res) => {
             round: l.openSemRound || 1,
             phase: l.openSemPhase || 1,
             callStatus: l.openSemCallStatus || 'pending',
-            enrollmentStatus: l.enrollmentStatus || 'NON_ENROLLED',
+            enrollmentStatus: primaryEnrolledLeadIds.has(l.id) ? 'ENROLLED' : 'NON_ENROLLED',
             paymentPlan: l.paymentIntention || 'NOT_DECIDED',
             remark: l.openSemFeedback || 'No Remark'
         }));
@@ -1030,7 +1111,7 @@ exports.getOpenSeminarStats = async (req, res) => {
         };
 
         const isDelayedFn = (l) => {
-            if (l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID') return false;
+            if (primaryEnrolledLeadIds.has(l.id)) return false;
             const startTime = new Date(l.assignedAt || l.createdAt).getTime();
             const diffMs = now.getTime() - startTime;
             const currentRound = l.openSemRound || 1;
@@ -1041,34 +1122,34 @@ exports.getOpenSeminarStats = async (req, res) => {
 
         // R1
         campaignRounds.r1.assigned = leads.length;
-        const r1Current = leads.filter(l => (l.openSemRound || 1) === 1 && l.enrollmentStatus !== 'ENROLLED' && !primaryEnrolledLeadIds.has(l.id));
+        const r1Current = leads.filter(l => (l.openSemRound || 1) === 1 && !primaryEnrolledLeadIds.has(l.id));
         campaignRounds.r1.currentlyInRound = r1Current.length;
         campaignRounds.r1.pending = r1Current.filter(l => l.openSemCallStatus === 'pending' || !l.openSemCallStatus).length;
         campaignRounds.r1.noAnswer = r1Current.filter(l => l.openSemCallStatus === 'no_answer').length;
         campaignRounds.r1.reject = r1Current.filter(l => l.openSemCallStatus === 'reject').length;
         campaignRounds.r1.delayed = r1Current.filter(l => isDelayedFn(l) && (l.openSemCallStatus === 'pending' || !l.openSemCallStatus)).length;
-        campaignRounds.r1.movedToR2 = leads.filter(l => (l.openSemRound || 1) > 1 && l.enrollmentStatus !== 'ENROLLED' && !primaryEnrolledLeadIds.has(l.id)).length;
+        campaignRounds.r1.movedToR2 = leads.filter(l => (l.openSemRound || 1) > 1 && !primaryEnrolledLeadIds.has(l.id)).length;
         
-        const r1AnsweredCount = leads.filter(l => (l.openSemRound || 1) > 1 || l.enrollmentStatus === 'ENROLLED' || primaryEnrolledLeadIds.has(l.id) || l.openSemCallStatus === 'answered').length;
+        const r1AnsweredCount = leads.filter(l => (l.openSemRound || 1) > 1 || primaryEnrolledLeadIds.has(l.id) || l.openSemCallStatus === 'answered').length;
         campaignRounds.r1.rate = campaignRounds.r1.assigned > 0 ? ((r1AnsweredCount / campaignRounds.r1.assigned) * 100).toFixed(1) : 0;
 
         // R2
         const r2Arrived = leads.filter(l => (l.openSemRound || 1) >= 2);
         campaignRounds.r2.assigned = r2Arrived.length;
-        const r2Current = r2Arrived.filter(l => (l.openSemRound || 1) === 2 && l.enrollmentStatus !== 'ENROLLED' && !primaryEnrolledLeadIds.has(l.id));
+        const r2Current = r2Arrived.filter(l => (l.openSemRound || 1) === 2 && !primaryEnrolledLeadIds.has(l.id));
         campaignRounds.r2.currentlyInRound = r2Current.length;
         campaignRounds.r2.pending = r2Current.filter(l => l.openSemCallStatus === 'pending' || !l.openSemCallStatus).length;
         campaignRounds.r2.noAnswer = r2Current.filter(l => l.openSemCallStatus === 'no_answer').length;
         campaignRounds.r2.reject = r2Current.filter(l => l.openSemCallStatus === 'reject').length;
         campaignRounds.r2.delayed = r2Current.filter(l => isDelayedFn(l) && (l.openSemCallStatus === 'pending' || !l.openSemCallStatus)).length;
-        campaignRounds.r2.movedToNonEnrolled = r2Arrived.filter(l => (l.openSemRound || 1) >= 3 && l.enrollmentStatus !== 'ENROLLED' && !primaryEnrolledLeadIds.has(l.id)).length;
-        campaignRounds.r2.movedToPaid = r2Arrived.filter(l => l.enrollmentStatus === 'ENROLLED' || primaryEnrolledLeadIds.has(l.id)).length;
+        campaignRounds.r2.movedToNonEnrolled = r2Arrived.filter(l => (l.openSemRound || 1) >= 3 && !primaryEnrolledLeadIds.has(l.id)).length;
+        campaignRounds.r2.movedToPaid = r2Arrived.filter(l => primaryEnrolledLeadIds.has(l.id)).length;
         
-        const r2AnsweredCount = r2Arrived.filter(l => (l.openSemRound || 1) > 2 || l.enrollmentStatus === 'ENROLLED' || primaryEnrolledLeadIds.has(l.id) || l.openSemCallStatus === 'answered').length;
+        const r2AnsweredCount = r2Arrived.filter(l => (l.openSemRound || 1) > 2 || primaryEnrolledLeadIds.has(l.id) || l.openSemCallStatus === 'answered').length;
         campaignRounds.r2.rate = campaignRounds.r2.assigned > 0 ? ((r2AnsweredCount / campaignRounds.r2.assigned) * 100).toFixed(1) : 0;
 
         // Non Enrolled
-        const neLeads = leads.filter(l => (l.openSemRound || 1) >= 3 && l.enrollmentStatus !== 'ENROLLED' && !primaryEnrolledLeadIds.has(l.id));
+        const neLeads = leads.filter(l => (l.openSemRound || 1) >= 3 && !primaryEnrolledLeadIds.has(l.id));
         campaignRounds.nonEnrolled.assigned = neLeads.length;
         campaignRounds.nonEnrolled.currentlyInRound = neLeads.length;
         campaignRounds.nonEnrolled.pending = neLeads.filter(l => l.openSemCallStatus === 'pending' || !l.openSemCallStatus).length;
@@ -1160,7 +1241,7 @@ exports.getBridgePerformanceStats = async (req, res) => {
         leads.forEach(l => {
             const isPending = l.callStatus === 'pending' || !l.callStatus;
 
-            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id) || l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'));
+            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
             const isEnrolled = isReallyEnrolled;
 
             const isContacted = !isPending;
@@ -1266,8 +1347,8 @@ exports.getMasterDirectory = async (req, res) => {
             orderBy: { createdAt: 'desc' }
         });
 
-        // 🏦 1. Fetch all verified payments (status: 1 or 4)
-        const paymentWhere = { status: { in: [1, 4] } };
+        // 🏦 1. Fetch all verified payments (status: 1 only, genuinely approved)
+        const paymentWhere = { status: 1, amount: { gt: 0 } };
         if (businessId && businessId !== 'ALL') {
             paymentWhere.businessId = parseInt(businessId);
         }
@@ -1550,6 +1631,9 @@ exports.getCoordinatorProgressSheetStats = async (req, res) => {
             }
         });
 
+        const verifiedPhones = await getVerifiedPhones(businessId, batchId);
+        const primaryEnrolledLeadIds = await getPrimaryEnrolledLeadIds(businessId, batchId, verifiedPhones);
+
         // Get chat message counts per lead (Inbound vs Outbound)
         const leadIds = leads.map(l => l.id);
         
@@ -1742,7 +1826,7 @@ exports.getCoordinatorProgressSheetStats = async (req, res) => {
                 coord.totalAssigned++;
 
                 const msgStats = messageCountsMap[l.id] || { inbound: 0, outbound: 0 };
-                const isPaid = l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || l.status === 'ENROLLED' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_')) || (typeof primaryEnrolledLeadIds !== 'undefined' && primaryEnrolledLeadIds?.has(l.id));
+                const isPaid = primaryEnrolledLeadIds.has(l.id);
 
                 if (l.campaignType === 'FREE_SEMINAR') {
                     // --- FREE SEMINAR ---

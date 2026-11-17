@@ -49,7 +49,7 @@ exports.getManagerDashboardOverview = async (req, res) => {
         let totalRevenue = 0;
         let mixerData = [];
 
-        let paymentWhere = { status: { in: [1, 4] } };
+        let paymentWhere = { status: 1, amount: { gt: 0 } };
         if (batId) paymentWhere.batchId = batId;
         else if (bizId) paymentWhere.businessId = bizId;
 

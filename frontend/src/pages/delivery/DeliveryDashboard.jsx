@@ -8,7 +8,6 @@ import TuteStock from './components/TuteStock';
 import DeliveryHistory from './components/DeliveryHistory';
 import PaymentDetails from './components/PaymentDetails';
 import Overview from './components/Overview';
-import StockReports from './components/StockReports';
 
 export default function DeliveryDashboard({ loggedInUser }) {
     const location = useLocation();
@@ -40,8 +39,7 @@ export default function DeliveryDashboard({ loggedInUser }) {
                         {activeTab === 'overview' && 'Delivery Overview'}
                         {activeTab === 'pending' && 'Pending & Holds'}
                         {activeTab === 'delivered' && 'Dispatch & Delivered'} 
-                        {activeTab === 'stock' && 'Tute Stock'}
-                        {activeTab === 'reports' && 'Advanced Stock Reports'}
+                        {(activeTab === 'stock' || activeTab === 'reports') && 'Tute Stock'}
                         {activeTab === 'history' && 'Delivery History'}
                         {activeTab === 'payment_details' && 'Payment Details'}
                     </h2>
@@ -71,8 +69,7 @@ export default function DeliveryDashboard({ loggedInUser }) {
                 {activeTab === 'pending' && <PendingHolds searchQuery={searchQuery} isReadOnly={isReadOnly} />}
                 {activeTab === 'history' && <DeliveryHistory isReadOnly={isReadOnly} />}
                 {activeTab === 'delivered' && <DispatchDelivered searchQuery={searchQuery} isReadOnly={isReadOnly} />} 
-                {activeTab === 'stock' && <TuteStock searchQuery={searchQuery} isReadOnly={isReadOnly} />}
-                {activeTab === 'reports' && <StockReports loggedInUser={loggedInUser} />}
+                {(activeTab === 'stock' || activeTab === 'reports') && <TuteStock searchQuery={searchQuery} isReadOnly={isReadOnly} />}
                 {activeTab === 'payment_details' && <PaymentDetails isReadOnly={isReadOnly} />}
             </div>
 

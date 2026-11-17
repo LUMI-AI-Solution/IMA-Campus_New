@@ -106,7 +106,7 @@ export default function PosOrderCard({ order, onRefresh }) {
                 toast.success("Order Packed & Stock Updated!");
                 onRefresh(); 
             } catch (error) {
-                toast.error("Failed to pack the order.");
+                toast.error(error.response?.data?.error || "Failed to pack the order.");
             } finally {
                 setIsProcessing(false);
             }
@@ -169,8 +169,25 @@ export default function PosOrderCard({ order, onRefresh }) {
                                         <span className={`text-xs font-bold uppercase tracking-wide transition-colors ${item.isDuplicate ? 'text-rose-700 dark:text-rose-300' : 'text-emerald-600 dark:text-emerald-400'}`}>
                                             {item.tuteName} <span className="text-gray-900 dark:text-white ml-1">x{item.quantity}</span>
                                         </span>
+                                        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                            <span className={`text-[9px] font-black px-1.5 py-0.5 rounded border ${
+                                                (item.isShortage || (item.availableStock ?? 0) <= 0)
+                                                    ? 'bg-rose-100 text-rose-700 border-rose-300 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-500/40'
+                                                    : 'bg-emerald-100 text-emerald-800 border-emerald-300 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-500/30'
+                                            }`}>
+                                                Stock: {item.availableStock ?? 0}
+                                            </span>
+                                            <span className="text-[9px] font-black px-1.5 py-0.5 rounded border bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-500/30">
+                                                To Send: {item.pendingOrdersCount ?? 0}
+                                            </span>
+                                            {item.isShortage && (
+                                                <span className="text-[9px] font-black px-1 py-0.5 rounded border bg-rose-600 text-white border-rose-700 flex items-center gap-0.5 animate-pulse uppercase tracking-tight">
+                                                    <AlertTriangle size={9}/> {item.availableStock <= 0 ? 'No Stock' : `Short: -${item.shortageQty}`}
+                                                </span>
+                                            )}
+                                        </div>
                                         {item.isDuplicate && item.duplicateDetails && (
-                                            <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold">
+                                            <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold mt-1">
                                                 Already sent in ORD-{item.duplicateDetails.orderId}
                                             </span>
                                         )}

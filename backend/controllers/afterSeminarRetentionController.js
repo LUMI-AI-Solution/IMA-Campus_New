@@ -1,6 +1,32 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = require('../src/core/db');
 
+const MONTH_NAMES = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+];
+const SINHALA_MONTH_MAP = {
+    'ජනවාරි': 'January', 'පෙබරවාරි': 'February', 'මාර්තු': 'March', 'අප්‍රේල්': 'April',
+    'මැයි': 'May', 'ජූනි': 'June', 'ජූලි': 'July', 'අගෝස්තු': 'August',
+    'සැප්තැම්බර්': 'September', 'ඔක්තෝම්බර්': 'October', 'නොවැම්බර්': 'November', 'දෙසැම්බර්': 'December'
+};
+const parseMonthName = (str) => {
+    if (!str) return null;
+    const s = String(str).trim();
+    for (const [sin, eng] of Object.entries(SINHALA_MONTH_MAP)) {
+        if (s.includes(sin)) return eng;
+    }
+    const lower = s.toLowerCase();
+    for (const m of MONTH_NAMES) {
+        if (lower.includes(m.toLowerCase())) return m;
+    }
+    const shortPrefixes = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+    for (let i = 0; i < shortPrefixes.length; i++) {
+        if (lower.includes(shortPrefixes[i])) return MONTH_NAMES[i];
+    }
+    return null;
+};
+
 const getLast9Digits = (phone) => {
     if (!phone) return '';
     const basePhone = String(phone).split('_')[0];
@@ -245,18 +271,21 @@ exports.runMonthlyRetentionReset = async () => {
             const currentMonthLong = today.toLocaleString('default', { month: 'long' }).toLowerCase();
             const currentMonthShort = today.toLocaleString('default', { month: 'short' }).toLowerCase();
 
-            const currentMonthGroup = monthlyGroups.find(g => 
-                g.name.toLowerCase().includes(currentMonthLong) || 
-                g.name.toLowerCase().includes(currentMonthShort)
-            );
+            const currentMonthGroups = monthlyGroups.filter(g => {
+                const p = parseMonthName(g.name);
+                return (p && p.toLowerCase() === currentMonthLong) ||
+                       g.name.toLowerCase().includes(currentMonthLong) ||
+                       g.name.toLowerCase().includes(currentMonthShort);
+            });
+            const currentGroupIds = currentMonthGroups.map(g => g.id);
 
             // Get the last 9 digits of all students who already have approved payments for the new month group
             let paidStudentPhones = [];
-            if (currentMonthGroup) {
+            if (currentGroupIds.length > 0) {
                 const paymentsForNewMonth = await prisma.payment.findMany({
                     where: { 
                         batchId: batch.id,
-                        groupId: currentMonthGroup.id,
+                        groupId: { in: currentGroupIds },
                         status: 1
                     },
                     select: {
@@ -390,30 +419,26 @@ exports.getRetentionCampaignData = async (req, res) => {
         });
         const monthlyGroupsRaw = allGroups.filter(g => !g.name.toLowerCase().includes('full'));
 
-        // Helper to get minimum itemOrder for a group name, prioritizing Theory (classType: 1)
-        const getGroupSortOrder = (name) => {
-            const theoryMatches = monthlyGroupsRaw.filter(g => g.classType === 1 && g.name.toLowerCase().trim() === name.toLowerCase().trim());
-            if (theoryMatches.length > 0) {
-                return Math.min(...theoryMatches.map(g => g.itemOrder));
+        const monthMap = new Map();
+        monthlyGroupsRaw.forEach(g => {
+            const canonical = parseMonthName(g.name) || g.name.trim();
+            const key = canonical.toUpperCase();
+            if (!monthMap.has(key)) {
+                monthMap.set(key, {
+                    name: `Monthly Payment - ${key}`,
+                    canonical: key,
+                    minOrder: g.itemOrder || 999,
+                    ids: []
+                });
             }
-            const allMatches = monthlyGroupsRaw.filter(g => g.name.toLowerCase().trim() === name.toLowerCase().trim());
-            if (allMatches.length > 0) {
-                return Math.min(...allMatches.map(g => g.itemOrder));
+            const entry = monthMap.get(key);
+            entry.ids.push(g.id);
+            if (g.itemOrder && g.itemOrder < entry.minOrder) {
+                entry.minOrder = g.itemOrder;
             }
-            return 999;
-        };
-
-        const uniqueGroupNames = [...new Set(monthlyGroupsRaw.map(g => g.name))].sort((a, b) => {
-            return getGroupSortOrder(a) - getGroupSortOrder(b);
         });
 
-        const distinctMonthlyGroups = uniqueGroupNames.map(name => {
-            const matchingGroups = monthlyGroupsRaw.filter(g => g.name === name);
-            return {
-                name: name,
-                ids: matchingGroups.map(g => g.id)
-            };
-        });
+        const distinctMonthlyGroups = Array.from(monthMap.values()).sort((a, b) => a.minOrder - b.minOrder);
 
         // Determine default active group name if not provided
         let activeGroupName = targetMonthName;
