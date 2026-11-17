@@ -1,6 +1,43 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = require('../src/core/db');
 
+const isCallCenterUser = (u) => {
+    if (!u) return false;
+    const r = String(u.role || '').toLowerCase();
+    const d = String(u.department || '').toLowerCase();
+    return r.includes('call') || d.includes('call');
+};
+
+const isStaffInBusiness = (u, targetBizId, targetBizName) => {
+    if (!u) return false;
+    if (isCallCenterUser(u)) return false;
+
+    // If no target business specified (e.g. ALL), any non-call-center coordinator is allowed
+    if (!targetBizName && (!targetBizId || targetBizId === 'ALL')) return true;
+
+    const userBiz = String(u.businessType || '').toLowerCase().trim();
+    if (!userBiz) return false;
+
+    // Allow top-level campus-wide managers
+    if (userBiz === 'all' || userBiz === 'ima campus' || userBiz === 'campus') return true;
+
+    const targetName = String(targetBizName || '').toLowerCase().trim();
+    const targetIdStr = targetBizId && targetBizId !== 'ALL' ? String(targetBizId).trim() : '';
+
+    const staffBizList = userBiz.split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
+
+    return staffBizList.some(b => {
+        if (targetIdStr && b === targetIdStr) return true;
+        if (targetName) {
+            if (b === targetName) return true;
+            const cleanB = b.replace(/[\s\-_/\\|]+/g, '');
+            const cleanTarget = targetName.replace(/[\s\-_/\\|]+/g, '');
+            if (cleanB === cleanTarget) return true;
+        }
+        return false;
+    });
+};
+
 const getScopedBusinessId = async (user, requestedBusinessId = null) => {
     if (!user) return null;
     
@@ -45,4 +82,4 @@ const getScopedBusinessId = async (user, requestedBusinessId = null) => {
     return Number(allowedBusinesses[0].id);
 };
 
-module.exports = { getScopedBusinessId };
+module.exports = { getScopedBusinessId, isStaffInBusiness, isCallCenterUser };

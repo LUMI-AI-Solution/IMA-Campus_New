@@ -5,6 +5,17 @@ import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash
 import { Target, PhoneCall, Check, Loader, BookOpen, Loader2, Lock } from 'lucide-react';
 import toast from 'react-hot-toast';
 
+// 🔥 Theory + Paper helpers 🔥
+const PAPER_TAG = ' [PAPER]';
+const isPaperSubjectLabel = (label) => typeof label === 'string' && label.endsWith(PAPER_TAG);
+const cleanSubjectName = (label) => isPaperSubjectLabel(label) ? label.slice(0, -PAPER_TAG.length) : label;
+const unpaidLabel = (label) => isPaperSubjectLabel(label) ? `${cleanSubjectName(label)} (Paper)` : label;
+const DUE_BADGES = {
+    FULL_DUE:   { label: '💰 THEORY + PAPER DUE', cls: 'bg-rose-500/20 text-rose-300 border-rose-500/40' },
+    THEORY_DUE: { label: '📘 THEORY DUE',         cls: 'bg-amber-500/20 text-amber-300 border-amber-500/40' },
+    PAPER_ONLY: { label: '📝 PAPER ONLY',         cls: 'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40' }
+};
+
 export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, externalSearch, onLeadsLoaded }) {
     const currentUserId = JSON.parse(localStorage.getItem('user'))?.id;
 
@@ -38,6 +49,7 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
 
     // New state for redesign
     const [draftAttemptsData, setDraftAttemptsData] = useState({});
+    const [savingLeadIds, setSavingLeadIds] = useState({});
     const [activeAttemptTab, setActiveAttemptTab] = useState({});
 
     const [isGuidanceModalOpen, setIsGuidanceModalOpen] = useState(false);
@@ -87,11 +99,18 @@ export default function AfterSeminarPaidCampaign({ filters, setChatModalLead, ex
             }
 
             const loadedDrafts = {};
+            const loadedAttemptDrafts = {};
             myLeads.forEach(l => {
                 const savedDraft = localStorage.getItem(`draft_paid_remark_${l.id}`);
                 if (savedDraft) loadedDrafts[l.id] = savedDraft;
+                try {
+                    const savedAttemptDraft = localStorage.getItem(`draft_paid_attempts_${l.id}`);
+                    if (savedAttemptDraft) loadedAttemptDrafts[l.id] = JSON.parse(savedAttemptDraft);
+                } catch (e) {}
             });
             setDrafts(loadedDrafts);
+            // Unsaved edits (typed but not saved) come back after refresh
+            setDraftAttemptsData(prev => ({ ...loadedAttemptDrafts, ...prev }));
         } catch (error) {
             toast.error("Failed to load campaign data");
         }
@@ -169,6 +188,13 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
         });
     };
 
+    // 🔥 Keep unsaved attempt edits in localStorage, so a refresh / month switch never loses them 🔥
+    useEffect(() => {
+        Object.entries(draftAttemptsData).forEach(([id, d]) => {
+            try { localStorage.setItem(`draft_paid_attempts_${id}`, JSON.stringify(d)); } catch (e) {}
+        });
+    }, [draftAttemptsData]);
+
     const handleDraftRemark = (leadId, val) => {
         setDrafts(prev => ({ ...prev, [leadId]: val }));
         localStorage.setItem(`draft_paid_remark_${leadId}`, val);
@@ -179,11 +205,14 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
     };
 
     const handleSaveCallData = async (leadId) => {
+        // Prevent double-click / parallel saves for the same card
+        if (savingLeadIds[leadId]) return;
         const leadObj = leads.find(l => l.id === leadId);
         if (!leadObj) return;
 
         const currentActiveMonth = (selectedGroupName && selectedGroupName !== 'ALL') ? selectedGroupName : (monthlyGroups[0]?.name || 'UNKNOWN');
         const currentActiveAttempt = activeAttemptTab[leadId] || 1;
+        const nowIso = new Date().toISOString();
         
         // Deep merge existing lead attempts with any draft attempts
         const existingAttempts = parseAttempts(leadObj.attemptsData);
@@ -195,7 +224,9 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
             for (const aKey in draftAttempts[mKey]) {
                 allAttemptsData[mKey][aKey] = {
                     ...(allAttemptsData[mKey][aKey] || {}),
-                    ...(draftAttempts[mKey][aKey] || {})
+                    ...(draftAttempts[mKey][aKey] || {}),
+                    // 🔥 Timestamp every attempt the agent actually edited, so the server keeps the newest one 🔥
+                    savedAt: nowIso
                 };
             }
         }
@@ -210,7 +241,26 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
         };
         allAttemptsData[currentActiveMonth] = mergedCurrentMonth;
 
-        const activeAttemptData = mergedCurrentMonth[currentActiveAttempt] || { status: 'pending', method: 'direct', feedback: '' };
+        if (!allAttemptsData[currentActiveMonth]) {
+            allAttemptsData[currentActiveMonth] = {};
+        }
+
+        // 🔥 Save what was unpaid at the time of this call (extra JSON field, no DB migration needed) 🔥
+        // + timestamp the active attempt, so it always wins over stale copies
+        allAttemptsData[currentActiveMonth][currentActiveAttempt] = {
+            status: 'pending', method: 'direct', feedback: '',
+            ...(allAttemptsData[currentActiveMonth][currentActiveAttempt] || {}),
+            ...(leadObj.dueType ? {
+                dueSnapshot: {
+                    type: leadObj.dueType,
+                    unpaid: [...(leadObj.unpaidTheory || []), ...(leadObj.unpaidPaper || [])]
+                }
+            } : {}),
+            savedAt: nowIso
+        };
+
+        const monthAttempts = allAttemptsData[currentActiveMonth] || {};
+        const activeAttemptData = monthAttempts[currentActiveAttempt] || { status: 'pending', method: 'direct', feedback: '' };
 
         const finalStatus = activeAttemptData.status || 'pending';
         const finalMethod = activeAttemptData.method || 'direct';
@@ -222,66 +272,82 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
             reasonVal = remarkVal.trim();
         }
 
-        const loadToast = toast.loading("Saving progress...");
+        const applyToLead = (l, attempts, updated = {}) => ({
+            ...l,
+            ...updated,
+            enrollmentStatus: activeMainTab === 'NON_ENROLLED' ? 'NON_ENROLLED' : (updated.enrollmentStatus || l.enrollmentStatus),
+            effectiveEnrollmentStatus: activeMainTab === 'NON_ENROLLED' ? 'NON_ENROLLED' : (l.effectiveEnrollmentStatus || updated.enrollmentStatus),
+            callStatus: finalStatus,
+            paidCallStatus: finalStatus,
+            callAttempt: finalAttempt,
+            paidCallAttempt: finalAttempt,
+            callMethod: finalMethod,
+            paidCallMethod: finalMethod,
+            feedback: remarkVal,
+            paidFeedback: remarkVal,
+            nonEnrolledReason: reasonVal,
+            attemptsData: attempts,
+            phase: updated.paidPhase !== undefined ? updated.paidPhase : (l.paidPhase || l.phase || 1),
+            coordinationRound: updated.paidRound !== undefined ? updated.paidRound : (l.paidRound || l.coordinationRound || 1),
+            // Lead-level fields the server doesn't recalculate on save must be kept from the list data
+            dueType: l.dueType, unpaidTheory: l.unpaidTheory, unpaidPaper: l.unpaidPaper,
+            paymentHistory: l.paymentHistory, subjectTypes: l.subjectTypes
+        });
+
+        // 🔥 OPTIMISTIC UPDATE: the card updates instantly, the request runs in the background 🔥
+        const previousLead = leadObj;
+        const previousDrafts = draftAttemptsData[leadId];
+        setLeads(prev => prev.map(l => l.id === leadId ? applyToLead(l, allAttemptsData) : l));
+        setDraftAttemptsData(prev => { const n = { ...prev }; delete n[leadId]; return n; });
+        setSavingLeadIds(prev => ({ ...prev, [leadId]: true }));
+
+        const payload = {
+            leadId: leadId,
+            status: finalStatus,
+            feedback: remarkVal,
+            nonEnrolledReason: reasonVal,
+            coordinationRound: leadObj.coordinationRound || 1,
+            paymentIntention: leadObj.paymentIntention || 'NOT_DECIDED',
+            enrollmentStatus: leadObj.enrollmentStatus || 'NON_ENROLLED',
+            callAttempt: finalAttempt,
+            method: finalMethod,
+            campaignContext: 'PAID',
+            isNonEnrolledTab: activeMainTab === 'NON_ENROLLED',
+            attemptsData: allAttemptsData
+        };
 
         try {
             const token = localStorage.getItem('token');
-            const payload = {
-                leadId: leadId,
-                status: finalStatus,
-                feedback: remarkVal,
-                nonEnrolledReason: reasonVal,
-                coordinationRound: leadObj.coordinationRound || 1,
-                paymentIntention: leadObj.paymentIntention || 'NOT_DECIDED',
-                enrollmentStatus: leadObj.enrollmentStatus || 'NON_ENROLLED',
-                callAttempt: finalAttempt,
-                method: finalMethod,
-                campaignContext: 'PAID',
-                isNonEnrolledTab: activeMainTab === 'NON_ENROLLED',
-                attemptsData: allAttemptsData
-            };
-
             const response = await axios.post('/after-seminar-crm/leads/update-call', payload, {
-                headers: { Authorization: `Bearer ${token}` }
+                headers: { Authorization: `Bearer ${token}` },
+                timeout: 20000
             });
 
-            toast.success("Progress saved successfully!", { id: loadToast });
+            toast.success("Saved ✓", { duration: 1500 });
             localStorage.removeItem(`draft_paid_remark_${leadId}`);
+            localStorage.removeItem(`draft_paid_attempts_${leadId}`);
             
             // Clean up drafts for this lead
             setDrafts(prev => { const n = { ...prev }; delete n[leadId]; return n; });
             setReasonDrafts(prev => { const n = { ...prev }; delete n[leadId]; return n; });
-            setDraftAttemptsData(prev => { const n = { ...prev }; delete n[leadId]; return n; });
             setDraftStatus(prev => { const n = { ...prev }; delete n[leadId]; return n; });
             setDraftAttempt(prev => { const n = { ...prev }; delete n[leadId]; return n; });
             setDraftMethod(prev => { const n = { ...prev }; delete n[leadId]; return n; });
             
+            // Use the server's MERGED attempts (it may contain newer attempts saved from another device)
             const updated = response.data?.lead || {};
-            setLeads(prev => prev.map(l => {
-                if (l.id === leadId) {
-                    return {
-                        ...l,
-                        ...updated,
-                        enrollmentStatus: activeMainTab === 'NON_ENROLLED' ? 'NON_ENROLLED' : (updated.enrollmentStatus || l.enrollmentStatus),
-                        effectiveEnrollmentStatus: activeMainTab === 'NON_ENROLLED' ? 'NON_ENROLLED' : (l.effectiveEnrollmentStatus || updated.enrollmentStatus),
-                        callStatus: finalStatus,
-                        paidCallStatus: finalStatus,
-                        callAttempt: finalAttempt,
-                        paidCallAttempt: finalAttempt,
-                        callMethod: finalMethod,
-                        paidCallMethod: finalMethod,
-                        feedback: remarkVal,
-                        paidFeedback: remarkVal,
-                        nonEnrolledReason: reasonVal,
-                        attemptsData: allAttemptsData,
-                        phase: updated.paidPhase !== undefined ? updated.paidPhase : (l.paidPhase || l.phase || 1),
-                        coordinationRound: updated.paidRound !== undefined ? updated.paidRound : (l.paidRound || l.coordinationRound || 1)
-                    };
-                }
-                return l;
-            }));
+            const serverAttempts = parseAttempts(updated.attemptsData);
+            const finalAttempts = Object.keys(serverAttempts).length > 0 ? serverAttempts : allAttemptsData;
+            setLeads(prev => prev.map(l => l.id === leadId ? applyToLead(l, finalAttempts, updated) : l));
         } catch (err) {
-            toast.error(err.response?.data?.error || "Failed to save workflow state", { id: loadToast });
+            // Roll back the card and restore the agent's unsaved edits so nothing is lost
+            setLeads(prev => prev.map(l => l.id === leadId ? previousLead : l));
+            if (previousDrafts) {
+                setDraftAttemptsData(prev => ({ ...prev, [leadId]: previousDrafts }));
+            }
+            toast.error(err.response?.data?.error || "Save failed — your changes are kept. Please click SAVE again.", { duration: 5000 });
+        } finally {
+            setSavingLeadIds(prev => { const n = { ...prev }; delete n[leadId]; return n; });
         }
     };
 
@@ -822,6 +888,11 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
                                                                     ⚠️ DROPPED (2+ MOS)
                                                                 </span>
                                                             )}
+                                                            {DUE_BADGES[lead.dueType] && (
+                                                                <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${DUE_BADGES[lead.dueType].cls}`}>
+                                                                    {DUE_BADGES[lead.dueType].label}
+                                                                </span>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -837,6 +908,16 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
                                                     </button>
                                                 </div>
                                             </div>
+
+                                            {/* 🔥 Unpaid items for the active month (Theory + Paper) 🔥 */}
+                                            {lead.dueType && lead.dueType !== 'ALL_PAID' && (
+                                                <div className="px-4 py-2 bg-rose-500/10 border-b border-rose-500/20 text-[11px] text-rose-300 font-semibold flex items-center gap-1.5 flex-wrap">
+                                                    <span className="font-black tracking-wider uppercase text-[9px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-200 border border-rose-500/30">
+                                                        UNPAID:
+                                                    </span>
+                                                    {[...(lead.unpaidTheory || []), ...(lead.unpaidPaper || [])].map(unpaidLabel).join(', ')}
+                                                </div>
+                                            )}
 
                                             {/* Attempt Data Section */}
                                             <div className="p-4 flex-1 flex flex-col bg-slate-900/30">
@@ -879,7 +960,11 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
                                                         rows="2"
                                                         value={activeAttemptData.feedback || ''}
                                                         onChange={(e) => handleAttemptDataChange(lead.id, currentActiveMonth, currentActiveAttempt, 'feedback', e.target.value)}
-                                                        placeholder={`Notes for ${currentActiveMonth} Attempt ${currentActiveAttempt}...`}
+                                                        placeholder={lead.dueType === 'PAPER_ONLY'
+                                                            ? `Paper class payment notes - Attempt ${currentActiveAttempt}...`
+                                                            : lead.dueType === 'FULL_DUE'
+                                                                ? `Theory + Paper notes - Attempt ${currentActiveAttempt}...`
+                                                                : `Notes for ${currentActiveMonth} Attempt ${currentActiveAttempt}...`}
                                                         className="w-full flex-1 bg-[#312e81]/30 border border-indigo-500/20 rounded-xl px-3 py-2 text-xs text-slate-300 outline-none focus:border-indigo-500 resize-none placeholder-indigo-300/30 transition-colors custom-scrollbar"
                                                     />
                                                 </div>
@@ -929,9 +1014,12 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
                                                 <div className="flex gap-2">
                                                     <button
                                                         onClick={() => handleSaveCallData(lead.id)}
-                                                        className="flex-1 bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 text-white font-black text-xs uppercase tracking-widest rounded-xl py-3 flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(225,29,72,0.3)] hover:shadow-[0_0_25px_rgba(225,29,72,0.5)] transform hover:-translate-y-0.5"
+                                                        disabled={!!savingLeadIds[lead.id]}
+                                                        className="flex-1 bg-gradient-to-r from-rose-500 to-red-600 hover:from-rose-600 hover:to-red-700 disabled:opacity-60 disabled:cursor-wait text-white font-black text-xs uppercase tracking-widest rounded-xl py-3 flex items-center justify-center gap-2 transition-all shadow-[0_0_15px_rgba(225,29,72,0.3)] hover:shadow-[0_0_25px_rgba(225,29,72,0.5)] transform hover:-translate-y-0.5"
                                                     >
-                                                        <Check size={16} strokeWidth={3} /> SAVE
+                                                        {savingLeadIds[lead.id]
+                                                            ? <><Loader2 size={16} className="animate-spin" /> SAVING</>
+                                                            : <><Check size={16} strokeWidth={3} /> SAVE{draftAttemptsData[lead.id] ? ' *' : ''}</>}
                                                     </button>
 
                                                     <button
@@ -1133,7 +1221,12 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
                                                                 
                                                                 return (
                                                                     <div key={subject} className="flex flex-col gap-0.5">
-                                                                        <span className="text-[8px] text-slate-500 font-bold uppercase truncate" title={subject}>{subject}</span>
+                                                                        <span className="text-[8px] text-slate-500 font-bold uppercase truncate flex items-center gap-1" title={subject}>
+                                                                            <span className="truncate">{cleanSubjectName(subject)}</span>
+                                                                            {isPaperSubjectLabel(subject) && (
+                                                                                <span className="shrink-0 px-1 rounded bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30">PAPER</span>
+                                                                            )}
+                                                                        </span>
                                                                         <div className={`flex items-center justify-center gap-1.5 p-1 rounded-md border text-[9px] font-black uppercase tracking-widest transition-all
                                                                             ${isPaid ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 
                                                                               isProcessing ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 

@@ -3,7 +3,8 @@ import { FaBullseye, FaFlagCheckered, FaTimes, FaCheck, FaChartLine, FaUsers } f
 import axios from '../../../api/axios';
 import toast from 'react-hot-toast';
 
-export default function SetBatchGoalsModal({ isOpen, onClose, filters, batchGoals, onGoalsUpdated }) {
+export default function SetBatchGoalsModal({ isOpen, onClose, filters, batchGoals, onGoalsUpdated, campaign = 'OPEN_SEM' }) {
+    const campaignLabel = campaign === 'NEW_INQ' ? 'New Inquiries' : 'Open Seminar';
     const [targetIndividualGoal, setTargetIndividualGoal] = useState(40);
     const [targetGroupGoal, setTargetGroupGoal] = useState(50);
     const [saving, setSaving] = useState(false);
@@ -26,13 +27,14 @@ export default function SetBatchGoalsModal({ isOpen, onClose, filters, batchGoal
                 batchId: filters?.selectedBatch,
                 businessId: filters?.selectedBusiness,
                 targetIndividualGoal: parseFloat(targetIndividualGoal) || 40,
-                targetGroupGoal: parseFloat(targetGroupGoal) || 50
+                targetGroupGoal: parseFloat(targetGroupGoal) || 50,
+                campaign
             }, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
             if (res.data && res.data.success) {
-                toast.success("Batch conversion goals updated successfully!");
+                toast.success(`${campaignLabel} conversion goals updated!`);
                 if (onGoalsUpdated) {
                     onGoalsUpdated({
                         targetIndividualGoal: parseFloat(targetIndividualGoal) || 40,
@@ -67,7 +69,7 @@ export default function SetBatchGoalsModal({ isOpen, onClose, filters, batchGoal
                                 Set Conversion Goals
                             </h3>
                             <p className="text-xs text-slate-400 font-medium">
-                                Configure Single & Group conversion targets for this batch
+                                {campaignLabel} campaign · Single & Group conversion targets for this batch
                             </p>
                         </div>
                     </div>

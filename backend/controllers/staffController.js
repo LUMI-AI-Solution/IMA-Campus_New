@@ -91,7 +91,7 @@ console.log("[DEBUG] /admin/staff query:", req.query);
 
         const allStaff = await prisma.user.findMany({
             where: whereClause,
-            select: { id: true, firstName: true, lastName: true, phone: true, nic: true, role: true, department: true, businessType: true, extension: true, hasCallChannel: true, agentStatus: true, image: true }
+            select: { id: true, firstName: true, lastName: true, phone: true, nic: true, role: true, department: true, businessType: true, extension: true, hasCallChannel: true, agentStatus: true, image: true, appChatDp: true }
         });
         
         // Fetch stats grouped by agentId, direction, status, and campaignType
@@ -548,8 +548,10 @@ exports.allocateChannel = async (req, res) => {
 
 exports.uploadProfilePicture = async (req, res) => {
     try {
-        const userId = req.user ? (req.user.id || req.user.userId) : null;
-        if (!userId) {
+        const targetUserId = (req.body && req.body.userId) 
+            ? parseInt(req.body.userId) 
+            : (req.user ? (req.user.id || req.user.userId) : null);
+        if (!targetUserId) {
             return res.status(401).json({ error: "Unauthorized" });
         }
         if (!req.file) {
@@ -558,7 +560,7 @@ exports.uploadProfilePicture = async (req, res) => {
         // Save the relative path so frontend can use it (e.g. /storage/users/filename.jpg)
         const imageUrl = `/storage/users/${req.file.filename}`;
         const updatedUser = await prisma.user.update({
-            where: { id: parseInt(userId) },
+            where: { id: parseInt(targetUserId) },
             data: { image: imageUrl }
         });
         res.status(200).json({ success: true, image: updatedUser.image });

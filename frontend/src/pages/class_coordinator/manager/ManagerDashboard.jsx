@@ -13,6 +13,7 @@ import {
 
 import DelegateSocialMediaTaskModal from '../../../components/common/DelegateSocialMediaTaskModal';
 import WhatsAppMetaMonitor from '../../../components/WhatsAppMetaMonitor/WhatsAppMetaMonitor';
+import CampaignSummaryTiles from './components/CampaignSummaryTiles';
 
 export default function ManagerDashboard() {
   const navigate = useNavigate();
@@ -483,6 +484,10 @@ export default function ManagerDashboard() {
           </div>
         </div>
 
+      </div>
+
+      <div className="mt-4">
+        <CampaignSummaryTiles businessId={selectedBusiness} batchId={selectedBatch || 'ALL'} />
       </div>
 
       {statsLoading ? (

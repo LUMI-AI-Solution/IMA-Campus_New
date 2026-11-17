@@ -6,6 +6,7 @@ import {
   MessageCircle, ChevronRight, BookOpen, Users, Award, Briefcase, Globe, GraduationCap, 
   ArrowRight, Loader2, Phone, Mail, MapPin, Zap, CheckCircle2, Building2, PlayCircle, X, Layers
 } from 'lucide-react';
+import { getDashboardLink } from '../../../utils/navigation';
 
 const heroImages = ['/hero1.jpg', '/hero2.jpg', '/hero3.jpg'];
 
@@ -59,15 +60,6 @@ export default function IMACampusLandingPage({ loggedInUser }) {
       return `https://imacampus.online/storage/icons/${imageName}`;
   };
 
-  const getDashboardLink = () => {
-    if (!loggedInUser) return '/login';
-    const role = loggedInUser.role?.toUpperCase();
-    if (role === 'STUDENT' || role === 'USER') return '/student/dashboard';
-    if (role === 'MANAGER' || role === 'ASS MANAGER') return '/manager/dashboard';
-    if (role === 'COORDINATOR') return '/coordinator/dashboard';
-    if (role === 'FINANCE') return '/admin/finance';
-    return '/admin/dashboard';
-  };
 
   return (
     <div className="bg-[#0a0f1c] text-white font-sans overflow-hidden relative">
@@ -94,7 +86,7 @@ export default function IMACampusLandingPage({ loggedInUser }) {
           <div className="flex items-center gap-4 md:gap-6">
             <div className="flex items-center gap-3">
               {loggedInUser ? (
-                  <Link to={getDashboardLink()} className="bg-red-600 hover:bg-red-500 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-[0_0_15px_rgba(220,38,38,0.4)] border border-red-500 hover:scale-105">
+                  <Link to={getDashboardLink(loggedInUser)} className="bg-red-600 hover:bg-red-500 text-white px-6 py-2.5 rounded-xl text-sm font-bold transition-all shadow-[0_0_15px_rgba(220,38,38,0.4)] border border-red-500 hover:scale-105">
                     Dashboard
                   </Link>
               ) : (

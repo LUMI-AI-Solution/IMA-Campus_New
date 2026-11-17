@@ -29,3 +29,4 @@ deno.lock
 *.bak
 *.orig.jpg
 backend/gemini-service-account.json
+*.patch

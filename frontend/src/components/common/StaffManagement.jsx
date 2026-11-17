@@ -1,10 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Users, Edit3, Trash2, Shield, UserPlus, X, Loader2, Search, Briefcase, Layers, Ghost, ArrowLeft } from 'lucide-react';
+import { Users, Edit3, Trash2, Shield, UserPlus, X, Loader2, Search, Briefcase, Layers, Ghost, ArrowLeft, Camera } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
 import BusinessBadge from './BusinessBadge';
 import { useTheme } from '../../contexts/ThemeContext';
+
+export const hasCustomStaffPhoto = (staff) => {
+  const raw = staff?.image;
+  return !!(raw && raw !== 'default.png' && raw !== 'null' && raw !== 'undefined' && !raw.includes('default_donkey') && !String(raw).startsWith('chat_dps/'));
+};
+
+export const resolveStaffAvatar = (staff) => {
+  const raw = staff?.image || (staff?.appChatDp ? `chat_dps/${staff.appChatDp}` : null);
+  if (!raw || raw === 'default.png' || raw === 'null' || raw === 'undefined' || String(raw).trim() === '' || raw.includes('default_donkey')) {
+    return '/default_donkey.jpg';
+  }
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    return raw;
+  }
+  const effectiveBase = api?.defaults?.baseURL || '';
+  const base = effectiveBase.replace(/\/api\/?$/, '');
+  if (raw.startsWith('/')) {
+    return `${base}${raw}`;
+  }
+  if (raw.startsWith('chat_dps/')) {
+    return `${base}/storage/images/${raw}`;
+  }
+  return `${base}/storage/images/${raw}`;
+};
 
 export default function StaffManagement({ loggedInUser }) {
   const { appTheme, isDarkMode } = useTheme();
@@ -187,13 +211,44 @@ export default function StaffManagement({ loggedInUser }) {
       }
   };
 
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!editId) {
+      toast.error("Please save the staff member first before uploading photo.");
+      return;
+    }
+    const data = new FormData();
+    data.append('image', file);
+    data.append('userId', editId);
+    try {
+      setUploadingAvatar(true);
+      const res = await api.post('/admin/staff/profile-picture', data, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (res.data?.success) {
+        toast.success("Profile picture updated successfully!");
+        setFormData(prev => ({ ...prev, image: res.data.image }));
+        fetchStaff();
+      }
+    } catch (err) {
+      console.error(err);
+      toast.error(err.response?.data?.error || "Failed to upload profile picture");
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
   const openEditModal = (staff) => {
       setEditMode(true);
       setEditId(staff.id);
       setFormData({
           firstName: staff.firstName, lastName: staff.lastName, phone: staff.phone, 
           nic: staff.nic, password: '', role: staff.role, 
-          department: staff.department || '', businessType: staff.businessType || ''
+          department: staff.department || '', businessType: staff.businessType || '',
+          image: staff.image || null,
+          appChatDp: staff.appChatDp || null
       });
       setShowModal(true);
   };
@@ -205,7 +260,9 @@ export default function StaffManagement({ loggedInUser }) {
         firstName: '', lastName: '', phone: '', nic: '', password: '', 
         role: isAdmin ? 'Manager' : (loggedInUser?.department === 'Class Coordination' ? 'Coordinator' : (loggedInUser?.department === 'Social Media' ? 'Social Media Staff' : 'Staff')), 
         department: isAdmin ? 'Class Coordination' : loggedInUser?.department,
-        businessType: (!isAdmin && loggedInUser?.businessType) ? loggedInUser.businessType : ''
+        businessType: (!isAdmin && loggedInUser?.businessType) ? loggedInUser.businessType : '',
+        image: null,
+        appChatDp: null
       });
   };
 
@@ -574,6 +631,50 @@ export default function StaffManagement({ loggedInUser }) {
               </h3>
               <button onClick={() => setShowModal(false)} className={`${isModern ? (isDarkMode ? 'text-slate-400 hover:text-white' : 'text-slate-500 hover:text-slate-900') : 'text-gray-400 hover:text-white'} transition-colors outline-none cursor-pointer`}><X size={20}/></button>
             </div>
+
+            {editMode && (
+              <div className={`flex items-center gap-4 p-3.5 rounded-2xl mb-5 border ${
+                isModern 
+                  ? (isDarkMode ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200 shadow-xs')
+                  : 'bg-black/30 border-white/10'
+              }`}>
+                <div className="relative group w-14 h-14 rounded-2xl overflow-hidden shrink-0 border border-white/20 bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center text-white font-black text-lg shadow-md">
+                  {resolveStaffAvatar(formData) ? (
+                    <img 
+                      src={resolveStaffAvatar(formData)} 
+                      alt="Staff Avatar" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span>{`${(formData.firstName || '').trim().charAt(0)}${(formData.lastName || '').trim().charAt(0)}`.toUpperCase() || 'ST'}</span>
+                  )}
+                  {uploadingAvatar && (
+                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                      <Loader2 size={20} className="animate-spin text-white" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-xs font-bold ${isModern ? (isDarkMode ? 'text-slate-200' : 'text-slate-800') : 'text-white'}`}>Staff Profile Photo</p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">Upload a clean portrait (JPG, PNG)</p>
+                </div>
+                <label className={`px-3.5 py-2 rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-2 shadow-sm ${
+                  isModern
+                    ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                    : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                }`}>
+                  <Camera size={14} />
+                  <span>{formData.image ? 'Change Photo' : 'Upload Photo'}</span>
+                  <input 
+                    type="file" 
+                    accept="image/*" 
+                    className="hidden" 
+                    onChange={handleAvatarUpload}
+                    disabled={uploadingAvatar}
+                  />
+                </label>
+              </div>
+            )}
             
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="grid grid-cols-2 gap-4">
@@ -712,8 +813,20 @@ export default function StaffManagement({ loggedInUser }) {
 
 // Staff Card Component
 function MinimalStaffCard({ staff, openEditModal, handleDelete, handleGhostLogin, color, canEdit, isModern, isDarkMode }) {
+  const [imgError, setImgError] = useState(false);
+  const [showZoom, setShowZoom] = useState(false);
   const isPaperMarker = staff.role === 'Paper Marker';
   const resolvedColor = isPaperMarker ? 'amber' : color;
+  const avatarUrl = resolveStaffAvatar(staff);
+  const hasCustom = hasCustomStaffPhoto(staff);
+
+  useEffect(() => {
+    setImgError(false);
+  }, [staff.image, staff.appChatDp]);
+
+  const cleanFirst = (staff.firstName || '').trim();
+  const cleanLast = (staff.lastName || '').trim();
+  const initials = `${cleanFirst.charAt(0)}${cleanLast.charAt(0)}`.toUpperCase() || cleanFirst.slice(0, 2).toUpperCase() || 'ST';
 
   // Modern Clean Badges
   const modernBadgeColors = {
@@ -736,12 +849,12 @@ function MinimalStaffCard({ staff, openEditModal, handleDelete, handleGhostLogin
   const badgeStyle = isModern ? (modernBadgeColors[resolvedColor] || modernBadgeColors.blue) : (classicBadgeColors[resolvedColor] || classicBadgeColors.blue);
 
   return (
-    <div className={`relative rounded-2xl p-5 transition-all duration-300 flex flex-col h-full group overflow-hidden ${
+    <div className={`relative rounded-2xl p-4.5 sm:p-5 transition-all duration-300 flex flex-col h-full group overflow-hidden ${
       isModern
         ? (isDarkMode 
             ? 'bg-[#0D1424] hover:bg-[#111A2E] border border-slate-800 hover:border-slate-700 shadow-md hover:shadow-xl' 
             : 'bg-white hover:bg-slate-50/80 border border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md')
-        : 'bg-[#0F172A]/40 hover:bg-[#0F172A]/80 border border-white/5 hover:border-white/20 rounded-3xl p-6 shadow-lg hover:shadow-2xl hover:-translate-y-1 backdrop-blur-sm'
+        : 'bg-[#0F172A]/40 hover:bg-[#0F172A]/80 border border-white/5 hover:border-white/20 rounded-3xl p-5 shadow-lg hover:shadow-2xl hover:-translate-y-1 backdrop-blur-sm'
     }`}>
       
       {/* Background Accent glow (Classic only) */}
@@ -749,20 +862,54 @@ function MinimalStaffCard({ staff, openEditModal, handleDelete, handleGhostLogin
         <div className={`absolute -top-10 -right-10 w-32 h-32 blur-[60px] opacity-20 group-hover:opacity-40 transition-opacity duration-500 pointer-events-none rounded-full ${resolvedColor === 'purple' ? 'bg-purple-500' : resolvedColor === 'blue' ? 'bg-blue-500' : resolvedColor === 'amber' ? 'bg-amber-500' : 'bg-emerald-500'}`}></div>
       )}
 
-      <div className="flex justify-between items-start mb-4 relative z-10">
-        <div className="flex items-center gap-3">
-          <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-white font-black text-base shadow-sm shrink-0 ${
-            resolvedColor === 'purple' ? 'bg-gradient-to-br from-purple-600 to-indigo-600' :
-            resolvedColor === 'blue' ? 'bg-gradient-to-br from-blue-600 to-cyan-600' :
-            resolvedColor === 'amber' ? 'bg-gradient-to-br from-amber-500 to-orange-600' :
-            resolvedColor === 'red' ? 'bg-gradient-to-br from-red-500 to-rose-600' :
-            'bg-gradient-to-br from-emerald-500 to-teal-600'
-          }`}>
-            {staff.firstName.charAt(0)}{staff.lastName.charAt(0)}
+      <div className="flex justify-between items-start mb-3 relative z-10">
+        <div className="flex items-center gap-3.5 w-full">
+          {/* Prominent High-Visibility Avatar Container */}
+          <div 
+            onClick={() => setShowZoom(true)}
+            className="relative shrink-0 cursor-pointer group/avatar"
+            title="Click to view full photo"
+          >
+            {!hasCustom && (
+              <>
+                <span className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 opacity-70 blur-xs animate-ping pointer-events-none"></span>
+                <span className="absolute -inset-0.5 rounded-2xl bg-gradient-to-tr from-rose-500 via-purple-600 to-amber-400 opacity-90 blur-xs animate-pulse pointer-events-none"></span>
+              </>
+            )}
+            <div className={`w-[76px] h-[76px] rounded-2xl flex items-center justify-center text-white font-black text-2xl shadow-md shrink-0 overflow-hidden relative border-2 transition-transform duration-200 group-hover/avatar:scale-105 ${
+              !hasCustom 
+                ? 'border-amber-400/80 ring-2 ring-rose-500/50' 
+                : (isModern ? 'border-slate-700/80 group-hover/avatar:border-blue-500' : 'border-white/20 group-hover/avatar:border-white/50')
+            } ${
+              resolvedColor === 'purple' ? 'bg-gradient-to-br from-purple-600 to-indigo-600' :
+              resolvedColor === 'blue' ? 'bg-gradient-to-br from-blue-600 to-cyan-600' :
+              resolvedColor === 'amber' ? 'bg-gradient-to-br from-amber-500 to-orange-600' :
+              resolvedColor === 'red' ? 'bg-gradient-to-br from-red-500 to-rose-600' :
+              'bg-gradient-to-br from-emerald-500 to-teal-600'
+            }`}>
+              <img 
+                src={avatarUrl} 
+                alt={`${cleanFirst} ${cleanLast}`} 
+                className="w-full h-full object-cover transition-transform duration-300 group-hover/avatar:scale-110"
+                onError={(e) => {
+                  e.target.onerror = null;
+                  e.target.src = '/default_donkey.jpg';
+                }}
+              />
+            </div>
+            {!hasCustom && (
+              <div 
+                className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-gradient-to-tr from-rose-500 to-amber-500 text-white flex items-center justify-center border-2 border-slate-900 shadow animate-bounce"
+                title="Needs official profile photo"
+              >
+                <Camera size={10} className="stroke-[2.5]" />
+              </div>
+            )}
           </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className={`text-sm font-bold tracking-tight truncate ${
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <h3 className={`text-sm font-extrabold tracking-tight truncate ${
                 isModern ? (isDarkMode ? 'text-slate-100' : 'text-slate-900') : 'text-slate-100 drop-shadow-sm'
               }`} title={`${staff.firstName} ${staff.lastName}`}>
                  {staff.firstName} {staff.lastName}
@@ -776,12 +923,12 @@ function MinimalStaffCard({ staff, openEditModal, handleDelete, handleGhostLogin
         </div>
       </div>
 
-      <div className="mb-5 relative z-10 space-y-2">
+      <div className="mb-4 relative z-10 space-y-1.5">
          <div className="flex items-center justify-between">
            <span className={`text-[10px] font-bold uppercase tracking-widest ${
              isModern ? (isDarkMode ? 'text-slate-500' : 'text-slate-400') : 'text-slate-500'
            }`}>Position</span>
-           <span className={`px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-wider border ${badgeStyle}`}>
+           <span className={`px-2.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider border ${badgeStyle}`}>
              {staff.role}
            </span>
          </div>
@@ -806,6 +953,29 @@ function MinimalStaffCard({ staff, openEditModal, handleDelete, handleGhostLogin
             </div>
          )}
       </div>
+
+      {/* Lightbox / Zoom Modal on Click */}
+      {showZoom && (
+        <div 
+          onClick={(e) => { e.stopPropagation(); setShowZoom(false); }}
+          className="fixed inset-0 z-[120] bg-black/80 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer animate-fade-in"
+        >
+          <div className="relative bg-[#0F172A] p-5 rounded-3xl border border-white/20 shadow-2xl flex flex-col items-center max-w-xs w-full text-center" onClick={(e) => e.stopPropagation()}>
+            <div className="w-56 h-56 rounded-2xl overflow-hidden border border-white/10 shadow-inner mb-3.5 bg-black">
+              <img src={avatarUrl} alt={`${cleanFirst} ${cleanLast}`} className="w-full h-full object-cover" />
+            </div>
+            <h3 className="text-white font-black text-base">{staff.firstName} {staff.lastName}</h3>
+            <p className="text-xs text-slate-400 mt-0.5">{staff.role} • {staff.department || 'Staff'}</p>
+            <button 
+              type="button" 
+              onClick={() => setShowZoom(false)}
+              className="mt-4 px-5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all cursor-pointer"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
 
       {canEdit && (
         <div className={`mt-auto grid grid-cols-3 gap-2 relative z-10 pt-3 border-t ${

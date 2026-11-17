@@ -13,6 +13,7 @@ import {
 import { FaFacebook, FaYoutube, FaWhatsapp, FaTiktok } from 'react-icons/fa';
 import CosmicPortalTransition from '../../../components/web/CosmicPortalTransition';
 import HeroGraduation from '../components/HeroGraduation';
+import { getDashboardLink } from '../../../utils/navigation';
 
 export default function NewCampusLandingPage({ loggedInUser }) {
   const navigate = useNavigate();
@@ -109,15 +110,6 @@ export default function NewCampusLandingPage({ loggedInUser }) {
     return `https://imacampus.online/storage/icons/${imageName}`;
   };
 
-  const getDashboardLink = () => {
-    if (!loggedInUser) return '/login';
-    const role = loggedInUser.role?.toUpperCase();
-    if (role === 'STUDENT' || role === 'USER') return '/student/dashboard';
-    if (role === 'MANAGER' || role === 'ASS MANAGER') return '/manager/dashboard';
-    if (role === 'COORDINATOR') return '/coordinator/dashboard';
-    if (role === 'FINANCE') return '/admin/finance';
-    return '/admin/dashboard';
-  };
 
   // Filter businesses by active category with fallback
   const filteredBusinesses = useMemo(() => {

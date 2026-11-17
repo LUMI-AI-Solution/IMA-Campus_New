@@ -1,31 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
-const prisma = require('../src/core/db');
-
-const MONTH_NAMES = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-];
-const SINHALA_MONTH_MAP = {
-    'ජනවාරි': 'January', 'පෙබරවාරි': 'February', 'මාර්තු': 'March', 'අප්‍රේල්': 'April',
-    'මැයි': 'May', 'ජූනි': 'June', 'ජූලි': 'July', 'අගෝස්තු': 'August',
-    'සැප්තැම්බර්': 'September', 'ඔක්තෝම්බර්': 'October', 'නොවැම්බර්': 'November', 'දෙසැම්බර්': 'December'
-};
-const parseMonthName = (str) => {
-    if (!str) return null;
-    const s = String(str).trim();
-    for (const [sin, eng] of Object.entries(SINHALA_MONTH_MAP)) {
-        if (s.includes(sin)) return eng;
-    }
-    const lower = s.toLowerCase();
-    for (const m of MONTH_NAMES) {
-        if (lower.includes(m.toLowerCase())) return m;
-    }
-    const shortPrefixes = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
-    for (let i = 0; i < shortPrefixes.length; i++) {
-        if (lower.includes(shortPrefixes[i])) return MONTH_NAMES[i];
-    }
-    return null;
-};
+const prisma = require('../lib/prisma');
+const { getMonthKey } = require('../utils/monthUtils');
+const { mergeAttempts: mergeAttemptsSafe } = require('../utils/attemptsMerge');
 
 const getLast9Digits = (phone) => {
     if (!phone) return '';
@@ -271,21 +247,21 @@ exports.runMonthlyRetentionReset = async () => {
             const currentMonthLong = today.toLocaleString('default', { month: 'long' }).toLowerCase();
             const currentMonthShort = today.toLocaleString('default', { month: 'short' }).toLowerCase();
 
-            const currentMonthGroups = monthlyGroups.filter(g => {
-                const p = parseMonthName(g.name);
-                return (p && p.toLowerCase() === currentMonthLong) ||
-                       g.name.toLowerCase().includes(currentMonthLong) ||
-                       g.name.toLowerCase().includes(currentMonthShort);
-            });
-            const currentGroupIds = currentMonthGroups.map(g => g.id);
+            // Prefer the THEORY group (classType 1) of this month: a paper-class payment alone
+            // must not count as "already paid" for the monthly reset.
+            const currentMonthMatches = monthlyGroups.filter(g => 
+                g.name.toLowerCase().includes(currentMonthLong) || 
+                g.name.toLowerCase().includes(currentMonthShort)
+            );
+            const currentMonthGroup = currentMonthMatches.find(g => parseInt(g.classType || 1) === 1) || currentMonthMatches[0];
 
             // Get the last 9 digits of all students who already have approved payments for the new month group
             let paidStudentPhones = [];
-            if (currentGroupIds.length > 0) {
+            if (currentMonthGroup) {
                 const paymentsForNewMonth = await prisma.payment.findMany({
                     where: { 
                         batchId: batch.id,
-                        groupId: { in: currentGroupIds },
+                        groupId: currentMonthGroup.id,
                         status: 1
                     },
                     select: {
@@ -419,29 +395,86 @@ exports.getRetentionCampaignData = async (req, res) => {
         });
         const monthlyGroupsRaw = allGroups.filter(g => !g.name.toLowerCase().includes('full'));
 
-        const monthMap = new Map();
+        // 🔥 THEORY + PAPER MERGE 🔥
+        // Theory (classType 1) and Paper (classType 2) groups of the same month are merged into ONE
+        // campaign month (one card, one call, one outcome per student per month), even if the
+        // group names differ slightly. The canonical name is the THEORY group's name, so all
+        // previously saved attemptsData keys (e.g. "Monthly Payment - May") keep matching.
+        const groupClassMap = {};
+        monthlyGroupsRaw.forEach(g => { groupClassMap[g.id] = parseInt(g.classType || 1); });
+
+        const monthBuckets = new Map();
         monthlyGroupsRaw.forEach(g => {
-            const canonical = parseMonthName(g.name) || g.name.trim();
-            const key = canonical.toUpperCase();
-            if (!monthMap.has(key)) {
-                monthMap.set(key, {
-                    name: `Monthly Payment - ${key}`,
-                    canonical: key,
-                    minOrder: g.itemOrder || 999,
-                    ids: []
-                });
+            const key = getMonthKey(g.name);
+            if (!monthBuckets.has(key)) {
+                monthBuckets.set(key, { theoryName: null, theoryOrder: null, anyOrder: null, firstName: g.name, names: new Set(), ids: [] });
             }
-            const entry = monthMap.get(key);
-            entry.ids.push(g.id);
-            if (g.itemOrder && g.itemOrder < entry.minOrder) {
-                entry.minOrder = g.itemOrder;
+            const b = monthBuckets.get(key);
+            b.ids.push(g.id);
+            b.names.add(g.name);
+            const order = g.itemOrder ?? 999;
+            if (parseInt(g.classType || 1) === 1) {
+                if (!b.theoryName) b.theoryName = g.name;
+                b.theoryOrder = b.theoryOrder === null ? order : Math.min(b.theoryOrder, order);
             }
+            b.anyOrder = b.anyOrder === null ? order : Math.min(b.anyOrder, order);
         });
 
-        const distinctMonthlyGroups = Array.from(monthMap.values()).sort((a, b) => a.minOrder - b.minOrder);
+        const distinctMonthlyGroups = Array.from(monthBuckets.values())
+            .sort((a, b) => (a.theoryOrder ?? a.anyOrder ?? 999) - (b.theoryOrder ?? b.anyOrder ?? 999))
+            .map(b => ({
+                name: b.theoryName || b.firstName,
+                ids: b.ids,
+                aliases: Array.from(b.names)
+            }));
+
+        // Any group name (theory / paper / old variant) -> canonical campaign month name
+        const aliasToCanonical = {};
+        distinctMonthlyGroups.forEach(g => {
+            g.aliases.forEach(a => { aliasToCanonical[String(a).trim().toLowerCase()] = g.name; });
+        });
+        const toCanonicalMonth = (name) => aliasToCanonical[String(name || '').trim().toLowerCase()] || name;
+
+        // Merge alias-month attempts into the canonical month WITHOUT losing anything.
+        // Canonical (target) values win for status/method; alias only fills empty attempts.
+        // If the same attempt number has different remarks, they are joined with " | ".
+        const mergeMonthAttempts = (target, source) => {
+            const out = { ...(target || {}) };
+            for (const att in (source || {})) {
+                const prev = out[att];
+                const cur = source[att] || {};
+                if (!prev) { out[att] = { ...cur }; continue; }
+                const prevFb = (prev.feedback || '').trim();
+                const curFb = (cur.feedback || '').trim();
+                const prevIsPending = !prev.status || prev.status === 'pending';
+                out[att] = {
+                    ...cur,
+                    ...prev,
+                    status: prevIsPending ? (cur.status || prev.status) : prev.status,
+                    feedback: prevFb && curFb && prevFb !== curFb ? `${prevFb} | ${curFb}` : (prevFb || curFb)
+                };
+            }
+            return out;
+        };
+
+        // { "Monthly Payment - May": {...}, "May Paper": {...} } -> { "Monthly Payment - May": {merged} }
+        // The canonical key is applied first so its values win; alias keys only fill gaps / append remarks.
+        const canonicalizeAttempts = (raw) => {
+            const out = {};
+            const keys = Object.keys(raw || {}).sort((a, b) => {
+                const aIsCanon = toCanonicalMonth(a) === a ? 0 : 1;
+                const bIsCanon = toCanonicalMonth(b) === b ? 0 : 1;
+                return aIsCanon - bIsCanon;
+            });
+            keys.forEach(k => {
+                const canon = toCanonicalMonth(k);
+                out[canon] = out[canon] ? mergeMonthAttempts(out[canon], raw[k]) : { ...(raw[k] || {}) };
+            });
+            return out;
+        };
 
         // Determine default active group name if not provided
-        let activeGroupName = targetMonthName;
+        let activeGroupName = targetMonthName ? toCanonicalMonth(targetMonthName) : targetMonthName;
         if (!activeGroupName && distinctMonthlyGroups.length > 0) {
             const today = new Date();
             const currentMonthLong = today.toLocaleString('default', { month: 'long' }).toLowerCase();
@@ -467,9 +500,35 @@ exports.getRetentionCampaignData = async (req, res) => {
         });
 
         // Load courses to map subject IDs to names
-        const courses = await prisma.course.findMany({ select: { id: true, name: true } });
+        const courses = await prisma.course.findMany({ select: { id: true, name: true, courseType: true, groupId: true } });
         const courseMap = {};
         courses.forEach(c => { courseMap[c.id] = c.name; });
+
+        // 🔥 Paper class detection: courseType 2 OR course belongs to a classType 2 group 🔥
+        const PAPER_TAG = ' [PAPER]';
+        const allGroupClassMap = { ...groupClassMap };
+        allGroups.forEach(g => { if (!(g.id in allGroupClassMap)) allGroupClassMap[g.id] = parseInt(g.classType || 1); });
+
+        const paperCourseIds = new Set(
+            courses.filter(c => c.courseType === 2 || (c.groupId && allGroupClassMap[c.groupId] === 2)).map(c => c.id)
+        );
+
+        const subjectLabelForCourseId = (id) => {
+            const name = courseMap[id];
+            if (!name) return null;
+            return paperCourseIds.has(id) ? `${name}${PAPER_TAG}` : name;
+        };
+
+        // Resolves one item from Payment.subjects JSON to a display label (paper courses get " [PAPER]")
+        const resolveSubjectLabel = (item) => {
+            if (item === null || item === undefined) return null;
+            if (typeof item === 'object' && item.id) return subjectLabelForCourseId(parseInt(item.id));
+            if (typeof item === 'string' && isNaN(parseInt(item))) return item.trim().toUpperCase();
+            if (!isNaN(parseInt(item))) return subjectLabelForCourseId(parseInt(item));
+            return null;
+        };
+
+        const isPaperSubject = (label) => typeof label === 'string' && label.endsWith(PAPER_TAG);
 
         // 2. OVERALL ENROLLED CALCULATION (In CRM vs Not In CRM)
         const crmWhereClauseOverall = buildStatsWhereClause(businessId, batchId, null, null, {
@@ -523,7 +582,7 @@ exports.getRetentionCampaignData = async (req, res) => {
             include: { 
                 assignedUser: { select: { firstName: true, lastName: true, businessType: true } },
                 batch: { select: { name: true } },
-                roundProgress: { where: { campaignCategory: 'PAID' }, orderBy: { roundNum: 'asc' } }
+                roundProgress: { where: { campaignCategory: 'PAID' }, orderBy: { updatedAt: 'asc' } }
             }
         });
 
@@ -539,15 +598,15 @@ exports.getRetentionCampaignData = async (req, res) => {
                     if (prog.attemptsData) {
                         try {
                             const parsed = JSON.parse(prog.attemptsData);
-                            // Merge objects deep
-                            for (const monthKey in parsed) {
-                                if (!attemptsData[monthKey]) attemptsData[monthKey] = {};
-                                attemptsData[monthKey] = { ...attemptsData[monthKey], ...parsed[monthKey] };
-                            }
+                            // Per-attempt safe merge: newest savedAt wins, real results beat empty "pending"
+                            attemptsData = mergeAttemptsSafe(attemptsData, parsed);
                         } catch(e) {}
                     }
                 });
             }
+
+            // Read-time remap of old/paper month names to the canonical month (DB data is NOT changed)
+            attemptsData = canonicalizeAttempts(attemptsData);
 
             if (l.assignedTo && !activeStaffIds.has(l.assignedTo)) {
                 return { ...l, phase, assignedTo: null, assignedUser: null, attemptsData };
@@ -604,15 +663,8 @@ exports.getRetentionCampaignData = async (req, res) => {
                 uniqueLeadsMap.set(last9, l);
             } else {
                 const existing = uniqueLeadsMap.get(last9);
-                const mergedAttempts = { ...(existing.attemptsData || {}) };
-                if (l.attemptsData) {
-                    for (const mKey in l.attemptsData) {
-                        mergedAttempts[mKey] = {
-                            ...(mergedAttempts[mKey] || {}),
-                            ...(l.attemptsData[mKey] || {})
-                        };
-                    }
-                }
+                // Duplicate lead rows of the same student: safe per-attempt merge (no stale overwrite)
+                const mergedAttempts = mergeAttemptsSafe(existing.attemptsData || {}, l.attemptsData || {});
                 const best = pickBestLead(existing, l);
 
                 // Preserve active paid call status and feedback across merged records
@@ -665,12 +717,7 @@ exports.getRetentionCampaignData = async (req, res) => {
                     try {
                         const subs = JSON.parse(p.subjects);
                         subs.forEach(item => {
-                            let subName = null;
-                            if (typeof item === 'object' && item.id && courseMap[parseInt(item.id)]) subName = courseMap[parseInt(item.id)];
-                            else if (typeof item === 'string' && isNaN(parseInt(item))) subName = item.trim().toUpperCase();
-                            else if (!isNaN(parseInt(item)) && courseMap[parseInt(item)]) subName = courseMap[parseInt(item)];
-                            else if (typeof item === 'number' && courseMap[item]) subName = courseMap[item];
-                            
+                            const subName = resolveSubjectLabel(item);
                             if (subName) baseSubjects.add(subName);
                         });
                     } catch(e) {}
@@ -730,18 +777,14 @@ exports.getRetentionCampaignData = async (req, res) => {
                         if (p.subjects) {
                             try {
                                 const subs = JSON.parse(p.subjects);
-                                hasSub = subs.some(item => {
-                                    let sName = null;
-                                    if (typeof item === 'object' && item.id) sName = courseMap[parseInt(item.id)];
-                                    else if (typeof item === 'string' && isNaN(parseInt(item))) sName = item.trim().toUpperCase();
-                                    else if (!isNaN(parseInt(item))) sName = courseMap[parseInt(item)];
-                                    else if (typeof item === 'number' && courseMap[item]) sName = courseMap[item];
-                                    return sName === subjectName;
-                                });
+                                hasSub = subs.some(item => resolveSubjectLabel(item) === subjectName);
                             } catch(e) {}
                         } else {
-                            // If payment has no subjects, assume it covers all their base subjects
-                            hasSub = true;
+                            // Payment has no subjects: it covers the base subjects of the SAME class type
+                            // as its group (a theory payment must not mark a paper subject as paid, and vice versa).
+                            const payClass = p.groupId ? allGroupClassMap[p.groupId] : null;
+                            const subClass = isPaperSubject(subjectName) ? 2 : 1;
+                            hasSub = !payClass || payClass === subClass;
                         }
                         if (hasSub && (p.payment_type === 3 || p.payment_type === 2 || group.ids.includes(p.groupId))) {
                             return true;
@@ -832,6 +875,35 @@ exports.getRetentionCampaignData = async (req, res) => {
                 });
             }
 
+            // 🔥 THEORY / PAPER DUE STATUS for the active month 🔥
+            const subjectTypes = {};
+            baseSubjects.forEach(sub => { subjectTypes[sub] = isPaperSubject(sub) ? 'PAPER' : 'THEORY'; });
+            const unpaidTheory = [];
+            const unpaidPaper = [];
+            if (activeGroup) {
+                baseSubjects.forEach(sub => {
+                    const st = paymentHistory[sub]?.[activeGroup.name];
+                    if (st === 'PAID' || st === 'PROCESSING') return;
+                    if (subjectTypes[sub] === 'PAPER') unpaidPaper.push(sub);
+                    else unpaidTheory.push(sub);
+                });
+            }
+            let dueType = 'ALL_PAID';
+            if (unpaidTheory.length > 0 && unpaidPaper.length > 0) dueType = 'FULL_DUE';
+            else if (unpaidTheory.length > 0) dueType = 'THEORY_DUE';
+            else if (unpaidPaper.length > 0) dueType = 'PAPER_ONLY';
+
+            // Enrollment / dropped status is decided by THEORY subjects only, so a student who
+            // pays theory but skips the paper class is NOT moved to Non-Enrolled / Dropped.
+            // (Students who only take paper classes fall back to their paper subjects.)
+            const hasTheorySubjects = Array.from(baseSubjects).some(sub => subjectTypes[sub] === 'THEORY');
+            const countsForStatus = (sub) => !hasTheorySubjects || subjectTypes[sub] === 'THEORY';
+            const statusPrevPaid = prevGroupPaidSubjects.filter(countsForStatus);
+            const statusActivePaid = activeGroupPaidSubjects.filter(countsForStatus);
+            const statusFirstPaid = firstGroupPaidSubjects.filter(countsForStatus);
+            const statusDroppedDetails = droppedSubjectsDetails.filter(d => countsForStatus(d.subject));
+            isDroppedTwoMonthsPlus = statusDroppedDetails.length > 0;
+
             // Determine Payment Type & Intention
             const hasApprovedFull = studentPayments.some(p => p.payment_type === 3 && [1, 4].includes(p.status));
             const hasApprovedInstallment = studentPayments.some(p => p.payment_type === 2 && [1, 4].includes(p.status));
@@ -857,9 +929,9 @@ exports.getRetentionCampaignData = async (req, res) => {
                 isNonEnrolled = false;
             } else {
                 // Month > 1 Rule
-                if (activeGroupPaidSubjects.length < prevGroupPaidSubjects.length) {
+                if (statusActivePaid.length < statusPrevPaid.length) {
                     isNonEnrolled = true;
-                } else if (prevGroupPaidSubjects.length === 0 && activeGroupPaidSubjects.length === 0) {
+                } else if (statusPrevPaid.length === 0 && statusActivePaid.length === 0) {
                     isNonEnrolled = true;
                 } else {
                     isEnrolled = true;
@@ -867,7 +939,7 @@ exports.getRetentionCampaignData = async (req, res) => {
             }
 
             l.enrollmentStatus = isNonEnrolled ? 'NON_ENROLLED' : 'ENROLLED';
-            const isDroppedOverall = firstGroupPaidSubjects.length > activeGroupPaidSubjects.length;
+            const isDroppedOverall = statusFirstPaid.length > statusActivePaid.length;
             const isUpgraded = studentPayments.some(p => p.remark && p.remark.includes('[UPGRADE]'));
 
             // Add first enrolled month name for frontend display
@@ -895,7 +967,12 @@ exports.getRetentionCampaignData = async (req, res) => {
                 droppedSubjectsDetails,
                 newlyDroppedSubjects,
                 prevGroupPaidSubjects,
-                activeGroupPaidSubjects
+                activeGroupPaidSubjects,
+                // 🔥 Theory + Paper info for the card 🔥
+                subjectTypes,
+                dueType,
+                unpaidTheory,
+                unpaidPaper
             });
         });
 

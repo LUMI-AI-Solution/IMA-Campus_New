@@ -313,7 +313,31 @@ const resolveTargetBizName = async (businessId, batchId) => {
 const isStaffInBusiness = (u, targetBizId, targetBizName) => {
     if (!u) return false;
     if (isCallCenterUser(u)) return false;
-    return true; // Any non-call-center coordinator assigned to batch leads is valid
+
+    // If no target business specified (e.g. ALL), any coordinator is allowed
+    if (!targetBizName && (!targetBizId || targetBizId === 'ALL')) return true;
+
+    const userBiz = String(u.businessType || '').toLowerCase().trim();
+    if (!userBiz) return false;
+
+    // Allow top-level campus-wide managers
+    if (userBiz === 'all' || userBiz === 'ima campus' || userBiz === 'campus') return true;
+
+    const targetName = String(targetBizName || '').toLowerCase().trim();
+    const targetIdStr = targetBizId && targetBizId !== 'ALL' ? String(targetBizId).trim() : '';
+
+    const staffBizList = userBiz.split(',').map(b => b.trim().toLowerCase()).filter(Boolean);
+
+    return staffBizList.some(b => {
+        if (targetIdStr && b === targetIdStr) return true;
+        if (targetName) {
+            if (b === targetName) return true;
+            const cleanB = b.replace(/[\s\-_/\\|]+/g, '');
+            const cleanTarget = targetName.replace(/[\s\-_/\\|]+/g, '');
+            if (cleanB === cleanTarget) return true;
+        }
+        return false;
+    });
 };
 
 // ==========================================
@@ -598,28 +622,52 @@ exports.getManagerDashboardStats = async (req, res) => {
 };
 
 // Update Batch Goals
+// 🔥 Conversion goals per campaign. OPEN_SEM uses targetIndividualGoal/targetGroupGoal,
+// NEW_INQ uses its own newInqTargetIndividualGoal/newInqTargetGroupGoal columns.
+const getCampaignBatchGoals = async (businessId, batchId, campaign = 'OPEN_SEM') => {
+    const isNewInq = campaign === 'NEW_INQ';
+    const select = isNewInq
+        ? { newInqTargetIndividualGoal: true, newInqTargetGroupGoal: true }
+        : { targetIndividualGoal: true, targetGroupGoal: true };
+    const toGoals = (b) => ({
+        targetIndividualGoal: (isNewInq ? b?.newInqTargetIndividualGoal : b?.targetIndividualGoal) ?? 40,
+        targetGroupGoal: (isNewInq ? b?.newInqTargetGroupGoal : b?.targetGroupGoal) ?? 50
+    });
+    try {
+        if (batchId && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null' && !isNaN(parseInt(batchId))) {
+            const b = await prisma.batch.findUnique({ where: { id: parseInt(batchId) }, select });
+            if (b) return toGoals(b);
+        } else if (businessId && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null' && !isNaN(parseInt(businessId))) {
+            const b = await prisma.batch.findFirst({ where: { businessId: parseInt(businessId) }, select });
+            if (b) return toGoals(b);
+        }
+    } catch (e) {
+        console.error(`Batch goals fetch error (${campaign}):`, e);
+    }
+    return { targetIndividualGoal: 40, targetGroupGoal: 50 };
+};
+
 exports.updateBatchGoals = async (req, res) => {
     try {
-        const { batchId, businessId, targetIndividualGoal, targetGroupGoal } = req.body;
+        const { batchId, businessId, targetIndividualGoal, targetGroupGoal, campaign } = req.body;
         const indVal = parseFloat(targetIndividualGoal) || 40;
         const grpVal = parseFloat(targetGroupGoal) || 50;
+
+        // campaign: 'NEW_INQ' -> New Inquiries goals, anything else -> Open Seminar goals (old behaviour)
+        const goalData = campaign === 'NEW_INQ'
+            ? { newInqTargetIndividualGoal: indVal, newInqTargetGroupGoal: grpVal }
+            : { targetIndividualGoal: indVal, targetGroupGoal: grpVal };
 
         if (batchId && batchId !== 'ALL' && batchId !== 'undefined' && batchId !== 'null') {
             await prisma.batch.update({
                 where: { id: parseInt(batchId) },
-                data: {
-                    targetIndividualGoal: indVal,
-                    targetGroupGoal: grpVal
-                }
+                data: goalData
             });
         }
         if (businessId && businessId !== 'ALL' && businessId !== 'undefined' && businessId !== 'null') {
             await prisma.batch.updateMany({
                 where: { businessId: parseInt(businessId) },
-                data: {
-                    targetIndividualGoal: indVal,
-                    targetGroupGoal: grpVal
-                }
+                data: goalData
             });
         }
 
@@ -866,7 +914,8 @@ exports.getNewInquiryStats = async (req, res) => {
             totalEnrolled, 
             totalDelayed,
             staffBreakdown: Object.values(staffMap),
-            rawLeads: rawLeadsForExport
+            rawLeads: rawLeadsForExport,
+            batchGoals: await getCampaignBatchGoals(businessId, batchId, 'NEW_INQ')
         });
     } catch (error) {
         console.error("New Inq Stats Error:", error);
@@ -1276,6 +1325,134 @@ exports.getBridgePerformanceStats = async (req, res) => {
 // ==========================================
 // 5. PAID CAMPAIGN STATS
 // ==========================================
+// ==========================================
+// 🔥 CAMPAIGN SUMMARY TILES (Manager System Overview) 🔥
+// Open Seminar + New Inquiries summary for the realtime overview tiles.
+// Re-uses the exact getOpenSeminarStats / getNewInquiryStats logic (same numbers as the
+// campaign dashboards), strips the heavy lead lists, and caches the result for 60 seconds
+// so the overview can poll every minute without loading the database.
+// ==========================================
+const CAMPAIGN_SUMMARY_TTL_MS = 60 * 1000;
+const campaignSummaryCache = new Map();
+
+const runStatsHandler = async (handler, req) => {
+    let data = {};
+    let code = 200;
+    const fakeRes = {
+        status: (c) => { code = c; return fakeRes; },
+        json: (d) => { data = d; return fakeRes; }
+    };
+    await handler(req, fakeRes);
+    return code >= 400 ? null : data;
+};
+
+const summarizeCampaign = (data, total) => {
+    if (!data) return null;
+    let answered = 0, noAnswer = 0, reject = 0;
+    (data.staffBreakdown || []).forEach(s => {
+        answered += (s.overall?.answered || 0);
+        noAnswer += (s.overall?.noAnswer || 0);
+        reject += (s.overall?.reject || 0);
+    });
+    const assigned = data.totalAssigned || 0;
+    const enrolled = data.totalEnrolled || 0;
+    const contacted = data.totalContacted || 0;
+
+    // Top contributor: same ranking as the campaign leaderboard (conversion rate, then enrolled count)
+    const ranked = (data.staffBreakdown || [])
+        .filter(s => (s.overall?.assigned || 0) > 0)
+        .sort((a, b) => {
+            const rA = a.overall.enrolled / a.overall.assigned;
+            const rB = b.overall.enrolled / b.overall.assigned;
+            if (rB !== rA) return rB - rA;
+            return (b.overall.enrolled || 0) - (a.overall.enrolled || 0);
+        });
+    const top = ranked[0];
+    const topContributor = top ? {
+        name: top.name,
+        image: top.image || null,
+        enrolled: top.overall.enrolled || 0,
+        assigned: top.overall.assigned || 0,
+        rate: Math.round((top.overall.enrolled / top.overall.assigned) * 1000) / 10
+    } : null;
+    const goals = data.batchGoals || { targetIndividualGoal: 40, targetGroupGoal: 50 };
+    const conversionRate = assigned > 0 ? Math.round((enrolled / assigned) * 1000) / 10 : 0;
+    const groupTargetCount = Math.floor((goals.targetGroupGoal / 100) * assigned);
+
+    return {
+        target: {
+            individual: goals.targetIndividualGoal,
+            group: goals.targetGroupGoal,
+            groupTargetCount,
+            neededForGroup: Math.max(groupTargetCount - enrolled, 0),
+            achieved: assigned > 0 && enrolled >= groupTargetCount
+        },
+        topContributor,
+        total: total || 0,
+        assigned,
+        unassigned: Math.max((total || 0) - assigned, 0),
+        contacted,
+        pending: data.totalPending || 0,
+        answered,
+        noAnswer,
+        reject,
+        enrolled,
+        directPaid: data.totalDirectPaid || 0,
+        delayed: data.totalDelayed || 0,
+        conversionRate,
+        contactedRate: assigned > 0 ? Math.round((contacted / assigned) * 1000) / 10 : 0
+    };
+};
+
+exports.getCampaignSummary = async (req, res) => {
+    try {
+        const { businessId, batchId } = req.query;
+        const cacheKey = `${businessId || 'ALL'}|${batchId || 'ALL'}`;
+        const forceRefresh = req.query.refresh === '1';
+        const cached = campaignSummaryCache.get(cacheKey);
+        if (!forceRefresh && cached && Date.now() - cached.at < CAMPAIGN_SUMMARY_TTL_MS) {
+            return res.status(200).json({ ...cached.data, cached: true });
+        }
+
+        // Date filters are not used for the live tiles
+        const statsReq = { ...req, query: { businessId, batchId } };
+        const [openSemData, newInqData] = await Promise.all([
+            runStatsHandler(exports.getOpenSeminarStats, statsReq),
+            runStatsHandler(exports.getNewInquiryStats, statsReq)
+        ]);
+
+        const startOfToday = new Date();
+        startOfToday.setHours(0, 0, 0, 0);
+        const openSemTodayWhere = buildStatsWhereClause(businessId, batchId, null, null, {
+            campaignType: 'AFTER_SEMINAR', inquiryType: { in: ['OPEN_SEMINAR', 'NORMAL'] },
+            createdAt: { gte: startOfToday }, NOT: { source: 'bridge_transfer' }
+        });
+        const newInqTodayWhere = buildStatsWhereClause(businessId, batchId, null, null, {
+            campaignType: 'AFTER_SEMINAR', inquiryType: 'NEW_INQ', createdAt: { gte: startOfToday }
+        });
+        const [openSemToday, newInqToday] = await Promise.all([
+            prisma.lead.count({ where: openSemTodayWhere }).catch(() => 0),
+            prisma.lead.count({ where: newInqTodayWhere }).catch(() => 0)
+        ]);
+
+        const openSeminar = summarizeCampaign(openSemData, openSemData?.totalOpenSem);
+        const newInquiries = summarizeCampaign(newInqData, newInqData?.totalNewInq);
+        if (openSeminar) {
+            openSeminar.todayNew = openSemToday;
+            const r1 = openSemData?.campaignRounds?.r1 || {};
+            openSeminar.movedToR2 = r1.movedToR2 || r1.moved || 0;
+        }
+        if (newInquiries) newInquiries.todayNew = newInqToday;
+
+        const payload = { openSeminar, newInquiries, generatedAt: new Date().toISOString() };
+        campaignSummaryCache.set(cacheKey, { at: Date.now(), data: payload });
+        res.status(200).json({ ...payload, cached: false });
+    } catch (error) {
+        console.error("Campaign Summary Error:", error);
+        res.status(500).json({ error: "Failed to fetch campaign summary" });
+    }
+};
+
 exports.getPaidCampaignStats = async (req, res) => {
     try {
         const { businessId, batchId, startDate, endDate } = req.query;

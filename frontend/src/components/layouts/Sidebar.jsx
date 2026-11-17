@@ -9,7 +9,7 @@ import {
   Archive, HardDrive, CalendarDays, CalendarCheck, CheckSquare, History,
   Music, Palette, ChevronLeft, ChevronRight, Megaphone, X, BarChart, PieChart, Calendar, Menu,
   PhoneCall, UserPlus, Repeat, GraduationCap, TrendingUp, Box, Activity, ShieldCheck, RefreshCw, Layers, Mic, Upload, Video, Sun, Moon, Sparkles, Wand2, Send,
-  BrainCircuit, MessageSquareText, BookOpen, Bot, Briefcase, Trophy, CreditCard, Search, Receipt
+  BrainCircuit, MessageSquareText, BookOpen, Bot, Briefcase, Trophy, CreditCard, Search, Receipt, Camera
 } from 'lucide-react';
 
 export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, setIsSidebarOpen, currentBg, setBgImage, isDarkMode, toggleThemeMode, appTheme = 'classic', setAppTheme }) {
@@ -29,6 +29,39 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
 
   const [uploadingImage, setUploadingImage] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Real-time live date & time for Sri Jayawardenepura (Asia/Colombo, UTC+5:30)
+  const [currentDateTime, setCurrentDateTime] = useState(new Date());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentDateTime(new Date());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const slTime = currentDateTime.toLocaleTimeString('en-US', {
+    timeZone: 'Asia/Colombo',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true
+  });
+
+  const slDate = currentDateTime.toLocaleDateString('en-US', {
+    timeZone: 'Asia/Colombo',
+    weekday: 'short',
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
+
+  const slMiniTime = currentDateTime.toLocaleTimeString('en-US', {
+    timeZone: 'Asia/Colombo',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true
+  });
 
   // Keyboard shortcut: Ctrl+K / Cmd+K to focus search, Escape to clear
   useEffect(() => {
@@ -177,9 +210,46 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
         if (!baseApiUrl || baseApiUrl === '') {
             baseApiUrl = 'http://localhost:5000'; // fallback
         }
-        setProfilePic(baseApiUrl + loggedInUser.image);
+        if (loggedInUser.image.includes('default_donkey')) {
+            setProfilePic('/default_donkey.jpg');
+        } else {
+            setProfilePic(baseApiUrl + loggedInUser.image);
+        }
+    } else {
+        setProfilePic('/default_donkey.jpg');
     }
   }, [loggedInUser]);
+
+  const hasCustomPhoto = !!(loggedInUser?.image && 
+                            !loggedInUser.image.includes('default_donkey') && 
+                            loggedInUser.image !== 'default.png' && 
+                            loggedInUser.image !== 'null');
+
+  useEffect(() => {
+    if (loggedInUser && !hasCustomPhoto) {
+      const alertedSession = sessionStorage.getItem('dp_alert_shown');
+      if (!alertedSession) {
+        sessionStorage.setItem('dp_alert_shown', 'true');
+        setTimeout(() => {
+          toast((t) => (
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">🐴</span>
+              <div>
+                <p className="font-bold text-xs text-white">Profile Picture Missing!</p>
+                <p className="text-[11px] text-slate-300">Please upload your official portrait photo.</p>
+              </div>
+              <button 
+                onClick={() => { toast.dismiss(t.id); fileInputRef.current?.click(); }}
+                className="px-2.5 py-1 rounded-lg bg-rose-500 hover:bg-rose-600 text-white font-bold text-xs ml-2 cursor-pointer shadow-sm shrink-0"
+              >
+                Upload
+              </button>
+            </div>
+          ), { duration: 8000, style: { background: '#0F172A', border: '1px solid rgba(244,63,94,0.4)' } });
+        }, 1500);
+      }
+    }
+  }, [loggedInUser, hasCustomPhoto]);
 
   const getNavLinkClass = ({ isActive }) => {
     const layout = isSidebarOpen ? 'space-x-3 px-3' : 'justify-center px-0';
@@ -1288,22 +1358,35 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
           ? (isDarkMode ? 'border-t border-slate-800 bg-[#0B0F19]' : 'border-t border-slate-200 bg-slate-50/50') 
           : 'border-t border-white/20 bg-transparent'
       }`}>
-        <div className={`flex items-center ${isSidebarOpen ? 'space-x-3 p-2' : 'justify-center p-1'} rounded-lg transition-colors cursor-pointer border border-transparent ${
+        <div className={`flex items-center ${isSidebarOpen ? 'space-x-3.5 p-2' : 'justify-center p-1.5'} rounded-xl transition-colors cursor-pointer border border-transparent ${
           isModern 
             ? (isDarkMode ? 'hover:bg-slate-800/60' : 'hover:bg-slate-200/60') 
             : 'hover:bg-white/10'
         }`}>
           <div className="relative group shrink-0" onClick={() => fileInputRef.current && fileInputRef.current.click()}>
-            <div className={`rounded-full bg-gradient-to-br from-emerald-500/80 to-teal-600/80 transition-colors flex items-center justify-center text-white font-bold shadow-sm backdrop-blur-md border-2 border-emerald-400/50 ring-2 ring-emerald-500/30 ring-offset-1 ring-offset-transparent overflow-hidden ${isSidebarOpen ? 'w-10 h-10 text-base' : 'w-8 h-8 text-sm'}`}>
-              {profilePic ? (
-                <img src={profilePic} alt="Profile" className="w-full h-full object-cover" />
-              ) : (
-                displayName.charAt(0).toUpperCase()
-              )}
+            {!hasCustomPhoto && (
+              <>
+                <span className="absolute -inset-1.5 rounded-full bg-gradient-to-r from-rose-500 via-pink-500 to-amber-500 opacity-75 blur-xs animate-ping pointer-events-none"></span>
+                <span className="absolute -inset-1 rounded-full bg-gradient-to-tr from-rose-500 via-purple-600 to-amber-400 opacity-90 blur-xs animate-pulse pointer-events-none"></span>
+              </>
+            )}
+            <div className={`rounded-full bg-gradient-to-br from-emerald-500/80 to-teal-600/80 transition-all flex items-center justify-center text-white font-black shadow-md backdrop-blur-md border-2 ${!hasCustomPhoto ? 'border-amber-400/80 ring-2 ring-rose-500/50' : 'border-emerald-400/60 ring-2 ring-emerald-500/40'} ring-offset-2 ring-offset-[#0B1120] overflow-hidden ${isSidebarOpen ? 'w-14 h-14 sm:w-16 sm:h-16 text-xl' : 'w-10 h-10 text-sm'}`}>
+              <img 
+                src={profilePic || '/default_donkey.jpg'} 
+                alt="Profile" 
+                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" 
+                onError={(e) => { e.target.onerror = null; e.target.src = '/default_donkey.jpg'; }}
+              />
             </div>
-            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 rounded-full">
-              <Upload size={isSidebarOpen ? 16 : 14} className="text-white" />
-            </div>
+            {!hasCustomPhoto ? (
+              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-gradient-to-tr from-rose-500 to-amber-500 text-white flex items-center justify-center border-2 border-slate-900 shadow-md animate-bounce" title="Upload your profile picture">
+                <Camera size={10} className="stroke-[2.5]" />
+              </div>
+            ) : (
+              <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/50 rounded-full" title="Click to change profile picture">
+                <Upload size={isSidebarOpen ? 20 : 16} className="text-white drop-shadow" />
+              </div>
+            )}
             <input 
               type="file" 
               accept="image/*" 
@@ -1314,16 +1397,73 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
             />
           </div>
           {isSidebarOpen && (
-            <div className="flex-1 overflow-hidden">
-              <p className={`text-sm font-semibold truncate ${
+            <div className="flex-1 overflow-hidden min-w-0">
+              <p className={`text-base font-bold truncate leading-tight ${
                 isModern ? (isDarkMode ? 'text-slate-100' : 'text-slate-800') : 'text-white'
               }`}>{displayName}</p>
-              <p className={`text-[10px] uppercase tracking-wide truncate ${
+              <p className={`text-[11px] font-semibold uppercase tracking-wider truncate mt-0.5 ${
                 isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-500') : 'text-gray-300'
               }`}>{roleName}</p>
+              {!hasCustomPhoto && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                  className="mt-1.5 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-black text-white bg-gradient-to-r from-rose-500 via-pink-600 to-amber-500 hover:from-rose-600 hover:to-amber-600 shadow-xs border border-white/20 animate-pulse cursor-pointer whitespace-nowrap"
+                  title="Click to upload your official photo"
+                >
+                  <Camera size={10} />
+                  <span>Add Photo</span>
+                </button>
+              )}
             </div>
           )}
         </div>
+
+        {/* Real-time Clock for Sri Jayawardenepura (Asia/Colombo) */}
+        {isSidebarOpen ? (
+          <div className={`mt-2.5 px-3 py-2 rounded-xl border transition-all ${
+            isModern
+              ? (isDarkMode 
+                  ? 'bg-slate-900/70 border-slate-800 text-slate-200 shadow-sm' 
+                  : 'bg-white/80 border-slate-200/80 text-slate-700 shadow-sm')
+              : 'bg-black/25 border-white/10 text-white backdrop-blur-md shadow-inner'
+          }`}>
+            <div className="flex items-center justify-between gap-1 mb-1">
+              <span className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                Jayawardenapura
+              </span>
+              <span className={`text-[9px] font-semibold tracking-tight ${
+                isModern ? (isDarkMode ? 'text-slate-500' : 'text-slate-400') : 'text-white/50'
+              }`}>
+                UTC+5:30
+              </span>
+            </div>
+            <div className="flex items-baseline justify-between gap-1">
+              <span className="font-mono text-sm font-black tracking-tight text-emerald-300 drop-shadow-sm">
+                {slTime}
+              </span>
+              <span className={`text-[10px] font-medium tracking-tight truncate ${
+                isModern ? (isDarkMode ? 'text-slate-400' : 'text-slate-500') : 'text-white/70'
+              }`}>
+                {slDate}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div 
+            className="mt-2 flex flex-col items-center justify-center py-1 text-center cursor-default" 
+            title={`${slDate} • ${slTime} (Sri Jayawardenepura)`}
+          >
+            <Clock size={14} className="text-emerald-400 animate-pulse" />
+            <span className="text-[9px] font-mono text-emerald-400 font-bold mt-0.5 leading-none">
+              {slMiniTime}
+            </span>
+          </div>
+        )}
       </div>
 
     </aside>

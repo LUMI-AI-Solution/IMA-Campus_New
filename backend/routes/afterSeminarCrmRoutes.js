@@ -108,6 +108,7 @@ router.post('/retention/trigger-reset', afterSeminarRetentionController.manualTr
 router.get('/manager-dashboard-stats', afterSeminarManagerStatsController.getManagerDashboardStats);
 router.get('/stats/new-inquiries', afterSeminarManagerStatsController.getNewInquiryStats);
 router.get('/stats/open-seminar', afterSeminarManagerStatsController.getOpenSeminarStats);
+router.get('/stats/campaign-summary', afterSeminarManagerStatsController.getCampaignSummary);
 router.get('/stats/bridge', afterSeminarManagerStatsController.getBridgePerformanceStats);
 router.get('/stats/paid-campaign', afterSeminarManagerStatsController.getPaidCampaignStats);
 router.get('/stats/coordinator-progress', afterSeminarManagerStatsController.getCoordinatorProgressSheetStats);

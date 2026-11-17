@@ -143,6 +143,9 @@ model Batch {
 
   targetIndividualGoal Float? @default(40.0)
   targetGroupGoal      Float? @default(50.0)
+  // New Inquiries campaign has its own conversion targets
+  newInqTargetIndividualGoal Float? @default(40.0)
+  newInqTargetGroupGoal      Float? @default(50.0)
   missedCallTasks      MissedCallTask[]
 }
 

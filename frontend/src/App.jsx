@@ -35,6 +35,7 @@ import MainLayout from "./components/layouts/MainLayout";
 const CallCampaignModule = lazy(() => import('./components/CoordinatorCRM/CallCampaignModule'));
 import WhatsAppPermissionPopup from './components/common/WhatsAppPermissionPopup';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { getDashboardLink } from './utils/navigation';
 const MonthlyRoster = lazy(() => import('./pages/class_coordinator/staff/MonthlyRoster'));
 const AnnouncementsManager = lazy(() => import('./pages/admin/AnnouncementsManager'));
 const SystemTasksAdmin = lazy(() => import('./pages/admin/SystemTasksAdmin'));
@@ -180,44 +181,6 @@ export default function App() {
     localStorage.removeItem('admin_user');
     setLoggedInUser(null);
     window.location.href = '/login';
-  };
-
-  const getDashboardLink = (user) => {
-    if (!user) return '/login';
-
-    const role = (user?.role || '').toUpperCase().replace(/[\s_-]+/g, '_');
-    const dept = user?.department;
-
-    if (role === 'STUDENT' || role === 'USER') return '/student/dashboard';
-
-    if (role === 'PAPER_GUIDER') return '/paper-guider/hub';
-    if (role === 'PAPER_MARKER') return '/paper-marker/dashboard';
-
-    if (role === 'LECTURE' || role === 'LECTURER') return '/manager/dashboard';
-
-    if (role === 'CALLER') return '/workspace/crm';
-    if (role === 'CALL_CENTER_AGENT' || role === 'CALL CENTER AGENT') return '/call-center/agent/overview';
-
-    if (role === 'COORDINATOR') return '/coordinator/dashboard';
-
-    if (role === 'SOCIAL MEDIA MANAGER' || role === 'SOCIAL_MEDIA_MANAGER' || ((role === 'MANAGER' || role === 'ASS MANAGER') && dept === 'Social Media')) return '/social-media/manager/dashboard';
-    if (role === 'SOCIAL MEDIA STAFF' || role === 'SOCIAL_MEDIA_STAFF' || (role === 'STAFF' && dept === 'Social Media')) return '/social-media/staff/dashboard';
-
-    if (dept === 'Call Center') {
-      return (role === 'MANAGER' || role === 'ASS MANAGER' || role === 'SUPER') ? '/call-center/dashboard' : '/call-center/agent/overview';
-    }
-
-    if (role === 'MANAGER' || role === 'ASS MANAGER' || role === 'STAFF') {
-      if (dept === 'Finance') return '/finance/dashboard';
-      if (dept === 'Class Coordination') return '/coordinator/dashboard';
-      if (dept === 'Technical') return '/technical/dashboard';
-      if (dept === 'Delivery') return '/delivery/dashboard';
-      if (dept === 'Physical') return '/physical/dashboard/overview';
-
-      return '/manager/dashboard';
-    }
-
-    return '/admin/dashboard';
   };
 
   // Opened a live-class link (/live/<id>) before logging in → go back there after login.

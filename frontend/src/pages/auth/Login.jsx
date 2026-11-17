@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
 import { Loader2, Lock, User, ArrowRight, Eye, EyeOff } from 'lucide-react';
+import { getDashboardLink } from '../../utils/navigation';
 
 export default function Login({ setLoggedInUser }) {
   const [username, setUsername] = useState('');
@@ -41,19 +42,7 @@ export default function Login({ setLoggedInUser }) {
         }
 
         // Role-based Redirect
-        const role = res.data.user.role?.toUpperCase(); // එන role එක Capital කරගන්නවා
-        
-        if(role === 'USER' || role === 'STUDENT') {
-            navigate('/student/dashboard');
-        } else if (role === 'MANAGER' || role === 'ASS MANAGER') {
-            navigate('/manager/dashboard'); 
-        } else if (role === 'COORDINATOR') {
-            navigate('/coordinator/dashboard');
-        } else if (role === 'FINANCE') {
-            navigate('/admin/finance'); 
-        } else {
-            navigate('/admin/dashboard'); // වෙන මුකුත් නැත්නම් Admin එකට
-        }
+        navigate(getDashboardLink(res.data.user));
       }
     } catch (error) {
       toast.error('ඔබගේ මුරපදය හෝ දුරකථන අංකය වැරදියි.');

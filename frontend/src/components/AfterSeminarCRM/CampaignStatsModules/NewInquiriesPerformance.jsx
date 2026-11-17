@@ -1,11 +1,42 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import axios from '../../../api/axios';
-import { FaUsers, FaUserTie, FaPhoneVolume, FaCheckCircle, FaExclamationCircle, FaChartBar, FaExclamationTriangle, FaCalendarAlt, FaChevronDown, FaChevronUp, FaFileExport, FaTimes, FaCheckSquare, FaRegSquare, FaLayerGroup, FaUserCheck } from 'react-icons/fa';
+import { FaUsers, FaUserTie, FaPhoneVolume, FaCheckCircle, FaExclamationCircle, FaChartBar, FaExclamationTriangle, FaCalendarAlt, FaChevronDown, FaChevronUp, FaFileExport, FaTimes, FaCheckSquare, FaRegSquare, FaLayerGroup, FaUserCheck, FaBullseye, FaCrown, FaTrophy } from 'react-icons/fa';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import toast from 'react-hot-toast';
 import BusinessBadge from '../../common/BusinessBadge';
 import UnassignedBatchModal from './UnassignedBatchModal';
 import MissingPaidStudentsModal from './MissingPaidStudentsModal';
+import SetBatchGoalsModal from './SetBatchGoalsModal';
+
+// Same avatar as the Open Seminar leaderboard
+const CoordinatorAvatar = ({ image, name, rankNum, initials }) => {
+    const [imgFailed, setImgFailed] = React.useState(false);
+    const validImage = image && typeof image === 'string' && image !== 'undefined' && image !== 'null' && image.trim().length > 5;
+
+    if (validImage && !imgFailed) {
+        return (
+            <img
+                src={image.startsWith('http') ? image : `${import.meta.env.VITE_API_URL || ''}${image}`}
+                alt={name || 'Coordinator'}
+                className="w-12 h-12 rounded-2xl object-cover border-2 border-indigo-500/40 shadow-md flex-shrink-0"
+                onError={() => setImgFailed(true)}
+            />
+        );
+    }
+
+    return (
+        <div className={`w-12 h-12 rounded-2xl bg-gradient-to-tr ${rankNum === 1 ? 'from-amber-500 via-amber-600 to-yellow-400 border-2 border-amber-300 shadow-[0_0_15px_rgba(251,191,36,0.4)]' : 'from-fuchsia-600 to-indigo-600 border border-white/20'} flex items-center justify-center font-black text-white text-sm shadow-md flex-shrink-0`}>
+            {initials}
+        </div>
+    );
+};
+
+const getInitials = (name) => {
+    const parts = (name || 'Coordinator').trim().replace(/\s+/g, ' ').split(' ').filter(Boolean);
+    if (parts.length >= 2 && parts[0][0] && parts[1][0]) return (parts[0][0] + parts[1][0]).toUpperCase();
+    if (parts.length === 1 && parts[0].length >= 2) return parts[0].substring(0, 2).toUpperCase();
+    return 'CO';
+};
 
 const getShiftData = (dateString) => {
     if (!dateString) return { dateStr: 'Unknown', label: 'Unknown Date', timestamp: 0 };
@@ -46,6 +77,7 @@ export default function NewInquiriesPerformance({ filters }) {
     const [showExportModal, setShowExportModal] = useState(false);
     const [showUnassignedModal, setShowUnassignedModal] = useState(false);
     const [showMissingPaidModal, setShowMissingPaidModal] = useState(false);
+    const [showGoalsModal, setShowGoalsModal] = useState(false);
     const [exportMode, setExportMode] = useState('ALL'); // ALL, SINGLE, MULTIPLE
     const [selectedSingleStaff, setSelectedSingleStaff] = useState('');
     const [selectedMultipleStaff, setSelectedMultipleStaff] = useState([]);
@@ -249,6 +281,9 @@ export default function NewInquiriesPerformance({ filters }) {
                     <div className="w-px h-6 bg-white/10 mx-2 hidden md:block"></div>
 
                     {/* TOOLS BUTTONS */}
+                    <button onClick={() => setShowGoalsModal(true)} className="px-4 py-2 bg-gradient-to-r from-fuchsia-600 to-indigo-600 hover:from-fuchsia-500 hover:to-indigo-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-1.5">
+                        <FaBullseye size={13} className="text-amber-300 animate-pulse" /> Target Goals (Conversion)
+                    </button>
                     <button onClick={() => setShowUnassignedModal(true)} className="px-4 py-2 bg-amber-600/90 hover:bg-amber-500 text-white text-xs font-bold uppercase tracking-wider rounded-lg shadow-md transition-all flex items-center gap-1.5">
                         <FaLayerGroup size={12} /> Unassigned Batch Leads
                     </button>
@@ -413,60 +448,172 @@ export default function NewInquiriesPerformance({ filters }) {
                     <div className="flex-1">
                         {stats.staffBreakdown.length === 0 ? <div className="text-center py-10 text-slate-500 text-sm">No coordinator data available.</div> : (
                             <div className="flex flex-col gap-5">
-                                {stats.staffBreakdown.map((staff, idx) => {
-                                    const isExpanded = expandedRows[staff.name];
-                                    const rate = staff.overall.assigned > 0 ? Math.round((staff.overall.enrolled / staff.overall.assigned) * 100) : 0;
-                                    const isHighDelay = staff.overall.delayed > 10;
+                                {/* 🔥 TEAM GROUP GOAL + TOP CONTRIBUTORS 🔥 */}
+                                {(() => {
+                                    const targetGrpGoal = stats.batchGoals?.targetGroupGoal ?? 50;
+                                    const teamAssigned = stats.staffBreakdown.reduce((n, s) => n + (s.overall.assigned || 0), 0);
+                                    const teamEnrolled = stats.staffBreakdown.reduce((n, s) => n + (s.overall.enrolled || 0), 0);
+                                    const teamRate = teamAssigned > 0 ? Math.round((teamEnrolled / teamAssigned) * 1000) / 10 : 0;
+                                    const reqGroupCount = Math.floor((targetGrpGoal / 100) * teamAssigned);
+                                    const neededGroup = Math.max(0, reqGroupCount - teamEnrolled);
+                                    const groupPct = neededGroup === 0 ? 100 : Math.min(100, Math.round((teamEnrolled / (reqGroupCount || 1)) * 100));
+                                    const podium = [...stats.staffBreakdown]
+                                        .filter(s => s.overall.assigned > 0)
+                                        .sort((a, b) => {
+                                            const rA = a.overall.enrolled / a.overall.assigned;
+                                            const rB = b.overall.enrolled / b.overall.assigned;
+                                            if (rB !== rA) return rB - rA;
+                                            return b.overall.enrolled - a.overall.enrolled;
+                                        })
+                                        .slice(0, 3);
+                                    const medal = ['text-amber-300 border-amber-400/40 bg-amber-500/10', 'text-slate-200 border-slate-400/30 bg-slate-400/10', 'text-orange-300 border-orange-500/30 bg-orange-700/10'];
 
                                     return (
-                                        <div key={idx} className={`bg-black/40 backdrop-blur-3xl rounded-[2rem] border transition-all duration-500 overflow-hidden ${isExpanded ? 'border-indigo-500/30 shadow-[0_8px_32px_rgba(99,102,241,0.15)]' : 'border-white/10 shadow-xl hover:border-white/20'}`}>
-                                            
-                                            {/* Header Row / Main Overview */}
-                                            <div onClick={() => toggleRow(staff.name)} className={`p-5 cursor-pointer flex flex-col xl:flex-row items-center justify-between gap-6 transition-colors ${isExpanded ? 'bg-indigo-500/5' : 'hover:bg-white/5'}`}>
-                                                
-                                                {/* Coordinator Name & Badge */}
-                                                <div className="flex items-center gap-4 w-full xl:w-1/4">
-                                                    <div className={`p-2.5 rounded-xl flex-shrink-0 transition-all duration-300 ${isExpanded ? 'bg-indigo-500/20 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.3)] rotate-180' : 'bg-white/5 text-slate-400'}`}>
-                                                        <FaChevronDown size={14} />
-                                                    </div>
-                                                    <div className="flex flex-col">
-                                                        <span className="font-black text-lg text-white tracking-wide">{staff.name}</span>
-                                                        <div className="mt-1 flex"><BusinessBadge businessType={staff.businessType} role={staff.role} /></div>
-                                                    </div>
+                                        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                                            <div className="bg-indigo-950/40 border border-indigo-500/30 rounded-3xl p-5 flex flex-col justify-center">
+                                                <div className="flex justify-between items-center text-[11px] font-black mb-2">
+                                                    <span className="text-fuchsia-300 flex items-center gap-1.5 uppercase tracking-wider"><FaUsers size={12} /> Team Group Goal ({targetGrpGoal}%)</span>
+                                                    {neededGroup > 0
+                                                        ? <span className="text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-400/30">Need {neededGroup} more</span>
+                                                        : <span className="text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-400/30">🎯 Achieved!</span>}
                                                 </div>
-
-                                                {/* Main Stats Grid */}
-                                                <div className="grid grid-cols-4 md:grid-cols-7 gap-4 w-full xl:w-3/4 flex-1 items-center">
-                                                    <div className="flex flex-col items-center">
-                                                        <span className="text-[9px] uppercase font-bold text-slate-500 mb-1 tracking-widest">Assigned</span>
-                                                        <span className="text-xl font-black text-slate-300">{staff.overall.assigned}</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-center relative group">
-                                                        <span className="text-[9px] uppercase font-bold text-indigo-400 mb-1 tracking-widest group-hover:text-indigo-300 transition-colors">Answered</span>
-                                                        <span className="text-2xl font-black text-indigo-300 drop-shadow-[0_0_12px_rgba(99,102,241,0.5)]">{staff.overall.answered}</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-center">
-                                                        <span className="text-[9px] uppercase font-bold text-slate-400 mb-1 tracking-widest">No Ans</span>
-                                                        <span className="text-lg font-black text-slate-300">{staff.overall.noAnswer}</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-center">
-                                                        <span className="text-[9px] uppercase font-bold text-amber-500 mb-1 tracking-widest">Pending</span>
-                                                        <span className="text-lg font-black text-amber-400">{staff.overall.pending}</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-center">
-                                                        <span className="text-[9px] uppercase font-bold text-red-400/80 mb-1 tracking-widest">Reject</span>
-                                                        <span className="text-lg font-black text-red-400">{staff.overall.reject}</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-center">
-                                                        <span className="text-[9px] uppercase font-bold text-rose-500 mb-1 tracking-widest">Delayed</span>
-                                                        <span className={`text-lg font-black ${isHighDelay ? 'text-rose-400 bg-rose-500/10 px-3 py-0.5 rounded-lg border border-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.3)] animate-pulse' : 'text-rose-400/80'}`}>{staff.overall.delayed}</span>
-                                                    </div>
-                                                    <div className="flex flex-col items-center justify-center border-l border-white/10 pl-4 h-full">
-                                                        <span className="text-[9px] uppercase font-bold text-emerald-500 mb-1 tracking-widest">Conversion</span>
-                                                        <span className={`text-lg font-black px-3 py-1 rounded-xl border ${rate > 50 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.3)]' : rate > 20 ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>{rate}%</span>
-                                                    </div>
+                                                <div className="flex items-baseline gap-2 mb-2">
+                                                    <span className="text-3xl font-black text-white">{teamRate}%</span>
+                                                    <span className="text-xs font-bold text-slate-400">{teamEnrolled} / {reqGroupCount} enrolled target</span>
+                                                </div>
+                                                <div className="w-full h-2.5 bg-black/60 rounded-full p-0.5 border border-white/10 overflow-hidden">
+                                                    <div className={`h-full rounded-full ${neededGroup === 0 ? 'bg-gradient-to-r from-emerald-400 to-teal-300' : 'bg-gradient-to-r from-fuchsia-500 via-indigo-400 to-cyan-400'} transition-all duration-700`} style={{ width: `${groupPct}%` }} />
                                                 </div>
                                             </div>
+                                            <div className="xl:col-span-2 bg-black/30 border border-white/10 rounded-3xl p-5">
+                                                <p className="text-[11px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5 mb-3"><FaTrophy size={12} /> Top Contributors</p>
+                                                {podium.length === 0 ? <p className="text-xs text-slate-500">No conversions yet.</p> : (
+                                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                        {podium.map((p, i) => (
+                                                            <div key={p.name} className={`flex items-center gap-3 rounded-2xl border p-3 ${medal[i]}`}>
+                                                                <CoordinatorAvatar image={p.image} name={p.name} rankNum={i + 1} initials={getInitials(p.name)} />
+                                                                <div className="min-w-0">
+                                                                    <p className="text-[10px] font-black uppercase tracking-wider flex items-center gap-1">{i === 0 && <FaCrown size={10} />}#{i + 1}</p>
+                                                                    <p className="text-sm font-black text-white truncate">{p.name}</p>
+                                                                    <p className="text-[11px] font-bold text-slate-400">{Math.round((p.overall.enrolled / p.overall.assigned) * 100)}% · {p.overall.enrolled} enrolled</p>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })()}
+
+                                {(() => {
+                                    // Sort Coordinators for Leaderboard ranking (same as Open Seminar)
+                                    const sortedStaff = [...stats.staffBreakdown].sort((a, b) => {
+                                        const rateA = a.overall.assigned > 0 ? (a.overall.enrolled / a.overall.assigned) : 0;
+                                        const rateB = b.overall.assigned > 0 ? (b.overall.enrolled / b.overall.assigned) : 0;
+                                        if (rateB !== rateA) return rateB - rateA;
+                                        return b.overall.enrolled - a.overall.enrolled;
+                                    });
+                                    const targetIndGoal = stats.batchGoals?.targetIndividualGoal ?? 40;
+
+                                    return sortedStaff.map((staff, idx) => {
+                                        const isExpanded = expandedRows[staff.name];
+                                        const isHighDelay = staff.overall.delayed > 10;
+
+                                        // Single Goal (students can't be fractional, so floor = target count)
+                                        const reqSingleCount = Math.floor((targetIndGoal / 100) * staff.overall.assigned);
+                                        const neededSingle = Math.max(0, reqSingleCount - staff.overall.enrolled);
+                                        const singleProgressPct = neededSingle === 0 ? 100 : Math.min(100, Math.round((staff.overall.enrolled / (reqSingleCount || 1)) * 100));
+                                        let rate = staff.overall.assigned > 0 ? Math.round((staff.overall.enrolled / staff.overall.assigned) * 100) : 0;
+                                        if (neededSingle === 0 && staff.overall.enrolled > 0 && targetIndGoal > rate) rate = targetIndGoal;
+
+                                        const rankNum = idx + 1;
+                                        let rankBadge = null;
+                                        if (rankNum === 1) {
+                                            rankBadge = (
+                                                <span className="flex items-center gap-1 text-[10px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-400/40 shadow-[0_0_10px_rgba(251,191,36,0.3)]">
+                                                    <FaCrown className="text-amber-400 animate-bounce" size={10} /> #1 Top Performer
+                                                </span>
+                                            );
+                                        } else if (rankNum === 2) {
+                                            rankBadge = <span className="text-[10px] font-black text-slate-300 bg-slate-400/20 px-2 py-0.5 rounded-full border border-slate-400/30">#2 Leader</span>;
+                                        } else if (rankNum === 3) {
+                                            rankBadge = <span className="text-[10px] font-black text-amber-500 bg-amber-700/20 px-2 py-0.5 rounded-full border border-amber-600/30">#3 Contributor</span>;
+                                        }
+
+                                        return (
+                                            <div key={idx} className={`bg-black/40 backdrop-blur-3xl rounded-[2rem] border transition-all duration-500 overflow-hidden ${isExpanded ? 'border-indigo-500/30 shadow-[0_8px_32px_rgba(99,102,241,0.15)]' : rankNum === 1 ? 'border-amber-400/40 shadow-xl shadow-amber-500/10' : 'border-white/10 shadow-xl hover:border-white/20'}`}>
+                                                
+                                                {/* Header Row / Main Overview */}
+                                                <div onClick={() => toggleRow(staff.name)} className={`p-5 cursor-pointer flex flex-col xl:flex-row items-center justify-between gap-6 transition-colors ${isExpanded ? 'bg-indigo-500/5' : 'hover:bg-white/5'}`}>
+                                                    
+                                                    {/* Coordinator Name & Badge */}
+                                                    <div className="flex items-center gap-4 w-full xl:w-1/4">
+                                                        <div className={`p-2.5 rounded-xl flex-shrink-0 transition-all duration-300 ${isExpanded ? 'bg-indigo-500/20 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.3)] rotate-180' : 'bg-white/5 text-slate-400'}`}>
+                                                            <FaChevronDown size={14} />
+                                                        </div>
+                                                        <CoordinatorAvatar image={staff.image} name={staff.name} rankNum={rankNum} initials={getInitials(staff.name)} />
+                                                        <div className="flex flex-col min-w-0">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className="font-black text-lg text-white tracking-wide truncate">{staff.name}</span>
+                                                                {rankBadge}
+                                                            </div>
+                                                            <div className="mt-1 flex"><BusinessBadge businessType={staff.businessType} role={staff.role} /></div>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Main Stats Grid */}
+                                                    <div className="grid grid-cols-4 md:grid-cols-7 gap-4 w-full xl:w-3/4 flex-1 items-center">
+                                                        <div className="flex flex-col items-center">
+                                                            <span className="text-[9px] uppercase font-bold text-slate-500 mb-1 tracking-widest">Assigned</span>
+                                                            <span className="text-xl font-black text-slate-300">{staff.overall.assigned}</span>
+                                                        </div>
+                                                        <div className="flex flex-col items-center relative group">
+                                                            <span className="text-[9px] uppercase font-bold text-indigo-400 mb-1 tracking-widest group-hover:text-indigo-300 transition-colors">Answered</span>
+                                                            <span className="text-2xl font-black text-indigo-300 drop-shadow-[0_0_12px_rgba(99,102,241,0.5)]">{staff.overall.answered}</span>
+                                                        </div>
+                                                        <div className="flex flex-col items-center">
+                                                            <span className="text-[9px] uppercase font-bold text-slate-400 mb-1 tracking-widest">No Ans</span>
+                                                            <span className="text-lg font-black text-slate-300">{staff.overall.noAnswer}</span>
+                                                        </div>
+                                                        <div className="flex flex-col items-center">
+                                                            <span className="text-[9px] uppercase font-bold text-amber-500 mb-1 tracking-widest">Pending</span>
+                                                            <span className="text-lg font-black text-amber-400">{staff.overall.pending}</span>
+                                                        </div>
+                                                        <div className="flex flex-col items-center">
+                                                            <span className="text-[9px] uppercase font-bold text-red-400/80 mb-1 tracking-widest">Reject</span>
+                                                            <span className="text-lg font-black text-red-400">{staff.overall.reject}</span>
+                                                        </div>
+                                                        <div className="flex flex-col items-center">
+                                                            <span className="text-[9px] uppercase font-bold text-rose-500 mb-1 tracking-widest">Delayed</span>
+                                                            <span className={`text-lg font-black ${isHighDelay ? 'text-rose-400 bg-rose-500/10 px-3 py-0.5 rounded-lg border border-rose-500/20 shadow-[0_0_10px_rgba(244,63,94,0.3)] animate-pulse' : 'text-rose-400/80'}`}>{staff.overall.delayed}</span>
+                                                        </div>
+                                                        <div className="flex flex-col items-center justify-center border-l border-white/10 pl-4 h-full">
+                                                            <span className="text-[9px] uppercase font-bold text-emerald-500 mb-1 tracking-widest">Conversion</span>
+                                                            <span className={`text-lg font-black px-3 py-1 rounded-xl border ${rate > 50 ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.3)]' : rate > 20 ? 'bg-amber-500/10 border-amber-500/20 text-amber-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>{rate}%</span>
+                                                        </div>
+
+                                                        {/* Single Goal Progress Pill */}
+                                                        <div className="col-span-4 md:col-span-7 flex flex-col justify-center bg-indigo-950/40 p-2.5 rounded-2xl border border-indigo-500/30">
+                                                            <div className="flex justify-between items-center text-[10px] font-black mb-1">
+                                                                <span className="text-cyan-300 flex items-center gap-1">
+                                                                    <FaBullseye size={11} className="text-cyan-400" /> Single Goal ({targetIndGoal}%)
+                                                                </span>
+                                                                {neededSingle > 0 ? (
+                                                                    <span className="text-amber-300 font-bold bg-amber-500/20 px-2 py-0.5 rounded-md border border-amber-400/30">Need {neededSingle} more</span>
+                                                                ) : (
+                                                                    <span className="text-emerald-300 font-black bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-400/30">🎯 Achieved!</span>
+                                                                )}
+                                                            </div>
+                                                            <div className="w-full h-2.5 bg-black/60 rounded-full p-0.5 border border-white/10 relative overflow-hidden">
+                                                                <div
+                                                                    className={`h-full rounded-full ${neededSingle === 0 ? 'bg-gradient-to-r from-emerald-400 to-teal-300' : 'bg-gradient-to-r from-indigo-500 via-cyan-400 to-emerald-400'} transition-all duration-700`}
+                                                                    style={{ width: `${singleProgressPct}%` }}
+                                                                ></div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
 
                                             {/* Expanded Section */}
                                             {isExpanded && (
@@ -619,7 +766,8 @@ export default function NewInquiriesPerformance({ filters }) {
                                             )}
                                         </div>
                                     );
-                                })}
+                                    });
+                                })()}
                             </div>
                         )}
                     </div>
@@ -726,6 +874,15 @@ export default function NewInquiriesPerformance({ filters }) {
                 businessId={filters?.selectedBusiness}
                 batchId={filters?.selectedBatch || 'ALL'}
                 onStudentPushed={fetchNewInqStats}
+            />
+
+            <SetBatchGoalsModal
+                isOpen={showGoalsModal}
+                onClose={() => setShowGoalsModal(false)}
+                filters={filters}
+                batchGoals={stats?.batchGoals}
+                onGoalsUpdated={fetchNewInqStats}
+                campaign="NEW_INQ"
             />
 
         </div>

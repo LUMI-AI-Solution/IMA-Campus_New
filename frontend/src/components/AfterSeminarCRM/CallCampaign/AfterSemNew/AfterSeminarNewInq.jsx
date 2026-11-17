@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { FaSearch, FaCommentDots, FaArrowRight, FaTimes, FaBell, FaSave, FaTrash, FaCheckCircle, FaUser, FaMapMarkerAlt, FaGraduationCap, FaCreditCard, FaLayerGroup, FaPhoneAlt, FaWhatsapp, FaClock, FaBan, FaFileExcel } from 'react-icons/fa';
 import { Target, PhoneCall, Check, Loader, BookOpen, Loader2, Copy } from 'lucide-react';
 import toast from 'react-hot-toast';
+import CoordinatorGoalTrackerWidget from '../../CampaignStatsModules/CoordinatorGoalTrackerWidget';
 
 
 const getShiftData = (dateString) => {
@@ -31,6 +32,24 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
     const [searchQuery, setSearchQuery] = useState(externalSearch || '');
     const [statusFilter, setStatusFilter] = useState('ALL'); // ALL, PENDING, DELAYED
     const [currentPage, setCurrentPage] = useState(1);
+    const [campaignStats, setCampaignStats] = useState(null);
+
+    useEffect(() => {
+        if (filters?.selectedBusiness) {
+            const token = localStorage.getItem('token');
+            axios.get('/after-seminar-crm/stats/new-inquiries', {
+                headers: { Authorization: `Bearer ${token}` },
+                params: {
+                    businessId: filters.selectedBusiness,
+                    batchId: filters.selectedBatch || 'ALL'
+                }
+            }).then(res => {
+                if (res.data) setCampaignStats(res.data);
+            }).catch(err => {
+                console.error("Failed to fetch new inquiries stats for tracker widget", err);
+            });
+        }
+    }, [filters?.selectedBusiness, filters?.selectedBatch]);
 
     const handleCopy = (text, label) => {
         if (navigator.clipboard && window.isSecureContext) {
@@ -611,6 +630,37 @@ export default function AfterSeminarNewInq({ leads, allBatches, filters, drafts,
                         </button>
                     </div>
                 </div>
+
+                {/* 🔥 CONVERSION GOALS & LEVEL PROGRESS TRACKER WIDGET 🔥 */}
+                {(() => {
+                    const currentUser = JSON.parse(localStorage.getItem('user')) || {};
+                    const myStaffStat = campaignStats?.staffBreakdown?.find(s => 
+                        (s.staffId && currentUser?.id && String(s.staffId) === String(currentUser.id)) ||
+                        (s.id && currentUser?.id && String(s.id) === String(currentUser.id)) ||
+                        (s.name && currentUser?.firstName && s.name.toLowerCase().includes(currentUser.firstName.toLowerCase()))
+                    );
+
+                    const myAssignedCount = myStaffStat?.overall?.assigned ?? openSemLeads.length;
+                    const myEnrolledCount = myStaffStat?.overall?.enrolled ?? openSemLeads.filter(l => l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID' || (l.enrollmentStatus && l.enrollmentStatus.startsWith('ENROLLED_'))).length;
+                    
+                    const totalGroupAssigned = campaignStats?.totalAssigned || myAssignedCount;
+                    const totalGroupEnrolled = campaignStats?.totalEnrolled || myEnrolledCount;
+                    
+                    const targetIndGoal = campaignStats?.batchGoals?.targetIndividualGoal ?? 40;
+                    const targetGrpGoal = campaignStats?.batchGoals?.targetGroupGoal ?? 50;
+
+                    return (
+                        <CoordinatorGoalTrackerWidget
+                            myAssigned={myAssignedCount}
+                            myEnrolled={myEnrolledCount}
+                            totalGroupAssigned={totalGroupAssigned}
+                            totalGroupEnrolled={totalGroupEnrolled}
+                            targetIndividualGoal={targetIndGoal}
+                            targetGroupGoal={targetGrpGoal}
+                            staffBreakdown={campaignStats?.staffBreakdown || []}
+                        />
+                    );
+                })()}
 
                 {/* Top Round Buttons (Moved Outside) */}
                 <div className="flex gap-2 bg-[#0F172A]/80 p-2 rounded-2xl flex-wrap shadow-inner mb-6 w-max border border-white/5">

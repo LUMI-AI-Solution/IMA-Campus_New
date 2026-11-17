@@ -821,7 +821,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                         { value: '', label: 'Assign to Coordinator...' },
                         ...coordinators.filter(c => c).map(c => ({
                             value: c.id, 
-                            label: <div className="flex items-center gap-1 text-[11px]">{c.firstName} <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                            label: <div className="flex items-center gap-1 text-[11px] font-semibold">{`${c.firstName} ${c.lastName || ''}`.trim()} <BusinessBadge businessType={c.businessType} role={c.role} /></div>
                         }))
                     ]}
                 />
@@ -973,7 +973,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                       { value: '', label: 'All Staff' },
                       ...coordinators.filter(c => c).map(c => ({
                           value: c.id, 
-                          label: <div className="flex items-center gap-1.5">{c.firstName} <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                          label: <div className="flex items-center gap-1.5 font-semibold">{`${c.firstName} ${c.lastName || ''}`.trim()} <BusinessBadge businessType={c.businessType} role={c.role} /></div>
                       }))
                   ]}
                 />
@@ -1316,7 +1316,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                              { value: '', label: 'Select Coordinator...' },
                              ...coordinators.filter(c => c).map(c => ({
                                  value: c.id, 
-                                 label: <div className="flex items-center gap-1.5">{c.firstName} <BusinessBadge businessType={c.businessType} role={c.role} /></div>
+                                 label: <div className="flex items-center gap-1.5 font-semibold">{`${c.firstName} ${c.lastName || ''}`.trim()} <BusinessBadge businessType={c.businessType} role={c.role} /></div>
                              }))
                          ]}
                      />

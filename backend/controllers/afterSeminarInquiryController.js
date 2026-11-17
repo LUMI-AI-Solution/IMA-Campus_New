@@ -1,5 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
-const prisma = require('../src/core/db');
+const prisma = require('../lib/prisma');
+const { mergeAttempts } = require('../utils/attemptsMerge');
+const { isStaffInBusiness, isCallCenterUser } = require('../utils/scopeUtils');
 const axios = require('axios');
 const fs = require('fs'); 
 const path = require('path');
@@ -955,6 +957,12 @@ exports.bulkActions = async (req, res) => {
                 return res.status(400).json({ error: "Invalid batch ID provided." });
             }
             const parsedLeadIds = (leadIds || []).map(id => parseInt(id)).filter(id => !isNaN(id));
+
+            const targetBatch = await prisma.batch.findUnique({
+                where: { id: parseInt(targetBatchId) },
+                include: { business: true }
+            });
+
             await prisma.lead.updateMany({ 
                 where: { id: { in: parsedLeadIds } }, 
                 data: { 
@@ -983,6 +991,24 @@ exports.bulkActions = async (req, res) => {
                     lastAttemptAt: null
                 } 
             });
+
+            // Prevent cross-business leaks: If moved leads have coordinators outside target batch's business, unassign them
+            if (targetBatch && targetBatch.businessId) {
+                const assignedLeads = await prisma.lead.findMany({
+                    where: { id: { in: parsedLeadIds }, assignedTo: { not: null } },
+                    include: { assignedUser: true }
+                });
+                const mismatchIds = assignedLeads
+                    .filter(l => !isStaffInBusiness(l.assignedUser, targetBatch.businessId, targetBatch.business?.name))
+                    .map(l => l.id);
+                if (mismatchIds.length > 0) {
+                    await prisma.lead.updateMany({
+                        where: { id: { in: mismatchIds } },
+                        data: { assignedTo: null, status: 'NEW' }
+                    });
+                }
+            }
+
             await prisma.leadRoundProgress.deleteMany({
                 where: { leadId: { in: parsedLeadIds } }
             });
@@ -991,6 +1017,29 @@ exports.bulkActions = async (req, res) => {
             if (!staffId || isNaN(parseInt(staffId))) {
                 return res.status(400).json({ error: "Invalid staff ID provided for assignment." });
             }
+            const parsedStaffId = parseInt(staffId);
+            const targetStaff = await prisma.user.findUnique({
+                where: { id: parsedStaffId },
+                select: { id: true, role: true, businessType: true, department: true }
+            });
+            if (!targetStaff) {
+                return res.status(404).json({ error: "Staff member not found." });
+            }
+            if (isCallCenterUser(targetStaff)) {
+                return res.status(400).json({ error: "Cannot assign call campaign leads to call center agents." });
+            }
+
+            const effectiveBatchId = batchId && !isNaN(parseInt(batchId)) ? parseInt(batchId) : null;
+            if (effectiveBatchId) {
+                const targetBatch = await prisma.batch.findUnique({
+                    where: { id: effectiveBatchId },
+                    include: { business: true }
+                });
+                if (targetBatch?.businessId && !isStaffInBusiness(targetStaff, targetBatch.businessId, targetBatch.business?.name)) {
+                    return res.status(400).json({ error: `Cannot assign leads: Staff member does not belong to the ${targetBatch.business?.name || 'batch'} department.` });
+                }
+            }
+
             const parsedLeadIds = (leadIds || []).map(id => parseInt(id)).filter(id => !isNaN(id));
             const updateData = { 
                 assignedTo: parseInt(staffId), 
@@ -1224,6 +1273,21 @@ exports.assignLeads = async (req, res) => {
                 return res.status(400).json({ error: "Please select a staff member to assign." });
             }
 
+            const parsedStaffId = parseInt(staffId);
+            const targetStaff = await prisma.user.findUnique({
+                where: { id: parsedStaffId },
+                select: { id: true, role: true, businessType: true, department: true }
+            });
+            if (!targetStaff) {
+                return res.status(400).json({ error: "Please select a valid staff member to assign." });
+            }
+            if (isCallCenterUser(targetStaff)) {
+                return res.status(400).json({ error: "Cannot assign leads to call center agents." });
+            }
+            if (businessId && businessId !== 'ALL' && !isStaffInBusiness(targetStaff, businessId)) {
+                return res.status(400).json({ error: "Selected staff member does not belong to this business department." });
+            }
+
             const ids = leadsToAssign.map(l => l.id);
             const updateData = { 
                 assignedTo: parseInt(staffId), 
@@ -1350,6 +1414,17 @@ exports.updateCallCampaign = async (req, res) => {
             });
             const targetRoundNum = existingPaidProg ? existingPaidProg.roundNum : currentRound;
             nextRound = targetRoundNum;
+
+            // 🔥 SAFE MERGE: never overwrite newer attempts/remarks with a stale browser snapshot 🔥
+            let mergedPaidAttempts;
+            if (attemptsData) {
+                const existingRow = existingPaidProg || await prisma.leadRoundProgress.findUnique({
+                    where: { leadId_roundNum_campaignCategory: { leadId: lead.id, roundNum: targetRoundNum, campaignCategory: 'PAID' } },
+                    select: { attemptsData: true }
+                });
+                mergedPaidAttempts = mergeAttempts(existingRow?.attemptsData, attemptsData);
+                req.body.attemptsData = mergedPaidAttempts; // returned to the frontend below
+            }
             
             await prisma.leadRoundProgress.upsert({
                 where: {
@@ -1361,7 +1436,7 @@ exports.updateCallCampaign = async (req, res) => {
                     callMethod: method || lead[methodField] || 'direct',
                     callAttempt: callAttempt || lead[attemptField] || 1,
                     feedback: feedback !== undefined ? feedback : (lead[feedbackField] || ''),
-                    attemptsData: attemptsData ? (typeof attemptsData === 'string' ? attemptsData : JSON.stringify(attemptsData)) : undefined
+                    attemptsData: mergedPaidAttempts ? JSON.stringify(mergedPaidAttempts) : (attemptsData ? (typeof attemptsData === 'string' ? attemptsData : JSON.stringify(attemptsData)) : undefined)
                 },
                 create: {
                     leadId: lead.id,
@@ -1372,7 +1447,7 @@ exports.updateCallCampaign = async (req, res) => {
                     callMethod: method || lead[methodField] || 'direct',
                     callAttempt: callAttempt || lead[attemptField] || 1,
                     feedback: feedback !== undefined ? feedback : (lead[feedbackField] || ''),
-                    attemptsData: attemptsData ? (typeof attemptsData === 'string' ? attemptsData : JSON.stringify(attemptsData)) : undefined
+                    attemptsData: mergedPaidAttempts ? JSON.stringify(mergedPaidAttempts) : (attemptsData ? (typeof attemptsData === 'string' ? attemptsData : JSON.stringify(attemptsData)) : undefined)
                 }
             });
         } else if (campaignContext === 'BRIDGE' || (category === 'BRIDGE' && campaignContext !== 'OPEN_SEMINAR' && campaignContext !== 'NEW_INQ')) {
@@ -1579,7 +1654,8 @@ exports.updateCallCampaign = async (req, res) => {
 
         // 🔥 LOG TO CALL CAMPAIGN DATA CENTER EVENT VAULT 🔥
         if (auditLogService && auditLogService.logCampaignEvent) {
-            await auditLogService.logCampaignEvent({
+            // Fire-and-forget: the agent should not wait for the audit log write
+            auditLogService.logCampaignEvent({
                 leadId: lead.id,
                 campaignCategory: category === 'DEFAULT' ? (campaignContext || 'UNKNOWN') : category,
                 actionType: 'STATUS_UPDATED',
@@ -1588,13 +1664,13 @@ exports.updateCallCampaign = async (req, res) => {
                 callAttempt: nextCallAttempt,
                 remarks: feedback,
                 actionedById: req.user ? req.user.id : null
-            });
+            }).catch(e => console.error('Campaign audit log failed:', e));
         }
 
         // 🔥 Map back to base properties so the frontend doesn't reset to default global 'pending' 🔥
         let mappedLead = { ...updatedLead };
         if (campaignContext === 'PAID') {
-            mappedLead.attemptsData = attemptsData || null;
+            mappedLead.attemptsData = req.body.attemptsData || attemptsData || null;
             mappedLead.callStatus = updatedLead.paidCallStatus || 'pending';
             mappedLead.paidCallStatus = updatedLead.paidCallStatus || 'pending';
             mappedLead.phase = updatedLead.paidPhase || 1;
@@ -2019,11 +2095,13 @@ exports.receiveMessage = async (req, res) => {
                 if (existingLeadCheck?.assignedTo) {
                     const assignedStaff = await prisma.user.findUnique({
                         where: { id: existingLeadCheck.assignedTo },
-                        select: { id: true, role: true }
+                        select: { id: true, role: true, businessType: true, department: true }
                     });
                     const staffRole = (assignedStaff?.role || '').toUpperCase();
                     if (['COORDINATOR', 'MANAGER', 'SYSTEM_ADMIN', 'DIRECTOR', 'ASS_MANAGER'].includes(staffRole) && !staffRole.includes('CALL')) {
-                        fallbackAssignedTo = existingLeadCheck.assignedTo;
+                        if (isStaffInBusiness(assignedStaff, settings.businessId)) {
+                            fallbackAssignedTo = existingLeadCheck.assignedTo;
+                        }
                     }
                 }
 
@@ -2034,7 +2112,7 @@ exports.receiveMessage = async (req, res) => {
                             campaignType: 'AFTER_SEMINAR',
                             assignedTo: { not: null } 
                         },
-                        include: { assignedUser: { select: { id: true, role: true } } },
+                        include: { assignedUser: { select: { id: true, role: true, businessType: true, department: true } } },
                         orderBy: { updatedAt: 'desc' }
                     });
                     const crossSemLead = crossSemCandidates.find(l => {
@@ -2045,7 +2123,9 @@ exports.receiveMessage = async (req, res) => {
                     if (crossSemLead && crossSemLead.assignedUser) {
                         const sRole = (crossSemLead.assignedUser.role || '').toUpperCase();
                         if (['COORDINATOR', 'MANAGER', 'SYSTEM_ADMIN', 'DIRECTOR', 'ASS_MANAGER'].includes(sRole) && !sRole.includes('CALL')) {
-                            fallbackAssignedTo = crossSemLead.assignedTo;
+                            if (isStaffInBusiness(crossSemLead.assignedUser, settings.businessId)) {
+                                fallbackAssignedTo = crossSemLead.assignedTo;
+                            }
                         }
                     }
                 }
@@ -2070,6 +2150,10 @@ exports.receiveMessage = async (req, res) => {
 
                 if (fallbackAssignedTo) {
                     updateData.assignedTo = fallbackAssignedTo;
+                } else if (existingLeadCheck?.assignedTo) {
+                    // Prevent cross-business leaks: If existing lead had a foreign coordinator, clear assignment
+                    updateData.assignedTo = null;
+                    updateData.status = 'NEW';
                 }
 
                 if (parsedBatchId && (shouldUnassign || isNewBatchForLead)) {
