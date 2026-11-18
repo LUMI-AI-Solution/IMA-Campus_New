@@ -196,17 +196,25 @@ export default function ManagerDashboard() {
       {/* 🔹 Top Banner Greet & Filter (Compact) */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 bg-white/5 backdrop-blur-md p-5 rounded-[2rem] border border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.12)]">
         <div>
-          <h2 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight flex items-center gap-2">
-            System Overview <span className="text-brand-accent">({activeBusinessName})</span>
-          </h2>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h2 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight">
+              System Overview
+            </h2>
+            {activeBusinessName && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 backdrop-blur-sm shadow-sm">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
+                {activeBusinessName}
+              </span>
+            )}
+          </div>
           <p className="text-[11px] font-bold text-gray-500 dark:text-slate-400 mt-1 uppercase tracking-widest flex items-center gap-2">
-            <FaCalendarAlt /> {today}
+            <FaCalendarAlt className="text-slate-500" /> {today}
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
           <div className="flex items-center gap-2 bg-white/60 dark:bg-[#1a2430]/60 px-4 py-2 rounded-2xl border border-gray-200 dark:border-white/5 shadow-sm">
-            <FaFilter className="text-brand-accent shrink-0 text-sm" />
+            <FaFilter className="text-indigo-400 shrink-0 text-sm" />
             {(isAdmin || (isManager && displayBusinesses.length > 1)) && (
               <select
                 value={selectedBusiness}
