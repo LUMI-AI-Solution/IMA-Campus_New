@@ -1056,9 +1056,9 @@ export default function ManagerDashboard() {
                 }
 
                 return (
-                  <div className="flex items-center gap-4 py-4 relative z-10">
-                    {/* Mini Donut Chart */}
-                    <div className="relative w-36 h-36 shrink-0 flex items-center justify-center">
+                  <div className="flex flex-col sm:flex-row items-center gap-5 py-4 relative z-10">
+                    {/* Enlarged Donut Chart (w-48 h-48 = 192px) */}
+                    <div className="relative w-44 h-44 sm:w-48 sm:h-48 shrink-0 flex items-center justify-center">
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
@@ -1067,8 +1067,8 @@ export default function ManagerDashboard() {
                             nameKey="group"
                             cx="50%"
                             cy="50%"
-                            innerRadius={42}
-                            outerRadius={60}
+                            innerRadius={50}
+                            outerRadius={74}
                             paddingAngle={3}
                             stroke="none"
                           >
@@ -1076,19 +1076,25 @@ export default function ManagerDashboard() {
                               <Cell key={`cell-${idx}`} fill={entry.color} />
                             ))}
                           </Pie>
+                          {/* 100% Solid Opaque High-Contrast Tooltip (NO blurry glass-on-glass) */}
                           <Tooltip
                             content={({ active, payload }) => {
                               if (active && payload && payload.length) {
                                 const data = payload[0].payload;
                                 return (
-                                  <div className="bg-[#0b1220]/95 backdrop-blur-xl border border-cyan-500/30 p-2.5 rounded-xl text-xs text-white shadow-xl">
-                                    <p className="font-bold flex items-center gap-1.5">
-                                      <span className="w-2 h-2 rounded-full" style={{ background: data.color }}></span>
-                                      {data.group}
-                                    </p>
-                                    <p className="text-cyan-300 font-mono font-bold mt-1">
-                                      {data.count.toLocaleString()} students ({data.pct}%)
-                                    </p>
+                                  <div className="!bg-[#020617] !opacity-100 border-2 border-cyan-400 p-3 rounded-xl shadow-[0_15px_40px_rgba(0,0,0,0.95)] text-xs text-white z-50 pointer-events-none min-w-[190px]">
+                                    <div className="flex items-center gap-2 pb-1.5 mb-1.5 border-b border-white/10">
+                                      <span className="w-2.5 h-2.5 rounded-full" style={{ background: data.color, boxShadow: `0 0 8px ${data.color}` }}></span>
+                                      <span className="font-black text-white text-xs">{data.group}</span>
+                                    </div>
+                                    <div className="flex items-baseline justify-between gap-3 font-mono">
+                                      <span className="text-sm font-black text-cyan-300">
+                                        {data.count.toLocaleString()} <span className="text-[10px] font-sans font-normal text-slate-400">students</span>
+                                      </span>
+                                      <span className="text-xs font-black text-white bg-white/10 px-2 py-0.5 rounded">
+                                        {data.pct}%
+                                      </span>
+                                    </div>
                                   </div>
                                 );
                               }
@@ -1097,29 +1103,38 @@ export default function ManagerDashboard() {
                           />
                         </PieChart>
                       </ResponsiveContainer>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
-                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Students</span>
-                        <span className="text-sm font-black text-white font-mono">{totalAnalyzed.toLocaleString()}</span>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none select-none">
+                        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">Students</span>
+                        <span className="text-xl sm:text-2xl font-black text-white font-mono tracking-tight drop-shadow">{totalAnalyzed.toLocaleString()}</span>
+                        <span className="text-[9px] font-bold text-cyan-300">Total</span>
                       </div>
                     </div>
 
-                    {/* Progress Bars on Right */}
-                    <div className="flex-1 space-y-2">
+                    {/* Right Rows: Space Fully Utilized! Group, Count & Pct together, full-width progress bar */}
+                    <div className="flex-1 w-full space-y-2">
                       {ageGroups.map((a) => (
-                        <div key={a.group} className="group">
-                          <div className="flex items-center justify-between text-[11px] font-bold mb-0.5">
-                            <span className="text-slate-300 flex items-center gap-1.5 truncate">
-                              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: a.color }}></span>
-                              <span className="truncate">{a.group}</span>
+                        <div key={a.group} className="bg-white/[0.03] hover:bg-white/[0.06] p-2 rounded-xl border border-white/5 transition-all group">
+                          <div className="flex items-center justify-between text-xs font-bold mb-1">
+                            <span className="flex items-center gap-1.5 text-slate-200">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: a.color, boxShadow: `0 0 6px ${a.color}80` }}></span>
+                              <span className="font-extrabold text-[11px] text-white group-hover:text-cyan-300 transition-colors">{a.group}</span>
                             </span>
-                            <span className="font-mono text-white text-[10px] shrink-0 font-bold ml-1">
-                              {a.pct}%
-                            </span>
+                            {/* Student Count + Percentage together */}
+                            <div className="flex items-center gap-1.5 font-mono">
+                              <span className="text-white font-black text-xs">{a.count.toLocaleString()}</span>
+                              <span 
+                                className="px-1.5 py-0.5 rounded text-[10px] font-bold border" 
+                                style={{ background: `${a.color}15`, color: a.color, borderColor: `${a.color}35` }}
+                              >
+                                {a.pct}%
+                              </span>
+                            </div>
                           </div>
-                          <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
+                          {/* Progress Bar with slice color glow */}
+                          <div className="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden flex shadow-inner">
                             <div 
                               className="h-full rounded-full transition-all duration-500" 
-                              style={{ width: `${a.pct}%`, background: a.color }} 
+                              style={{ width: `${a.pct}%`, background: a.color, boxShadow: `0 0 8px ${a.color}80` }} 
                               title={`${a.group}: ${a.count} (${a.pct}%)`}
                             />
                           </div>
