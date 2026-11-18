@@ -6,6 +6,7 @@ const studentController = require('../controllers/studentController');
 const adminController = require('../controllers/adminController'); 
 const databaseController = require('../controllers/databaseController');
 const managerDashboardController = require('../controllers/managerDashboardController');
+const callWorkloadController = require('../controllers/callWorkloadController');
 const leadDataCenterController = require('../controllers/leadDataCenterController');
 const adminAnalyticsController = require('../controllers/adminAnalyticsController');
 const { verifyToken, requireAdmin, requireStaff, requireStudentDeleteAccess } = require('../middlewares/authMiddleware');
@@ -74,6 +75,8 @@ router.get('/manager/overview', verifyToken, async (req, res) => {
 });
 
 router.get('/manager/dashboard-stats', managerDashboardController.getManagerDashboardOverview);
+router.get('/manager/call-workload', callWorkloadController.getCallWorkload);
+router.get('/manager/call-workload/list', callWorkloadController.getCallWorkloadList);
 
 // ==========================================
 // 🔥 STUDENT DATA CENTER ROUTES 🔥

@@ -15,6 +15,7 @@ import {
 import DelegateSocialMediaTaskModal from '../../../components/common/DelegateSocialMediaTaskModal';
 import WhatsAppMetaMonitor from '../../../components/WhatsAppMetaMonitor/WhatsAppMetaMonitor';
 import CampaignSummaryTiles from './components/CampaignSummaryTiles';
+import DepartmentCallWorkloadCard from './components/DepartmentCallWorkloadCard';
 
 // 🔥 Modern custom tooltip for Course Enrollments breakdown (Cyber Neon) 🔥
 // 🔥 Shorten long subject names for modern executive readability (e.g. S.F.T, B.S.T) 🔥
@@ -1157,35 +1158,8 @@ export default function ManagerDashboard() {
           {/* 🔹 Row 3: Live Operations (Classes & Coordinator Coverage) */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             
-            {/* Coordinator Daily Performance */}
-            <div className="bg-white/70 dark:bg-white/[0.03] backdrop-blur-2xl p-6 rounded-[2rem] border border-gray-200 dark:border-white/10 shadow-xl flex flex-col h-[380px]">
-              <h3 className="text-xs font-black text-gray-900 dark:text-white mb-6 uppercase tracking-widest flex items-center justify-between border-b border-gray-200 dark:border-white/5 pb-4">
-                <span className="flex items-center gap-2"><FaUserClock className="text-brand-accent"/> Today's Lead Coverage</span>
-                <span className="text-[9px] bg-brand-accentLight dark:bg-brand-accent/20 text-brand-accent px-2 py-1 rounded-md border border-brand-accent/20">Team Activity</span>
-              </h3>
-              <div className="flex-1">
-                {(!stats.coordinatorStats || stats.coordinatorStats.length === 0) ? (
-                  <div className="flex flex-col h-full items-center justify-center text-gray-500 dark:text-slate-500 text-sm font-bold gap-3 bg-gray-50 dark:bg-white/[0.01] rounded-2xl border border-dashed border-gray-300 dark:border-white/10 p-6">
-                    <FaUserClock size={28} className="text-gray-300 dark:text-slate-600"/>
-                    No leads actioned by staff today.
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={stats.coordinatorStats} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#94a3b833" vertical={false} />
-                      <XAxis dataKey="name" stroke="#94a3b8" fontSize={9} tickLine={false} axisLine={false} tickMargin={10} angle={-15} textAnchor="end"/>
-                      <YAxis stroke="#94a3b8" fontSize={9} tickLine={false} axisLine={false} allowDecimals={false} />
-                      <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', color: '#0f172a' }} />
-                      <Bar dataKey="leadsCovered" name="Leads Covered Today" fill="#FF5F56" radius={[4, 4, 0, 0]} maxBarSize={40}>
-                        {stats.coordinatorStats.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={index % 2 === 0 ? '#FF5F56' : '#FFBD2E'} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            </div>
+            {/* Department Call Workload */}
+            <DepartmentCallWorkloadCard businessId={selectedBusiness} batchId={selectedBatch} />
 
             {/* Today's Classes */}
             <div className="bg-white/70 dark:bg-white/[0.03] backdrop-blur-2xl p-6 rounded-[2rem] border border-gray-200 dark:border-white/10 shadow-xl flex flex-col h-[380px]">

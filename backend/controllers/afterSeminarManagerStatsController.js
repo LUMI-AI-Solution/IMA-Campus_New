@@ -3131,3 +3131,14 @@ exports.mergeMissingStudentWithLead = async (req, res) => {
         res.status(500).json({ error: "Failed to merge student with lead" });
     }
 };
+
+// Internal helpers exported for callWorkloadController
+exports.buildStatsWhereClause = buildStatsWhereClause;
+exports.getActiveStaffIds = getActiveStaffIds;
+exports.getVerifiedPhones = getVerifiedPhones;
+exports.getPrimaryEnrolledLeadIds = getPrimaryEnrolledLeadIds;
+exports.isCallCenterUser = isCallCenterUser;
+exports.resolveTargetBizName = resolveTargetBizName;
+exports.isStaffInBusiness = isStaffInBusiness;
+exports.buildMultiBatchGuard = buildMultiBatchGuard;
+exports.getLast9Digits = getLast9Digits;
