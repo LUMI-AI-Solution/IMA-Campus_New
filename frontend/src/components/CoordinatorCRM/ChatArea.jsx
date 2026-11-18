@@ -4,7 +4,7 @@ import { ReactTransliterate } from 'react-transliterate';
 import 'react-transliterate/dist/index.css';
 import axios from '../../api/axios';
 import { resolveAvatarUrl } from '../../utils/avatarUtils';
-import { FaPaperPlane, FaPaperclip, FaSun, FaMoon, FaMicrophone, FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic, FaSmile, FaStop, FaPhoneAlt, FaChevronDown, FaGoogle, FaBan, FaLock } from 'react-icons/fa';
+import { FaPaperPlane, FaPaperclip, FaSun, FaMoon, FaMicrophone, FaReply, FaTimes, FaImage, FaFilePdf, FaBolt, FaMagic, FaVideo, FaMusic, FaSmile, FaStop, FaPhoneAlt, FaChevronDown, FaGoogle, FaBan, FaLock, FaSearch, FaPlus } from 'react-icons/fa';
 import toast from 'react-hot-toast';
 import englishWords from '../../utils/englishWords.json';
 import OutboundDialerModal from '../AfterSeminarCRM/CRM/OutboundDialerModal';
@@ -135,6 +135,8 @@ export default function ChatArea({ selectedLead, businessId }) {
   const [newQRName, setNewQRName] = useState('');
   const [newQRMsg, setNewQRMsg] = useState('');
   const [qrAttachmentBase64, setQrAttachmentBase64] = useState(null); 
+  const [qrSearch, setQrSearch] = useState('');
+  const [showCreateQR, setShowCreateQR] = useState(false); 
 
   const [showMetaTemplates, setShowMetaTemplates] = useState(false);
   const [metaTemplates, setMetaTemplates] = useState([]);
@@ -630,9 +632,17 @@ export default function ChatArea({ selectedLead, businessId }) {
     
     setNewMessage(val);
 
-    if (val.startsWith('/')) {
-        const keyword = val.substring(1).toLowerCase();
-        setSuggestedQRs(quickReplies.filter(qr => qr.name.toLowerCase().includes(keyword)));
+    // Dynamic slash shortcut detection (at start or preceded by space/newline)
+    const lastSlashIdx = val.lastIndexOf('/');
+    if (lastSlashIdx !== -1 && (lastSlashIdx === 0 || /\s/.test(val[lastSlashIdx - 1]))) {
+        const afterSlash = val.substring(lastSlashIdx + 1);
+        if (!/\s/.test(afterSlash)) {
+            const keyword = afterSlash.toLowerCase();
+            const matches = quickReplies.filter(qr => (qr.name || '').toLowerCase().includes(keyword));
+            setSuggestedQRs(matches.slice(0, 15));
+        } else {
+            setSuggestedQRs([]);
+        }
     } else {
         setSuggestedQRs([]);
     }
@@ -693,10 +703,29 @@ export default function ChatArea({ selectedLead, businessId }) {
     }
   };
 
-  const applyQuickReply = (qr) => {
-    if (qr.attachment) handleSend(null, qr.message, qr.attachment);
-    else setNewMessage(qr.message);
+  const applyQuickReply = (qr, immediateSend = false) => {
+    if (!qr) return;
+
+    if (immediateSend) {
+      handleSend(null, qr.message || '', qr.attachment || null);
+      setSuggestedQRs([]);
+      setShowQuickReplies(false);
+      return;
+    }
+
+    if (qr.attachment && !qr.message) {
+      handleSend(null, '', qr.attachment);
+    } else {
+      const lastSlashIdx = newMessage.lastIndexOf('/');
+      if (lastSlashIdx !== -1 && (lastSlashIdx === 0 || /\s/.test(newMessage[lastSlashIdx - 1]))) {
+        const before = newMessage.substring(0, lastSlashIdx);
+        setNewMessage(before + (qr.message || ''));
+      } else {
+        setNewMessage(qr.message || '');
+      }
+    }
     setSuggestedQRs([]);
+    setShowQuickReplies(false);
   };
 
   const saveQuickReply = async (e) => {
@@ -715,10 +744,25 @@ export default function ChatArea({ selectedLead, businessId }) {
           
           setQuickReplies(prev => [response.data, ...prev]); 
           setNewQRName(''); setNewQRMsg(''); setQrAttachmentBase64(null); 
+          setShowCreateQR(false);
           toast.success("Quick Reply Saved!");
       } catch (err) {
           toast.error("Failed to save. Try a smaller audio/image file.");
       }
+  };
+
+  const handleDeleteQR = async (qrId, e) => {
+    if (e) e.stopPropagation();
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`/coordinator-crm/quick-replies/${qrId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setQuickReplies(prev => prev.filter(q => q.id !== qrId));
+      toast.success("Quick reply removed");
+    } catch (error) {
+      toast.error(error.response?.data?.error || "Failed to delete quick reply");
+    }
   };
 
   const formatTime = (seconds) => {
@@ -1407,107 +1451,218 @@ export default function ChatArea({ selectedLead, businessId }) {
       {/* QUICK REPLIES MODAL */}
       {showQuickReplies && (
         <div className="absolute inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className={`border rounded-3xl p-6 w-full max-w-lg shadow-2xl transition-colors ${
+          <div className={`border rounded-3xl p-6 w-full max-w-xl shadow-2xl transition-colors flex flex-col max-h-[85vh] ${
             isDark ? 'bg-[#1e293b] border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-800'
           }`}>
-            <div className="flex justify-between items-center mb-5">
-              <h3 className="text-lg font-bold flex items-center gap-2 text-[#00a884]">
-                <FaMagic/> Manage Quick Replies
-              </h3>
-              <button 
-                onClick={() => setShowQuickReplies(false)} 
-                className={`p-2 rounded-xl transition-colors ${isDark ? 'text-slate-400 hover:text-white bg-white/5' : 'text-slate-500 hover:text-black bg-slate-100'}`}
-              >
-                <FaTimes/>
-              </button>
+            <div className="flex justify-between items-center mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-[#00a884]/20 text-[#00a884] flex items-center justify-center">
+                  <FaMagic size={15}/>
+                </div>
+                <div>
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    Quick Replies
+                    <span className="text-xs font-normal text-slate-400">({quickReplies.length})</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400">Click any reply to insert into chat or send directly</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowCreateQR(prev => !prev)}
+                  className={`text-xs px-3 py-1.5 rounded-xl font-bold flex items-center gap-1.5 transition-all ${
+                    showCreateQR
+                      ? 'bg-slate-500/20 text-slate-300'
+                      : 'bg-[#00a884] hover:bg-[#02906f] text-white shadow-sm'
+                  }`}
+                >
+                  <FaPlus size={10} className={showCreateQR ? 'rotate-45 transition-transform' : ''}/>
+                  {showCreateQR ? 'Close Form' : 'New Shortcut'}
+                </button>
+                <button 
+                  onClick={() => setShowQuickReplies(false)} 
+                  className={`p-2 rounded-xl transition-colors ${isDark ? 'text-slate-400 hover:text-white bg-white/5' : 'text-slate-500 hover:text-black bg-slate-100'}`}
+                >
+                  <FaTimes size={14}/>
+                </button>
+              </div>
             </div>
-            
-            <form onSubmit={saveQuickReply} className={`p-4 rounded-2xl border mb-5 ${isDark ? 'bg-[#0f172a] border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+
+            {/* CREATE QUICK REPLY ACCORDION */}
+            {showCreateQR && (
+              <form onSubmit={saveQuickReply} className={`p-4 rounded-2xl border mb-4 ${isDark ? 'bg-[#0f172a] border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold text-[#00a884] uppercase tracking-wide">Create New Shortcut</span>
+                </div>
+                <input 
+                  type="text" 
+                  value={newQRName} 
+                  onChange={e => setNewQRName(e.target.value)} 
+                  placeholder="Shortcut Title (e.g. rec, web, bank)" 
+                  required 
+                  className={`w-full rounded-xl p-2.5 mb-2.5 text-xs outline-none border transition-colors ${
+                    isDark ? 'bg-[#1e293b] border-slate-700 text-white focus:border-[#00a884]' : 'bg-white border-slate-300 text-slate-800 focus:border-[#00a884]'
+                  }`} 
+                />
+                <textarea 
+                  value={newQRMsg} 
+                  onChange={e => setNewQRMsg(e.target.value)} 
+                  placeholder="Message Content / Caption..." 
+                  rows="3" 
+                  className={`w-full rounded-xl p-2.5 mb-2.5 text-xs outline-none border custom-scrollbar transition-colors ${
+                    isDark ? 'bg-[#1e293b] border-slate-700 text-white focus:border-[#00a884]' : 'bg-white border-slate-300 text-slate-800 focus:border-[#00a884]'
+                  }`}
+                />
+                
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="flex-1">
+                    <label className={`block text-[11px] font-bold mb-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                      Optional Attachment (Image/Audio/Doc - Max 2MB)
+                    </label>
+                    <input 
+                      type="file" 
+                      accept="image/*,audio/*,video/*,application/pdf" 
+                      onChange={handleQRFile} 
+                      className="w-full text-xs text-slate-400 file:mr-3 file:py-1 file:px-2.5 file:rounded-lg file:border-0 file:bg-[#00a884] file:text-white cursor-pointer" 
+                    />
+                  </div>
+                  {qrAttachmentBase64 && (
+                    <div className="text-xs text-emerald-500 flex items-center gap-1 font-bold shrink-0 bg-emerald-500/10 px-2 py-1 rounded-lg">
+                      <FaPaperclip size={11}/> Attached
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowCreateQR(false)} 
+                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold ${isDark ? 'text-slate-400 hover:text-white' : 'text-slate-600 hover:text-black'}`}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    type="submit" 
+                    className="bg-[#00a884] hover:bg-[#02906f] text-white font-bold px-4 py-1.5 rounded-xl text-xs shadow-md transition-colors"
+                  >
+                    Save Shortcut
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {/* SEARCH BAR */}
+            <div className="relative mb-3">
+              <FaSearch className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={12}/>
               <input 
                 type="text" 
-                value={newQRName} 
-                onChange={e => setNewQRName(e.target.value)} 
-                placeholder="Shortcut Title (e.g. hello)" 
-                required 
-                className={`w-full rounded-xl p-3 mb-3 text-sm outline-none border transition-colors ${
-                  isDark ? 'bg-[#1e293b] border-slate-700 text-white focus:border-[#00a884]' : 'bg-white border-slate-300 text-slate-800 focus:border-[#00a884]'
-                }`} 
-              />
-              <textarea 
-                value={newQRMsg} 
-                onChange={e => setNewQRMsg(e.target.value)} 
-                placeholder="Message Content / Caption..." 
-                rows="2" 
-                className={`w-full rounded-xl p-3 mb-3 text-sm outline-none border custom-scrollbar transition-colors ${
-                  isDark ? 'bg-[#1e293b] border-slate-700 text-white focus:border-[#00a884]' : 'bg-white border-slate-300 text-slate-800 focus:border-[#00a884]'
+                value={qrSearch} 
+                onChange={e => setQrSearch(e.target.value)} 
+                placeholder="Search shortcuts or keywords (e.g. 'rec', 'web', 'bank')..." 
+                className={`w-full rounded-xl pl-9 pr-8 py-2 text-xs outline-none border transition-colors ${
+                  isDark ? 'bg-[#0f172a] border-slate-700 text-white placeholder-slate-500 focus:border-[#00a884]' : 'bg-slate-50 border-slate-200 text-slate-800 placeholder-slate-400 focus:border-[#00a884]'
                 }`}
               />
-              
-              <div className="mb-4">
-                <label className={`block text-xs font-bold mb-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
-                  Attachment (Image/Audio/Doc - Max 2MB)
-                </label>
-                <input 
-                  type="file" 
-                  accept="image/*,audio/*,video/*,application/pdf" 
-                  onChange={handleQRFile} 
-                  className="w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-[#00a884] file:text-white cursor-pointer" 
-                />
-                {qrAttachmentBase64 && (
-                  <div className="mt-2 text-xs text-emerald-500 flex items-center gap-1 font-bold">
-                    <FaPaperclip/> File Attached
-                  </div>
-                )}
-              </div>
+              {qrSearch && (
+                <button 
+                  onClick={() => setQrSearch('')} 
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-200"
+                >
+                  <FaTimes size={10}/>
+                </button>
+              )}
+            </div>
 
-              <button 
-                type="submit" 
-                className="w-full bg-[#00a884] hover:bg-[#02906f] text-white font-bold py-2.5 rounded-xl text-sm shadow-md transition-colors"
-              >
-                Save Quick Reply
-              </button>
-            </form>
+            {/* QUICK REPLIES LIST */}
+            <div className="flex-1 space-y-2.5 overflow-y-auto custom-scrollbar pr-1 min-h-[220px]">
+              {(() => {
+                const filtered = quickReplies.filter(qr => {
+                  if (!qrSearch.trim()) return true;
+                  const q = qrSearch.toLowerCase();
+                  return (qr.name || '').toLowerCase().includes(q) || (qr.message || '').toLowerCase().includes(q);
+                });
 
-            <div className="space-y-2.5 max-h-[260px] overflow-y-auto custom-scrollbar pr-1">
-              {quickReplies.length === 0 ? (
-                <p className="text-center text-xs text-slate-400 py-6">No quick replies created yet.</p>
-              ) : (
-                quickReplies.map((qr, i) => (
-                  <div key={qr.id || i} className={`p-3 rounded-xl border flex justify-between items-start gap-3 ${
-                    isDark ? 'bg-[#0f172a] border-slate-700' : 'bg-slate-50 border-slate-200'
-                  }`}>
-                    <div className="flex-1 min-w-0">
-                      <span className="inline-block bg-[#00a884]/15 text-[#00a884] font-bold text-[11px] px-2 py-0.5 rounded-md mb-1">
-                        /{qr.name}
-                      </span>
-                      {qr.attachment && (
-                        <div className="text-emerald-500 text-[10px] font-bold mb-1 flex items-center gap-1">
-                          <FaPaperclip size={10}/> Has Attachment
-                        </div>
-                      )}
-                      <p className={`text-xs whitespace-pre-wrap truncate ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>
+                if (filtered.length === 0) {
+                  return (
+                    <div className="text-center py-10">
+                      <p className="text-xs text-slate-400">{qrSearch ? 'No quick replies match your search.' : 'No quick replies available.'}</p>
+                    </div>
+                  );
+                }
+
+                return filtered.map((qr, i) => (
+                  <div 
+                    key={qr.id || i} 
+                    onClick={() => applyQuickReply(qr, false)}
+                    className={`p-3 rounded-2xl border transition-all cursor-pointer group flex flex-col gap-2 hover:shadow-md ${
+                      isDark 
+                        ? 'bg-[#0f172a]/70 hover:bg-[#0f172a] border-slate-700/80 hover:border-[#00a884]/60' 
+                        : 'bg-slate-50/70 hover:bg-white border-slate-200 hover:border-[#00a884]/60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="inline-flex items-center gap-1 bg-[#00a884]/15 text-[#00a884] font-bold text-xs px-2.5 py-0.5 rounded-lg border border-[#00a884]/20 group-hover:bg-[#00a884] group-hover:text-white transition-colors">
+                          /{qr.name}
+                        </span>
+                        {qr.isSystem ? (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
+                            System Template
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            My Shortcut
+                          </span>
+                        )}
+                        {qr.attachment && (
+                          <span className="text-[10px] font-bold text-emerald-500 flex items-center gap-1 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                            <FaPaperclip size={9}/> File
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Action buttons on card header */}
+                      <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => applyQuickReply(qr, false)}
+                          className={`text-[11px] font-bold px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1 ${
+                            isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                          }`}
+                          title="Insert text into message box"
+                        >
+                          Use in Chat
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => applyQuickReply(qr, true)}
+                          className="text-[11px] font-bold bg-[#00a884] hover:bg-[#02906f] text-white px-2.5 py-1 rounded-lg transition-colors shadow-xs flex items-center gap-1"
+                          title="Send immediately to lead"
+                        >
+                          <FaPaperPlane size={9}/> Send
+                        </button>
+                        {(qr.isOwn || (!qr.isSystem)) && (
+                          <button 
+                            type="button"
+                            onClick={(e) => handleDeleteQR(qr.id, e)} 
+                            className="text-red-400 hover:text-red-500 text-[11px] font-bold bg-red-500/10 hover:bg-red-500/20 px-2 py-1 rounded-lg transition-colors ml-1"
+                            title="Delete this shortcut"
+                          >
+                            <FaTimes size={11}/>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {qr.message && (
+                      <p className={`text-xs line-clamp-2 leading-relaxed ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>
                         {qr.message}
                       </p>
-                    </div>
-                    <button 
-                      onClick={async () => {
-                        try {
-                          const token = localStorage.getItem('token');
-                          await axios.delete(`/coordinator-crm/quick-replies/${qr.id}`, {
-                            headers: { Authorization: `Bearer ${token}` }
-                          });
-                          setQuickReplies(prev => prev.filter(q => q.id !== qr.id));
-                        } catch (error) {
-                          toast.error("Failed to delete quick reply");
-                        }
-                      }} 
-                      className="text-red-400 hover:text-red-500 text-xs font-bold bg-red-500/10 hover:bg-red-500/20 px-2.5 py-1 rounded-lg transition-colors shrink-0"
-                    >
-                      Delete
-                    </button>
+                    )}
                   </div>
-                ))
-              )}
+                ));
+              })()}
             </div>
           </div>
         </div>
