@@ -5,15 +5,68 @@ import {
   FaUsers, FaBookOpen, FaFilter, FaMoneyBillWave, FaSpinner, FaCircle,
   FaCalendarCheck, FaClock, FaChalkboardTeacher, FaComments, FaCalendarAlt, FaReplyAll, FaChartLine,
   FaTruck, FaExclamationCircle, FaUserClock, FaChartPie, FaCheckCircle, FaInbox, FaBox,
-  FaWhatsapp, FaExclamationTriangle, FaArrowRight, FaExternalLinkAlt
+  FaWhatsapp, FaExclamationTriangle, FaArrowRight, FaExternalLinkAlt,
+  FaTable, FaChartBar, FaEye, FaEyeSlash
 } from 'react-icons/fa';
 import { 
-  BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend 
+  BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, LabelList 
 } from 'recharts';
 
 import DelegateSocialMediaTaskModal from '../../../components/common/DelegateSocialMediaTaskModal';
 import WhatsAppMetaMonitor from '../../../components/WhatsAppMetaMonitor/WhatsAppMetaMonitor';
 import CampaignSummaryTiles from './components/CampaignSummaryTiles';
+
+// 🔥 Modern custom tooltip for Course Enrollments breakdown 🔥
+const CustomEnrollmentTooltip = ({ active, payload, label }) => {
+  if (active && payload && payload.length) {
+    const full = payload.find(p => p.dataKey === 'full')?.value || 0;
+    const monthly = payload.find(p => p.dataKey === 'monthly')?.value || 0;
+    const installment = payload.find(p => p.dataKey === 'installment')?.value || 0;
+    const total = full + monthly + installment;
+    return (
+      <div className="bg-[#0b1220]/95 backdrop-blur-xl border border-white/10 p-3.5 rounded-2xl shadow-2xl text-xs min-w-[210px]">
+        <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10 gap-3">
+          <span className="font-black text-white text-sm truncate">{label}</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-white/10 text-slate-200 font-bold shrink-0">
+            {total} Total
+          </span>
+        </div>
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between text-slate-300">
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span>
+              Full Payment
+            </span>
+            <span className="font-bold text-white font-mono">
+              {full} <span className="text-[10px] text-slate-400 font-sans">({total > 0 ? Math.round((full / total) * 100) : 0}%)</span>
+            </span>
+          </div>
+          <div className="flex items-center justify-between text-slate-300">
+            <span className="flex items-center gap-1.5 font-medium">
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-400"></span>
+              Monthly
+            </span>
+            <span className="font-bold text-white font-mono">
+              {monthly} <span className="text-[10px] text-slate-400 font-sans">({total > 0 ? Math.round((monthly / total) * 100) : 0}%)</span>
+            </span>
+          </div>
+          {installment > 0 && (
+            <div className="flex items-center justify-between text-slate-300">
+              <span className="flex items-center gap-1.5 font-medium">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                Installments
+              </span>
+              <span className="font-bold text-white font-mono">
+                {installment} <span className="text-[10px] text-slate-400 font-sans">({total > 0 ? Math.round((installment / total) * 100) : 0}%)</span>
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
 
 export default function ManagerDashboard() {
   const navigate = useNavigate();
@@ -21,6 +74,8 @@ export default function ManagerDashboard() {
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(false);
   const [isDelegateModalOpen, setIsDelegateModalOpen] = useState(false);
+  const [enrollmentViewMode, setEnrollmentViewMode] = useState('chart'); // 'chart' | 'table'
+  const [showBarValues, setShowBarValues] = useState(true);
 
   const [businesses, setBusinesses] = useState([]);
   const [batches, setBatches] = useState([]);
@@ -189,6 +244,29 @@ export default function ManagerDashboard() {
     { name: 'New Inquiries', value: stats.leadStats.newInq },
     { name: 'Bridge Transfer', value: stats.leadStats.bridge }
   ].filter(d => d.value > 0);
+
+  const formattedMixerData = useMemo(() => {
+    if (!stats.mixerData || !Array.isArray(stats.mixerData)) return [];
+    return stats.mixerData.map(item => {
+      const full = Number(item.full) || 0;
+      const monthly = Number(item.monthly) || 0;
+      const installment = Number(item.installment) || 0;
+      const total = full + monthly + installment;
+      let displayName = item.subject || '';
+      if (displayName.toLowerCase().includes('buddhist civilization')) {
+        displayName = 'Buddhist Civ. (BC)';
+      }
+      return {
+        ...item,
+        subject: displayName,
+        fullSubject: item.subject,
+        full,
+        monthly,
+        installment,
+        total
+      };
+    }).sort((a, b) => b.total - a.total);
+  }, [stats.mixerData]);
 
   return (
     <div className="space-y-6 animate-fade-in text-left pb-10 max-w-[1600px] mx-auto">
@@ -576,27 +654,229 @@ export default function ManagerDashboard() {
             
             {/* Subject Enrollment Breakdown */}
             <div className="bg-white/70 dark:bg-white/[0.03] backdrop-blur-2xl p-6 rounded-[2rem] border border-gray-200 dark:border-white/10 shadow-xl lg:col-span-2 flex flex-col">
-              <h3 className="text-xs font-black text-gray-900 dark:text-white mb-6 uppercase tracking-widest flex items-center justify-between border-b border-gray-200 dark:border-white/5 pb-4">
-                <span className="flex items-center gap-2"><FaChartLine className="text-brand-accent"/> Course Enrollments (Payment Plans)</span>
-              </h3>
-              <div className="flex-1 min-h-[260px]">
-                {(!stats.mixerData || stats.mixerData.length === 0) ? (
-                   <div className="flex h-full items-center justify-center text-gray-500 dark:text-slate-500 text-sm font-bold bg-gray-50 dark:bg-white/[0.01] rounded-2xl border border-dashed border-gray-300 dark:border-white/10 p-6">
-                     No course enrollment data found.
-                   </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 dark:border-white/5 pb-4 mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center border border-indigo-500/20">
+                    <FaChartLine size={13} />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-widest">
+                      Course Enrollments
+                    </h3>
+                    <p className="text-[10px] text-slate-500 font-bold">
+                      Payment plan distribution per subject
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {/* Toggle numbers on bars (when in chart view) */}
+                  {enrollmentViewMode === 'chart' && formattedMixerData.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowBarValues(v => !v)}
+                      className={`px-2.5 py-1.5 rounded-xl text-[10px] font-bold border transition-all flex items-center gap-1.5 cursor-pointer ${
+                        showBarValues
+                          ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+                          : 'bg-white/5 text-slate-400 border-white/10 hover:text-white'
+                      }`}
+                      title="Toggle count labels on bars"
+                    >
+                      {showBarValues ? <FaEye size={10} /> : <FaEyeSlash size={10} />}
+                      <span>{showBarValues ? 'Labels ON' : 'Labels OFF'}</span>
+                    </button>
+                  )}
+
+                  {/* Mode switcher: Chart vs Table */}
+                  <div className="flex bg-slate-900/60 p-1 rounded-xl border border-white/10 shadow-inner">
+                    <button
+                      type="button"
+                      onClick={() => setEnrollmentViewMode('chart')}
+                      className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        enrollmentViewMode === 'chart'
+                          ? 'bg-indigo-600 text-white shadow-md'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <FaChartBar size={10} /> Chart
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEnrollmentViewMode('table')}
+                      className={`px-3 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                        enrollmentViewMode === 'table'
+                          ? 'bg-indigo-600 text-white shadow-md'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      <FaTable size={10} /> Table
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-[300px]">
+                {(!formattedMixerData || formattedMixerData.length === 0) ? (
+                  <div className="flex h-full items-center justify-center text-gray-500 dark:text-slate-500 text-sm font-bold bg-gray-50 dark:bg-white/[0.01] rounded-2xl border border-dashed border-gray-300 dark:border-white/10 p-6">
+                    No course enrollment data found.
+                  </div>
+                ) : enrollmentViewMode === 'chart' ? (
+                  <div className="w-full h-full flex flex-col justify-between">
+                    <ResponsiveContainer width="100%" height={290}>
+                      <BarChart data={formattedMixerData} margin={{ top: 25, right: 15, left: -20, bottom: 35 }}>
+                        <defs>
+                          <linearGradient id="gradFull" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#34d399" stopOpacity={0.95}/>
+                            <stop offset="100%" stopColor="#059669" stopOpacity={0.95}/>
+                          </linearGradient>
+                          <linearGradient id="gradMonthly" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#818cf8" stopOpacity={0.95}/>
+                            <stop offset="100%" stopColor="#4f46e5" stopOpacity={0.95}/>
+                          </linearGradient>
+                          <linearGradient id="gradInstallment" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="#fbbf24" stopOpacity={0.95}/>
+                            <stop offset="100%" stopColor="#d97706" stopOpacity={0.95}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#94a3b820" vertical={false} />
+                        <XAxis 
+                          dataKey="subject" 
+                          stroke="#94a3b8" 
+                          fontSize={11} 
+                          fontWeight={600}
+                          tickLine={false} 
+                          axisLine={false} 
+                          tickMargin={12} 
+                          angle={-12} 
+                          textAnchor="end"
+                        />
+                        <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} />
+                        <Tooltip content={<CustomEnrollmentTooltip />} cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }} />
+                        <Bar dataKey="full" name="Full Payment" fill="url(#gradFull)" stackId="a">
+                          {showBarValues && (
+                            <LabelList 
+                              dataKey="full" 
+                              position="center" 
+                              fill="#ffffff" 
+                              fontSize={10} 
+                              fontWeight="800" 
+                              formatter={(v) => v >= 35 ? v : ''} 
+                            />
+                          )}
+                        </Bar>
+                        <Bar dataKey="monthly" name="Monthly" fill="url(#gradMonthly)" stackId="a">
+                          {showBarValues && (
+                            <LabelList 
+                              dataKey="monthly" 
+                              position="center" 
+                              fill="#ffffff" 
+                              fontSize={10} 
+                              fontWeight="800" 
+                              formatter={(v) => v >= 35 ? v : ''} 
+                            />
+                          )}
+                        </Bar>
+                        <Bar dataKey="installment" name="Installments" fill="url(#gradInstallment)" radius={[6, 6, 0, 0]} stackId="a">
+                          {showBarValues && (
+                            <LabelList 
+                              dataKey="installment" 
+                              position="center" 
+                              fill="#ffffff" 
+                              fontSize={10} 
+                              fontWeight="800" 
+                              formatter={(v) => v >= 20 ? v : ''} 
+                            />
+                          )}
+                          <LabelList 
+                            dataKey="total" 
+                            position="top" 
+                            fill="#cbd5e1" 
+                            fontSize={11} 
+                            fontWeight="900" 
+                            offset={8}
+                          />
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+
+                    {/* Clean Custom Pill Legend */}
+                    <div className="flex flex-wrap items-center justify-center gap-4 pt-3 border-t border-white/5">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-500/50"></span>
+                        Full Payment
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
+                        <span className="w-2.5 h-2.5 rounded-full bg-indigo-400 shadow-sm shadow-indigo-500/50"></span>
+                        Monthly
+                      </div>
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-slate-300">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-400 shadow-sm shadow-amber-500/50"></span>
+                        Installments
+                      </div>
+                    </div>
+                  </div>
                 ) : (
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={stats.mixerData} margin={{ top: 10, right: 10, left: -20, bottom: 20 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#94a3b833" vertical={false} />
-                      <XAxis dataKey="subject" stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} tickMargin={10} angle={-15} textAnchor="end"/>
-                      <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} />
-                      <Tooltip cursor={{fill: 'transparent'}} contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '12px', color: '#0f172a', fontSize: '11px', fontWeight: 'bold' }} />
-                      <Legend wrapperStyle={{ fontSize: '10px', paddingTop: '10px' }} />
-                      <Bar dataKey="full" name="Full Payment" fill="#ec4899" radius={[4, 4, 0, 0]} stackId="a" />
-                      <Bar dataKey="monthly" name="Monthly" fill="#3b82f6" radius={[4, 4, 0, 0]} stackId="a" />
-                      <Bar dataKey="installment" name="Installments" fill="#f59e0b" radius={[4, 4, 0, 0]} stackId="a" />
-                    </BarChart>
-                  </ResponsiveContainer>
+                  <div className="overflow-x-auto max-h-[340px] overflow-y-auto pr-1">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-white/10 text-slate-400 font-bold uppercase tracking-wider text-[10px] sticky top-0 bg-[#0f172a] z-10">
+                          <th className="pb-3 pl-2">Subject</th>
+                          <th className="pb-3 text-right">Total</th>
+                          <th className="pb-3 text-right">Full Paid</th>
+                          <th className="pb-3 text-right">Monthly</th>
+                          <th className="pb-3 text-right">Installments</th>
+                          <th className="pb-3 pl-6 pr-2">Payment Ratio</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-white/5">
+                        {formattedMixerData.map((row) => {
+                          const fullPct = row.total > 0 ? Math.round((row.full / row.total) * 100) : 0;
+                          const monthlyPct = row.total > 0 ? Math.round((row.monthly / row.total) * 100) : 0;
+                          const instPct = row.total > 0 ? Math.round((row.installment / row.total) * 100) : 0;
+                          return (
+                            <tr key={row.subject} className="hover:bg-white/[0.02] transition-colors">
+                              <td className="py-2.5 pl-2 font-black text-white">{row.fullSubject || row.subject}</td>
+                              <td className="py-2.5 text-right font-black text-white font-mono">{row.total}</td>
+                              <td className="py-2.5 text-right font-bold font-mono text-emerald-400">
+                                {row.full} <span className="text-[10px] text-slate-400 font-sans font-normal">({fullPct}%)</span>
+                              </td>
+                              <td className="py-2.5 text-right font-bold font-mono text-indigo-400">
+                                {row.monthly} <span className="text-[10px] text-slate-400 font-sans font-normal">({monthlyPct}%)</span>
+                              </td>
+                              <td className="py-2.5 text-right font-bold font-mono text-amber-400">
+                                {row.installment} <span className="text-[10px] text-slate-400 font-sans font-normal">({instPct}%)</span>
+                              </td>
+                              <td className="py-2.5 pl-6 pr-2">
+                                <div className="w-36 h-2 rounded-full bg-slate-800 flex overflow-hidden">
+                                  <div style={{ width: `${fullPct}%` }} className="bg-emerald-500 h-full" title={`Full: ${row.full} (${fullPct}%)`} />
+                                  <div style={{ width: `${monthlyPct}%` }} className="bg-indigo-500 h-full" title={`Monthly: ${row.monthly} (${monthlyPct}%)`} />
+                                  <div style={{ width: `${instPct}%` }} className="bg-amber-500 h-full" title={`Installments: ${row.installment} (${instPct}%)`} />
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="border-t border-white/10 font-black text-white bg-white/[0.02] sticky bottom-0 z-10">
+                          <td className="py-3 pl-2 uppercase text-[10px] tracking-wider text-slate-400">Grand Total</td>
+                          <td className="py-3 text-right font-mono text-white text-sm">
+                            {formattedMixerData.reduce((acc, r) => acc + r.total, 0)}
+                          </td>
+                          <td className="py-3 text-right font-mono text-emerald-400">
+                            {formattedMixerData.reduce((acc, r) => acc + r.full, 0)}
+                          </td>
+                          <td className="py-3 text-right font-mono text-indigo-400">
+                            {formattedMixerData.reduce((acc, r) => acc + r.monthly, 0)}
+                          </td>
+                          <td className="py-3 text-right font-mono text-amber-400">
+                            {formattedMixerData.reduce((acc, r) => acc + r.installment, 0)}
+                          </td>
+                          <td className="py-3 pl-6 pr-2 text-[10px] text-slate-400">100% verified</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
                 )}
               </div>
             </div>
