@@ -1014,31 +1014,126 @@ export default function ManagerDashboard() {
               </div>
             </div>
 
-            {/* Campaign Source Breakdown Pie */}
-            <div className="bg-white/70 dark:bg-white/[0.03] backdrop-blur-2xl p-6 rounded-[2rem] border border-gray-200 dark:border-white/10 shadow-xl flex flex-col">
-              <h3 className="text-xs font-black text-gray-900 dark:text-white mb-2 uppercase tracking-widest flex items-center justify-between border-b border-gray-200 dark:border-white/5 pb-4">
-                <span className="flex items-center gap-2"><FaChartPie className="text-indigo-500"/> Inquiry Sources</span>
-              </h3>
-              <div className="flex-1 h-[220px] relative mt-2">
-                {leadTypeData.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-gray-500 dark:text-slate-500 text-sm font-bold bg-gray-50 dark:bg-white/[0.01] rounded-2xl border border-dashed border-gray-300 dark:border-white/10 p-6">
-                    No leads found.
+            {/* Student Age Distribution Card (Option 3: Bento Donut + Progress Bars) */}
+            <div className="bg-white/70 dark:bg-[#0c111e]/90 backdrop-blur-2xl p-6 rounded-[2rem] border border-gray-200 dark:border-cyan-500/20 shadow-xl dark:shadow-[0_10px_35px_rgba(6,182,212,0.08)] flex flex-col justify-between relative overflow-hidden">
+              {/* Subtle Ambient Glow */}
+              <div className="absolute -top-16 -right-16 w-44 h-44 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3.5 border-b border-gray-200 dark:border-white/10 relative z-10">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center border border-cyan-500/30 shadow-[0_0_10px_rgba(6,182,212,0.2)]">
+                    <FaChartPie size={13} />
                   </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie data={leadTypeData} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={4} dataKey="value" stroke="none">
-                        {leadTypeData.map((entry, index) => <Cell key={`cell-${index}`} fill={LEAD_COLORS[index % LEAD_COLORS.length]} />)}
-                      </Pie>
-                      <Tooltip contentStyle={{ backgroundColor: '#ffffff', borderColor: '#e2e8f0', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', color: '#0f172a' }} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                )}
+                  <div>
+                    <h3 className="text-xs font-black text-gray-900 dark:text-white uppercase tracking-widest flex items-center gap-1.5">
+                      Student Age
+                      <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 normal-case tracking-normal">
+                        NIC Verified
+                      </span>
+                    </h3>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">Demographic breakdown</p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-mono font-bold text-slate-400 px-2 py-1 rounded-lg bg-white/5 border border-white/10">
+                  Median: <strong className="text-cyan-300">{stats.studentAgeStats?.medianAge || 20} Yrs</strong>
+                </span>
               </div>
-              <div className="flex justify-around items-center text-[9px] font-black uppercase text-gray-500 dark:text-slate-400 mt-4">
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-pink-500"></span> Open Sem</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span> New Inq</span>
-                <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span> Bridge</span>
+
+              {/* Body: Donut on Left + Progress Bars on Right */}
+              {(() => {
+                const ageGroups = (stats.studentAgeStats && Array.isArray(stats.studentAgeStats.groups) && stats.studentAgeStats.groups.length > 0)
+                  ? stats.studentAgeStats.groups
+                  : [];
+                const totalAnalyzed = stats.studentAgeStats?.totalAnalyzed || 0;
+
+                if (totalAnalyzed === 0 || ageGroups.length === 0) {
+                  return (
+                    <div className="flex-1 flex items-center justify-center text-gray-500 dark:text-slate-500 text-sm font-bold bg-gray-50 dark:bg-white/[0.01] rounded-2xl border border-dashed border-gray-300 dark:border-white/10 p-6 my-4">
+                      No demographic data found.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="flex items-center gap-4 py-4 relative z-10">
+                    {/* Mini Donut Chart */}
+                    <div className="relative w-36 h-36 shrink-0 flex items-center justify-center">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={ageGroups}
+                            dataKey="count"
+                            nameKey="group"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={42}
+                            outerRadius={60}
+                            paddingAngle={3}
+                            stroke="none"
+                          >
+                            {ageGroups.map((entry, idx) => (
+                              <Cell key={`cell-${idx}`} fill={entry.color} />
+                            ))}
+                          </Pie>
+                          <Tooltip
+                            content={({ active, payload }) => {
+                              if (active && payload && payload.length) {
+                                const data = payload[0].payload;
+                                return (
+                                  <div className="bg-[#0b1220]/95 backdrop-blur-xl border border-cyan-500/30 p-2.5 rounded-xl text-xs text-white shadow-xl">
+                                    <p className="font-bold flex items-center gap-1.5">
+                                      <span className="w-2 h-2 rounded-full" style={{ background: data.color }}></span>
+                                      {data.group}
+                                    </p>
+                                    <p className="text-cyan-300 font-mono font-bold mt-1">
+                                      {data.count.toLocaleString()} students ({data.pct}%)
+                                    </p>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }}
+                          />
+                        </PieChart>
+                      </ResponsiveContainer>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+                        <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">Students</span>
+                        <span className="text-sm font-black text-white font-mono">{totalAnalyzed.toLocaleString()}</span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bars on Right */}
+                    <div className="flex-1 space-y-2">
+                      {ageGroups.map((a) => (
+                        <div key={a.group} className="group">
+                          <div className="flex items-center justify-between text-[11px] font-bold mb-0.5">
+                            <span className="text-slate-300 flex items-center gap-1.5 truncate">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: a.color }}></span>
+                              <span className="truncate">{a.group}</span>
+                            </span>
+                            <span className="font-mono text-white text-[10px] shrink-0 font-bold ml-1">
+                              {a.pct}%
+                            </span>
+                          </div>
+                          <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
+                            <div 
+                              className="h-full rounded-full transition-all duration-500" 
+                              style={{ width: `${a.pct}%`, background: a.color }} 
+                              title={`${a.group}: ${a.count} (${a.pct}%)`}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Footer */}
+              <div className="pt-3 border-t border-gray-200 dark:border-white/10 flex items-center justify-between text-[11px] font-bold text-slate-400 relative z-10">
+                <span>Primary Group: <strong className="text-cyan-300">18 - 19 Yrs</strong></span>
+                <span>Total: <strong className="text-white font-mono">{(stats.studentAgeStats?.totalAnalyzed || 0).toLocaleString()}</strong></span>
               </div>
             </div>
 

@@ -207,6 +207,65 @@ exports.getManagerDashboardOverview = async (req, res) => {
             where: { status: 'PENDING' }
         });
 
+        // 8. Student Age Distribution from NIC
+        const studentIdsArr = Array.from(uniqueStudentIds);
+        let studentUsers = [];
+        if (studentIdsArr.length > 0) {
+            studentUsers = await prisma.user.findMany({
+                where: { id: { in: studentIdsArr } },
+                select: { nic: true }
+            });
+        }
+
+        const currentYear = new Date().getFullYear();
+        const ageCountMap = {
+            '18 - 19 Yrs': 0,
+            'Under 18': 0,
+            '25+ Yrs': 0,
+            '20 - 21 Yrs': 0,
+            '22 - 24 Yrs': 0
+        };
+        let totalWithAge = 0;
+        const agesList = [];
+
+        studentUsers.forEach(u => {
+            if (!u.nic) return;
+            const clean = String(u.nic).trim().toUpperCase();
+            let birthYear = null;
+            if (clean.length === 12 && /^\d{12}$/.test(clean)) {
+                birthYear = parseInt(clean.substring(0, 4));
+            } else if ((clean.length === 10 || clean.length === 9) && /^\d{9}[VX]?$/.test(clean)) {
+                const yy = parseInt(clean.substring(0, 2));
+                birthYear = yy >= 30 ? 1900 + yy : 2000 + yy;
+            }
+            if (birthYear && birthYear > 1940 && birthYear <= currentYear) {
+                const age = currentYear - birthYear;
+                totalWithAge++;
+                agesList.push(age);
+                if (age < 18) ageCountMap['Under 18']++;
+                else if (age <= 19) ageCountMap['18 - 19 Yrs']++;
+                else if (age <= 21) ageCountMap['20 - 21 Yrs']++;
+                else if (age <= 24) ageCountMap['22 - 24 Yrs']++;
+                else ageCountMap['25+ Yrs']++;
+            }
+        });
+
+        const medianAge = agesList.length > 0 
+            ? agesList.sort((a,b)=>a-b)[Math.floor(agesList.length / 2)] 
+            : 20;
+
+        const studentAgeStats = {
+            totalAnalyzed: totalWithAge,
+            medianAge,
+            groups: [
+                { group: '18 - 19 Yrs', count: ageCountMap['18 - 19 Yrs'], pct: totalWithAge > 0 ? Math.round((ageCountMap['18 - 19 Yrs'] / totalWithAge) * 1000) / 10 : 0, color: '#06b6d4', glow: '#22d3ee', tag: 'Core A/L' },
+                { group: 'Under 18', count: ageCountMap['Under 18'], pct: totalWithAge > 0 ? Math.round((ageCountMap['Under 18'] / totalWithAge) * 1000) / 10 : 0, color: '#10b981', glow: '#34d399', tag: 'O/L / School' },
+                { group: '25+ Yrs', count: ageCountMap['25+ Yrs'], pct: totalWithAge > 0 ? Math.round((ageCountMap['25+ Yrs'] / totalWithAge) * 1000) / 10 : 0, color: '#f59e0b', glow: '#fbbf24', tag: 'Adult / Pro' },
+                { group: '20 - 21 Yrs', count: ageCountMap['20 - 21 Yrs'], pct: totalWithAge > 0 ? Math.round((ageCountMap['20 - 21 Yrs'] / totalWithAge) * 1000) / 10 : 0, color: '#a855f7', glow: '#c084fc', tag: 'Higher Dip' },
+                { group: '22 - 24 Yrs', count: ageCountMap['22 - 24 Yrs'], pct: totalWithAge > 0 ? Math.round((ageCountMap['22 - 24 Yrs'] / totalWithAge) * 1000) / 10 : 0, color: '#ec4899', glow: '#f472b6', tag: 'Degree' }
+            ]
+        };
+
         res.status(200).json({
             activeStudentsCount,
             totalRevenue,
@@ -217,7 +276,8 @@ exports.getManagerDashboardOverview = async (req, res) => {
             leadStats,
             mixerData,
             deliveryStats,
-            pendingTasks
+            pendingTasks,
+            studentAgeStats
         });
 
     } catch (error) {
