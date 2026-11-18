@@ -4,7 +4,7 @@
 const prisma = require('../lib/prisma');
 const { getApprovedBatchPhoneSet, isPaidForBatch, backfillExtraBatches } = require('../utils/leadBatchAssignments');
 
-const MANAGER_ROLES = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER'];
+const MANAGER_ROLES = ['SYSTEM_ADMIN', 'DIRECTOR', 'MANAGER', 'SUPER', 'ASS_MANAGER', 'ADMIN_MANAGER', 'SUPER_ADMIN', 'SUPERADMIN', 'ADMIN'];
 const isManagerReq = (req) => MANAGER_ROLES.includes(String(req.user?.role || '').toUpperCase().replace(/ /g, '_'));
 const fullName = (u) => (u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : null);
 
