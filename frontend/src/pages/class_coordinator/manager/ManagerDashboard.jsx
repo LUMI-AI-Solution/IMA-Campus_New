@@ -17,17 +17,48 @@ import WhatsAppMetaMonitor from '../../../components/WhatsAppMetaMonitor/WhatsAp
 import CampaignSummaryTiles from './components/CampaignSummaryTiles';
 
 // 🔥 Modern custom tooltip for Course Enrollments breakdown (Cyber Neon) 🔥
-const CustomEnrollmentTooltip = ({ active, payload, label }) => {
+// 🔥 Shorten long subject names for modern executive readability (e.g. S.F.T, B.S.T) 🔥
+const formatShortSubject = (rawName = '') => {
+  if (!rawName) return '';
+  const s = String(rawName).trim();
+  const lower = s.toLowerCase();
+
+  if (lower.includes('science for technology') || lower.includes('(sft)') || lower === 'sft') return 'S.F.T';
+  if (lower.includes('bio-system') || lower.includes('bio system') || lower.includes('(bst)') || lower === 'bst') {
+    if (lower.includes('practical')) return 'BST Pract.';
+    return 'B.S.T';
+  }
+  if (lower.includes('engineering technology') || lower.includes('(et)') || lower === 'et') {
+    if (lower.includes('practical')) return 'ET Pract.';
+    return 'E.T';
+  }
+  if (lower.includes('information & communication') || lower.includes('(ict)') || lower === 'ict') return 'I.C.T';
+  if (lower.includes('buddhist civilization') || lower.includes('buddhist civ') || lower.includes('b.c')) return 'B.C';
+  if (lower.includes('agriculture') || lower.includes('agri')) return 'Agri';
+  if (lower.includes('business stud') || lower.includes('business stu') || lower === 'bs') return 'B.S';
+  if (lower.includes('political science')) return 'Political';
+  if (lower.includes('general english')) return 'English';
+  if (lower.includes('accounting')) return 'Accounting';
+  if (lower.includes('economics')) return 'Economics';
+  
+  if (s.length > 13) return s.slice(0, 11) + '..';
+  return s;
+};
+
+// 🔥 Modern custom tooltip for Course Enrollments breakdown (Cyber Neon) 🔥
+const CustomEnrollmentTooltip = ({ active, payload, label, data }) => {
   if (active && payload && payload.length) {
     const full = payload.find(p => p.dataKey === 'full')?.value || 0;
     const monthly = payload.find(p => p.dataKey === 'monthly')?.value || 0;
     const installment = payload.find(p => p.dataKey === 'installment')?.value || 0;
     const total = full + monthly + installment;
+    const matchedItem = (data || []).find(d => d.subject === label);
+    const displayTitle = matchedItem?.fullSubject || label;
     return (
-      <div className="bg-[#0b1220]/95 backdrop-blur-xl border border-cyan-500/30 p-3.5 rounded-2xl shadow-2xl text-xs min-w-[210px]">
+      <div className="bg-[#0b1220]/95 backdrop-blur-xl border border-cyan-500/30 p-3.5 rounded-2xl shadow-2xl text-xs min-w-[220px]">
         <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/10 gap-3">
-          <span className="font-black text-white text-sm truncate">{label}</span>
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold shrink-0">
+          <span className="font-black text-white text-sm truncate" title={displayTitle}>{displayTitle}</span>
+          <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-bold shrink-0 font-mono">
             {total} Total
           </span>
         </div>
@@ -79,10 +110,10 @@ const CustomEnrollmentXAxisTick = ({ x, y, payload, data }) => {
         y={0} 
         dy={14} 
         textAnchor="middle" 
-        fill="#e2e8f0" 
+        fill="#f1f5f9" 
         fontSize={11} 
         fontWeight={800}
-        className="tracking-tight select-none"
+        className="tracking-tight select-none font-sans"
       >
         {payload?.value}
       </text>
@@ -282,27 +313,36 @@ export default function ManagerDashboard() {
     { name: 'Bridge Transfer', value: stats.leadStats.bridge }
   ].filter(d => d.value > 0);
 
-  const formattedMixerData = (!stats.mixerData || !Array.isArray(stats.mixerData))
-    ? []
-    : stats.mixerData.map(item => {
-        const full = Number(item.full) || 0;
-        const monthly = Number(item.monthly) || 0;
-        const installment = Number(item.installment) || 0;
-        const total = full + monthly + installment;
-        let displayName = item.subject || '';
-        if (displayName.toLowerCase().includes('buddhist civilization')) {
-          displayName = 'Buddhist Civ. (BC)';
-        }
-        return {
+  const formattedMixerData = (() => {
+    if (!stats.mixerData || !Array.isArray(stats.mixerData)) return [];
+    const subjectMap = new Map();
+    stats.mixerData.forEach(item => {
+      const full = Number(item.full) || 0;
+      const monthly = Number(item.monthly) || 0;
+      const installment = Number(item.installment) || 0;
+      const total = full + monthly + installment;
+      const shortName = formatShortSubject(item.subject);
+
+      if (subjectMap.has(shortName)) {
+        const existing = subjectMap.get(shortName);
+        existing.full += full;
+        existing.monthly += monthly;
+        existing.installment += installment;
+        existing.total += total;
+      } else {
+        subjectMap.set(shortName, {
           ...item,
-          subject: displayName,
+          subject: shortName,
           fullSubject: item.subject,
           full,
           monthly,
           installment,
           total
-        };
-      }).sort((a, b) => b.total - a.total);
+        });
+      }
+    });
+    return Array.from(subjectMap.values()).sort((a, b) => b.total - a.total);
+  })();
 
   return (
     <div className="space-y-6 animate-fade-in text-left pb-10 max-w-[1600px] mx-auto">
@@ -768,8 +808,8 @@ export default function ManagerDashboard() {
                       <BarChart 
                         data={formattedMixerData} 
                         margin={{ top: 25, right: 15, left: -20, bottom: 20 }}
-                        barGap={6}
-                        barCategoryGap="22%"
+                        barGap={4}
+                        barCategoryGap="16%"
                       >
                         <defs>
                           {/* Neon Cyan Gradient for Full Payment */}
@@ -791,21 +831,22 @@ export default function ManagerDashboard() {
                         <CartesianGrid strokeDasharray="3 3" stroke="#94a3b815" vertical={false} />
                         <XAxis 
                           dataKey="subject" 
+                          interval={0}
                           tick={<CustomEnrollmentXAxisTick data={formattedMixerData} />} 
                           height={52}
                           tickLine={false} 
                           axisLine={false} 
                         />
                         <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} axisLine={false} />
-                        <Tooltip content={<CustomEnrollmentTooltip />} cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }} />
+                        <Tooltip content={<CustomEnrollmentTooltip data={formattedMixerData} />} cursor={{ fill: 'rgba(255, 255, 255, 0.03)' }} />
                         
-                        {/* ⚡ Cyan Dual Bar (Full Payment) - Thicker width with maxBarSize=28 */}
+                        {/* ⚡ Cyan Dual Bar (Full Payment) - FLAT TOP (radius=0) */}
                         <Bar 
                           dataKey="full" 
                           name="Full Payment" 
                           fill="url(#gradFull)" 
-                          radius={[6, 6, 0, 0]} 
-                          maxBarSize={28}
+                          radius={[0, 0, 0, 0]} 
+                          maxBarSize={24}
                         >
                           {showBarValues && (
                             <LabelList 
@@ -820,13 +861,13 @@ export default function ManagerDashboard() {
                           )}
                         </Bar>
 
-                        {/* ⚡ Fuchsia Dual Bar (Monthly) - Thicker width with maxBarSize=28 */}
+                        {/* ⚡ Fuchsia Dual Bar (Monthly) - FLAT TOP (radius=0) */}
                         <Bar 
                           dataKey="monthly" 
                           name="Monthly" 
                           fill="url(#gradMonthly)" 
-                          radius={[6, 6, 0, 0]} 
-                          maxBarSize={28}
+                          radius={[0, 0, 0, 0]} 
+                          maxBarSize={24}
                         >
                           {showBarValues && (
                             <LabelList 
@@ -841,14 +882,14 @@ export default function ManagerDashboard() {
                           )}
                         </Bar>
 
-                        {/* Optional Installment Bar if any exists */}
+                        {/* Optional Installment Bar if any exists - FLAT TOP (radius=0) */}
                         {formattedMixerData.some(d => d.installment > 0) && (
                           <Bar 
                             dataKey="installment" 
                             name="Installments" 
                             fill="url(#gradInstallment)" 
-                            radius={[6, 6, 0, 0]} 
-                            maxBarSize={28}
+                            radius={[0, 0, 0, 0]} 
+                            maxBarSize={24}
                           >
                             {showBarValues && (
                               <LabelList 
