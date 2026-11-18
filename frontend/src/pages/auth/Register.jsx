@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import api from '../../api/axios';
-import { Loader2, Eye, EyeOff, UserPlus, CheckCircle2, Circle } from 'lucide-react';
+import { Loader2, Eye, EyeOff, UserPlus, CheckCircle2, Circle, Truck } from 'lucide-react';
 
 const GlassInput = ({ label, name, required, type = "text", placeholder, options, value, onChange, prefix }) => (
   <div>
@@ -139,8 +139,8 @@ export default function Register() {
         optionalPhone: finalDirectPhone,
         nic: formData.nic,
         addressHouseNo: formData.houseNoVal,
-        addressStreet: formData.streetNameVal,
-        city: formData.townVal,
+        addressStreet: [formData.streetNameVal, formData.villageVal].filter(Boolean).join(', '),
+        city: formData.townVal || '',
         district: formData.districtVal,
         password: formData.password,
         confirmPassword: formData.confirmPassword
@@ -224,12 +224,24 @@ export default function Register() {
             <GlassInput label="Street Name" name="streetNameVal" required placeholder="ලිපිනයේ පළමු කොටස" value={formData.streetNameVal} onChange={handleChange} />
 
             <div className="md:col-span-2 grid grid-cols-1 md:grid-cols-3 gap-6">
-              {/* 🔥 FIX: Lane is now optional (Removed required) 🔥 */}
+              {/* 🔥 FIX: Lane is optional 🔥 */}
               <GlassInput label="Lane (Optional)" name="villageVal" placeholder="ලිපිනයේ දෙවන කොටස" value={formData.villageVal} onChange={handleChange} />
-              <GlassInput label="Town" name="townVal" required placeholder="ආසන්නතම නගරය" value={formData.townVal} onChange={handleChange} />
+              <GlassInput label="Lane 2 (Optional)" name="townVal" placeholder="ලිපිනයේ තෙවන කොටස" value={formData.townVal} onChange={handleChange} />
 
               {/* 🔥 FIX: Placeholder modified to දිස්ත්‍රික්කය 🔥 */}
               <GlassInput label="District" name="districtVal" required placeholder="දිස්ත්‍රික්කය" options={districts} value={formData.districtVal} onChange={handleChange} />
+            </div>
+
+            {/* 🔥 Delivery Address Notice Note 🔥 */}
+            <div className="md:col-span-2">
+              <div className="bg-gradient-to-r from-amber-500/15 via-orange-500/10 to-amber-500/15 border border-amber-500/30 rounded-2xl p-3.5 sm:p-4 flex items-center gap-3 text-amber-200 backdrop-blur-md shadow-[0_0_15px_rgba(245,158,11,0.08)]">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-300 flex items-center justify-center shrink-0 border border-amber-500/40">
+                  <Truck size={18} />
+                </div>
+                <p className="text-xs sm:text-sm font-bold leading-relaxed tracking-wide text-amber-100">
+                  නිබන්ධන ඉහත ලිපිනයට යොමු කරන බැවින් ලිපිනයේ සියලු කොටස් නිවැරදිව ඇතුළත් කරන්න.
+                </p>
+              </div>
             </div>
 
             <div className="mt-4 pt-6 border-t border-white/10 md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
