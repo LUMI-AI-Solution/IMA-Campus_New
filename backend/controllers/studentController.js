@@ -1562,6 +1562,23 @@ exports.getStudentClassroom = async (req, res) => {
 };
 
 // 6. Course Modules
+// 🔒 SUBJECT ISOLATION 🔒
+// A course of ANOTHER subject must never be merged into the requested course's content list.
+// Same subject = same normalized name, OR same code AND same first word of the name.
+// (Codes alone are not trusted: admins sometimes reuse one code for many subjects.)
+const normSubjectName = (n) => String(n || '').trim().toLowerCase().replace(/\s+/g, ' ');
+const firstSubjectWord = (n) => normSubjectName(n).split(/[\s-]+/)[0] || '';
+const isSameSubjectCourse = (a, b) => {
+    if (!a || !b) return false;
+    const an = normSubjectName(a.name);
+    const bn = normSubjectName(b.name);
+    if (an && bn && an === bn) return true;
+    const ac = String(a.code || '').trim().toLowerCase();
+    const bc = String(b.code || '').trim().toLowerCase();
+    if (ac && bc && ac === bc && firstSubjectWord(a.name) === firstSubjectWord(b.name)) return true;
+    return false;
+};
+
 exports.getCourseModules = async (req, res) => {
     try {
         const { id } = req.params; 
@@ -1692,15 +1709,9 @@ exports.getCourseModules = async (req, res) => {
                         }
                     });
 
-                    const reqNorm = (requestedCourse.name || '').trim().toLowerCase();
-                    const reqCode = (requestedCourse.code || '').trim().toLowerCase();
-
                     paidMonthlyCourses.forEach(pmc => {
-                        const pmcNorm = (pmc.name || '').trim().toLowerCase();
-                        const pmcCode = (pmc.code || '').trim().toLowerCase();
-
-                        const isMatch = (reqNorm && pmcNorm && reqNorm === pmcNorm) ||
-                                        (reqCode && pmcCode && reqCode === pmcCode);
+                        // 🔒 FIX: code-only match used to pull OTHER subjects' recordings in (shared codes)
+                        const isMatch = isSameSubjectCourse(pmc, requestedCourse);
 
                         if (isMatch) {
                             const pmcBig = BigInt(pmc.id);
@@ -1728,6 +1739,25 @@ exports.getCourseModules = async (req, res) => {
                     targetCourseIds.push(sBig);
                 }
             });
+        }
+
+        // 🔒 FINAL SUBJECT GUARD: drop any course of a different subject, whatever path added it
+        if (requestedCourse) {
+            const candidateCourses = await prisma.course.findMany({
+                where: { id: { in: targetCourseIds.map(t => parseInt(t.toString())) } },
+                select: { id: true, name: true, code: true }
+            });
+            const allowedIds = new Set(
+                candidateCourses
+                    .filter(c => String(c.id) === String(requestedCourse.id) || isSameSubjectCourse(c, requestedCourse))
+                    .map(c => String(c.id))
+            );
+            allowedIds.add(String(requestedCourse.id));
+            const dropped = targetCourseIds.filter(t => !allowedIds.has(t.toString()));
+            if (dropped.length > 0) {
+                console.warn(`[getCourseModules] Subject guard dropped courses ${dropped.join(',')} for course ${requestedCourse.id} (${requestedCourse.name})`);
+            }
+            targetCourseIds = targetCourseIds.filter(t => allowedIds.has(t.toString()));
         }
 
         const linkedContents = await prisma.contentCourse.findMany({
