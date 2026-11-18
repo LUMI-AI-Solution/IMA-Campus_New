@@ -299,6 +299,14 @@ exports.getFinanceMatrix = async (req, res) => {
             orderBy: { created_at: 'asc' }
         });
 
+        // 🔥 Internal hook (Real Income TESTING): only set by server code, never by an HTTP query.
+        // Lets the Real Income engine run the SAME matrix logic on payments approved up to a date.
+        if (typeof req.__paymentFilter === 'function') {
+            const kept = rawPayments.filter(req.__paymentFilter);
+            rawPayments.length = 0;
+            rawPayments.push(...kept);
+        }
+
         // Filter payments to match class type precisely
         const payments = rawPayments.filter(p => {
             if (!parsedClassType) return true;

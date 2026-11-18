@@ -285,6 +285,8 @@ model Payment {
 
   created_at DateTime @default(now())
   updatedAt DateTime @updatedAt @default(now())
+  // 🔥 When the payment was APPROVED (status -> 1). Set automatically by lib/prisma.js.
+  approvedAt DateTime?
 
   studentId  Int?
   student    User?     @relation(fields: [studentId], references: [id])
@@ -314,6 +316,7 @@ model Payment {
 
   @@index([studentId, batchId, status], name: "idx_pay_student_batch")
   @@index([created_at], name: "idx_pay_created")
+  @@index([approvedAt], name: "idx_pay_approved")
 }
 
 model PaymentAuditLog {

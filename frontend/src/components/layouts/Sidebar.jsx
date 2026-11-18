@@ -467,6 +467,12 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
 
   const isSystemAdmin = roleName === 'SYSTEM_ADMIN' || roleName === 'System Admin' || roleName === 'Director' || roleName === 'SUPER' || roleName === 'ADMIN';
   const isDeliveryDept = loggedInUser?.department === 'Delivery';
+  // 🔥 Real Income (TESTING): System Admin / Director + Finance Manager only (backend checks again)
+  const canSeeRealIncome = (() => {
+    const r = String(loggedInUser?.role || '').trim().toUpperCase().replace(/ /g, '_');
+    const d = String(loggedInUser?.department || '').trim().toUpperCase();
+    return ['SYSTEM_ADMIN', 'SUPER_ADMIN', 'DIRECTOR', 'SUPER', 'ADMIN'].includes(r) || (d === 'FINANCE' && (r.includes('MANAGER') || r.includes('HEAD')));
+  })();
   const isFinanceDept = String(loggedInUser?.department || '').trim().toUpperCase() === 'FINANCE' || String(loggedInUser?.role || '').trim().toUpperCase() === 'FINANCE' || roleUpper === 'FINANCE';
   const isPhysicalDept = loggedInUser?.department === 'Physical';
   const isManagerRole = roleUpper === 'MANAGER' || roleUpper === 'ASS_MANAGER' || roleUpper === 'ASSISTANT_MANAGER' || roleUpper.includes('MANAGER');
@@ -734,6 +740,12 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
                   <TrendingUp size={18} className={getIconColorClass('amber')} /> 
                   {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}
                 </NavLink>
+                {canSeeRealIncome && (
+                  <NavLink to="/finance/real-income-test" className={getNavLinkClass}>
+                    <TrendingUp size={18} className={getIconColorClass('purple')} /> 
+                    {isSidebarOpen && <span className="truncate text-sm">Real Income <span className="text-[9px] font-black text-amber-400">TESTING</span></span>}
+                  </NavLink>
+                )}
                 <NavLink to="/admin/teacher-salary" className={getNavLinkClass}>
                   <GraduationCap size={18} className={getIconColorClass('purple')} /> 
                   {isSidebarOpen && <span className="truncate text-sm">Teachers Salary</span>}
@@ -822,6 +834,9 @@ export default function Sidebar({ loggedInUser, handleLogout, isSidebarOpen, set
                 <>
                   <NavLink to="/workspace/social-media-delegation" className={getNavLinkClass}><Send size={18} className={getIconColorClass('indigo')} /> {isSidebarOpen && <span className="truncate text-sm">Social Media Job Cards</span>}</NavLink>
                   <NavLink to="/admin/finance-matrix" className={getNavLinkClass}><TrendingUp size={18} className={getIconColorClass('amber')} /> {isSidebarOpen && <span className="truncate text-sm">Finance Matrix</span>}</NavLink>
+                  {canSeeRealIncome && (
+                    <NavLink to="/finance/real-income-test" className={getNavLinkClass}><TrendingUp size={18} className={getIconColorClass('purple')} /> {isSidebarOpen && <span className="truncate text-sm">Real Income <span className="text-[9px] font-black text-amber-400">TESTING</span></span>}</NavLink>
+                  )}
                 </>
               )}
             </>

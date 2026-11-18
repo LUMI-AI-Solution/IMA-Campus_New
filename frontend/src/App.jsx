@@ -60,6 +60,7 @@ const AfterSeminarDashboard = lazy(() => import('./components/AfterSeminarCRM/Af
 // 🔥 අලුත් Campaign Dashboard Component එක Import කරන තැන 🔥
 const CallCampaignDashboard = lazy(() => import('./components/AfterSeminarCRM/CallCampaignDashboard'));
 const FinanceMatrix = lazy(() => import('./components/DataExport/FinanceMatrix'));
+const RealIncomeTesting = lazy(() => import('./components/DataExport/RealIncomeTesting'));
 const PaidCampaignDropMatrix = lazy(() => import('./components/DataExport/PaidCampaignDropMatrix'));
 const LeadDataCenter = lazy(() => import('./components/admin/LeadDataCenter'));
 const CallCampaignDataCenter = lazy(() => import('./pages/admin/CallCampaignDataCenter'));
@@ -281,6 +282,7 @@ export default function App() {
               <Route path="/delivery/dashboard" element={<DeliveryDashboard loggedInUser={loggedInUser} />} />
 
               <Route path="/admin/finance-matrix" element={<FinanceMatrix loggedInUser={loggedInUser} />} />
+              <Route path="/finance/real-income-test" element={<RealIncomeTesting loggedInUser={loggedInUser} />} />
               <Route path="/admin/teacher-salary" element={<TeacherSalaryPortal loggedInUser={loggedInUser} />} />
               <Route path="/finance/teacher-salary" element={<TeacherSalaryPortal loggedInUser={loggedInUser} />} />
               <Route path="/admin/teacher-salary-history" element={<TeacherSalaryHistory loggedInUser={loggedInUser} />} />
