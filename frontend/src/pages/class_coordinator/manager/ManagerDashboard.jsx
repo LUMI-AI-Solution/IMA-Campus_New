@@ -245,28 +245,27 @@ export default function ManagerDashboard() {
     { name: 'Bridge Transfer', value: stats.leadStats.bridge }
   ].filter(d => d.value > 0);
 
-  const formattedMixerData = useMemo(() => {
-    if (!stats.mixerData || !Array.isArray(stats.mixerData)) return [];
-    return stats.mixerData.map(item => {
-      const full = Number(item.full) || 0;
-      const monthly = Number(item.monthly) || 0;
-      const installment = Number(item.installment) || 0;
-      const total = full + monthly + installment;
-      let displayName = item.subject || '';
-      if (displayName.toLowerCase().includes('buddhist civilization')) {
-        displayName = 'Buddhist Civ. (BC)';
-      }
-      return {
-        ...item,
-        subject: displayName,
-        fullSubject: item.subject,
-        full,
-        monthly,
-        installment,
-        total
-      };
-    }).sort((a, b) => b.total - a.total);
-  }, [stats.mixerData]);
+  const formattedMixerData = (!stats.mixerData || !Array.isArray(stats.mixerData))
+    ? []
+    : stats.mixerData.map(item => {
+        const full = Number(item.full) || 0;
+        const monthly = Number(item.monthly) || 0;
+        const installment = Number(item.installment) || 0;
+        const total = full + monthly + installment;
+        let displayName = item.subject || '';
+        if (displayName.toLowerCase().includes('buddhist civilization')) {
+          displayName = 'Buddhist Civ. (BC)';
+        }
+        return {
+          ...item,
+          subject: displayName,
+          fullSubject: item.subject,
+          full,
+          monthly,
+          installment,
+          total
+        };
+      }).sort((a, b) => b.total - a.total);
 
   return (
     <div className="space-y-6 animate-fade-in text-left pb-10 max-w-[1600px] mx-auto">
