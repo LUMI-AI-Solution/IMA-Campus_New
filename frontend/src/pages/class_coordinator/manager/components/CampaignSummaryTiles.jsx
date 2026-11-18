@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from '../../../../api/axios';
-import { PhoneCall, UserPlus, ArrowRight, Clock, Zap, RefreshCw, Target, Trophy } from 'lucide-react';
+import { PhoneCall, UserPlus, ArrowRight, Clock, Zap, RefreshCw, Target, Trophy, Layers, ChevronDown, ChevronUp } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 // 🔥 Manager System Overview: Open Seminar + New Inquiries campaign summary tiles 🔥
 // Self-contained: fetches its own data from /after-seminar-crm/stats/campaign-summary
@@ -125,6 +126,90 @@ const CampaignTile = ({ theme, icon: Icon, title, subtitle, data, path, footer, 
     );
 };
 
+
+// 🔥 MULTI-BATCH: students who paid for an EXTRA batch and still need a coordinator 🔥
+const UnassignedExtraBatches = ({ businessId, batchId }) => {
+    const [rows, setRows] = useState([]);
+    const [open, setOpen] = useState(false);
+    const [coordinators, setCoordinators] = useState([]);
+    const [savingId, setSavingId] = useState(null);
+
+    const load = async () => {
+        try {
+            const res = await axios.get('/after-seminar-crm/lead-batches/unassigned', { params: { businessId, batchId: batchId || 'ALL' } });
+            setRows(res.data?.rows || []);
+        } catch (e) {
+            console.error('Unassigned extra batches load failed:', e);
+        }
+    };
+
+    useEffect(() => {
+        load();
+        const t = setInterval(() => { if (document.visibilityState === 'visible') load(); }, REFRESH_MS);
+        return () => clearInterval(t);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [businessId, batchId]);
+
+    useEffect(() => {
+        if (open && coordinators.length === 0) {
+            axios.get('/after-seminar-crm/coordinators').then(r => setCoordinators(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+        }
+    }, [open, coordinators.length]);
+
+    if (rows.length === 0) return null;
+
+    const assign = async (rowId, coordinatorId) => {
+        if (!coordinatorId) return;
+        setSavingId(rowId);
+        try {
+            await axios.patch(`/after-seminar-crm/lead-batches/${rowId}`, { assignedTo: coordinatorId });
+            toast.success('Coordinator assigned');
+            setRows(prev => prev.filter(r => r.id !== rowId));
+        } catch (e) {
+            toast.error(e.response?.data?.error || 'Failed to assign');
+        } finally {
+            setSavingId(null);
+        }
+    };
+
+    return (
+        <div className="mt-4 rounded-2xl border border-amber-500/30 bg-amber-500/5">
+            <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left">
+                <span className="flex items-center gap-2 text-xs font-bold text-amber-200">
+                    <Layers size={14} /> {rows.length} student{rows.length > 1 ? 's' : ''} paid for an extra batch and need a coordinator
+                </span>
+                {open ? <ChevronUp size={14} className="text-amber-300" /> : <ChevronDown size={14} className="text-amber-300" />}
+            </button>
+            {open && (
+                <div className="px-4 pb-4 flex flex-col gap-2 max-h-80 overflow-y-auto">
+                    {rows.map(r => (
+                        <div key={r.id} className="flex flex-col md:flex-row md:items-center gap-2 bg-black/25 border border-white/5 rounded-xl px-3 py-2">
+                            <div className="flex-1 min-w-0">
+                                <p className="text-xs font-bold text-white truncate">{r.name || r.phone} <span className="text-slate-400 font-semibold">· {r.phone}</span></p>
+                                <p className="text-[11px] text-slate-400">
+                                    Extra: <span className="text-amber-300 font-bold">{r.batchName}</span> · Main chat: {r.mainBatchName || '—'} ({r.mainCoordinatorName || 'Unassigned'})
+                                </p>
+                            </div>
+                            <select
+                                defaultValue=""
+                                disabled={savingId === r.id}
+                                onChange={(e) => assign(r.id, e.target.value)}
+                                className="bg-[#0f172a] border border-slate-700 text-slate-200 text-[11px] rounded-lg px-2 py-1.5 outline-none md:w-56"
+                            >
+                                <option value="">Assign coordinator...</option>
+                                {r.mainCoordinatorId && <option value={r.mainCoordinatorId}>{r.mainCoordinatorName} (same as main)</option>}
+                                {coordinators.filter(c => c.id !== r.mainCoordinatorId).map(c => (
+                                    <option key={c.id} value={c.id}>{`${c.firstName || ''} ${c.lastName || ''}`.trim()}</option>
+                                ))}
+                            </select>
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
 export default function CampaignSummaryTiles({ businessId, batchId }) {
     const navigate = useNavigate();
     const [summary, setSummary] = useState(null);
@@ -206,6 +291,7 @@ export default function CampaignSummaryTiles({ businessId, batchId }) {
                     </>}
                 />
             </div>
+            <UnassignedExtraBatches businessId={businessId} batchId={batchId} />
             <div className="flex justify-end items-center gap-2 mt-1.5 text-[10px] font-semibold text-slate-500">
                 {lastUpdated && <span>Updated {lastUpdated.toLocaleTimeString()}</span>}
                 <button type="button" onClick={() => fetchSummary(true)} className="hover:text-slate-300 flex items-center gap-1" title="Refresh now">

@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = require('../lib/prisma');
+const leadBatchHelpers = require('../utils/leadBatchAssignments');
 const { mergeAttempts } = require('../utils/attemptsMerge');
 const { isStaffInBusiness, isCallCenterUser } = require('../utils/scopeUtils');
 const axios = require('axios');
@@ -476,6 +477,41 @@ exports.getLeads = async (req, res) => {
             whereClause.assignedTo = null;
         }
 
+        // 🔥 MULTI-BATCH CHAT ROOMS (only when the chat inbox asks for it: includeExtraBatches=true) 🔥
+        // A chat also shows under its EXTRA batches and for its extra-batch coordinators.
+        // Call-campaign pages don't send this flag, so their lists are unchanged.
+        const includeExtraBatches = String(req.query.includeExtraBatches) === 'true';
+        let extraViewerId = null;
+        if (includeExtraBatches) {
+            if (batchId && batchId !== '' && batchId !== 'UNASSIGNED' && !isNaN(parseInt(batchId))) {
+                const bId = parseInt(batchId);
+                delete whereClause.batchId;
+                whereClause.AND = [...(whereClause.AND || []), { OR: [{ batchId: bId }, { batchAssignments: { some: { batchId: bId } } }] }];
+            }
+            if (tab === 'ASSIGNED' && typeof whereClause.assignedTo === 'number') {
+                const viewerFilterId = whereClause.assignedTo;
+                delete whereClause.assignedTo;
+                whereClause.AND = [...(whereClause.AND || []), { OR: [{ assignedTo: viewerFilterId }, { batchAssignments: { some: { assignedTo: viewerFilterId } } }] }];
+            }
+            if (!isManager) extraViewerId = parseInt(userId);
+        }
+        // Unread for this viewer: primary unread (if the viewer is the primary coordinator or not an extra one)
+        // OR their own extra-batch unread.
+        const viewerUnreadCond = extraViewerId ? {
+            OR: [
+                {
+                    unreadCount: { gt: 0 },
+                    OR: [
+                        { AND: [{ assignedTo: { not: null } }, { assignedTo: extraViewerId }] },
+                        { batchAssignments: { none: { assignedTo: extraViewerId } } }
+                    ]
+                },
+                { batchAssignments: { some: { assignedTo: extraViewerId, unreadCount: { gt: 0 } } } }
+            ]
+        } : null;
+        const unreadWhere = (w) => viewerUnreadCond ? { AND: [w, viewerUnreadCond] } : { ...w, unreadCount: { gt: 0 } };
+        const readWhere = (w) => viewerUnreadCond ? { AND: [w, { NOT: viewerUnreadCond }] } : { ...w, unreadCount: 0 };
+
         const pageNum = page ? parseInt(page) : 1;
         const limitNum = limit ? parseInt(limit) : 50;
         const skipNum = (pageNum - 1) * limitNum;
@@ -490,7 +526,7 @@ exports.getLeads = async (req, res) => {
 
         // 🔥 UNREAD FIRST (Ordered by latest message), THEN READ LEADS 🔥
         const unreadTotal = await prisma.lead.count({
-            where: { ...whereClause, unreadCount: { gt: 0 } }
+            where: unreadWhere(whereClause)
         });
 
         const leadInclude = { 
@@ -505,7 +541,7 @@ exports.getLeads = async (req, res) => {
         if (skipNum < unreadTotal) {
             const unreadTake = Math.min(limitNum, unreadTotal - skipNum);
             const unreadLeads = await prisma.lead.findMany({
-                where: { ...whereClause, unreadCount: { gt: 0 } },
+                where: unreadWhere(whereClause),
                 orderBy: leadOrderBy,
                 include: leadInclude,
                 skip: skipNum,
@@ -516,7 +552,7 @@ exports.getLeads = async (req, res) => {
             const remainingLimit = limitNum - leads.length;
             if (remainingLimit > 0) {
                 const readLeads = await prisma.lead.findMany({
-                    where: { ...whereClause, unreadCount: 0 },
+                    where: readWhere(whereClause),
                     orderBy: leadOrderBy,
                     include: leadInclude,
                     skip: 0,
@@ -527,7 +563,7 @@ exports.getLeads = async (req, res) => {
         } else {
             const readSkip = skipNum - unreadTotal;
             leads = await prisma.lead.findMany({
-                where: { ...whereClause, unreadCount: 0 },
+                where: readWhere(whereClause),
                 orderBy: leadOrderBy,
                 include: leadInclude,
                 skip: readSkip,
@@ -783,6 +819,35 @@ exports.getLeads = async (req, res) => {
             leads[i].avatar = hasCustomImg ? userImg : (leads[i].registeredUser?.appChatDp ? `chat_dps/${leads[i].registeredUser.appChatDp}` : getAvatarForPhone(l.phone).imagePath);
             leads[i].image = userImg || null;
         }));
+
+        // 🔥 Attach extra batches + per-viewer unread for multi-batch chats 🔥
+        if (includeExtraBatches && leads.length > 0) {
+            try {
+                const extraMap = await leadBatchHelpers.getExtraRowsForLeads(leads);
+                leads.forEach((l, i) => {
+                    const rows = extraMap.get(l.id) || [];
+                    if (rows.length === 0) return;
+                    leads[i].extraBatches = rows.map(r => ({
+                        id: r.id,
+                        batchId: r.batchId,
+                        batchName: r.batch?.name || `Batch ${r.batchId}`,
+                        assignedTo: r.assignedTo,
+                        assignedName: r.assignedUser ? `${r.assignedUser.firstName || ''} ${r.assignedUser.lastName || ''}`.trim() : null,
+                        unreadCount: r.unreadCount
+                    }));
+                    if (extraViewerId && l.assignedTo !== extraViewerId) {
+                        const mine = rows.find(r => r.assignedTo === extraViewerId);
+                        if (mine) {
+                            leads[i].unreadCount = mine.unreadCount;
+                            leads[i].isExtraBatchChat = true;
+                            leads[i].extraBatchName = mine.batch?.name || null;
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error('Extra batch attach failed:', e);
+            }
+        }
 
         if (leadsNeedingEnrollmentDbUpdate.length > 0) {
             prisma.lead.updateMany({
@@ -1373,6 +1438,63 @@ exports.updateCallCampaign = async (req, res) => {
         
         const lead = await prisma.lead.findUnique({ where: { id: parseInt(leadId) } });
         if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+        // 🔥 MULTI-BATCH: a Paid-campaign call for an EXTRA batch is saved on that batch's own row,
+        // so it never mixes with the primary batch's call data (different coordinator, different card).
+        const campaignBatchIdNum = req.body.campaignBatchId ? parseInt(req.body.campaignBatchId) : null;
+        if (campaignContext === 'PAID' && campaignBatchIdNum && lead.batchId !== campaignBatchIdNum) {
+            const extraRow = await prisma.leadBatchAssignment.findUnique({
+                where: { leadId_batchId: { leadId: lead.id, batchId: campaignBatchIdNum } }
+            });
+            if (extraRow) {
+                let mergedExtraAttempts = null;
+                try {
+                    mergedExtraAttempts = attemptsData
+                        ? mergeAttempts(extraRow.paidAttemptsData, attemptsData)
+                        : (extraRow.paidAttemptsData ? JSON.parse(extraRow.paidAttemptsData) : {});
+                } catch (e) { mergedExtraAttempts = {}; }
+                const extraStatus = status || callStatus || extraRow.paidCallStatus;
+                const updatedRow = await prisma.leadBatchAssignment.update({
+                    where: { id: extraRow.id },
+                    data: {
+                        paidCallStatus: extraStatus,
+                        paidCallMethod: method !== undefined ? method : extraRow.paidCallMethod,
+                        paidCallAttempt: callAttempt !== undefined ? (parseInt(callAttempt) || 1) : extraRow.paidCallAttempt,
+                        paidFeedback: feedback !== undefined ? feedback : extraRow.paidFeedback,
+                        paidAttemptsData: JSON.stringify(mergedExtraAttempts || {})
+                    }
+                });
+
+                if (auditLogService && auditLogService.logCampaignEvent) {
+                    auditLogService.logCampaignEvent({
+                        leadId: lead.id,
+                        campaignCategory: 'PAID',
+                        actionType: 'STATUS_UPDATED',
+                        oldStatus: extraRow.paidCallStatus,
+                        newStatus: extraStatus,
+                        callAttempt: updatedRow.paidCallAttempt,
+                        remarks: feedback,
+                        actionedById: req.user ? req.user.id : null
+                    }).catch(e => console.error('Campaign audit log failed:', e));
+                }
+
+                const mappedExtra = {
+                    ...lead,
+                    assignedTo: updatedRow.assignedTo,
+                    attemptsData: mergedExtraAttempts || {},
+                    callStatus: extraStatus, paidCallStatus: extraStatus,
+                    feedback: updatedRow.paidFeedback || '', paidFeedback: updatedRow.paidFeedback || '',
+                    callMethod: updatedRow.paidCallMethod || null, paidCallMethod: updatedRow.paidCallMethod || null,
+                    callAttempt: updatedRow.paidCallAttempt || 1, paidCallAttempt: updatedRow.paidCallAttempt || 1,
+                    phase: lead.paidPhase || 1, coordinationRound: lead.paidRound || 1,
+                    isExtraBatch: true, extraBatchAssignmentId: updatedRow.id
+                };
+                // Card enrollment/intention come from THIS batch's payments, not from the primary lead
+                delete mappedExtra.enrollmentStatus;
+                delete mappedExtra.paymentIntention;
+                return res.status(200).json({ message: "Call status updated successfully", lead: mappedExtra });
+            }
+        }
 
         let prefix = '';
         let category = 'DEFAULT';
@@ -2158,6 +2280,10 @@ exports.receiveMessage = async (req, res) => {
 
                 if (parsedBatchId && (shouldUnassign || isNewBatchForLead)) {
                     updateData.batchId = parsedBatchId;
+                    // 🔥 Keep the old batch (with its coordinator) as an extra batch if the student was enrolled there
+                    if (existingLeadCheck && existingLeadCheck.batchId && existingLeadCheck.batchId !== parsedBatchId) {
+                        await leadBatchHelpers.preserveOldBatchOnMove(existingLeadCheck, parsedBatchId).catch(e => console.error('preserveOldBatchOnMove failed:', e));
+                    }
                 }
 
                 if (shouldUnassign) {
@@ -2212,6 +2338,8 @@ exports.receiveMessage = async (req, res) => {
                 await prisma.chatMessage.create({ 
                     data: { leadId: existingLead.id, message: messageText, mediaUrl: mediaUrl, mediaType: mediaType, direction: 'inbound', senderType: 'USER', senderName: name, metaMessageId: metaMsgId } 
                 });
+                // 🔥 Extra-batch coordinators get their own unread +1
+                leadBatchHelpers.incrementExtraUnread(existingLead.id).catch(e => console.error('incrementExtraUnread failed:', e));
 
                 try {
                     const { getIo } = require('./chatController');
@@ -2619,7 +2747,14 @@ exports.getMessages = async (req, res) => {
         const parsedLeadId = parseInt(leadId);
         if (isNaN(parsedLeadId)) return res.status(400).json({ error: "Invalid lead ID" });
 
-        await prisma.lead.update({ where: { id: parsedLeadId }, data: { unreadCount: 0 } }).catch(() => {});
+        // 🔥 Per-coordinator unread: an extra-batch coordinator opening the chat only clears THEIR counter
+        let clearPrimaryUnread = true;
+        try {
+            clearPrimaryUnread = await leadBatchHelpers.markReadForViewer(parsedLeadId, req.user?.id);
+        } catch (e) { console.error('markReadForViewer failed:', e); }
+        if (clearPrimaryUnread) {
+            await prisma.lead.update({ where: { id: parsedLeadId }, data: { unreadCount: 0 } }).catch(() => {});
+        }
         const messages = await prisma.chatMessage.findMany({ where: { leadId: parsedLeadId }, orderBy: { createdAt: 'asc' } });
         res.status(200).json(messages);
     } catch (error) { 
@@ -2720,8 +2855,17 @@ exports.sendMessage = async (req, res) => {
 
         await prisma.lead.update({
             where: { id: parseInt(leadId) },
-            data: { lastMessage: safeLastMessage, status: 'OPEN', updatedAt: new Date() }
+            data: {
+                lastMessage: safeLastMessage, status: 'OPEN', updatedAt: new Date(),
+                // 🔥 "Replied by" so other coordinators of this chat know it was answered
+                lastReplyByName: senderName || req.user?.firstName || 'Staff',
+                lastReplyAt: new Date()
+            }
         });
+        // The sender has obviously read the chat
+        leadBatchHelpers.markReadForViewer(parseInt(leadId), req.user?.id)
+            .then(clearPrimary => clearPrimary ? prisma.lead.update({ where: { id: parseInt(leadId) }, data: { unreadCount: 0 } }) : null)
+            .catch(() => {});
 
         try {
             let settings = null;

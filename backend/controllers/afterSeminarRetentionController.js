@@ -586,7 +586,59 @@ exports.getRetentionCampaignData = async (req, res) => {
             }
         });
 
+        // 🔥 MULTI-BATCH: students whose chat room is in ANOTHER batch but who are also in THIS batch
+        // (LeadBatchAssignment) get a card here, owned by THIS batch's coordinator with THIS batch's call data.
+        const campaignBatchNum = (batchId && batchId !== 'ALL' && !isNaN(parseInt(batchId))) ? parseInt(batchId) : null;
+        const extraRowByLead = new Map();
+        if (campaignBatchNum) {
+            try {
+                const extraRows = await prisma.leadBatchAssignment.findMany({
+                    where: { batchId: campaignBatchNum },
+                    include: { assignedUser: { select: { firstName: true, lastName: true, businessType: true } } }
+                });
+                const knownIds = new Set(leads.map(l => l.id));
+                const missingIds = extraRows.map(r => r.leadId).filter(id => !knownIds.has(id));
+                if (missingIds.length > 0) {
+                    const extraLeads = await prisma.lead.findMany({
+                        where: { id: { in: missingIds }, source: { not: 'system' } },
+                        include: {
+                            assignedUser: { select: { firstName: true, lastName: true, businessType: true } },
+                            batch: { select: { name: true } },
+                            roundProgress: { where: { campaignCategory: 'PAID' }, orderBy: { updatedAt: 'asc' } }
+                        }
+                    });
+                    leads.push(...extraLeads);
+                }
+                extraRows.forEach(r => extraRowByLead.set(r.leadId, r));
+            } catch (e) {
+                console.error('Extra batch rows load failed:', e);
+            }
+        }
+
         const activeLeads = leads.map(l => {
+            const extraRow = extraRowByLead.get(l.id);
+            if (extraRow && campaignBatchNum && l.batchId !== campaignBatchNum) {
+                let extraAttempts = {};
+                try { extraAttempts = extraRow.paidAttemptsData ? JSON.parse(extraRow.paidAttemptsData) : {}; } catch (e) {}
+                extraAttempts = canonicalizeAttempts(extraAttempts);
+                const ownerActive = extraRow.assignedTo && activeStaffIds.has(extraRow.assignedTo);
+                return {
+                    ...l,
+                    phase: 1,
+                    assignedTo: ownerActive ? extraRow.assignedTo : null,
+                    assignedUser: ownerActive ? extraRow.assignedUser : null,
+                    paidCallStatus: extraRow.paidCallStatus || 'pending',
+                    paidCallAttempt: extraRow.paidCallAttempt || 1,
+                    paidCallMethod: extraRow.paidCallMethod || null,
+                    paidFeedback: extraRow.paidFeedback || '',
+                    attemptsData: extraAttempts,
+                    // Enrollment for THIS batch is recalculated from this batch's payments below
+                    enrollmentStatus: 'NON_ENROLLED',
+                    isExtraBatch: true,
+                    extraBatchAssignmentId: extraRow.id
+                };
+            }
+
             let phase = l.phase || 1;
             if (phase > 2) phase = 2; // Map Phase 3, 4 etc to Phase 2
             
@@ -684,6 +736,47 @@ exports.getRetentionCampaignData = async (req, res) => {
             }
         });
         const deduplicatedActiveLeads = Array.from(uniqueLeadsMap.values());
+
+        // 🔥 MULTI-BATCH: "Also in" list for each card (other batches of the same chat room + their coordinators)
+        const alsoInByLead = new Map();
+        try {
+            const cardLeadIds = deduplicatedActiveLeads.map(l => l.id);
+            if (cardLeadIds.length > 0) {
+                const allRows = await prisma.leadBatchAssignment.findMany({
+                    where: { leadId: { in: cardLeadIds } },
+                    include: {
+                        batch: { select: { name: true } },
+                        assignedUser: { select: { firstName: true, lastName: true } },
+                        lead: { select: { batchId: true, batch: { select: { name: true } }, assignedUser: { select: { firstName: true, lastName: true } } } }
+                    }
+                });
+                allRows.forEach(r => {
+                    if (!r.lead || r.lead.batchId === r.batchId) return;
+                    if (!alsoInByLead.has(r.leadId)) {
+                        const list = [];
+                        if (r.lead.batchId && r.lead.batchId !== campaignBatchNum) {
+                            list.push({
+                                batchId: r.lead.batchId,
+                                batchName: r.lead.batch?.name || `Batch ${r.lead.batchId}`,
+                                coordinator: r.lead.assignedUser ? `${r.lead.assignedUser.firstName || ''} ${r.lead.assignedUser.lastName || ''}`.trim() : null,
+                                isMain: true
+                            });
+                        }
+                        alsoInByLead.set(r.leadId, list);
+                    }
+                    if (r.batchId !== campaignBatchNum) {
+                        alsoInByLead.get(r.leadId).push({
+                            batchId: r.batchId,
+                            batchName: r.batch?.name || `Batch ${r.batchId}`,
+                            coordinator: r.assignedUser ? `${r.assignedUser.firstName || ''} ${r.assignedUser.lastName || ''}`.trim() : null,
+                            isMain: false
+                        });
+                    }
+                });
+            }
+        } catch (e) {
+            console.error('Also-in batches load failed:', e);
+        }
 
         // 5. Build payment-derived data for each unique lead
         const leadsWithGroupData = [];
@@ -968,6 +1061,10 @@ exports.getRetentionCampaignData = async (req, res) => {
                 newlyDroppedSubjects,
                 prevGroupPaidSubjects,
                 activeGroupPaidSubjects,
+                // 🔥 Multi-batch info for the card 🔥
+                isExtraBatch: Boolean(l.isExtraBatch),
+                extraBatchAssignmentId: l.extraBatchAssignmentId || null,
+                alsoEnrolledIn: alsoInByLead.get(l.id) || [],
                 // 🔥 Theory + Paper info for the card 🔥
                 subjectTypes,
                 dueType,

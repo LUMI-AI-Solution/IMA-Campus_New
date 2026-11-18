@@ -157,6 +157,13 @@ const syncLeadEnrollment = async (studentId, paymentType, payment) => {
                 });
             }
         }
+        // 🔥 Multi-batch: approved payment in another batch of the same business -> UNASSIGNED extra batch on the chat room
+        try {
+            const { ensureExtraBatchForPayment } = require('../utils/leadBatchAssignments');
+            await ensureExtraBatchForPayment(payment, validLast7Digits);
+        } catch (e) {
+            console.error(`[SYNC] ensureExtraBatchForPayment failed for Student ID ${studentId}:`, e);
+        }
     } catch (error) {
         console.error(`[SYNC ERROR] syncLeadEnrollment failed for Student ID ${studentId}:`, error);
     }

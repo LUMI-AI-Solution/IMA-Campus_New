@@ -191,7 +191,8 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                 unassignedOnly: unassignedOnlyFilter ? 'true' : 'false',
                 page: fetchPage,     // Backend ekata yawanawa
                 limit: fetchLimit,   // Backend ekata yawanawa
-                excludeColdBridge: 'true' // 🔥 Hide bridge transfers that have never messaged us 🔥
+                excludeColdBridge: 'true', // 🔥 Hide bridge transfers that have never messaged us 🔥
+                includeExtraBatches: 'true' // 🔥 Multi-batch chats: show under every batch + extra coordinators 🔥
             }
         });
 
@@ -446,6 +447,7 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                       loggedUserId: currentUserId, 
                       loggedUserRole: rawRole,
                       businessId: filters?.selectedBusiness || '', 
+                      includeExtraBatches: 'true',
                       batchId: filters?.selectedBatch || '',
                       searchQuery: debouncedSearchQuery,
                       unassignedOnly: unassignedOnlyFilter ? 'true' : 'false',
@@ -1172,6 +1174,20 @@ export default function AfterSeminarContactSidebar({ activeMode, selectedLead, s
                               )}
                           </div>
                           
+                          {/* 🔥 Multi-batch: extra batches of this chat + who replied last 🔥 */}
+                          {Array.isArray(lead.extraBatches) && lead.extraBatches.length > 0 && (
+                              <div className="flex flex-wrap gap-1 mt-0.5">
+                                  {lead.extraBatches.map(b => (
+                                      <span key={b.id} title={`Also in ${b.batchName}`} className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded border ${b.assignedTo ? 'bg-violet-500/15 text-violet-300 border-violet-500/30' : 'bg-amber-500/15 text-amber-300 border-amber-500/30'}`}>
+                                          + {b.batchName} · {b.assignedName || 'Unassigned'}
+                                      </span>
+                                  ))}
+                              </div>
+                          )}
+                          {lead.lastReplyByName && lead.lastReplyAt && lead.lastMessageAt && new Date(lead.lastReplyAt) >= new Date(lead.lastMessageAt) && (
+                              <span className="text-[9px] text-teal-300 font-semibold mt-0.5">↩ Replied by {lead.lastReplyByName}</span>
+                          )}
+
                           {lead.assignedUser && !['CALL_CENTER_AGENT', 'CALLER', 'CALL_CENTER'].includes(String(lead.assignedUser.role || '').toUpperCase().replace(/ /g, '_')) ? (
                               <span className="text-[10px] text-blue-400 font-semibold mt-0.5 flex items-center gap-1">👤 {lead.assignedUser.firstName} {lead.assignedUser.lastName} <BusinessBadge businessType={lead.assignedUser.businessType} role={lead.assignedUser.role} /></span>
                           ) : (

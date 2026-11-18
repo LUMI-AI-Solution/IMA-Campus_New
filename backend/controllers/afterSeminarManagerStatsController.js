@@ -117,6 +117,90 @@ const getPrimaryEnrolledLeadIds = async (businessId, batchId, verifiedPhones) =>
     return primaryLeadIds;
 };
 
+// 🔥 MULTI-BATCH HELPERS (one chat room, many batches) 🔥
+const { getApprovedBatchPhoneSet, isPaidForBatch } = require('../utils/leadBatchAssignments');
+
+// Leads that also have EXTRA batches: their primary coordinator only gets enrollment credit for a
+// payment in the lead's own (primary) batch, so an extra batch's payment is not counted twice.
+const buildMultiBatchGuard = async (leads) => {
+    const guard = { ids: new Set(), paidSet: new Set() };
+    guard.has = (id) => guard.ids.has(id);
+    guard.primaryPaid = (l) => isPaidForBatch(guard.paidSet, l.phone, l.batchId) || l.enrollmentStatus === 'ENROLLED' || l.enrollmentStatus === 'PAID';
+    const ids = (leads || []).map(l => l.id);
+    if (ids.length === 0) return guard;
+    const rows = await prisma.leadBatchAssignment.findMany({ where: { leadId: { in: ids } }, select: { leadId: true, batchId: true } });
+    const primary = new Map((leads || []).map(l => [l.id, l.batchId]));
+    rows.forEach(r => { if (primary.get(r.leadId) !== r.batchId) guard.ids.add(r.leadId); });
+    const primaryBatchIds = [...new Set((leads || []).filter(l => guard.ids.has(l.id) && l.batchId).map(l => l.batchId))];
+    if (primaryBatchIds.length > 0) guard.paidSet = await getApprovedBatchPhoneSet({ batchIds: primaryBatchIds });
+    return guard;
+};
+
+const zeroLike = (obj) => {
+    if (Array.isArray(obj)) return [];
+    if (obj && typeof obj === 'object') {
+        const out = {};
+        Object.keys(obj).forEach(k => { out[k] = zeroLike(obj[k]); });
+        return out;
+    }
+    return typeof obj === 'number' ? 0 : obj;
+};
+
+// Adds EXTRA-batch rows in scope to the coordinator stats (assigned +1, enrolled +1 if paid in THAT batch).
+const applyExtraBatchCredits = async ({ businessId, batchId, startDate, endDate, inquiryTypes, staffMap }) => {
+    const where = { assignedTo: { not: null }, lead: { campaignType: 'AFTER_SEMINAR', inquiryType: { in: inquiryTypes }, NOT: { source: 'bridge_transfer' } } };
+    const hasBatch = batchId && batchId !== 'ALL' && batchId !== 'UNASSIGNED' && !isNaN(parseInt(batchId));
+    if (hasBatch) where.batchId = parseInt(batchId);
+    else if (businessId && businessId !== 'ALL' && !isNaN(parseInt(businessId))) where.batch = { businessId: parseInt(businessId) };
+    else if (batchId === 'UNASSIGNED') return { assigned: 0, enrolled: 0 };
+    if (startDate || endDate) {
+        where.createdAt = {};
+        if (startDate) where.createdAt.gte = new Date(startDate);
+        if (endDate) where.createdAt.lte = new Date(endDate);
+    }
+
+    const rows = await prisma.leadBatchAssignment.findMany({
+        where,
+        include: {
+            lead: { select: { id: true, phone: true, batchId: true } },
+            assignedUser: { select: { id: true, firstName: true, lastName: true, businessType: true, role: true, image: true, appChatDp: true } }
+        }
+    });
+    const valid = rows.filter(r => r.lead && r.lead.batchId !== r.batchId);
+    if (valid.length === 0) return { assigned: 0, enrolled: 0 };
+
+    const paidSet = await getApprovedBatchPhoneSet({ batchIds: [...new Set(valid.map(r => r.batchId))] });
+    const template = Object.values(staffMap)[0];
+    let assigned = 0, enrolled = 0;
+
+    valid.forEach(r => {
+        const u = r.assignedUser;
+        const staffName = u ? `${u.firstName || ''} ${u.lastName || ''}`.trim() : `Staff #${r.assignedTo}`;
+        if (!staffMap[staffName]) {
+            const base = template ? zeroLike(template) : { overall: { assigned: 0, contacted: 0, answered: 0, noAnswer: 0, reject: 0, pending: 0, directPaid: 0, enrolled: 0, delayed: 0 } };
+            staffMap[staffName] = {
+                ...base,
+                staffId: u?.id || r.assignedTo, id: u?.id || r.assignedTo,
+                firstName: u?.firstName || '', lastName: u?.lastName || '',
+                name: staffName, image: u?.image || u?.appChatDp || null,
+                businessType: u?.businessType, role: u?.role
+            };
+        }
+        const st = staffMap[staffName];
+        st.overall = st.overall || {};
+        const paid = isPaidForBatch(paidSet, r.lead.phone, r.batchId);
+        st.overall.assigned = (st.overall.assigned || 0) + 1;
+        st.overall.extraBatchAssigned = (st.overall.extraBatchAssigned || 0) + 1;
+        assigned++;
+        if (paid) {
+            st.overall.enrolled = (st.overall.enrolled || 0) + 1;
+            st.overall.extraBatchEnrolled = (st.overall.extraBatchEnrolled || 0) + 1;
+            enrolled++;
+        }
+    });
+    return { assigned, enrolled };
+};
+
 // 🔥 STRICT HELPER: Fixed BIZ_ and BATCH_ string format to prevent cross-business bleeding 🔥
 const buildStatsWhereClause = (businessId, batchId, startDate, endDate, baseConditions = {}) => {
     let whereClause = { ...baseConditions };
@@ -748,6 +832,7 @@ exports.getNewInquiryStats = async (req, res) => {
             }
         }
 
+        const multiBatchGuard = await buildMultiBatchGuard(leads);
         let totalNewInq = leads.length;
         let totalAssigned = 0;
         let totalContacted = 0;
@@ -768,7 +853,9 @@ exports.getNewInquiryStats = async (req, res) => {
             const isNoAnswer = l.newInqCallStatus === 'no_answer';
             const isReject = l.newInqCallStatus === 'reject';
 
-            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
+            let isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
+            // 🔥 Multi-batch chat: the PRIMARY coordinator only gets credit for a payment in the PRIMARY batch
+            if (multiBatchGuard.has(l.id)) isReallyEnrolled = multiBatchGuard.primaryPaid(l);
             const isEnrolled = isReallyEnrolled;
 
             const isDirectPaid = isEnrolled && isPending;
@@ -905,6 +992,11 @@ exports.getNewInquiryStats = async (req, res) => {
             remark: l.newInqFeedback || 'No Remark'
         }));
 
+        // 🔥 Multi-batch: credit EXTRA-batch enrollments to the extra batch's coordinator
+        try {
+            const extra = await applyExtraBatchCredits({ businessId, batchId, startDate, endDate, inquiryTypes: ['NEW_INQ'], staffMap });
+            totalNewInq += extra.assigned; totalAssigned += extra.assigned; totalEnrolled += extra.enrolled;
+        } catch (e) { console.error('Extra batch credits (new inq) failed:', e); }
         res.status(200).json({
             totalNewInq, 
             totalAssigned, 
@@ -990,6 +1082,7 @@ exports.getOpenSeminarStats = async (req, res) => {
             }
         }
 
+        const multiBatchGuard = await buildMultiBatchGuard(leads);
         let totalOpenSem = leads.length;
         let totalAssigned = 0;
         let totalContacted = 0;
@@ -1004,7 +1097,9 @@ exports.getOpenSeminarStats = async (req, res) => {
         leads.forEach(l => {
             const isPending = l.openSemCallStatus === 'pending' || !l.openSemCallStatus;
 
-            const isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
+            let isReallyEnrolled = primaryEnrolledLeadIds.has(l.id);
+            // 🔥 Multi-batch chat: the PRIMARY coordinator only gets credit for a payment in the PRIMARY batch
+            if (multiBatchGuard.has(l.id)) isReallyEnrolled = multiBatchGuard.primaryPaid(l);
             const isEnrolled = isReallyEnrolled;
 
             const isDirectPaid = isEnrolled && isPending;
@@ -1234,6 +1329,11 @@ exports.getOpenSeminarStats = async (req, res) => {
             console.error("Batch goals fetch error in open sem stats:", e);
         }
 
+        // 🔥 Multi-batch: credit EXTRA-batch enrollments to the extra batch's coordinator
+        try {
+            const extra = await applyExtraBatchCredits({ businessId, batchId, startDate, endDate, inquiryTypes: ['OPEN_SEMINAR', 'NORMAL'], staffMap });
+            totalOpenSem += extra.assigned; totalAssigned += extra.assigned; totalEnrolled += extra.enrolled;
+        } catch (e) { console.error('Extra batch credits (open sem) failed:', e); }
         res.status(200).json({
             totalOpenSem, totalAssigned, totalContacted, totalPending: totalActualPending, totalDirectPaid, totalEnrolled, totalDelayed,
             campaignRounds,

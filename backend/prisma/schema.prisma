@@ -74,6 +74,7 @@ model User {
   pettyCashVerified        PettyCashTransaction[] @relation("PettyCashVerifiedBy")
   pettyCashAuditLogs       PettyCashAuditLog[]    @relation("PettyCashAuditUser")
   pettyCashReloadsPerformed PettyCashReload[]     @relation("PettyCashReloadPerformedBy")
+  extraBatchLeads LeadBatchAssignment[] @relation("LeadBatchAssignee")
 }
 
 model Business {
@@ -147,6 +148,7 @@ model Batch {
   newInqTargetIndividualGoal Float? @default(40.0)
   newInqTargetGroupGoal      Float? @default(50.0)
   missedCallTasks      MissedCallTask[]
+  leadBatchAssignments LeadBatchAssignment[]
 }
 
 model Group {
@@ -494,6 +496,10 @@ model Lead {
   @@index([updatedAt], name: "idx_lead_updated_at")
   @@index([lastMessageAt], name: "idx_lead_last_msg_at")
   @@index([isBlocked], name: "idx_lead_is_blocked")
+  // 🔥 Multi-batch: extra batches of the SAME chat room (primary batch stays in batchId/assignedTo)
+  batchAssignments LeadBatchAssignment[]
+  lastReplyByName  String?
+  lastReplyAt      DateTime?
 }
 
 model BlockedNumber {
@@ -1773,4 +1779,34 @@ model PettyCashAuditLog {
   @@index([transactionId])
   @@index([userId])
   @@index([action])
+}
+
+
+// 🔥 MULTI-BATCH ALLOCATION 🔥
+// One chat room (Lead) can belong to more batches than its primary one (Lead.batchId).
+// Each extra batch has its own coordinator, its own unread counter and its own Paid-campaign call data.
+model LeadBatchAssignment {
+  id           Int      @id @default(autoincrement())
+  leadId       Int
+  lead         Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  batchId      Int
+  batch        Batch    @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  assignedTo   Int?
+  assignedUser User?    @relation("LeadBatchAssignee", fields: [assignedTo], references: [id], onDelete: SetNull)
+  source       String   @default("MANUAL") // MANUAL | PAYMENT_AUTO | BACKFILL | BATCH_MOVE
+  unreadCount  Int      @default(0)
+
+  // Paid campaign call data for THIS batch
+  paidCallStatus   String   @default("pending")
+  paidCallAttempt  Int      @default(1)
+  paidCallMethod   String?
+  paidFeedback     String?  @db.Text
+  paidAttemptsData String?  @db.LongText
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([leadId, batchId])
+  @@index([assignedTo])
+  @@index([batchId])
 }

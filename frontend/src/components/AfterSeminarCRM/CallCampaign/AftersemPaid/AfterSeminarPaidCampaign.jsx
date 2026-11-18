@@ -312,6 +312,8 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
             callAttempt: finalAttempt,
             method: finalMethod,
             campaignContext: 'PAID',
+            // 🔥 Multi-batch: an EXTRA-batch card saves its calls on that batch, not on the main lead
+            campaignBatchId: leadObj.isExtraBatch ? (filters?.selectedBatch || null) : undefined,
             isNonEnrolledTab: activeMainTab === 'NON_ENROLLED',
             attemptsData: allAttemptsData
         };
@@ -888,6 +890,11 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
                                                                     ⚠️ DROPPED (2+ MOS)
                                                                 </span>
                                                             )}
+                                                            {lead.isExtraBatch && (
+                                                                <span className="text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border bg-violet-500/20 text-violet-300 border-violet-500/40" title="This student's chat is in another batch; this card is for THIS batch">
+                                                                    🔀 Extra batch
+                                                                </span>
+                                                            )}
                                                             {DUE_BADGES[lead.dueType] && (
                                                                 <span className={`text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded border ${DUE_BADGES[lead.dueType].cls}`}>
                                                                     {DUE_BADGES[lead.dueType].label}
@@ -908,6 +915,14 @@ const getMonthAttemptsForGroup = (attemptsObj, targetMonthName) => {
                                                     </button>
                                                 </div>
                                             </div>
+
+                                            {/* 🔥 Multi-batch: other batches of this student + their coordinators 🔥 */}
+                                            {Array.isArray(lead.alsoEnrolledIn) && lead.alsoEnrolledIn.length > 0 && (
+                                                <div className="px-4 py-2 border-b border-indigo-500/20 bg-violet-500/5 text-[10px] font-bold text-violet-200 leading-relaxed">
+                                                    <span className="text-slate-400 uppercase tracking-widest mr-1">Also in:</span>
+                                                    {lead.alsoEnrolledIn.map(b => `${b.batchName}${b.isMain ? ' (main chat)' : ''} – ${b.coordinator || 'Unassigned'}`).join(' · ')}
+                                                </div>
+                                            )}
 
                                             {/* 🔥 Unpaid items for the active month (Theory + Paper) 🔥 */}
                                             {lead.dueType && lead.dueType !== 'ALL_PAID' && (

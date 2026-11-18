@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import LeadBatchesPanel from './LeadBatchesPanel';
 import { createPortal } from 'react-dom'; 
 import axios from '../../../api/axios';
 import { resolveAvatarUrl } from '../../../utils/avatarUtils';
@@ -446,6 +447,9 @@ export default function RightSidePanel({ selectedLead, activeMode, activeBusines
                 </div>
               );
             })()}
+
+            {/* 🔥 MULTI-BATCH: extra batches of this chat, each with its own coordinator 🔥 */}
+            <LeadBatchesPanel leadId={selectedLead?.id} batches={displayBatches} refreshKey={`${selectedLead?.id}_${selectedLead?.batchId}_${isAssigningBatch}`} />
 
             {/* SYSTEM RECORDS */}
             <div className="bg-[#1a2430] p-4 rounded-xl border border-white/5 shadow-sm">

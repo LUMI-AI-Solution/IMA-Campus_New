@@ -11,6 +11,7 @@ const afterSeminarBridgeController = require('../controllers/afterSeminarBridgeC
 const afterSeminarRetentionController = require('../controllers/afterSeminarRetentionController');
 const afterSeminarManagerStatsController = require('../controllers/afterSeminarManagerStatsController');
 const verifyToken = require('../middlewares/authMiddleware');
+const leadBatchAssignmentController = require('../controllers/leadBatchAssignmentController');
 
 // Multer Storage Configuration
 const storage = multer.diskStorage({
@@ -56,6 +57,13 @@ router.post('/leads/assign', afterSeminarInquiryController.assignLeads);
 router.get('/leads/auto-assign-quotas', afterSeminarInquiryController.getAutoAssignQuotas);
 router.post('/leads/update-call', afterSeminarInquiryController.updateCallCampaign);
 router.post('/leads/update-batch', afterSeminarInquiryController.updateLeadBatch);
+// 🔥 Multi-batch allocation (one chat room, many batches / coordinators)
+router.get('/leads/:leadId/batches', leadBatchAssignmentController.getLeadBatches);
+router.post('/leads/:leadId/batches', leadBatchAssignmentController.addLeadBatch);
+router.get('/lead-batches/unassigned', leadBatchAssignmentController.getUnassignedLeadBatches);
+router.post('/lead-batches/backfill', leadBatchAssignmentController.runBackfill);
+router.patch('/lead-batches/:id', leadBatchAssignmentController.updateLeadBatchAssignment);
+router.delete('/lead-batches/:id', leadBatchAssignmentController.removeLeadBatchAssignment);
 router.post('/leads/revert-round', afterSeminarInquiryController.revertDeletedRound);
 
 // Webhook routes moved to top
