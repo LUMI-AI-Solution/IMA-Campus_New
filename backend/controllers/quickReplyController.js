@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = require('../src/core/db');
+const { saveDataUrl, ensureQuickReplyFile, mimeOfFile } = require('../utils/quickReplyMedia');
 
 // Get Quick Replies for the logged-in user (including shared system templates)
 exports.getQuickReplies = async (req, res) => {
@@ -51,7 +52,24 @@ exports.getQuickReplies = async (req, res) => {
         });
 
         const merged = Array.from(map.values());
-        res.status(200).json(merged);
+
+        // Old quick replies kept the attachment as base64 -> convert them to files once.
+        // The list returns a small URL + type instead of megabytes of base64.
+        const out = [];
+        for (const r of merged) {
+            let attachment = r.attachment || null;
+            let attachmentType = null;
+            if (attachment) {
+                try {
+                    const info = await ensureQuickReplyFile(r);
+                    if (info) { attachment = info.url; attachmentType = info.mime; }
+                    else { attachment = null; }
+                } catch (e) { console.error('QR attachment convert failed', r.id, e.message); attachment = null; }
+            }
+            out.push({ ...r, attachment, attachmentType, hasAttachment: Boolean(attachment) });
+        }
+
+        res.status(200).json(out);
     } catch (error) {
         console.error("Error fetching quick replies:", error);
         res.status(500).json({ error: "Failed to fetch quick replies" });
@@ -75,17 +93,26 @@ exports.createQuickReply = async (req, res) => {
             return res.status(400).json({ error: "Shortcut name cannot be empty" });
         }
 
+        // Save the attachment as a real file (not base64 in the DB)
+        let attachmentUrl = null;
+        if (attachment) {
+            attachmentUrl = String(attachment).startsWith('/storage/documents/') ? attachment : saveDataUrl(attachment, `QR_U${userId}`);
+            if (!attachmentUrl) return res.status(400).json({ error: "Attachment could not be read. Please choose the file again." });
+        }
+
         const reply = await prisma.quickReply.create({
             data: {
                 userId,
                 name: cleanName,
                 message: message ? message.trim() : null,
-                attachment: attachment || null
+                attachment: attachmentUrl
             }
         });
 
         res.status(201).json({
             ...reply,
+            attachmentType: attachmentUrl ? mimeOfFile(attachmentUrl) : null,
+            hasAttachment: Boolean(attachmentUrl),
             isOwn: true,
             isSystem: false
         });

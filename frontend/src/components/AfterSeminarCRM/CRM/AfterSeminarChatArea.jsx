@@ -572,12 +572,13 @@ export default function AfterSeminarChatArea({ selectedLead, onUpdateLead, busin
       }
   };
 
-  const handleSend = async (e, forcedText = null, forcedFileBase64 = null) => {
+  const handleSend = async (e, forcedText = null, forcedFileBase64 = null, quickReplyId = null) => {
     if (e) e.preventDefault();
     if (isSendingRef.current) return; // Prevent multiple clicks/enters synchronously
     
-    const textToSend = forcedText !== null && forcedText !== undefined ? forcedText : newMessage;
-    if (!textToSend.trim() && !selectedFile && !forcedFileBase64) return;
+    // A quick reply sends ITS text (not the "/name" typed in the box)
+    const textToSend = quickReplyId ? (forcedText || '') : (forcedText !== null && forcedText !== undefined ? forcedText : newMessage);
+    if (!textToSend.trim() && !selectedFile && !forcedFileBase64 && !quickReplyId) return;
 
     isSendingRef.current = true;
     setIsSending(true);
@@ -602,13 +603,16 @@ export default function AfterSeminarChatArea({ selectedLead, onUpdateLead, busin
           formData.append('localUIMessage', cleanMessage); 
       }
 
-      if (forcedFileBase64) {
+      if (selectedFile) {
+          formData.append('media', selectedFile);
+      } else if (quickReplyId) {
+          // 🔥 The server attaches the quick reply's saved file (image / audio / document)
+          formData.append('quickReplyId', quickReplyId);
+      } else if (forcedFileBase64) {
           const file = base64ToFile(forcedFileBase64, 'qr_attach');
           if (file) {
               formData.append('media', file);
           }
-      } else if (selectedFile) {
-          formData.append('media', selectedFile);
       }
 
       const token = localStorage.getItem('token');
@@ -638,7 +642,16 @@ export default function AfterSeminarChatArea({ selectedLead, onUpdateLead, busin
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      // Typed "/name" + Enter -> send that quick reply (with its attachment), not the text "/name"
+      if (newMessage.startsWith('/') && suggestedQRs.length > 0) {
+        const typed = newMessage.substring(1).trim().toLowerCase();
+        const exact = suggestedQRs.find(q => (q.name || '').toLowerCase() === typed) || (suggestedQRs.length === 1 ? suggestedQRs[0] : null);
+        if (exact) { applyQuickReply(exact); return; }
+      }
+      handleSend();
+    }
   };
 
   const handleInputChange = (e) => {
@@ -721,32 +734,12 @@ export default function AfterSeminarChatArea({ selectedLead, onUpdateLead, busin
   const applyQuickReply = (qr, immediateSend = null) => {
     if (!qr) return;
 
-    // Check if there is text before the slash
-    const lastSlashIdx = newMessage.lastIndexOf('/');
-    const hasPrefix = lastSlashIdx > 0 && /\s/.test(newMessage[lastSlashIdx - 1]);
-    const prefix = hasPrefix ? newMessage.substring(0, lastSlashIdx) : '';
-    const fullMessage = prefix + (qr.message || '');
-
-    const shouldSendImmediately = immediateSend !== null ? immediateSend : !!qr.attachment;
-
-    if (shouldSendImmediately) {
-      handleSend(null, fullMessage, qr.attachment || null);
-      setSuggestedQRs([]);
-      setShowQuickReplies(false);
-      return;
-    }
-
-    if (lastSlashIdx !== -1 && (lastSlashIdx === 0 || /\s/.test(newMessage[lastSlashIdx - 1]))) {
-      setNewMessage(prefix + (qr.message || ''));
+    if (immediateSend !== false && (qr.attachment || qr.hasAttachment)) {
+      setNewMessage('');
+      handleSend(null, qr.message || '', null, qr.id);
     } else {
       setNewMessage(qr.message || '');
     }
-
-    if (qr.attachment) {
-      const file = base64ToFile(qr.attachment, qr.name || 'qr_attachment');
-      if (file) setSelectedFile(file);
-    }
-
     setSuggestedQRs([]);
     setShowQuickReplies(false);
   };

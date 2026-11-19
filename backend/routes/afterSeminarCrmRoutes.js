@@ -71,7 +71,7 @@ router.get('/meta-templates', afterSeminarInquiryController.getMetaTemplates);
 
 // Chat Messages & Broadcast
 router.get('/messages/:leadId', afterSeminarInquiryController.getMessages);
-router.post('/messages', upload.single('media'), afterSeminarInquiryController.sendMessage);
+router.post('/messages', upload.single('media'), require('../utils/quickReplyMedia').attachQuickReplyMedia, afterSeminarInquiryController.sendMessage);
 router.post('/messages/react', afterSeminarInquiryController.sendReaction);
 router.post('/messages/send-opt-in', afterSeminarInquiryController.sendOptInRequest);
 router.post('/leads/send-call-request', afterSeminarInquiryController.sendCallPermissionRequest);

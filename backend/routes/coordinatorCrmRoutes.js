@@ -35,7 +35,7 @@ router.get('/lead-details/:phone', verifyToken, freeSeminarController.getLeadDet
 router.post('/reset-password', verifyToken, freeSeminarController.resetStudentPassword);
 
 router.get('/messages/:leadId', verifyToken, freeSeminarController.getMessages);
-router.post('/messages', verifyToken, upload.single('media'), freeSeminarController.sendMessage);
+router.post('/messages', verifyToken, upload.single('media'), require('../utils/quickReplyMedia').attachQuickReplyMedia, freeSeminarController.sendMessage);
 router.post('/messages/react', verifyToken, freeSeminarController.sendReaction);
 router.post('/messages/send-opt-in', verifyToken, freeSeminarController.sendOptInRequest);
 router.post('/leads/send-call-request', verifyToken, freeSeminarController.sendCallPermissionRequest);
