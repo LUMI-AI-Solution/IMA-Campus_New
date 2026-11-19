@@ -8,6 +8,7 @@ import { MdOutlineIncompleteCircle, MdDoneAll, MdSave, MdTrendingUp } from 'reac
 import { BiTask, BiPulse } from 'react-icons/bi';
 import { toast } from 'react-hot-toast';
 import CoordinatorDailyTodo from './CoordinatorDailyTodo';
+import CoordinatorGreeting from './CoordinatorGreeting';
 
 const DedicatedCoordinatorOverview = ({ selectedBusiness, selectedBatch }) => {
     const [stats, setStats] = useState(null);
@@ -96,37 +97,12 @@ const DedicatedCoordinatorOverview = ({ selectedBusiness, selectedBatch }) => {
     return (
         <div className="p-4 md:p-8 space-y-10 max-h-screen overflow-y-auto custom-scrollbar pb-32 bg-[#020617] min-h-screen">
             
-            {/* Stunning Header */}
-            <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between gap-6 bg-gradient-to-r from-[#0f172a] to-[#1e293b] p-8 rounded-[2.5rem] border border-slate-700/50 shadow-2xl overflow-hidden">
-                <div className="absolute top-0 right-0 w-96 h-96 bg-blue-500/10 rounded-full blur-3xl pointer-events-none"></div>
-                
-                <div className="relative z-10 flex items-center gap-6">
-                    <div className="w-16 h-16 rounded-3xl bg-gradient-to-br from-blue-500 to-indigo-600 p-[2px] shadow-[0_0_30px_rgba(59,130,246,0.3)]">
-                        <div className="w-full h-full bg-[#0f172a] rounded-[22px] flex items-center justify-center text-blue-400">
-                            <BiPulse size={32} className="animate-pulse" />
-                        </div>
-                    </div>
-                    <div>
-                        <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 tracking-tight">Coordinator Command Center</h1>
-                        <p className="text-slate-400 font-medium mt-1 tracking-wide flex items-center gap-2">
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                            Live operations and performance tracking
-                        </p>
-                    </div>
-                </div>
-                <button 
-                    onClick={fetchDashboardData} 
-                    className="relative z-10 group flex items-center gap-3 px-6 py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-2xl text-slate-300 hover:text-white transition-all duration-300 overflow-hidden"
-                >
-                    <div className="absolute inset-0 bg-gradient-to-r from-blue-600/0 via-blue-600/10 to-blue-600/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000"></div>
-                    <FaSyncAlt className={loading ? 'animate-spin text-blue-400' : 'group-hover:rotate-180 transition-transform duration-500 text-blue-400'} />
-                    <span className="font-bold tracking-wider text-sm uppercase">Sync Data</span>
-                </button>
-            </div>
+            {/* Greeting (replaces the old Command Center header + coordinator name card) */}
+            <CoordinatorGreeting businessId={selectedBusiness} batchId={selectedBatch} onSync={fetchDashboardData} syncing={loading} />
 
-            {/* Daily To-Do Checklist (My stunning component) */}
+            {/* Daily To-Do: pending counts only (name / ACTION / Total Pending header hidden) */}
             <div className="relative z-10">
-                <CoordinatorDailyTodo selectedBusiness={selectedBusiness} selectedBatch={selectedBatch} />
+                <CoordinatorDailyTodo selectedBusiness={selectedBusiness} selectedBatch={selectedBatch} hideHeader />
             </div>
 
             {/* OVERALL PERFORMANCE - Glassmorphic Grid */}

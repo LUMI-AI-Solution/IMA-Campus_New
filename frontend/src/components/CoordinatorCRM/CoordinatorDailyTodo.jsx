@@ -7,7 +7,7 @@ import {
 import CrmSummaryTiles from '../../pages/class_coordinator/manager/components/CrmSummaryTiles';
 import CampaignSummaryTiles from '../../pages/class_coordinator/manager/components/CampaignSummaryTiles';
 
-const CoordinatorDailyTodo = ({ staffId, isManager = false, selectedBusiness, selectedBatch }) => {
+const CoordinatorDailyTodo = ({ staffId, isManager = false, selectedBusiness, selectedBatch, hideHeader = false }) => {
     const [todoData, setTodoData] = useState([]);
     const [loading, setLoading] = useState(true);
 
@@ -176,6 +176,7 @@ const CoordinatorDailyTodo = ({ staffId, isManager = false, selectedBusiness, se
                             <div className="absolute top-0 right-0 w-64 h-64 bg-gradient-to-bl from-emerald-500/5 to-transparent rounded-bl-full pointer-events-none"></div>
 
                             {/* Header */}
+                            {!hideHeader && (
                             <div className="p-6 border-b border-slate-700/50 flex justify-between items-center relative z-10">
                                 <div className="flex items-center gap-5">
                                     <div className="relative">
@@ -208,6 +209,7 @@ const CoordinatorDailyTodo = ({ staffId, isManager = false, selectedBusiness, se
                                     </span>
                                 </div>
                             </div>
+                            )}
 
                             {/* Overview Tiles: Row 1 (CRM Tiles) & Row 2 (Campaign Tiles) */}
                             <div className="p-6 space-y-5 relative z-10 bg-slate-900/20">
