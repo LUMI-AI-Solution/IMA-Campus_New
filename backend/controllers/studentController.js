@@ -1570,6 +1570,11 @@ const normSubjectName = (n) => String(n || '').trim().toLowerCase().replace(/\s+
 const firstSubjectWord = (n) => normSubjectName(n).split(/[\s-]+/)[0] || '';
 const isSameSubjectCourse = (a, b) => {
     if (!a || !b) return false;
+    // Theory (courseType 1 / null) and Paper (courseType 2) courses are NEVER the same subject,
+    // even with the same name: their recordings and folders must not mix.
+    const at = parseInt(a.courseType || 1, 10);
+    const bt = parseInt(b.courseType || 1, 10);
+    if (at !== bt) return false;
     const an = normSubjectName(a.name);
     const bn = normSubjectName(b.name);
     if (an && bn && an === bn) return true;
@@ -1745,7 +1750,7 @@ exports.getCourseModules = async (req, res) => {
         if (requestedCourse) {
             const candidateCourses = await prisma.course.findMany({
                 where: { id: { in: targetCourseIds.map(t => parseInt(t.toString())) } },
-                select: { id: true, name: true, code: true }
+                select: { id: true, name: true, code: true, courseType: true }
             });
             const allowedIds = new Set(
                 candidateCourses

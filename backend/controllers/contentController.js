@@ -1708,10 +1708,11 @@ exports.getContents = async (req, res) => {
 
             // 1. Direct ID or allIds match in merged groups (roots or subfolders)
             if (finalGroupId) {
+                // 🔒 Exact folder first (whatever its type): a content always shows in the folder it was put in
                 const matchingMergedGroup = allBatchGroups.find(bg => 
-                    (typeInt ? bg.type === typeInt : true) && 
-                    ((bg.allIds && bg.allIds.includes(finalGroupId)) || bg.id === finalGroupId)
-                );
+                    ((bg.allIds && bg.allIds.includes(finalGroupId)) || bg.id === finalGroupId) &&
+                    (typeInt ? bg.type === typeInt : true)
+                ) || allBatchGroups.find(bg => (bg.allIds && bg.allIds.includes(finalGroupId)) || bg.id === finalGroupId);
                 if (matchingMergedGroup) {
                     finalGroupId = matchingMergedGroup.id;
                     groupTitle = matchingMergedGroup.title;

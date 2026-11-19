@@ -1813,3 +1813,21 @@ model LeadBatchAssignment {
   @@index([assignedTo])
   @@index([batchId])
 }
+
+
+// 🔒 Every change of a content's folder / order (allowed or BLOCKED) — see lib/prisma.js
+model ContentPlacementLog {
+  id          Int      @id @default(autoincrement())
+  contentId   Int
+  fromGroupId Int?
+  toGroupId   Int?
+  fromOrder   Int?
+  toOrder     Int?
+  blocked     Boolean  @default(false)
+  userId      Int?
+  endpoint    String?  @db.VarChar(255)
+  createdAt   DateTime @default(now())
+
+  @@index([contentId])
+  @@index([createdAt])
+}

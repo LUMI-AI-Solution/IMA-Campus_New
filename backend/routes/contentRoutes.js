@@ -7,6 +7,8 @@ const { PrismaClient } = require('@prisma/client');
 const prisma = require('../src/core/db');
 
 const controller = require('../controllers/contentController'); 
+// 🔒 Only these Content Hub handlers may change a content's folder / order (see lib/prisma.js)
+const { allowContentPlacement } = require('../utils/requestContext'); 
 
 // Upload Configs
 const iconStorage = multer.diskStorage({
@@ -32,21 +34,21 @@ const uploadPost = multer({ storage: postStorage });
 // Content Hub
 router.post('/admin/manager/content-group/add', verifyToken, requireStaff, controller.addContentGroup);
 router.put('/admin/content-group/update', verifyToken, requireStaff, controller.updateContentGroup);
-router.delete('/admin/content-group/delete', verifyToken, requireStaff, controller.deleteContentGroup);
+router.delete('/admin/content-group/delete', verifyToken, requireStaff, allowContentPlacement(controller.deleteContentGroup));
 router.post('/admin/manager/contents/mass-assign', verifyToken, requireStaff, uploadDoc.fields([
     { name: 'file', maxCount: 20 }, 
     { name: 'thumbnail', maxCount: 1 },
     { name: 'mcqFile', maxCount: 1 },
     { name: 'structuredFile', maxCount: 1 }
-]), controller.addContentMassAssign);
+]), allowContentPlacement(controller.addContentMassAssign));
 
 router.put('/admin/manager/contents/update', verifyToken, requireStaff, uploadDoc.fields([
     { name: 'file', maxCount: 20 }, 
     { name: 'thumbnail', maxCount: 1 },
     { name: 'mcqFile', maxCount: 1 },
     { name: 'structuredFile', maxCount: 1 }
-]), controller.updateContentMassAssign);
-router.delete('/admin/content/delete', verifyToken, requireStaff, controller.deleteContent);
+]), allowContentPlacement(controller.updateContentMassAssign));
+router.delete('/admin/content/delete', verifyToken, requireStaff, allowContentPlacement(controller.deleteContent));
 router.post('/admin/content/unlink-course', verifyToken, requireStaff, controller.unlinkContentCourse);
 router.get('/admin/manager/get-contents', verifyToken, requireStaff, controller.getContents); 
 
@@ -54,7 +56,7 @@ router.get('/admin/manager/get-contents', verifyToken, requireStaff, controller.
 router.post('/course-setup/group', verifyToken, requireStaff, controller.createGroup);
 router.put('/course-setup/group/update', verifyToken, requireStaff, controller.updateGroup);
 // 🔥 FIX: Group eka delete karana route eka 🔥
-router.delete('/course-setup/group', verifyToken, requireStaff, controller.deleteGroup); 
+router.delete('/course-setup/group', verifyToken, requireStaff, allowContentPlacement(controller.deleteGroup)); 
 
 // Posts 
 router.post('/admin/manager/post/create', verifyToken, requireStaff, uploadPost.single('image'), controller.createAdminPost);

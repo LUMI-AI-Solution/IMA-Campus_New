@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const prisma = require('../../src/core/db');
+const { isSameSubjectCourse } = require('../../utils/subjectGuard');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const axios = require('axios');
@@ -419,7 +420,8 @@ exports.getCourseModules = async (req, res) => {
 
                 const similarCourses = similarCoursesRaw.filter(c => {
                     const cClassType = parseInt(c.courseType || c.group?.classType || 1, 10);
-                    return cClassType === targetClassType;
+                    // 🔒 FIX: code-only matches used to pull OTHER subjects in (shared course codes)
+                    return cClassType === targetClassType && (String(c.id) === String(requestedCourse.id) || isSameSubjectCourse(c, requestedCourse));
                 });
                 
                 const similarCourseIds = similarCourses.map(c => parseInt(c.id));
@@ -616,6 +618,10 @@ exports.getCourseModules = async (req, res) => {
 
             return {
                 ...c,
+                // Real folder the coordinator put it in (sub-folders are shown under their month in the app)
+                sourceFolderId: c.contentGroupId,
+                sourceFolderTitle: c.group?.title || null,
+                _folderSort: c.group?.parentId ? 1000 + (parseInt(c.group.itemOrder) || 1) : 0,
                 contentGroupId: finalGroupId,
                 content_group_id: finalGroupId,
                 folder_id: finalGroupId,
@@ -644,6 +650,11 @@ exports.getCourseModules = async (req, res) => {
                 return { ...item, link: newLink, isRedirectLink: newLink !== item.link };
             });
         };
+
+        // 🔒 Coordinator's order: month-folder items first, then each sub-folder in its order,
+        // and inside a folder by the item order the coordinator set (stable, so ties keep the old order).
+        contentsProcessed.sort((a, b) => (a._folderSort - b._folderSort) || ((parseInt(a.itemOrder) || 1) - (parseInt(b.itemOrder) || 1)));
+        contentsProcessed.forEach(c => { delete c._folderSort; });
 
         const processedContents = modifyLinks(contentsProcessed);
 
