@@ -37,6 +37,46 @@ const formatDateLabel = (dateString) => {
     return msgDate.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' });
 };
 
+const base64ToFile = (dataUrl, fallbackName = 'attachment') => {
+  if (!dataUrl) return null;
+  if (dataUrl instanceof File) return dataUrl;
+  if (dataUrl instanceof Blob) return new File([dataUrl], fallbackName);
+  try {
+    let mimeType = 'image/jpeg';
+    let base64Data = dataUrl;
+
+    if (typeof dataUrl === 'string' && dataUrl.startsWith('data:')) {
+      const commaIdx = dataUrl.indexOf(',');
+      if (commaIdx !== -1) {
+        const meta = dataUrl.substring(0, commaIdx);
+        base64Data = dataUrl.substring(commaIdx + 1);
+        const match = meta.match(/data:([^;]+)/);
+        if (match) mimeType = match[1].trim();
+      }
+    }
+
+    let ext = mimeType.split('/')[1] || 'jpeg';
+    if (ext.includes(';')) ext = ext.split(';')[0];
+    if (ext === 'mpeg') ext = 'mp3';
+    if (ext.includes('ogg') || ext.includes('opus')) ext = 'ogg';
+    if (ext === 'jpeg') ext = 'jpg';
+    if (ext.includes('svg')) ext = 'svg';
+
+    const cleanBase64 = String(base64Data).replace(/[\r\n\s]/g, '');
+    const byteCharacters = atob(cleanBase64);
+    const byteNumbers = new Uint8Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const blob = new Blob([byteNumbers], { type: mimeType });
+    const safeName = (fallbackName || 'attachment').replace(/[^a-zA-Z0-9_-]/g, '_');
+    return new File([blob], `${safeName}.${ext}`, { type: mimeType });
+  } catch (err) {
+    console.error("Failed to convert base64 to File:", err);
+    return null;
+  }
+};
+
 export default function WebInquiries() {
     const [inquiries, setInquiries] = useState([]);
     const [businesses, setBusinesses] = useState([]);
@@ -462,8 +502,12 @@ export default function WebInquiries() {
 
     const applyQuickReply = (qr) => {
         const lastSlash = newMessage.lastIndexOf('/');
-        const beforeSlash = newMessage.substring(0, lastSlash);
-        setNewMessage(beforeSlash + qr.message + ' ');
+        const beforeSlash = lastSlash !== -1 ? newMessage.substring(0, lastSlash) : newMessage;
+        setNewMessage(beforeSlash + (qr.message || '') + ' ');
+        if (qr.attachment) {
+            const file = base64ToFile(qr.attachment, qr.name || 'qr_attachment');
+            if (file) setSelectedFile(file);
+        }
         setSuggestedQRs([]);
     };
 

@@ -41,6 +41,46 @@ const singlishOverrides = {
 
 const BACKEND_URL = axios.defaults.baseURL ? axios.defaults.baseURL.replace('/api', '') : 'https://imacampus.online'; 
 
+const base64ToFile = (dataUrl, fallbackName = 'attachment') => {
+  if (!dataUrl) return null;
+  if (dataUrl instanceof File) return dataUrl;
+  if (dataUrl instanceof Blob) return new File([dataUrl], fallbackName);
+  try {
+    let mimeType = 'image/jpeg';
+    let base64Data = dataUrl;
+
+    if (typeof dataUrl === 'string' && dataUrl.startsWith('data:')) {
+      const commaIdx = dataUrl.indexOf(',');
+      if (commaIdx !== -1) {
+        const meta = dataUrl.substring(0, commaIdx);
+        base64Data = dataUrl.substring(commaIdx + 1);
+        const match = meta.match(/data:([^;]+)/);
+        if (match) mimeType = match[1].trim();
+      }
+    }
+
+    let ext = mimeType.split('/')[1] || 'jpeg';
+    if (ext.includes(';')) ext = ext.split(';')[0];
+    if (ext === 'mpeg') ext = 'mp3';
+    if (ext.includes('ogg') || ext.includes('opus')) ext = 'ogg';
+    if (ext === 'jpeg') ext = 'jpg';
+    if (ext.includes('svg')) ext = 'svg';
+
+    const cleanBase64 = String(base64Data).replace(/[\r\n\s]/g, '');
+    const byteCharacters = atob(cleanBase64);
+    const byteNumbers = new Uint8Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+      byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const blob = new Blob([byteNumbers], { type: mimeType });
+    const safeName = (fallbackName || 'attachment').replace(/[^a-zA-Z0-9_-]/g, '_');
+    return new File([blob], `${safeName}.${ext}`, { type: mimeType });
+  } catch (err) {
+    console.error("Failed to convert base64 to File:", err);
+    return null;
+  }
+}; 
+
 const formatDateLabel = (dateString) => {
     const msgDate = new Date(dateString);
     const today = new Date();
@@ -550,7 +590,7 @@ export default function ChatArea({ selectedLead, businessId }) {
     if (e) e.preventDefault();
     if (isSendingRef.current) return; // Prevent multiple clicks/enters synchronously
     
-    const textToSend = forcedText || newMessage;
+    const textToSend = forcedText !== null && forcedText !== undefined ? forcedText : newMessage;
     if (!textToSend.trim() && !selectedFile && !forcedFileBase64) return;
 
     isSendingRef.current = true;
@@ -577,23 +617,13 @@ export default function ChatArea({ selectedLead, businessId }) {
           formData.append('localUIMessage', cleanMessage); 
       }
 
-      if (selectedFile) {
-          formData.append('media', selectedFile);
-      } else if (forcedFileBase64) {
-          const res = await fetch(forcedFileBase64);
-          const blob = await res.blob();
-          
-          let mimeType = "image/jpeg";
-          let ext = "jpeg";
-          if (forcedFileBase64.startsWith("data:")) {
-              mimeType = forcedFileBase64.split(";")[0].split(":")[1];
-              ext = mimeType.split("/")[1] || "jpeg";
-              if(ext === 'mpeg') ext = 'mp3';
-              if(ext.includes('ogg')) ext = 'ogg';
+      if (forcedFileBase64) {
+          const file = base64ToFile(forcedFileBase64, 'qr_attach');
+          if (file) {
+              formData.append('media', file);
           }
-          
-          const file = new File([blob], `qr_attach.${ext}`, { type: mimeType });
-          formData.append('media', file);
+      } else if (selectedFile) {
+          formData.append('media', selectedFile);
       }
 
       const token = localStorage.getItem('token');
@@ -703,27 +733,35 @@ export default function ChatArea({ selectedLead, businessId }) {
     }
   };
 
-  const applyQuickReply = (qr, immediateSend = false) => {
+  const applyQuickReply = (qr, immediateSend = null) => {
     if (!qr) return;
 
-    if (immediateSend) {
-      handleSend(null, qr.message || '', qr.attachment || null);
+    // Check if there is text before the slash
+    const lastSlashIdx = newMessage.lastIndexOf('/');
+    const hasPrefix = lastSlashIdx > 0 && /\s/.test(newMessage[lastSlashIdx - 1]);
+    const prefix = hasPrefix ? newMessage.substring(0, lastSlashIdx) : '';
+    const fullMessage = prefix + (qr.message || '');
+
+    const shouldSendImmediately = immediateSend !== null ? immediateSend : !!qr.attachment;
+
+    if (shouldSendImmediately) {
+      handleSend(null, fullMessage, qr.attachment || null);
       setSuggestedQRs([]);
       setShowQuickReplies(false);
       return;
     }
 
-    if (qr.attachment && !qr.message) {
-      handleSend(null, '', qr.attachment);
+    if (lastSlashIdx !== -1 && (lastSlashIdx === 0 || /\s/.test(newMessage[lastSlashIdx - 1]))) {
+      setNewMessage(prefix + (qr.message || ''));
     } else {
-      const lastSlashIdx = newMessage.lastIndexOf('/');
-      if (lastSlashIdx !== -1 && (lastSlashIdx === 0 || /\s/.test(newMessage[lastSlashIdx - 1]))) {
-        const before = newMessage.substring(0, lastSlashIdx);
-        setNewMessage(before + (qr.message || ''));
-      } else {
-        setNewMessage(qr.message || '');
-      }
+      setNewMessage(qr.message || '');
     }
+
+    if (qr.attachment) {
+      const file = base64ToFile(qr.attachment, qr.name || 'qr_attachment');
+      if (file) setSelectedFile(file);
+    }
+
     setSuggestedQRs([]);
     setShowQuickReplies(false);
   };
