@@ -4,6 +4,8 @@ import {
     CheckCircle, PhoneCall, MessageSquare, AlertCircle, PhoneOff, 
     ChevronRight, Activity, Zap, Star, Clock, Users, X, Search, ExternalLink 
 } from 'lucide-react';
+import CrmSummaryTiles from '../../pages/class_coordinator/manager/components/CrmSummaryTiles';
+import CampaignSummaryTiles from '../../pages/class_coordinator/manager/components/CampaignSummaryTiles';
 
 const CoordinatorDailyTodo = ({ staffId, isManager = false, selectedBusiness, selectedBatch }) => {
     const [todoData, setTodoData] = useState([]);
@@ -207,163 +209,21 @@ const CoordinatorDailyTodo = ({ staffId, isManager = false, selectedBusiness, se
                                 </div>
                             </div>
 
-                            {/* Stats Grid */}
-                            <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 relative z-10 bg-slate-900/20">
-                                
-                                {/* 🎯 1ST TILE: AFTER SEMINAR CRM SUMMARY 🎯 */}
-                                <div 
-                                    onClick={() => setShowAfterSemModal(true)}
-                                    className={`relative overflow-hidden group rounded-2xl border p-5 flex flex-col justify-between transition-all duration-500 hover:-translate-y-1 hover:shadow-2xl cursor-pointer ${
-                                        afterSemSummary.totalUnread > 0 
-                                            ? 'from-purple-500/20 via-indigo-500/10 to-slate-900/60 border-purple-500/30 text-purple-300 shadow-purple-500/10' 
-                                            : 'from-slate-800/50 to-slate-900/50 border-slate-700 text-slate-400 shadow-none'
-                                    } bg-gradient-to-br backdrop-blur-md`}
-                                >
-                                    {/* Ambient Glow */}
-                                    {afterSemSummary.totalUnread > 0 && (
-                                        <div className="absolute -inset-1 rounded-2xl blur-xl opacity-20 group-hover:opacity-40 transition-opacity bg-gradient-to-r from-purple-500 to-indigo-500 pointer-events-none"></div>
-                                    )}
-
-                                    {/* Header */}
-                                    <div className="relative z-10 flex justify-between items-start mb-2">
-                                        <div className="flex items-center gap-2.5">
-                                            <div className={`p-2.5 rounded-xl backdrop-blur-md border ${
-                                                afterSemSummary.totalUnread > 0 
-                                                    ? 'border-purple-500/40 bg-purple-500/20 text-purple-300 shadow-lg shadow-purple-500/20' 
-                                                    : 'border-slate-700 bg-slate-800/50 text-slate-400'
-                                            }`}>
-                                                <MessageSquare size={18} />
-                                            </div>
-                                            <div>
-                                                <span className={`text-xs font-black uppercase tracking-wider block ${
-                                                    afterSemSummary.totalUnread > 0 ? 'text-white' : 'text-slate-400'
-                                                }`}>
-                                                    After Seminar CRM
-                                                </span>
-                                                <span className="text-[10px] text-purple-300/70 font-semibold block">
-                                                    WhatsApp Inquiries
-                                                </span>
-                                            </div>
-                                        </div>
-
-                                        {afterSemSummary.totalUnread > 0 && (
-                                            <span className="relative flex h-3 w-3">
-                                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 bg-purple-400"></span>
-                                                <span className="relative inline-flex rounded-full h-3 w-3 bg-purple-500"></span>
-                                            </span>
-                                        )}
-                                    </div>
-
-                                    {/* Unread Chats & Expiring Soon Row */}
-                                    <div className="relative z-10 mt-2">
-                                        <div className="flex items-baseline gap-2">
-                                            <span className={`text-4xl font-black tracking-tighter ${
-                                                afterSemSummary.totalUnread > 0 ? 'text-white drop-shadow-md' : 'text-slate-600'
-                                            }`}>
-                                                {afterSemSummary.totalUnread}
-                                            </span>
-                                            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                                Unread Chats
-                                            </span>
-                                        </div>
-
-                                        {/* Expiring Soon Indicator */}
-                                        <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                                            {afterSemSummary.expiringSoon > 0 ? (
-                                                <span className="px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40 flex items-center gap-1 shadow-sm animate-pulse">
-                                                    <Clock size={11} className="text-amber-400" />
-                                                    <span>{afterSemSummary.expiringSoon} Expiring Soon (&lt;4h)</span>
-                                                </span>
-                                            ) : (
-                                                <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold text-slate-400 bg-slate-800/80 border border-slate-700/60 flex items-center gap-1">
-                                                    <Clock size={11} className="text-slate-500" />
-                                                    <span>0 Expiring Soon</span>
-                                                </span>
-                                            )}
-
-                                            {afterSemSummary.expired > 0 && (
-                                                <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold text-rose-300 bg-rose-500/20 border border-rose-500/30 flex items-center gap-1">
-                                                    <span>{afterSemSummary.expired} Expired</span>
-                                                </span>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Action Footer: Coordinator Breakdown Button */}
-                                    <div className="relative z-10 mt-3 pt-2.5 border-t border-white/5 flex items-center justify-between">
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                setShowAfterSemModal(true);
-                                            }}
-                                            className="w-full py-1.5 px-2.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/30 border border-purple-500/30 text-purple-200 hover:text-white text-[11px] font-black tracking-wide flex items-center justify-between transition-all cursor-pointer group/btn"
-                                            title="View Coordinator-wise Breakdown"
-                                        >
-                                            <span className="flex items-center gap-1.5">
-                                                <Users size={12} className="text-purple-400" />
-                                                <span>Coordinator Breakdown</span>
-                                                <span className="px-1.5 py-0.2 rounded-md bg-purple-500/40 text-[9px] text-purple-200 font-bold ml-0.5">
-                                                    {afterSemSummary.coordinators?.length || 0}
-                                                </span>
-                                            </span>
-                                            <ChevronRight size={13} className="group-hover/btn:translate-x-0.5 transition-transform text-purple-400" />
-                                        </button>
-                                    </div>
-                                </div>
-                                
-                                <GlassCard 
-                                    title="Free Seminar" 
-                                    value={coord.freeSemPending} 
-                                    icon={<PhoneCall size={18} />} 
-                                    colorClass="cyan" 
-                                    highlight={true}
+                            {/* Overview Tiles: Row 1 (CRM Tiles) & Row 2 (Campaign Tiles) */}
+                            <div className="p-6 space-y-5 relative z-10 bg-slate-900/20">
+                                {/* Row 1: AFTER SEMINAR CRM | FREE SEMINAR CRM */}
+                                <CrmSummaryTiles 
+                                    mode="coordinator" 
+                                    businessId={selectedBusiness} 
+                                    batchId={selectedBatch || 'ALL'} 
                                 />
 
-                                <GlassCard 
-                                    title="Unread Chats" 
-                                    value={coord.unreadChats} 
-                                    icon={<MessageSquare size={18} />} 
-                                    colorClass="emerald" 
-                                    highlight={true}
-                                    isAlert={true}
+                                {/* Row 2: OPEN SEMINAR CAMPAIGN | NEW INQUIRIES CAMPAIGN */}
+                                <CampaignSummaryTiles 
+                                    mode="coordinator" 
+                                    businessId={selectedBusiness} 
+                                    batchId={selectedBatch || 'ALL'} 
                                 />
-
-                                <GlassCard 
-                                    title="New Inq (R1)" 
-                                    value={coord.newInqR1Pending} 
-                                    icon={<PhoneCall size={18} />} 
-                                    colorClass="fuchsia" 
-                                    highlight={true}
-                                />
-                                
-                                <GlassCard 
-                                    title="New Inq (R2)" 
-                                    value={coord.newInqR2Pending} 
-                                    icon={<PhoneCall size={18} />} 
-                                    colorClass="purple" 
-                                    highlight={true}
-                                />
-                                
-                                <GlassCard 
-                                    title="R1 Unanswered" 
-                                    value={coord.newInqR1NoAnswer} 
-                                    icon={<PhoneOff size={18} />} 
-                                    colorClass="rose" 
-                                />
-                                
-                                <GlassCard 
-                                    title="R2 Unanswered" 
-                                    value={coord.newInqR2NoAnswer} 
-                                    icon={<PhoneOff size={18} />} 
-                                    colorClass="rose" 
-                                />
-
-                                {/* Empty placeholder for visual balance if needed, or an extra metric */}
-                                <div className="hidden lg:flex flex-col items-center justify-center p-5 rounded-2xl border border-slate-800/50 bg-slate-900/30 text-slate-600 border-dashed">
-                                    <Star size={24} className="mb-2 opacity-30" />
-                                    <span className="text-xs font-bold uppercase tracking-widest text-center">Clear tasks to<br/>earn stars</span>
-                                </div>
                             </div>
                         </div>
                     );

@@ -454,43 +454,142 @@ exports.getRealtimeChatSummary = async (req, res) => {
             return filter;
         };
 
+        const isMine = String(req.query.mine) === '1';
+        const userId = req.user ? parseInt(req.user.id || req.user.userId) : null;
+        if (isMine && !userId) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+
         const afterBase = buildFilter('AFTER_SEMINAR', false);
         const freeBase = buildFilter('FREE_SEMINAR', false);
 
-        const afterNewFilter = {
-            ...afterBase,
-            assignedTo: null,
-            source: { notIn: ['system', 'import', 'bulk_import'] }
-        };
+        let afterSemLeads = [];
+        let afterNewTotal = 0;
+        let afterNewUnread = 0;
+        let freeSemLeads = [];
+        let freeNewTotal = 0;
+        let freeNewUnread = 0;
 
-        const freeNewFilter = {
-            ...freeBase,
-            status: { in: ['NEW', 'OPEN'] },
-            assignedTo: null,
-            OR: [{ callCenterRequestStatus: null }, { callCenterRequestStatus: 'REJECTED' }]
-        };
+        if (isMine) {
+            // Coordinator mode: only leads assigned to THIS coordinator
+            // (including extra-batch multi-batch assignments).
+            // Do not double-count a lead.
+            const startOfToday = new Date();
+            startOfToday.setHours(0, 0, 0, 0);
 
-        const [
-            afterSemLeads,
-            afterNewTotal,
-            afterNewUnread,
-            freeSemLeads,
-            freeNewTotal,
-            freeNewUnread
-        ] = await Promise.all([
-            prisma.lead.findMany({
-                where: { ...afterBase, unreadCount: { gt: 0 } },
-                select: { id: true, lastMessageAt: true, updatedAt: true, createdAt: true }
-            }),
-            prisma.lead.count({ where: afterNewFilter }),
-            prisma.lead.count({ where: { ...afterNewFilter, unreadCount: { gt: 0 } } }),
-            prisma.lead.findMany({
-                where: { ...freeBase, unreadCount: { gt: 0 } },
-                select: { id: true, lastMessageAt: true, updatedAt: true, createdAt: true }
-            }),
-            prisma.lead.count({ where: freeNewFilter }),
-            prisma.lead.count({ where: { ...freeNewFilter, unreadCount: { gt: 0 } } })
-        ]);
+            const afterUnreadWhere = {
+                ...afterBase,
+                OR: [
+                    { assignedTo: userId, unreadCount: { gt: 0 } },
+                    { batchAssignments: { some: { assignedTo: userId, unreadCount: { gt: 0 } } } }
+                ]
+            };
+            const afterAssignedTodayWhere = {
+                ...afterBase,
+                OR: [
+                    {
+                        assignedTo: userId,
+                        OR: [
+                            { assignedAt: { gte: startOfToday } },
+                            { assignedAt: null, createdAt: { gte: startOfToday } }
+                        ]
+                    },
+                    {
+                        batchAssignments: {
+                            some: {
+                                assignedTo: userId,
+                                createdAt: { gte: startOfToday }
+                            }
+                        }
+                    }
+                ]
+            };
+
+            const freeUnreadWhere = {
+                ...freeBase,
+                OR: [
+                    { assignedTo: userId, unreadCount: { gt: 0 } },
+                    { batchAssignments: { some: { assignedTo: userId, unreadCount: { gt: 0 } } } }
+                ]
+            };
+            const freeAssignedTodayWhere = {
+                ...freeBase,
+                OR: [
+                    {
+                        assignedTo: userId,
+                        OR: [
+                            { assignedAt: { gte: startOfToday } },
+                            { assignedAt: null, createdAt: { gte: startOfToday } }
+                        ]
+                    },
+                    {
+                        batchAssignments: {
+                            some: {
+                                assignedTo: userId,
+                                createdAt: { gte: startOfToday }
+                            }
+                        }
+                    }
+                ]
+            };
+
+            [
+                afterSemLeads,
+                afterNewTotal,
+                afterNewUnread,
+                freeSemLeads,
+                freeNewTotal,
+                freeNewUnread
+            ] = await Promise.all([
+                prisma.lead.findMany({
+                    where: afterUnreadWhere,
+                    select: { id: true, lastMessageAt: true, updatedAt: true, createdAt: true }
+                }),
+                prisma.lead.count({ where: afterAssignedTodayWhere }),
+                prisma.lead.count({ where: { AND: [afterAssignedTodayWhere, afterUnreadWhere] } }),
+                prisma.lead.findMany({
+                    where: freeUnreadWhere,
+                    select: { id: true, lastMessageAt: true, updatedAt: true, createdAt: true }
+                }),
+                prisma.lead.count({ where: freeAssignedTodayWhere }),
+                prisma.lead.count({ where: { AND: [freeAssignedTodayWhere, freeUnreadWhere] } })
+            ]);
+        } else {
+            const afterNewFilter = {
+                ...afterBase,
+                assignedTo: null,
+                source: { notIn: ['system', 'import', 'bulk_import'] }
+            };
+
+            const freeNewFilter = {
+                ...freeBase,
+                status: { in: ['NEW', 'OPEN'] },
+                assignedTo: null,
+                OR: [{ callCenterRequestStatus: null }, { callCenterRequestStatus: 'REJECTED' }]
+            };
+
+            [
+                afterSemLeads,
+                afterNewTotal,
+                afterNewUnread,
+                freeSemLeads,
+                freeNewTotal,
+                freeNewUnread
+            ] = await Promise.all([
+                prisma.lead.findMany({
+                    where: { ...afterBase, unreadCount: { gt: 0 } },
+                    select: { id: true, lastMessageAt: true, updatedAt: true, createdAt: true }
+                }),
+                prisma.lead.count({ where: afterNewFilter }),
+                prisma.lead.count({ where: { ...afterNewFilter, unreadCount: { gt: 0 } } }),
+                prisma.lead.findMany({
+                    where: { ...freeBase, unreadCount: { gt: 0 } },
+                    select: { id: true, lastMessageAt: true, updatedAt: true, createdAt: true }
+                }),
+                prisma.lead.count({ where: freeNewFilter }),
+                prisma.lead.count({ where: { ...freeNewFilter, unreadCount: { gt: 0 } } })
+            ]);
+        }
 
         const calcStats = (leads, newUnread, newTotal) => {
             let expiringSoon = 0;

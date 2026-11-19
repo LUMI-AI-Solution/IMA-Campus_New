@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from '../../../../api/axios';
-import { PhoneCall, UserPlus, ArrowRight, Clock, Zap, RefreshCw, Target, Trophy, Layers, ChevronDown, ChevronUp } from 'lucide-react';
+import { PhoneCall, UserPlus, ArrowRight, Clock, Zap, RefreshCw, Target, Trophy, Layers, ChevronDown, ChevronUp, Crown, Users, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 // 🔥 Manager System Overview: Open Seminar + New Inquiries campaign summary tiles 🔥
@@ -127,6 +127,178 @@ const CampaignTile = ({ theme, icon: Icon, title, subtitle, data, path, footer, 
 };
 
 
+
+// =====================================================================
+// 🔥 COORDINATOR MODE: the logged-in coordinator's own numbers + team target + leaderboard 🔥
+// =====================================================================
+const imgSrc = (image) => {
+    if (!image || typeof image !== 'string' || image === 'null' || image === 'undefined' || image.trim().length < 5) return null;
+    return image.startsWith('http') ? image : `${import.meta.env.VITE_API_URL || ''}${image}`;
+};
+const initialsOf = (name) => {
+    const p = String(name || '').trim().split(/\s+/).filter(Boolean);
+    if (p.length >= 2) return (p[0][0] + p[1][0]).toUpperCase();
+    return (p[0] || 'CO').slice(0, 2).toUpperCase();
+};
+const Avatar = ({ image, name, size = 36, ring = '' }) => {
+    const [failed, setFailed] = useState(false);
+    const src = imgSrc(image);
+    const style = { width: size, height: size };
+    if (src && !failed) {
+        return <img src={src} alt={name || ''} style={style} onError={() => setFailed(true)} className={`rounded-full object-cover shrink-0 ${ring}`} />;
+    }
+    return (
+        <div style={style} className={`rounded-full shrink-0 flex items-center justify-center bg-gradient-to-br from-fuchsia-600 to-indigo-600 text-white font-black ${ring}`}>
+            <span style={{ fontSize: Math.max(10, Math.round(size / 2.8)) }}>{initialsOf(name)}</span>
+        </div>
+    );
+};
+
+const ProgressBar = ({ value, color }) => (
+    <div className="h-1.5 rounded-full bg-black/30 overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${Math.max(0, Math.min(100, Number(value) || 0))}%` }} />
+    </div>
+);
+
+const Leaderboard = ({ data, theme }) => {
+    const t = THEMES[theme];
+    const board = data.leaderboard || [];
+    const me = data.me;
+    const leader = board[0];
+    if (!leader) {
+        return <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-3 text-[11px] text-slate-400">No conversions yet — be the first on the board!</div>;
+    }
+    const meInTop = me && me.rank && board.some(b => String(b.staffId) === String(me.staffId));
+    return (
+        <div className="mt-3 rounded-2xl border border-amber-400/20 bg-gradient-to-br from-amber-500/10 to-transparent p-3">
+            {/* Leader */}
+            <div className="flex items-center gap-3">
+                <div className="relative">
+                    <Avatar image={leader.image} name={leader.name} size={52} ring="ring-2 ring-amber-300 shadow-[0_0_18px_rgba(251,191,36,0.45)]" />
+                    <Crown size={18} className="absolute -top-3 left-1/2 -translate-x-1/2 text-amber-300 drop-shadow" />
+                </div>
+                <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-300 flex items-center gap-1"><Trophy size={11} /> Leader</p>
+                    <p className="text-sm font-black text-white truncate">{leader.name}{me && String(me.staffId) === String(leader.staffId) ? ' (You)' : ''}</p>
+                    <p className="text-[11px] font-bold text-slate-300">{pct(leader.rate)} · {fmt(leader.enrolled)} enrolled</p>
+                </div>
+            </div>
+            {/* Ranks 2..5 */}
+            {board.length > 1 && (
+                <div className="mt-3 flex flex-col gap-1.5">
+                    {board.slice(1).map(b => {
+                        const isMe = me && String(b.staffId) === String(me.staffId);
+                        return (
+                            <div key={b.rank} className={`flex items-center gap-2 rounded-xl px-2 py-1.5 ${isMe ? `bg-white/10 border ${t.icon}` : 'bg-black/20 border border-transparent'}`}>
+                                <span className="w-6 text-[11px] font-black text-slate-400">#{b.rank}</span>
+                                <Avatar image={b.image} name={b.name} size={24} />
+                                <span className={`text-xs font-bold truncate flex-1 ${isMe ? 'text-white' : 'text-slate-300'}`}>{b.name}{isMe ? ' (You)' : ''}</span>
+                                <span className="text-[11px] font-bold text-slate-300 shrink-0">{pct(b.rate)} · {fmt(b.enrolled)}</span>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+            {/* Me, if not in the top 5 */}
+            {me && me.rank && !meInTop && (
+                <div className={`mt-2 flex items-center gap-2 rounded-xl px-2 py-1.5 bg-white/10 border ${t.icon}`}>
+                    <span className="w-6 text-[11px] font-black text-white">#{me.rank}</span>
+                    <Avatar image={me.image} name={me.name} size={24} />
+                    <span className="text-xs font-bold text-white truncate flex-1">{me.name} (You)</span>
+                    <span className="text-[11px] font-bold text-slate-200 shrink-0">{pct(me.rate)} · {fmt(me.enrolled)}</span>
+                </div>
+            )}
+            {/* Rank line */}
+            <div className="mt-2 text-[11px] font-bold flex items-center gap-1.5">
+                <TrendingUp size={12} className="text-emerald-300" />
+                {me && me.rank ? (
+                    me.rank === 1
+                        ? <span className="text-amber-300">You are #1 of {me.totalRanked}. Keep it up!</span>
+                        : <span className="text-slate-200">You are <span className="text-white font-black">#{me.rank}</span> of {me.totalRanked}
+                            {me.toNextRank ? <> · <span className="text-emerald-300">{me.toNextRank.needed} more enrolled to pass #{me.toNextRank.rank}</span></> : null}
+                          </span>
+                ) : <span className="text-slate-400">You have no assigned leads in this filter yet.</span>}
+            </div>
+        </div>
+    );
+};
+
+const CoordinatorCampaignTile = ({ theme, icon: Icon, title, subtitle, data, navigate }) => {
+    const t = THEMES[theme];
+    if (!data) {
+        return (
+            <div className={`rounded-[1.75rem] border bg-gradient-to-br p-5 ${t.card} flex items-center justify-center min-h-[290px]`}>
+                <p className="text-xs font-bold text-slate-400">{title}: data not available</p>
+            </div>
+        );
+    }
+    const me = data.me || {};
+    const single = me.single || {};
+    const target = data.target || {};
+    const teamProgress = target.groupTargetCount > 0 ? (data.enrolled / target.groupTargetCount) * 100 : 0;
+    const singleProgress = single.targetCount > 0 ? ((me.enrolled || 0) / single.targetCount) * 100 : (single.achieved ? 100 : 0);
+    const go = () => navigate('/coordinator/dashboard?mode=CALL_CAMPAIGN');
+
+    return (
+        <div className={`rounded-[1.75rem] border bg-gradient-to-br p-5 transition-all ${t.card}`}>
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-3">
+                    <div className={`w-11 h-11 rounded-xl border flex items-center justify-center ${t.icon}`}><Icon size={20} /></div>
+                    <div>
+                        <h3 className="text-sm font-black uppercase tracking-wide text-white">{title}</h3>
+                        <p className={`text-[10px] font-bold uppercase tracking-widest ${t.sub}`}>{subtitle}</p>
+                    </div>
+                </div>
+                <button type="button" onClick={go} className={`text-[11px] font-bold flex items-center gap-1 ${t.link}`}>Open <ArrowRight size={12} /></button>
+            </div>
+
+            {/* My conversion */}
+            <div className="flex items-baseline gap-3 mt-4">
+                <span className="text-4xl font-black text-white leading-none">{pct(me.rate)}</span>
+                <span className="text-[11px] font-bold text-slate-300">my conversion · {fmt(me.enrolled)} enrolled of {fmt(me.assigned)}</span>
+            </div>
+
+            {/* My single goal */}
+            <div className="mt-3">
+                <div className="flex items-center justify-between text-[11px] font-bold mb-1">
+                    <span className="flex items-center gap-1 text-cyan-300"><Target size={12} /> My goal {single.goal ?? target.individual}%</span>
+                    {single.achieved
+                        ? <span className="text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-1.5 py-0.5 rounded-md">Achieved</span>
+                        : <span className="text-amber-300 bg-amber-500/15 border border-amber-500/30 px-1.5 py-0.5 rounded-md">Need {fmt(single.needed)} more</span>}
+                </div>
+                <ProgressBar value={singleProgress} color={single.achieved ? 'bg-emerald-400' : t.bar} />
+            </div>
+
+            {/* Team target */}
+            <div className="mt-3">
+                <div className="flex items-center justify-between text-[11px] font-bold mb-1">
+                    <span className="flex items-center gap-1 text-slate-300"><Users size={12} /> Team {pct(data.conversionRate)} · target {target.group}%</span>
+                    {target.achieved
+                        ? <span className="text-emerald-300">Team target achieved</span>
+                        : <span className="text-slate-400">Team needs {fmt(target.neededForGroup)} more</span>}
+                </div>
+                <ProgressBar value={teamProgress} color="bg-slate-300/70" />
+            </div>
+
+            {/* My status boxes */}
+            <div className="grid grid-cols-4 gap-2 mt-3">
+                <StatBox label="Pending" value={me.pending} color="text-amber-400" onClick={go} />
+                <StatBox label="Answered" value={me.answered} color="text-emerald-400" onClick={go} />
+                <StatBox label="No answer" value={me.noAnswer} color="text-slate-200" onClick={go} />
+                <StatBox label="Reject" value={me.reject} color="text-rose-400" onClick={go} />
+            </div>
+
+            {/* Leaderboard */}
+            <Leaderboard data={data} theme={theme} />
+
+            <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-400 mt-3">
+                <Clock size={12} /> Contacted {pct(me.contactedRate)} · Direct paid {fmt(me.directPaid)} · Delayed: <span className="text-rose-400 font-bold">{fmt(me.delayed)}</span>
+            </div>
+        </div>
+    );
+};
+
 // 🔥 MULTI-BATCH: students who paid for an EXTRA batch and still need a coordinator 🔥
 const UnassignedExtraBatches = ({ businessId, batchId }) => {
     const [rows, setRows] = useState([]);
@@ -210,7 +382,8 @@ const UnassignedExtraBatches = ({ businessId, batchId }) => {
     );
 };
 
-export default function CampaignSummaryTiles({ businessId, batchId }) {
+export default function CampaignSummaryTiles({ businessId, batchId, mode = 'manager' }) {
+    const isCoordinator = mode === 'coordinator';
     const navigate = useNavigate();
     const [summary, setSummary] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -221,7 +394,7 @@ export default function CampaignSummaryTiles({ businessId, batchId }) {
         if (!businessId) return;
         try {
             const res = await axios.get('/after-seminar-crm/stats/campaign-summary', {
-                params: { businessId, batchId: batchId || 'ALL', ...(force ? { refresh: 1 } : {}) }
+                params: { businessId, batchId: batchId || 'ALL', ...(isCoordinator ? { mine: 1 } : {}), ...(force ? { refresh: 1 } : {}) }
             });
             setSummary(res.data);
             setLastUpdated(new Date());
@@ -242,7 +415,7 @@ export default function CampaignSummaryTiles({ businessId, batchId }) {
         }, REFRESH_MS);
         return () => clearInterval(timerRef.current);
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [businessId, batchId]);
+    }, [businessId, batchId, mode]);
 
     if (!businessId) return null;
 
@@ -258,6 +431,23 @@ export default function CampaignSummaryTiles({ businessId, batchId }) {
 
     const os = summary?.openSeminar;
     const ni = summary?.newInquiries;
+
+    if (isCoordinator) {
+        return (
+            <div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <CoordinatorCampaignTile theme="violet" icon={PhoneCall} title="Open Seminar Campaign" subtitle="My free seminar leads → enrolled" data={os} navigate={navigate} />
+                    <CoordinatorCampaignTile theme="teal" icon={UserPlus} title="New Inquiries Campaign" subtitle="My fresh leads → enrolled" data={ni} navigate={navigate} />
+                </div>
+                <div className="flex justify-end items-center gap-2 mt-1.5 text-[10px] font-semibold text-slate-500">
+                    {lastUpdated && <span>Updated {lastUpdated.toLocaleTimeString()}</span>}
+                    <button type="button" onClick={() => fetchSummary(true)} className="hover:text-slate-300 flex items-center gap-1" title="Refresh now">
+                        <RefreshCw size={11} /> Refresh
+                    </button>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div>

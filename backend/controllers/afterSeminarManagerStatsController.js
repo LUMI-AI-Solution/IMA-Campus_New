@@ -1467,6 +1467,22 @@ const summarizeCampaign = (data, total) => {
             if (rB !== rA) return rB - rA;
             return (b.overall.enrolled || 0) - (a.overall.enrolled || 0);
         });
+    const rankedLite = ranked.map((st, i) => ({
+        rank: i + 1,
+        staffId: st.staffId || st.id || null,
+        name: st.name,
+        image: st.image || null,
+        assigned: st.overall.assigned || 0,
+        enrolled: st.overall.enrolled || 0,
+        rate: Math.round(((st.overall.enrolled || 0) / st.overall.assigned) * 1000) / 10,
+        contacted: st.overall.contacted || 0,
+        pending: st.overall.pending || 0,
+        answered: st.overall.answered || 0,
+        noAnswer: st.overall.noAnswer || 0,
+        reject: st.overall.reject || 0,
+        delayed: st.overall.delayed || 0,
+        directPaid: st.overall.directPaid || 0
+    }));
     const top = ranked[0];
     const topContributor = top ? {
         name: top.name,
@@ -1488,6 +1504,8 @@ const summarizeCampaign = (data, total) => {
             achieved: assigned > 0 && enrolled >= groupTargetCount
         },
         topContributor,
+        leaderboard: rankedLite.slice(0, 5),
+        _ranked: rankedLite, // full list, only used to build the coordinator's own view (stripped from responses)
         total: total || 0,
         assigned,
         unassigned: Math.max((total || 0) - assigned, 0),
@@ -1504,6 +1522,52 @@ const summarizeCampaign = (data, total) => {
     };
 };
 
+// 🔥 Coordinator view: ?mine=1 adds `me` (the LOGGED-IN user's own numbers, rank and goals).
+// The staff id ALWAYS comes from the auth token, never from the URL.
+const buildMeView = (camp, userId) => {
+    if (!camp) return null;
+    const ranked = camp._ranked || [];
+    const idx = ranked.findIndex(r => String(r.staffId) === String(userId));
+    const indGoal = camp.target?.individual ?? 40;
+    if (idx < 0) {
+        return { rank: null, totalRanked: ranked.length, assigned: 0, enrolled: 0, rate: 0, pending: 0, answered: 0, noAnswer: 0, reject: 0, delayed: 0, directPaid: 0, contacted: 0, contactedRate: 0,
+            single: { goal: indGoal, targetCount: 0, needed: 0, achieved: false }, toNextRank: null };
+    }
+    const meRow = ranked[idx];
+    const targetCount = Math.floor((indGoal / 100) * meRow.assigned);
+    let toNextRank = null;
+    if (idx > 0) {
+        const above = ranked[idx - 1];
+        // enrolments needed so that my rate goes ABOVE the person ranked just above me
+        const need = Math.floor((above.rate / 100) * meRow.assigned) + 1 - meRow.enrolled;
+        toNextRank = { rank: above.rank, name: above.name, needed: Math.max(1, need) };
+    }
+    return {
+        ...meRow,
+        totalRanked: ranked.length,
+        contactedRate: meRow.assigned > 0 ? Math.round((meRow.contacted / meRow.assigned) * 1000) / 10 : 0,
+        single: { goal: indGoal, targetCount, needed: Math.max(targetCount - meRow.enrolled, 0), achieved: meRow.assigned > 0 && meRow.enrolled >= targetCount },
+        toNextRank
+    };
+};
+
+const buildSummaryResponse = (payload, req, cached) => {
+    const mine = String(req.query.mine) === '1';
+    const userId = req.user ? (req.user.id || req.user.userId) : null;
+    const strip = (camp) => {
+        if (!camp) return camp;
+        const { _ranked, ...rest } = camp;
+        if (mine) rest.me = buildMeView(camp, userId);
+        return rest;
+    };
+    return {
+        ...payload,
+        openSeminar: strip(payload.openSeminar),
+        newInquiries: strip(payload.newInquiries),
+        cached
+    };
+};
+
 exports.getCampaignSummary = async (req, res) => {
     try {
         const { businessId, batchId } = req.query;
@@ -1511,7 +1575,7 @@ exports.getCampaignSummary = async (req, res) => {
         const forceRefresh = req.query.refresh === '1';
         const cached = campaignSummaryCache.get(cacheKey);
         if (!forceRefresh && cached && Date.now() - cached.at < CAMPAIGN_SUMMARY_TTL_MS) {
-            return res.status(200).json({ ...cached.data, cached: true });
+            return res.status(200).json(buildSummaryResponse(cached.data, req, true));
         }
 
         // Date filters are not used for the live tiles
@@ -1546,7 +1610,7 @@ exports.getCampaignSummary = async (req, res) => {
 
         const payload = { openSeminar, newInquiries, generatedAt: new Date().toISOString() };
         campaignSummaryCache.set(cacheKey, { at: Date.now(), data: payload });
-        res.status(200).json({ ...payload, cached: false });
+        res.status(200).json(buildSummaryResponse(payload, req, false));
     } catch (error) {
         console.error("Campaign Summary Error:", error);
         res.status(500).json({ error: "Failed to fetch campaign summary" });
