@@ -42,6 +42,10 @@ export const physicalCrmService = {
   // Teacher Reports & Invoices
   getTeacherReports: (teacherId, params = {}) => api.get(`/physical-crm/teachers/${teacherId}/reports`, { params }).then(res => res.data),
 
+  // Real Income Testing
+  getRealIncome: (params = {}) => api.get('/physical-crm/real-income', { params }).then(res => res.data),
+  checkRealIncomeAccess: () => api.get('/physical-crm/real-income/access').then(res => res.data),
+
   // Student Reports & Matrix
   getStudentReports: (params = {}) => api.get('/physical-crm/student-reports', { params }).then(res => res.data),
   getStudentFullDetails: (id) => api.get(`/physical-crm/student-reports/${id}`).then(res => res.data),

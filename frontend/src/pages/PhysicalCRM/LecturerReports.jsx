@@ -1361,7 +1361,7 @@ export default function LecturerReports() {
                     Students who paid fees for past months during {formatMonthYear(selectedMonth)}. These collections are added directly to this active month's lecturer invoice remittance.
                   </p>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center flex-wrap gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={exportLateFeesExcel}
@@ -1373,8 +1373,14 @@ export default function LecturerReports() {
                   <span className="px-3 py-1.5 rounded-xl bg-amber-500/15 text-amber-300 font-bold text-xs border border-amber-500/30">
                     {reportData.lateFeeCollections.length} Late Payments
                   </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-slate-800 text-slate-300 font-bold text-xs border border-slate-700">
+                    Gross: Rs. {(reportData.summary.lateFeeGrossRevenue || 0).toLocaleString()}
+                  </span>
+                  <span className="px-3 py-1.5 rounded-xl bg-rose-500/15 text-rose-300 font-bold text-xs border border-rose-500/30">
+                    Inst. Cut ({reportData.teacher.instituteCut || 0}%): - Rs. {(reportData.summary.lateFeeInstituteCutAmount !== undefined ? reportData.summary.lateFeeInstituteCutAmount : Math.round((((reportData.summary.lateFeeGrossRevenue || 0) * (reportData.teacher.instituteCut || 0)) / 100))).toLocaleString()}
+                  </span>
                   <span className="px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-300 font-bold text-xs border border-emerald-500/30">
-                    + Rs. {(reportData.summary.lateFeeGrossRevenue || 0).toLocaleString()}
+                    Net: + Rs. {(reportData.summary.lateFeeNetRevenue !== undefined ? reportData.summary.lateFeeNetRevenue : Math.round((reportData.summary.lateFeeGrossRevenue || 0) * (1 - (reportData.teacher.instituteCut || 0) / 100))).toLocaleString()}
                   </span>
                 </div>
               </div>
@@ -1388,48 +1394,79 @@ export default function LecturerReports() {
                       <th className="p-3">Student</th>
                       <th className="p-3">Class</th>
                       <th className="p-3 text-center">Past Fee Month</th>
-                      <th className="p-3 text-right">Amount Paid</th>
-                      <th className="p-3 text-center">Remittance Impact</th>
+                      <th className="p-3 text-right">Gross Paid</th>
+                      <th className="p-3 text-right text-rose-400">Inst. Cut ({reportData.teacher.instituteCut || 0}%)</th>
+                      <th className="p-3 text-right text-emerald-400">Net to Lecturer</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800 text-slate-200">
-                    {reportData.lateFeeCollections.map((lf, lfIdx) => (
-                      <tr key={lf.id || lfIdx} className="hover:bg-amber-500/5 transition-colors">
-                        <td className="p-3 text-slate-500 font-medium">{lfIdx + 1}</td>
-                        <td className="p-3 font-semibold text-slate-300 whitespace-nowrap">
-                          {lf.paidDate ? format(new Date(lf.paidDate), 'dd MMM yyyy') : '-'}
-                        </td>
-                        <td className="p-3">
-                          <span className="font-semibold text-white block">{lf.studentName}</span>
-                          <span className="font-mono text-[10px] text-sky-400">{lf.studentRegId}</span>
-                        </td>
-                        <td className="p-3 text-slate-300">{lf.className}</td>
-                        <td className="p-3 text-center">
-                          <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold text-[10px]">
-                            {formatMonthYear(lf.feeMonth)}
-                          </span>
-                        </td>
-                        <td className="p-3 text-right font-black text-emerald-400 text-sm whitespace-nowrap">
-                          Rs. {(lf.amount || 0).toLocaleString()}
-                        </td>
-                        <td className="p-3 text-center">
-                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-300 border border-blue-500/30">
-                            Added to {formatMonthYear(selectedMonth)} Invoice
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {reportData.lateFeeCollections.map((lf, lfIdx) => {
+                      const grossAmt = lf.amount || 0;
+                      const cutPct = reportData.teacher.instituteCut || 0;
+                      const cutAmt = lf.instituteCutAmount !== undefined 
+                        ? lf.instituteCutAmount 
+                        : Math.round(((grossAmt * cutPct) / 100) * 100) / 100;
+                      const netAmt = lf.netAmount !== undefined 
+                        ? lf.netAmount 
+                        : Math.round((grossAmt - cutAmt) * 100) / 100;
+
+                      return (
+                        <tr key={lf.id || lfIdx} className="hover:bg-amber-500/5 transition-colors">
+                          <td className="p-3 text-slate-500 font-medium">{lfIdx + 1}</td>
+                          <td className="p-3 font-semibold text-slate-300 whitespace-nowrap">
+                            {lf.paidDate ? format(new Date(lf.paidDate), 'dd MMM yyyy') : '-'}
+                          </td>
+                          <td className="p-3">
+                            <span className="font-semibold text-white block">{lf.studentName}</span>
+                            <span className="font-mono text-[10px] text-sky-400">{lf.studentRegId}</span>
+                          </td>
+                          <td className="p-3 text-slate-300">{lf.className}</td>
+                          <td className="p-3 text-center">
+                            <span className="px-2.5 py-1 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30 font-bold text-[10px]">
+                              {formatMonthYear(lf.feeMonth)}
+                            </span>
+                          </td>
+                          <td className="p-3 text-right font-medium text-slate-300 whitespace-nowrap">
+                            Rs. {grossAmt.toLocaleString()}
+                          </td>
+                          <td className="p-3 text-right font-semibold text-rose-400 whitespace-nowrap">
+                            - Rs. {cutAmt.toLocaleString()}
+                          </td>
+                          <td className="p-3 text-right font-black text-emerald-400 text-sm whitespace-nowrap">
+                            + Rs. {netAmt.toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
-                    <tr className="bg-slate-800/80 font-bold text-slate-300 border-t border-slate-700 text-xs">
-                      <td colSpan={5} className="p-3 text-right uppercase tracking-wider text-slate-400">
-                        Total Late Class Fees Added to {formatMonthYear(selectedMonth)} Remittance:
-                      </td>
-                      <td className="p-3 text-right font-black text-emerald-400 text-sm whitespace-nowrap">
-                        + Rs. {(reportData.summary.lateFeeGrossRevenue || 0).toLocaleString()}
-                      </td>
-                      <td></td>
-                    </tr>
+                    {(() => {
+                      const cutPct = reportData.teacher.instituteCut || 0;
+                      const totalGross = reportData.summary.lateFeeGrossRevenue || 0;
+                      const totalCut = reportData.summary.lateFeeInstituteCutAmount !== undefined 
+                        ? reportData.summary.lateFeeInstituteCutAmount 
+                        : Math.round(((totalGross * cutPct) / 100) * 100) / 100;
+                      const totalNet = reportData.summary.lateFeeNetRevenue !== undefined 
+                        ? reportData.summary.lateFeeNetRevenue 
+                        : Math.round((totalGross - totalCut) * 100) / 100;
+
+                      return (
+                        <tr className="bg-slate-800/80 font-bold text-slate-300 border-t border-slate-700 text-xs">
+                          <td colSpan={5} className="p-3 text-right uppercase tracking-wider text-slate-400">
+                            Total Late Class Fees Added to {formatMonthYear(selectedMonth)} Remittance:
+                          </td>
+                          <td className="p-3 text-right font-bold text-slate-300 whitespace-nowrap">
+                            Rs. {totalGross.toLocaleString()}
+                          </td>
+                          <td className="p-3 text-right font-bold text-rose-400 whitespace-nowrap">
+                            - Rs. {totalCut.toLocaleString()}
+                          </td>
+                          <td className="p-3 text-right font-black text-emerald-400 text-sm whitespace-nowrap">
+                            + Rs. {totalNet.toLocaleString()}
+                          </td>
+                        </tr>
+                      );
+                    })()}
                   </tfoot>
                 </table>
               </div>

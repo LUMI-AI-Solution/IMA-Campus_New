@@ -342,7 +342,7 @@ class EsmsService {
         if (fullJoined.length <= 50 || classNames.length <= 2) {
           classSummary = fullJoined;
         } else {
-          classSummary = `${classNames.length} Classes (${classNames.slice(0, 2).join(', ')} +${classNames.length - 2} more)`;
+          classSummary = `${classNames.length} Classes (${fullJoined})`;
         }
       } else {
         classSummary = className || targetStudent.class?.name || 'Class';

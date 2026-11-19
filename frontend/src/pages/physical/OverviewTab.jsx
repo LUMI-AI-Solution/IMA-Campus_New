@@ -95,6 +95,15 @@ export default function OverviewTab() {
       bg: 'bg-emerald-500/20',
       border: 'hover:border-emerald-400/60',
       shadow: 'hover:shadow-emerald-400/30'
+    },
+    { 
+      title: 'Testing Only', 
+      image: '/card_reports.png',
+      path: '/physical/dashboard/testing-only', 
+      color: 'text-amber-400', 
+      bg: 'bg-amber-400/20',
+      border: 'hover:border-amber-400/50',
+      shadow: 'hover:shadow-amber-400/20'
     }
   ];
 

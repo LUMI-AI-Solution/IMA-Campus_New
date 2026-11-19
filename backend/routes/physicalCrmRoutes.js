@@ -3,6 +3,7 @@ const router = express.Router();
 const physicalCrmController = require('../controllers/physicalCrmController');
 const physicalAttendanceController = require('../controllers/physicalAttendanceController');
 const physicalStudentReportController = require('../controllers/physicalStudentReportController');
+const physicalRealIncomeController = require('../controllers/physicalRealIncomeController');
 const { verifyToken, requireStaff } = require('../middlewares/authMiddleware');
 const multer = require('multer');
 const upload = multer({ storage: multer.memoryStorage() });
@@ -66,6 +67,10 @@ router.post('/classes/bulk-fee-payment', physicalCrmController.bulkStudentFeePay
 
 // Teacher Reports & Invoices
 router.get('/teachers/:teacherId/reports', physicalCrmController.getTeacherReport);
+
+// 🔥 Real Income Testing (Physical Matrix)
+router.get('/real-income', physicalRealIncomeController.getPhysicalRealIncome);
+router.get('/real-income/access', physicalRealIncomeController.checkAccess);
 
 // Attendance Portal & Entrance Gate
 router.get('/students-search', physicalAttendanceController.searchStudents);

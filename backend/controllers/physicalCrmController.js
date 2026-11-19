@@ -1981,7 +1981,7 @@ exports.bulkStudentFeePayment = async (req, res) => {
     if (totalDeltaAmount > 0) {
       const classSummaryStr = classNames.length <= 3 
         ? classNames.join(', ') 
-        : `${classNames.length} Classes (${classNames.slice(0, 2).join(', ')} +${classNames.length - 2} more)`;
+        : `${classNames.length} Classes (${classNames.join(', ')})`;
 
       const transDesc = `Multi-Class Fee (${month}) - ${classSummaryStr} - ${targetStudent.studentId} (${sName})`;
 
@@ -3074,7 +3074,11 @@ exports.getTeacherReport = async (req, res) => {
         totalPaidStudents: totalRegularPaidStudents,
         totalUnpaidStudents: totalEnrolled - totalRegularPaidStudents,
         regularGrossRevenue: totalRegularGrossRevenue,
+        regularInstituteCutAmount: Math.round(((totalRegularGrossRevenue * overallInstCutPct) / 100) * 100) / 100,
+        regularNetRevenue: Math.round((totalRegularGrossRevenue - (totalRegularGrossRevenue * overallInstCutPct) / 100) * 100) / 100,
         lateFeeGrossRevenue: totalLateFeeGrossRevenue,
+        lateFeeInstituteCutAmount: Math.round(((totalLateFeeGrossRevenue * overallInstCutPct) / 100) * 100) / 100,
+        lateFeeNetRevenue: Math.round((totalLateFeeGrossRevenue - (totalLateFeeGrossRevenue * overallInstCutPct) / 100) * 100) / 100,
         lateFeePaymentsCount: totalLateFeePaymentsCount,
         grossRevenue: totalGrossRevenue,
         instituteCutPercent: overallInstCutPct,
@@ -3086,20 +3090,29 @@ exports.getTeacherReport = async (req, res) => {
         totalAdditions,
         netTeacherPayout: overallNetPayout
       },
-      lateFeeCollections: validLatePayments.map(p => ({
-        id: p.id,
-        studentId: p.studentId,
-        studentRegId: p.student?.studentId,
-        studentName: p.student?.studentName || `${p.student?.firstName || ''} ${p.student?.lastName || ''}`.trim(),
-        classId: p.classId,
-        className: p.class?.name,
-        feeMonth: p.month,
-        amount: p.amount || 0,
-        status: p.status,
-        paidDate: p.paidDate,
-        paymentMethod: p.paymentMethod || 'CASH',
-        remark: p.remark
-      })),
+      lateFeeCollections: validLatePayments.map(p => {
+        const amt = p.amount || 0;
+        const cutAmt = Math.round(((amt * overallInstCutPct) / 100) * 100) / 100;
+        const netAmt = Math.round((amt - cutAmt) * 100) / 100;
+        return {
+          id: p.id,
+          studentId: p.studentId,
+          studentRegId: p.student?.studentId,
+          studentName: p.student?.studentName || `${p.student?.firstName || ''} ${p.student?.lastName || ''}`.trim(),
+          classId: p.classId,
+          className: p.class?.name,
+          feeMonth: p.month,
+          amount: amt,
+          grossAmount: amt,
+          instituteCutPercent: overallInstCutPct,
+          instituteCutAmount: cutAmt,
+          netAmount: netAmt,
+          status: p.status,
+          paidDate: p.paidDate,
+          paymentMethod: p.paymentMethod || 'CASH',
+          remark: p.remark
+        };
+      }),
       deductions: teacherTxns.map(d => ({
         id: d.id,
         recordType: isPayoutAddition(d) ? 'PAYOUT_ADDITION' : (d.type === 'INCOME' ? 'INSTITUTE_INCOME' : 'TEACHER_ADVANCE'),

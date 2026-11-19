@@ -667,7 +667,14 @@ export default function LecturerInvoiceModal({
                         </div>
                       )}
                     </td>
-                    <td className="p-2.5 text-right text-amber-700">- Rs. {cutAmt.toLocaleString()}</td>
+                    <td className="p-2.5 text-right text-amber-700">
+                      <div>- Rs. {cutAmt.toLocaleString()}</div>
+                      {(summary.lateFeeGrossRevenue || 0) > 0 && (
+                        <div className="text-[9px] text-slate-500 font-normal">
+                          (Reg Cut: -Rs. {((summary.regularInstituteCutAmount !== undefined ? summary.regularInstituteCutAmount : Math.round((((summary.regularGrossRevenue || (grossTotal - (summary.lateFeeGrossRevenue || 0))) * cutPct) / 100)))).toLocaleString()} + Late Cut: -Rs. {((summary.lateFeeInstituteCutAmount !== undefined ? summary.lateFeeInstituteCutAmount : Math.round((((summary.lateFeeGrossRevenue || 0) * cutPct) / 100)))).toLocaleString()})
+                        </div>
+                      )}
+                    </td>
                     <td className="p-2.5 text-right font-bold text-slate-900">Rs. {netBeforeDeductions.toLocaleString()}</td>
                   </tr>
                   {totalAdditions > 0 && (
@@ -729,37 +736,73 @@ export default function LecturerInvoiceModal({
                         <th className="p-2">Student</th>
                         <th className="p-2">Class</th>
                         <th className="p-2 text-center">Fee Month</th>
-                        <th className="p-2 text-right">Late Fee Amount</th>
+                        <th className="p-2 text-right">Gross Late Fee</th>
+                        <th className="p-2 text-right text-rose-800">Inst. Cut ({cutPct}%)</th>
+                        <th className="p-2 text-right text-emerald-900">Net Remittance</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-amber-200 text-slate-800 text-[11px]">
-                      {relevantLateFeeCollections.map((lf, lfIdx) => (
-                        <tr key={lf.id || lfIdx} className="hover:bg-amber-100/40">
-                          <td className="p-2 font-medium">{lf.paidDate ? new Date(lf.paidDate).toLocaleDateString('en-GB') : '-'}</td>
-                          <td className="p-2 font-bold text-slate-900">
-                            {lf.studentName} <span className="font-mono text-[10px] text-slate-500 font-normal">({lf.studentRegId})</span>
-                          </td>
-                          <td className="p-2 text-slate-700">{lf.className}</td>
-                          <td className="p-2 text-center">
-                            <span className="px-2 py-0.5 rounded bg-amber-200 text-amber-900 font-bold text-[10px]">
-                              {formatMonthYear(lf.feeMonth)}
-                            </span>
-                          </td>
-                          <td className="p-2 text-right font-bold text-emerald-800">
-                            + Rs. {(lf.amount || 0).toLocaleString()}
-                          </td>
-                        </tr>
-                      ))}
+                      {relevantLateFeeCollections.map((lf, lfIdx) => {
+                        const grossAmt = lf.amount || 0;
+                        const cutAmount = lf.instituteCutAmount !== undefined 
+                          ? lf.instituteCutAmount 
+                          : Math.round(((grossAmt * cutPct) / 100) * 100) / 100;
+                        const netAmount = lf.netAmount !== undefined 
+                          ? lf.netAmount 
+                          : Math.round((grossAmt - cutAmount) * 100) / 100;
+
+                        return (
+                          <tr key={lf.id || lfIdx} className="hover:bg-amber-100/40">
+                            <td className="p-2 font-medium">{lf.paidDate ? new Date(lf.paidDate).toLocaleDateString('en-GB') : '-'}</td>
+                            <td className="p-2 font-bold text-slate-900">
+                              {lf.studentName} <span className="font-mono text-[10px] text-slate-500 font-normal">({lf.studentRegId})</span>
+                            </td>
+                            <td className="p-2 text-slate-700">{lf.className}</td>
+                            <td className="p-2 text-center">
+                              <span className="px-2 py-0.5 rounded bg-amber-200 text-amber-900 font-bold text-[10px]">
+                                {formatMonthYear(lf.feeMonth)}
+                              </span>
+                            </td>
+                            <td className="p-2 text-right font-medium text-slate-700">
+                              Rs. {grossAmt.toLocaleString()}
+                            </td>
+                            <td className="p-2 text-right font-semibold text-rose-700">
+                              - Rs. {cutAmount.toLocaleString()}
+                            </td>
+                            <td className="p-2 text-right font-bold text-emerald-800">
+                              + Rs. {netAmount.toLocaleString()}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                     <tfoot>
-                      <tr className="bg-amber-100/80 font-bold text-amber-950 text-xs border-t border-amber-300">
-                        <td colSpan={4} className="p-2 uppercase tracking-wider text-amber-900">
-                          Total Late Class Fees Collected in {reportData.dateRange?.isCustom ? `${reportData.dateRange.startDate} to ${reportData.dateRange.endDate}` : formatMonthYear(selectedMonth)} ({relevantLateFeeCollections.length} payments):
-                        </td>
-                        <td className="p-2 text-right font-black text-emerald-900">
-                          + Rs. {relevantLateFeeCollections.reduce((s, p) => s + (p.amount || 0), 0).toLocaleString()}
-                        </td>
-                      </tr>
+                      {(() => {
+                        const totalLateGross = relevantLateFeeCollections.reduce((s, p) => s + (p.amount || 0), 0);
+                        const totalLateCut = summary.lateFeeInstituteCutAmount !== undefined
+                          ? summary.lateFeeInstituteCutAmount
+                          : Math.round(((totalLateGross * cutPct) / 100) * 100) / 100;
+                        const totalLateNet = summary.lateFeeNetRevenue !== undefined
+                          ? summary.lateFeeNetRevenue
+                          : Math.round((totalLateGross - totalLateCut) * 100) / 100;
+
+                        return (
+                          <tr className="bg-amber-100/80 font-bold text-amber-950 text-xs border-t border-amber-300">
+                            <td colSpan={4} className="p-2 uppercase tracking-wider text-amber-900">
+                              Total Late Class Fees Collected ({relevantLateFeeCollections.length} payments):
+                            </td>
+                            <td className="p-2 text-right font-bold text-slate-900">
+                              Rs. {totalLateGross.toLocaleString()}
+                            </td>
+                            <td className="p-2 text-right font-bold text-rose-800">
+                              - Rs. {totalLateCut.toLocaleString()}
+                            </td>
+                            <td className="p-2 text-right font-black text-emerald-900">
+                              + Rs. {totalLateNet.toLocaleString()}
+                            </td>
+                          </tr>
+                        );
+                      })()}
                     </tfoot>
                   </table>
                 </div>

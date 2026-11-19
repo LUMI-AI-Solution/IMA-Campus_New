@@ -76,6 +76,7 @@ const quickReplyController = require('../controllers/quickReplyController');
 router.get('/v2-overview-stats', verifyToken, coordinatorOverviewV2Controller.getCoordinatorV2Stats);
 router.get('/v2-daily-logs', verifyToken, coordinatorOverviewV2Controller.getCoordinatorDailyLogs);
 router.post('/v2-daily-logs', verifyToken, coordinatorOverviewV2Controller.saveCoordinatorDailyLog);
+router.get('/v2-today', verifyToken, coordinatorOverviewV2Controller.getCoordinatorToday);
 
 // Master Todo Stats
 router.get('/master-todo-stats', verifyToken, todoStatsController.getMasterTodoStats);

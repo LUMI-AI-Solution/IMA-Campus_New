@@ -13,6 +13,7 @@ import LecturerReports from '../PhysicalCRM/LecturerReports';
 import StudentReports from '../PhysicalCRM/StudentReports';
 import ClassComparisonReport from '../PhysicalCRM/ClassComparisonReport';
 import EntranceGateScanner from '../PhysicalCRM/EntranceGateScanner';
+import PhysicalRealIncomeTesting from '../PhysicalCRM/PhysicalRealIncomeTesting';
 
 export default function PhysicalManagerDashboard() {
   const { tab } = useParams();
@@ -97,7 +98,8 @@ export default function PhysicalManagerDashboard() {
     timetable: 'Class Timetable',
     reports: 'Financial Reports & Analytics',
     'lecturer-reports': 'Lecturer Reports & Monthly Invoices',
-    'entrance-gate': 'Smart Entrance Gate Scanner'
+    'entrance-gate': 'Smart Entrance Gate Scanner',
+    'testing-only': 'Testing Only — Real Income Matrix'
   };
 
   return (
@@ -131,6 +133,7 @@ export default function PhysicalManagerDashboard() {
           {activeTab === 'timetable' && <PhysicalTimetable />}
           {activeTab === 'reports' && <FinancialReports />}
           {activeTab === 'lecturer-reports' && <LecturerReports />}
+          {activeTab === 'testing-only' && <PhysicalRealIncomeTesting />}
       </div>
       
     </div>
